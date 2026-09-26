@@ -39,6 +39,7 @@ export function actionsFromEvents(
 ): Action[] {
   const acts: Action[] = [];
   const ptr: PtrSample[] = [];
+  const pointerLosses: number[] = [];
   let win: { cls: string; rect: BBox } | null = null;
   let lastClick: { t: number; x: number; y: number; cls: string; button: string } | null = null;
   const used = new Set<number>();
@@ -56,7 +57,9 @@ export function actionsFromEvents(
       if (samples[mid]!.t <= t) lo = mid + 1;
       else hi = mid;
     }
-    return lo ? [samples[lo - 1]!.x, samples[lo - 1]!.y] : null;
+    if (!lo) return null;
+    const sample = samples[lo - 1]!;
+    return pointerLosses.some((loss) => loss >= sample.t && loss <= t) ? null : [sample.x, sample.y];
   };
 
   const regionCentroidNear = (t: number): [number, number] | null => {
@@ -81,11 +84,12 @@ export function actionsFromEvents(
   let holdStart = 0;
   for (const [index, e] of events.entries()) {
     if (e.k === "ptr") ptr.push({ t: e.t, x: e.x, y: e.y, window_cls: win?.cls ?? "" });
+    else if (e.k === "ptr-lost") pointerLosses.push(e.t);
     else if (e.k === "win") {
       if (win?.cls !== (e.rect === null ? undefined : e.cls)) {
         if (e.rect !== null) acts.push({ k: "focus", t: e.t, cls: e.cls, rect: e.rect });
         const last = ptr[ptr.length - 1];
-        if (last) {
+        if (last && !pointerLosses.some((loss) => loss >= last.t && loss <= e.t)) {
           if (last.t < e.t) ptr.push({ ...last, t: e.t });
           ptr.push({ ...last, t: e.t, window_cls: e.rect === null ? "" : e.cls });
         }
@@ -124,6 +128,7 @@ export function actionsFromEvents(
       while (
         j < visiblePtr.length &&
         visiblePtr[j]!.window_cls === anchor.window_cls &&
+        !pointerLosses.some((loss) => loss > visiblePtr[j - 1]!.t && loss <= visiblePtr[j]!.t) &&
         Math.hypot(visiblePtr[j]!.x - anchor.x, visiblePtr[j]!.y - anchor.y) <= DWELL_MAX_PX
       ) {
         j++;
@@ -150,7 +155,8 @@ export function actionsFromEvents(
       const start = visiblePtr[a]!;
       let len = 0;
       let b = a + 1;
-      while (b < visiblePtr.length && visiblePtr[b]!.window_cls === start.window_cls && visiblePtr[b]!.t - start.t <= TRAVEL_WINDOW_MS) {
+      while (b < visiblePtr.length && visiblePtr[b]!.window_cls === start.window_cls && visiblePtr[b]!.t - start.t <= TRAVEL_WINDOW_MS &&
+        !pointerLosses.some((loss) => loss > visiblePtr[b - 1]!.t && loss <= visiblePtr[b]!.t)) {
         len += Math.hypot(visiblePtr[b]!.x - visiblePtr[b - 1]!.x, visiblePtr[b]!.y - visiblePtr[b - 1]!.y);
         b++;
       }
@@ -187,12 +193,12 @@ export function actionsFromEvents(
       const upIndex = ups.get(i);
       const up = upIndex === undefined ? null : { t: events[upIndex]!.t };
       if (upIndex !== undefined) used.add(upIndex);
-      const p0 = pointerAt(e.t) ?? (opts.pointer === "none" ? regionCentroidNear(e.t) : null);
+      const p0 = pointerAt(e.t) ?? (opts.pointer === "none" || pointerLosses.some((loss) => loss <= e.t) ? regionCentroidNear(e.t) : null);
       if (!p0) continue;
       if (!up) {
         // button never released: treat as drag end at the last pointer sample
         const last = visiblePtr.at(-1);
-        const lastPtr = last && last.t >= e.t ? last : null;
+        const lastPtr = last && last.t >= e.t && !pointerLosses.some((loss) => loss > last.t && loss <= (opts.endMs ?? Infinity)) ? last : null;
         const p1: [number, number] = lastPtr ? [lastPtr.x, lastPtr.y] : p0;
         acts.push({
           k: "drag",

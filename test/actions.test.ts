@@ -301,6 +301,20 @@ test("pointer dwell and travel stop at a window transition without another point
   assert.ok(moving.filter((a) => a.k === "travel").every((a) => a.t1 <= 500 || a.t0 >= 500));
 });
 
+test("pointer loss keeps earlier clicks but never reuses stale coordinates", () => {
+  const changed: FrameRegions[] = [
+    { t: 500, changed_frac: 0.05, cut: false, regions: [{ bbox: [80, 40, 40, 40], area_frac: 0.06 }] },
+  ];
+  const acts = actionsFromEvents([
+    win, ptr(20, 30, 100), btn(true, 200), btn(false, 250),
+    { t: 300, k: "ptr-lost" }, { t: 300, k: "win", cls: "", title: "", rect: null },
+    btn(true, 500), btn(false, 550), { t: 600, k: "wheel", dx: 0, dy: 1 },
+  ], changed, { stream: STREAM, pointer: "none" });
+  const clicks = acts.filter((a) => a.k === "click");
+  assert.deepEqual(clicks.map((click) => [click.x, click.y]), [[20, 30], [100, 60]]);
+  assert.deepEqual(acts.filter((a) => a.k === "scroll").map((scroll) => [scroll.x, scroll.y]), [[0, 0]]);
+});
+
 test("pointer none mode: click position falls back to the change region centroid", () => {
   const framesWithRegions: FrameRegions[] = [
     ...noopFrames(4, 0, 100),

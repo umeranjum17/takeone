@@ -130,6 +130,7 @@ export async function runRecord(options: RecordOptions = {}): Promise<RecordResu
     throw error;
   }
   try {
+    if (stopRequested) throw new RecordError("capture-stopped", "recording stopped during setup", "run `takeone record` again");
     // Consume the single-use restore token before sending it.
     const savedToken = await consumeToken(stateDirPath);
     const tapStartedAt = new Date();

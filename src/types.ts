@@ -23,6 +23,7 @@ export interface FrameRegions {
 /** Input event classes written by the recorder (events.jsonl). */
 export type Event =
   | { t: number; k: "ptr"; x: number; y: number }
+  | { t: number; k: "ptr-lost" }
   | { t: number; k: "btn"; b: "left" | "right" | "middle"; down: boolean }
   | { t: number; k: "wheel"; dx: number; dy: number }
   | {
