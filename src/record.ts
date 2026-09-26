@@ -12,6 +12,7 @@ import { getMonitors, hyprlandSockets } from "./hyprland.js";
 import { startCapture, DEFAULT_BITRATE_KBPS, DEFAULT_FPS, RecordError } from "./session.js";
 import { startTaps, type TapHandle } from "./taps.js";
 import { consumeToken } from "./token.js";
+import { withPidLock } from "./takes.js";
 import type { TakeMeta } from "./types.js";
 
 export const VERSION = "0.1.0";
@@ -50,7 +51,7 @@ function takeId(date = new Date()): string {
 }
 
 export function defaultTakesRoot(): string {
-  return process.env.TAKEONE_DIR ?? process.env.TAKEONE_TAKES_ROOT ?? join(homedir(), "Videos", "takeone");
+  return process.env.TAKEONE_DIR ?? join(homedir(), "Videos", "takeone");
 }
 
 export function defaultStateDir(): string {
@@ -94,14 +95,14 @@ export async function runRecord(options: RecordOptions = {}): Promise<RecordResu
   const id = takeId(startedAt);
   let takeDir = join(root, id);
   for (let suffix = 1; ; suffix++) {
-    try { await mkdir(takeDir); break; }
+    try { await mkdir(takeDir, { mode: 0o700 }); break; }
     catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
       takeDir = join(root, `${id}-${suffix}`);
     }
   }
   try {
-    await writePidFile(stateDirPath, takeDir, startedAt.toISOString());
+    await withPidLock(stateDirPath, () => writePidFile(stateDirPath, takeDir, startedAt.toISOString()));
   } catch (error) {
     await rm(takeDir, { recursive: true, force: true });
     throw error;
@@ -192,7 +193,7 @@ export async function runRecord(options: RecordOptions = {}): Promise<RecordResu
         node: process.version,
       },
     };
-    await writeFile(join(takeDir, "take.json"), `${JSON.stringify(takeJson, null, 2)}\n`, "utf8");
+    await writeFile(join(takeDir, "take.json"), `${JSON.stringify(takeJson, null, 2)}\n`, { mode: 0o600 });
     return { takeDir, takeJson };
   } finally {
     await rm(join(stateDirPath, "recording.pid"), { force: true }).catch(() => undefined);

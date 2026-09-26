@@ -5,6 +5,7 @@
  */
 
 import { createInterface } from "node:readline";
+import { execFileSync } from "node:child_process";
 import { MediaStreamTrack, RTCPeerConnection, RtpHeader, RtpPacket, useVP9 } from "werift";
 
 const SESSION = "s1";
@@ -38,6 +39,8 @@ pc.onIceCandidate.subscribe((candidate) => {
 
 let framesSent = 0;
 function pushFrames(track: MediaStreamTrack): void {
+  const ivf = execFileSync("ffmpeg", ["-v", "error", "-f", "lavfi", "-i", "color=c=black:s=64x64:r=30", "-frames:v", "1", "-c:v", "libvpx-vp9", "-f", "ivf", "pipe:1"]);
+  const frame = ivf.subarray(44, 44 + ivf.readUInt32LE(32));
   let i = 0;
   const timer = setInterval(() => {
     if (i >= FRAME_COUNT) {
@@ -52,7 +55,7 @@ function pushFrames(track: MediaStreamTrack): void {
         marker: true, // one marker-bit packet per frame
         ssrc: 0x1234abcd,
       }),
-      Buffer.alloc(16, i & 0xff),
+      Buffer.concat([Buffer.from([0x0c]), frame]),
     );
     track.writeRtp(packet);
     framesSent++;

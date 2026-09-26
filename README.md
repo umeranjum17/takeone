@@ -50,7 +50,7 @@ Everything else on this machine is read passively, never grabbed:
 takeone                 list takes (newest first)
 takeone record          record the desktop until `takeone stop`
   [--fps 30] [--bitrate 40000]
-  [--root DIR]          takes root (default ~/Videos/takeone, env TAKEONE_TAKES_ROOT)
+  [--root DIR]          takes root (default ~/Videos/takeone, env TAKEONE_DIR)
   [--state-dir DIR]     state dir (default ~/.local/state/takeone, env TAKEONE_STATE_DIR)
 takeone stop            stop the active recording (SIGINT to the pid file)
 takeone doctor          report what the recorder needs on this machine

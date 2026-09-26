@@ -9,6 +9,7 @@
  */
 
 import { createWriteStream } from "node:fs";
+import { chmod, stat } from "node:fs/promises";
 import { finished } from "node:stream/promises";
 import type { WriteStream } from "node:fs";
 import { RTCPeerConnection, useVP9 } from "werift";
@@ -22,7 +23,6 @@ import {
   type SessionMetrics,
 } from "@desklink/host";
 import { saveToken } from "./token.js";
-import { structuredError } from "./toon.js";
 import type { FrameSample } from "./clock.js";
 import type { SurfaceGeometry } from "./mapping.js";
 
@@ -216,7 +216,7 @@ export async function startCapture(options: CaptureOptions): Promise<Capture> {
     clearTimeout(offerTimer);
   }
 
-  const framesStream: WriteStream = createWriteStream(`${takeDir}/frames.tsv`, { flags: "w" });
+  const framesStream: WriteStream = createWriteStream(`${takeDir}/frames.tsv`, { flags: "w", mode: 0o600 });
   const framesDone = finished(framesStream);
   void framesDone.catch(() => undefined);
   const frames: FrameSample[] = [];
@@ -248,13 +248,14 @@ export async function startCapture(options: CaptureOptions): Promise<Capture> {
   const trackReady = promiseWithCallbacks<true>();
   const firstPacket = (): void => trackReady.resolve(true);
   let recorder: MediaRecorder | null = null;
+  let recorderError: Error | null = null;
   pc.onTrack.subscribe((track) => {
-    recorder = new MediaRecorder({ tracks: [track], path: `${takeDir}/screen.webm` }); // auto-starts
-    recorder.onError.subscribe((error) => {
-      console.error(
-        structuredError("recorder-failed", String(error), "the WebM may be truncated; video keeps recording"),
-      );
+    recorder = new MediaRecorder({
+      tracks: [track], path: `${takeDir}/screen.webm`,
+      width: opened.geometry.encoded.width, height: opened.geometry.encoded.height,
+      disableNtp: true, disableLipSync: true,
     });
+    recorder.onError.subscribe((error) => { recorderError = error; });
     track.onReceiveRtp.subscribe((packet) => {
       firstPacket();
       if (!packet.header.marker) return; // one marker-bit packet per frame
@@ -295,6 +296,7 @@ export async function startCapture(options: CaptureOptions): Promise<Capture> {
   } catch (error) {
     clearTimeout(watchdog);
     if (recorder !== null) await recorder.stop().catch(() => undefined);
+    await chmod(`${takeDir}/screen.webm`, 0o600).catch(() => undefined);
     await pc.close().catch(() => undefined);
     await client.closeSession(opened.sessionId).catch(() => undefined);
     await client.stop().catch(() => undefined);
@@ -323,17 +325,27 @@ export async function startCapture(options: CaptureOptions): Promise<Capture> {
       } catch {
         // metrics are best-effort; the take is still written
       }
-      if (recorder !== null) await recorder.stop().catch(() => undefined); // finalize the WebM
+      let videoError: unknown = null;
+      try { if (recorder !== null) await recorder.stop(); }
+      catch (error) { videoError = error; }
+      try {
+        const videoPath = `${takeDir}/screen.webm`;
+        const video = await stat(videoPath);
+        if (!video.isFile()) throw new Error("screen.webm is not a file");
+        await chmod(videoPath, 0o600);
+        if (video.size === 0) throw new Error("screen.webm is empty");
+      } catch (error) {
+        videoError ??= error;
+      }
       await pc.close().catch(() => undefined);
       await client.closeSession(opened.sessionId).catch(() => undefined);
       await client.stop().catch(() => undefined);
       await Promise.allSettled(tokenWrites);
       framesStream.end();
-      try {
-        await framesDone;
-      } catch (error) {
-        throw new RecordError("frames-write-failed", String(error), "check disk space and record again");
-      }
+      let frameError: unknown = null;
+      try { await framesDone; } catch (error) { frameError = error; }
+      if (recorderError !== null || videoError !== null) throw new RecordError("recorder-failed", String(recorderError ?? videoError), "check disk space and record again");
+      if (frameError !== null) throw new RecordError("frames-write-failed", String(frameError), "check disk space and record again");
       return finalMetrics;
     },
   };

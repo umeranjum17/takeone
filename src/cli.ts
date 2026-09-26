@@ -12,7 +12,7 @@ async function recorderCommand(command: string, args: string[]): Promise<number>
 }
 
 export function takesDir(): string {
-  return process.env["TAKEONE_DIR"] ?? process.env["TAKEONE_TAKES_ROOT"] ?? join(homedir(), "Videos", "takeone");
+  return process.env["TAKEONE_DIR"] ?? join(homedir(), "Videos", "takeone");
 }
 
 interface Args {
@@ -225,10 +225,14 @@ async function stop(): Promise<void> {
   const { defaultStateDir } = await import("./record.js");
   const { toonTable } = await import("./toon.js");
   const { rm } = await import("node:fs/promises");
+  const { withPidLock } = await import("./takes.js");
   const stateDirPath = defaultStateDir();
-  const recording = await readRecording(stateDirPath);
+  const recording = await withPidLock(stateDirPath, async () => {
+    const current = await readRecording(stateDirPath);
+    if (current === null) await rm(join(stateDirPath, "recording.pid"), { force: true });
+    return current;
+  });
   if (recording === null) {
-    await rm(join(stateDirPath, "recording.pid"), { force: true }).catch(() => undefined);
     fail({
       code: "not-recording",
       message: "no recording is active",

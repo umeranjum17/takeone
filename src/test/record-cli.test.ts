@@ -6,7 +6,7 @@
  */
 
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
+import { spawn, execFileSync } from "node:child_process";
 import { chmod, mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -87,6 +87,7 @@ test("record writes a complete take (pid file, events, take.json) and stops on S
   await assert.rejects(stat(pidFile), undefined as unknown as never, "pid file should be removed");
 
   const takeJson = JSON.parse(await readFile(join(takeDir, "take.json"), "utf8")) as {
+    id: string;
     pointer: string;
     events: string;
     clock: { frames: number; offsetMs: number } | null;
@@ -113,6 +114,19 @@ test("record writes a complete take (pid file, events, take.json) and stops on S
   if (takeJson.events === "none") assert.equal(events, "");
   const webm = await stat(join(takeDir, "screen.webm"));
   assert.ok(webm.size > 0);
+  assert.equal((await stat(takeDir)).mode & 0o777, 0o700);
+  for (const name of await readdir(takeDir)) {
+    assert.equal((await stat(join(takeDir, name))).mode & 0o777, 0o600, name);
+  }
+  const probe = JSON.parse(execFileSync("ffprobe", ["-v", "error", "-select_streams", "v:0", "-show_entries", "stream=codec_name,width,height", "-of", "json", join(takeDir, "screen.webm")], { encoding: "utf8" }));
+  assert.deepEqual(probe.streams[0], { codec_name: "vp9", width: 64, height: 64 });
+  const listing = spawn(process.execPath, [join(here, "../cli.js"), "list"], {
+    env: { ...process.env, TAKEONE_DIR: root }, stdio: ["ignore", "pipe", "pipe"],
+  });
+  let listed = "";
+  listing.stdout.on("data", (chunk: Buffer) => { listed += chunk.toString(); });
+  assert.equal(await new Promise<number | null>((resolveP) => listing.on("exit", resolveP)), 0);
+  assert.ok(listed.includes(takeJson.id));
 
   await writeFile(pidFile, JSON.stringify({ pid: 2147470000, take: takeDir }));
   const stale = spawn(process.execPath, [join(here, "../cli.js"), "record", "--root", root, "--state-dir", stateDir], {
