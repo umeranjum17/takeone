@@ -3,7 +3,7 @@ import { mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { listTakes, parsePidFile, parseTakeId } from "../takes.js";
+import { listTakes, parsePidFile, parseTakeId, withPidLock } from "../takes.js";
 
 async function tempRoot(): Promise<string> {
   const dir = join(tmpdir(), `takeone-test-${process.pid}-${Math.random().toString(36).slice(2)}`);
@@ -84,6 +84,21 @@ test("newest take sorts first", async () => {
       ["20260103-000001", "20260102-000001", "20260101-000001"],
     );
   } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("PID mutations exclude a concurrent stop or record", async () => {
+  const root = await tempRoot();
+  let release!: () => void;
+  const held = withPidLock(root, () => new Promise<void>((resolve) => { release = resolve; }));
+  try {
+    while (release === undefined) await new Promise((resolve) => setTimeout(resolve, 1));
+    await assert.rejects(withPidLock(root, async () => {}), { code: "EEXIST" });
+  } finally {
+    release();
+    await held;
+    await withPidLock(root, async () => {});
     await rm(root, { recursive: true, force: true });
   }
 });

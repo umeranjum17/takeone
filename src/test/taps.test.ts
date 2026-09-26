@@ -50,12 +50,15 @@ test("video-only tap never reads or writes Hyprland events; unmapped pointer is 
   await mkdir(readableDevices);
   await writeFile(join(readableDevices, "fake-event-mouse"), "");
   let requests = 0;
+  let delayReply = false;
   const server = createServer((conn) => {
     conn.on("data", (data) => {
       requests++;
-      conn.end(data.toString().includes("cursorpos") ? '{"x":10,"y":10}' : JSON.stringify({
+      const reply = data.toString().includes("cursorpos") ? '{"x":10,"y":10}' : JSON.stringify({
         class: "Private", title: "Secret", address: "0x1", at: [0, 0], size: [100, 100],
-      }));
+      });
+      if (delayReply) setTimeout(() => conn.end(reply), 80);
+      else conn.end(reply);
     });
   });
   await new Promise<void>((resolve) => server.listen(join(socketDir, ".socket.sock"), resolve));
@@ -77,6 +80,14 @@ test("video-only tap never reads or writes Hyprland events; unmapped pointer is 
     const unmapped = await startTaps({ eventsPath, mapping: null, t0ns: process.hrtime.bigint(), deviceDir: readableDevices });
     assert.equal(unmapped.pointerMode, "none");
     await unmapped.stop();
+
+    delayReply = true;
+    const mapped = await startTaps({ eventsPath, mapping, t0ns: process.hrtime.bigint(), deviceDir: readableDevices });
+    const deadline = Date.now() + 1000;
+    while (requests === 0 && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 5));
+    assert.ok(requests > 0);
+    await mapped.stop();
+    assert.equal(await readFile(eventsPath, "utf8"), "");
   } finally {
     if (oldRuntime === undefined) delete process.env.XDG_RUNTIME_DIR;
     else process.env.XDG_RUNTIME_DIR = oldRuntime;
