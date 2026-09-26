@@ -134,7 +134,7 @@ export async function runDoctor(): Promise<DoctorCheck[]> {
   }
 
   // Takes root
-  const root = process.env.TAKEONE_TAKES_ROOT ?? join(homedir(), "Videos", "takeone");
+  const root = process.env.TAKEONE_DIR ?? process.env.TAKEONE_TAKES_ROOT ?? join(homedir(), "Videos", "takeone");
   try {
     await fs.mkdir(root, { recursive: true });
     checks.push({ check: "takes-root", ok: true, detail: root });

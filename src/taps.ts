@@ -6,7 +6,7 @@
  */
 
 import { promises as fs, constants as fsConstants, openSync, readSync, closeSync } from "node:fs";
-import { extractRecords, EV_KEY, EV_REL, REL_WHEEL, REL_HWHEEL, REL_WHEEL_HI_RES, REL_HWHEEL_HI_RES, HI_RES_PER_DETENT, BUTTON_NAMES, EVDEV_RECORD_BYTES } from "./evdev.js";
+import { extractRecords, EV_SYN, EV_KEY, EV_REL, REL_WHEEL, REL_HWHEEL, REL_WHEEL_HI_RES, REL_HWHEEL_HI_RES, HI_RES_PER_DETENT, BUTTON_NAMES } from "./evdev.js";
 import { classifyKeyEvent } from "./keyclass.js";
 import { mapLogicalToStream, mapRectToStream, type MonitorInfo } from "./mapping.js";
 import { getActiveWindow, getCursorPos, hyprlandSockets, type HyprlandSockets } from "./hyprland.js";
@@ -165,7 +165,10 @@ export async function startTaps(options: TapOptions): Promise<TapHandle> {
     const states = devices.map((device) => ({
       device,
       carry: Buffer.alloc(0),
-      hires: false,
+      hiresX: false,
+      hiresY: false,
+      coarseX: 0,
+      coarseY: 0,
       wheelAccX: 0,
       wheelAccY: 0,
       mods: new Set<string>(),
@@ -192,14 +195,18 @@ export async function startTaps(options: TapOptions): Promise<TapHandle> {
       state.carry = Buffer.from(rest);
       for (const record of records) {
         if (stopped) return;
-        if (record.type === EV_REL) {
+        if (record.type === EV_SYN && record.code === 0) {
+          if (!state.hiresY && state.coarseY) emitInput({ t: nowMs(), k: "wheel", dy: state.coarseY, dx: 0 });
+          if (!state.hiresX && state.coarseX) emitInput({ t: nowMs(), k: "wheel", dy: 0, dx: state.coarseX });
+          state.coarseX = state.coarseY = 0;
+        } else if (record.type === EV_REL) {
           const detent = (delta: number): number => Math.trunc(delta / HI_RES_PER_DETENT);
-          if (record.code === REL_WHEEL && !state.hires) {
-            emitInput({ t: nowMs(), k: "wheel", dy: record.value, dx: 0 });
-          } else if (record.code === REL_HWHEEL && !state.hires) {
-            emitInput({ t: nowMs(), k: "wheel", dy: 0, dx: record.value });
+          if (record.code === REL_WHEEL) {
+            state.coarseY += record.value;
+          } else if (record.code === REL_HWHEEL) {
+            state.coarseX += record.value;
           } else if (record.code === REL_WHEEL_HI_RES) {
-            state.hires = true;
+            state.hiresY = true;
             state.wheelAccY += record.value;
             if (Math.abs(state.wheelAccY) >= HI_RES_PER_DETENT) {
               const dy = detent(state.wheelAccY);
@@ -207,7 +214,7 @@ export async function startTaps(options: TapOptions): Promise<TapHandle> {
               emitInput({ t: nowMs(), k: "wheel", dy, dx: 0 });
             }
           } else if (record.code === REL_HWHEEL_HI_RES) {
-            state.hires = true;
+            state.hiresX = true;
             state.wheelAccX += record.value;
             if (Math.abs(state.wheelAccX) >= HI_RES_PER_DETENT) {
               const dx = detent(state.wheelAccX);

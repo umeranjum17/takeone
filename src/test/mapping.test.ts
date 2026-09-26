@@ -59,6 +59,11 @@ test("pickMonitor returns null when no monitor matches within 2 px (no-pointer m
   assert.equal(pickMonitor([wrongHeight], geometry), null);
 });
 
+test("pickMonitor rejects a same-aspect smaller monitor", () => {
+  const smaller: MonitorInfo = { ...monitor, width: 1920, height: 1080 };
+  assert.equal(pickMonitor([smaller], geometry), null);
+});
+
 test("pickMonitor accepts a match within the 2 px tolerance", () => {
   const close: MonitorInfo = { name: "DP-4", x: 0, y: 0, width: 3840, height: 2162, scale: 1.5 };
   const picked = pickMonitor([close], geometry);

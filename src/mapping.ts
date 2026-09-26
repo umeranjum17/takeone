@@ -58,10 +58,8 @@ export function pickMonitor(
   for (const m of monitors) {
     const scale = mappingScale(geo.source.width, m);
     if (!Number.isFinite(scale) || scale <= 0) continue;
-    const w = (m.width / m.scale) * scale;
-    const h = (m.height / m.scale) * scale;
-    if (Math.abs(w - geo.source.width) > 2) continue;
-    if (Math.abs(h - geo.source.height) > 2) continue;
+    if (Math.abs(m.width - geo.source.width) > 2) continue;
+    if (Math.abs(m.height - geo.source.height) > 2) continue;
     const dx = m.x - geo.origin.x;
     const dy = m.y - geo.origin.y;
     const d = dx * dx + dy * dy;

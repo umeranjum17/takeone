@@ -60,7 +60,8 @@ test("nav, space, enter, tab, esc, backspace and fn classes are stable", () => {
   const cases: Array<[number, string]> = [
     [103, "nav"], // up
     [106, "nav"], // right
-    [55, "space"],
+    [57, "space"],
+    [55, "char"],
     [28, "enter"],
     [15, "tab"],
     [1, "esc"],
