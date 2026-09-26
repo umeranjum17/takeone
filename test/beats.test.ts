@@ -136,6 +136,36 @@ test("trim boundaries and an all-idle take produce idle beats", () => {
   ]);
 });
 
+test("trim clips overlapping action intervals and their geometry on both sides", () => {
+  const bounds = { ...opts(), startMs: 2000, endMs: 3000 };
+  const regions: FrameRegions[] = [
+    { t: 2250, changed_frac: 0.01, cut: false, regions: [{ bbox: [10, 10, 20, 20], area_frac: 0.02 }] },
+    { t: 2750, changed_frac: 0.01, cut: false, regions: [{ bbox: [120, 80, 20, 20], area_frac: 0.02 }] },
+  ];
+  const interval = (t0: number, t1: number): Action[] => [
+    { k: "type", t0, t1, region: [10, 10, 130, 90], window_cls: "chromium" },
+    { k: "dwell", t0, t1, x: 20, y: 20, window_cls: "chromium" },
+    { k: "scroll", t0, t1, x: 20, y: 20, dx: 0, dy: 2, detents: 2, window_cls: "chromium" },
+    { k: "drag", t0, t1, from: [10, 10], to: [80, 80], bbox: [10, 10, 70, 70], window_cls: "chromium" },
+    { k: "travel", t0, t1, from: [10, 10], to: [80, 80], bbox: [10, 10, 70, 70], window_cls: "chromium" },
+  ];
+  for (const [t0, t1, from, to, point] of [[1500, 2500, 2000, 2500, 45], [2500, 3500, 2500, 3000, 45]]) {
+    for (const action of interval(t0!, t1!)) {
+      const beats = segmentBeats([action], regions, bounds);
+      assert.deepEqual(beats.map((b) => [b.kind, b.t0, b.t1]), [[action.k, from, to]], action.k);
+      const clipped = beats[0]!.actions[0]!;
+      if (clipped.k === "drag" || clipped.k === "travel") {
+        assert.deepEqual(t0 === 1500 ? clipped.from : clipped.to, [point, point]);
+        assert.equal(clipped.bbox[2], 35);
+      }
+      if (clipped.k === "type") assert.deepEqual(clipped.region, t0 === 1500 ? [10, 10, 20, 20] : [120, 80, 20, 20]);
+      assert.equal("t0" in action ? action.t0 : undefined, t0);
+      assert.equal("t1" in action ? action.t1 : undefined, t1);
+    }
+  }
+  assert.deepEqual(segmentBeats([click(1500), click(3500)], [], bounds), []);
+});
+
 test("beats shorter than 0.8 s merge into the previous beat with the same window", () => {
   const beats = segmentBeats(
     [win, click(500, 20, 20), typeAct(2000, 2100), typeAct(3500, 4500)],

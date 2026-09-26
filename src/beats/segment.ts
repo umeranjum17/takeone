@@ -74,9 +74,6 @@ export function segmentBeats(
   o: { stream: { w: number; h: number }; takeMs: number; startMs?: number; endMs?: number },
 ): Beat[] {
   const diag = Math.hypot(o.stream.w, o.stream.h);
-  const scoped = actions.filter((a) => actStart(a) >= (o.startMs ?? -Infinity) && actStart(a) <= (o.endMs ?? Infinity));
-  const cuts = scoped.filter((a): a is CutAction => a.k === "cut");
-  const acts = scoped.filter((a) => a.k !== "cut");
   const cutEnd = (t: number): number => {
     let quietStart: number | null = null;
     for (const frame of frames) {
@@ -126,6 +123,19 @@ export function segmentBeats(
     }
     return { ...a, t0, t1 };
   };
+  const start = o.startMs ?? -Infinity;
+  const end = o.endMs ?? Infinity;
+  const scoped = actions.flatMap((a): Action[] => {
+    const t0 = actStart(a);
+    const t1 = actEnd(a);
+    if (t0 > end || t1 < start) return [];
+    if (!("t1" in a) || t0 === t1 || (t0 >= start && t1 <= end)) return [a];
+    const from = Math.max(t0, start);
+    const to = Math.min(t1, end);
+    return to > from ? [sliceAction(a, from, to)] : [];
+  });
+  const cuts = scoped.filter((a): a is CutAction => a.k === "cut");
+  const acts = scoped.filter((a) => a.k !== "cut");
   let nextAct = 0;
   let nextCut = 0;
   while (nextAct < acts.length || nextCut < cuts.length) {
