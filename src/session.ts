@@ -326,8 +326,12 @@ export async function startCapture(options: CaptureOptions): Promise<Capture> {
         // metrics are best-effort; the take is still written
       }
       let videoError: unknown = null;
-      try { if (recorder !== null) await recorder.stop(); }
-      catch (error) { videoError = error; }
+      try {
+        if (recorder !== null) {
+          await recorder.stop();
+          if ((recorder.writer as { ended?: boolean }).ended !== true) throw new Error("screen.webm was not finalized");
+        }
+      } catch (error) { videoError = error; }
       try {
         const videoPath = `${takeDir}/screen.webm`;
         const video = await stat(videoPath);

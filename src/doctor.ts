@@ -31,10 +31,10 @@ async function ffmpegVersion(): Promise<string | null> {
   });
 }
 
-async function evdevProbe(): Promise<DoctorCheck> {
+export async function evdevProbe(dir = "/dev/input/by-id"): Promise<DoctorCheck> {
   let names: string[] = [];
   try {
-    names = await fs.readdir("/dev/input/by-id");
+    names = await fs.readdir(dir);
   } catch {
     return { check: "evdev", ok: false, detail: "/dev/input/by-id missing" };
   }
@@ -43,19 +43,19 @@ async function evdevProbe(): Promise<DoctorCheck> {
   let eacces = false;
   for (const name of candidates) {
     try {
-      const handle = await fs.open(`/dev/input/by-id/${name}`, "r");
+      const handle = await fs.open(join(dir, name), "r");
       await handle.close();
       readable++;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "EACCES") eacces = true;
     }
   }
-  if (readable > 0) {
+  if (readable > 0 && readable === candidates.length) {
     return { check: "evdev", ok: true, detail: `${readable} readable device(s)` };
   }
   return eacces
-    ? { check: "evdev", ok: false, detail: "not readable; add the user to group 'input' and log in again" }
-    : { check: "evdev", ok: false, detail: "no *-event-mouse or *-event-kbd devices" };
+    ? { check: "evdev", ok: false, detail: "not all devices readable; add the user to group 'input' and log in again" }
+    : { check: "evdev", ok: false, detail: candidates.length === 0 ? "no *-event-mouse or *-event-kbd devices" : "some evdev devices are unreadable" };
 }
 
 export async function runDoctor(): Promise<DoctorCheck[]> {

@@ -1,11 +1,33 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createServer } from "node:net";
-import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { startTaps } from "../taps.js";
+import { evdevProbe } from "../doctor.js";
 import { EV_REL, REL_WHEEL, REL_HWHEEL, REL_WHEEL_HI_RES, REL_HWHEEL_HI_RES } from "../evdev.js";
+
+test("one unreadable evdev device disables all event taps and doctor readiness", async () => {
+  const base = await mkdtemp(join(tmpdir(), "takeone-partial-input-"));
+  const deviceDir = join(base, "devices");
+  await mkdir(deviceDir);
+  await writeFile(join(deviceDir, "one-event-mouse"), "");
+  await writeFile(join(deviceDir, "two-event-kbd"), "");
+  await chmod(join(deviceDir, "two-event-kbd"), 0);
+  try {
+    const eventsPath = join(base, "events.jsonl");
+    const taps = await startTaps({ eventsPath, mapping: null, t0ns: process.hrtime.bigint(), deviceDir });
+    assert.equal(taps.eventsMode, "none");
+    assert.ok(taps.warnings.some((warning) => warning.includes("group 'input'")));
+    await taps.stop();
+    assert.equal(await readFile(eventsPath, "utf8"), "");
+    assert.equal((await evdevProbe(deviceDir)).ok, false);
+  } finally {
+    await chmod(join(deviceDir, "two-event-kbd"), 0o600);
+    await rm(base, { recursive: true, force: true });
+  }
+});
 
 test("wheel reports prefer high-resolution values on both axes from the first report", async () => {
   const base = await mkdtemp(join(tmpdir(), "takeone-wheel-"));
