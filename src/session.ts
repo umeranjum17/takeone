@@ -96,7 +96,12 @@ export async function startCapture(options: CaptureOptions): Promise<Capture> {
 
   const offer = promiseWithCallbacks<{ sdp: string; sessionId: string; generation: number }>();
   const engineCandidates: Extract<EngineEvent, { event: "session.candidate" }>[] = [];
-  const tokenWrites: Promise<void>[] = [];
+  let tokenWrites = Promise.resolve();
+  let tokenWriteError: Error | null = null;
+  const checkTokenWrites = async (): Promise<void> => {
+    await tokenWrites;
+    if (tokenWriteError !== null) throw new RecordError("token-write-failed", String(tokenWriteError), "check state directory permissions and record again");
+  };
   let peerConnection: RTCPeerConnection | null = null;
 
   const client = await EngineClient.start(engine.command, engine.args, {
@@ -109,7 +114,9 @@ export async function startCapture(options: CaptureOptions): Promise<Capture> {
         });
       } else if (event.event === "session.restoreToken") {
         // Single-use: persist every replacement atomically, in arrival order.
-        tokenWrites.push(saveToken(stateDir, event.params.token));
+        tokenWrites = tokenWrites.then(() => saveToken(stateDir, event.params.token)).catch((error: unknown) => {
+          tokenWriteError ??= error instanceof Error ? error : new Error(String(error));
+        });
       } else if (event.event === "session.candidate") {
         if (peerConnection === null) engineCandidates.push(event);
         else void addEngineCandidate(peerConnection, event);
@@ -185,6 +192,7 @@ export async function startCapture(options: CaptureOptions): Promise<Capture> {
     cancelDeadline();
   } catch (error) {
     await client.stop().catch(() => undefined);
+    await checkTokenWrites();
     if (error instanceof RecordError) throw error; // already structured
     throw openRefused(error);
   }
@@ -209,6 +217,7 @@ export async function startCapture(options: CaptureOptions): Promise<Capture> {
   } catch (error) {
     await client.closeSession(opened.sessionId).catch(() => undefined);
     await client.stop().catch(() => undefined);
+    await checkTokenWrites();
     throw error;
   } finally {
     clearTimeout(offerTimer);
@@ -298,9 +307,9 @@ export async function startCapture(options: CaptureOptions): Promise<Capture> {
     await pc.close().catch(() => undefined);
     await client.closeSession(opened.sessionId).catch(() => undefined);
     await client.stop().catch(() => undefined);
-    await Promise.allSettled(tokenWrites);
     framesStream.end();
     await framesDone.catch(() => undefined);
+    await checkTokenWrites();
     throw error;
   }
   clearTimeout(watchdog);
@@ -340,10 +349,10 @@ export async function startCapture(options: CaptureOptions): Promise<Capture> {
       await pc.close().catch(() => undefined);
       await client.closeSession(opened.sessionId).catch(() => undefined);
       await client.stop().catch(() => undefined);
-      await Promise.allSettled(tokenWrites);
       framesStream.end();
       let frameError: unknown = null;
       try { await framesDone; } catch (error) { frameError = error; }
+      await checkTokenWrites();
       if (recorderError !== null || videoError !== null) throw new RecordError("recorder-failed", String(recorderError ?? videoError), "check disk space and record again");
       if (frameError !== null) throw new RecordError("frames-write-failed", String(frameError), "check disk space and record again");
       return finalMetrics;

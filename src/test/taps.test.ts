@@ -93,6 +93,33 @@ test("a missing mouse or keyboard class disables events and doctor readiness", a
   }
 });
 
+test("shortcuts retain modifiers across keyboards and both physical Ctrl keys", async () => {
+  const base = await mkdtemp(join(tmpdir(), "takeone-modifiers-"));
+  const deviceDir = join(base, "devices");
+  await mkdir(deviceDir);
+  const key = (code: number, value: number): Buffer => {
+    const record = Buffer.alloc(24);
+    record.writeUInt16LE(EV_KEY, 16);
+    record.writeUInt16LE(code, 18);
+    record.writeInt32LE(value, 20);
+    return record;
+  };
+  await writeFile(join(deviceDir, "a-event-kbd"), Buffer.concat([key(29, 1), key(97, 1), key(29, 0), key(31, 1)]));
+  await writeFile(join(deviceDir, "b-event-kbd"), key(31, 1));
+  await writeFile(join(deviceDir, "c-event-mouse"), "");
+  try {
+    const eventsPath = join(base, "events.jsonl");
+    const taps = await startTaps({ eventsPath, t0ns: process.hrtime.bigint(), deviceDir, evdevPollHz: 200 });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    await taps.stop();
+    const events = (await readFile(eventsPath, "utf8")).trim().split("\n").map((line) => JSON.parse(line));
+    assert.deepEqual(events.filter((event) => event.combo).map((event) => event.combo), ["Ctrl+S", "Ctrl+S"]);
+    assert.ok(events.every((event) => !Object.hasOwn(event, "code")));
+  } finally {
+    await rm(base, { recursive: true, force: true });
+  }
+});
+
 test("an evdev device lost mid-recording fails completion", async () => {
   const base = await mkdtemp(join(tmpdir(), "takeone-device-loss-"));
   const deviceDir = join(base, "devices");

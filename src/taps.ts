@@ -197,7 +197,9 @@ export async function startTaps(options: TapOptions): Promise<TapHandle> {
       warnings.push("no evdev mouse/keyboard devices found; recording video only with events:'none'");
     }
   } else {
-    // Per-device state: carry-over partial record, wheel dedup, held mods.
+    const heldMods = new Map<string, string>();
+    const held = { has: (name: string): boolean => [...heldMods.values()].includes(name) };
+    // Per-device state: carry-over partial record, wheel dedup.
     const states = devices.map((device) => ({
       device,
       carry: Buffer.alloc(0),
@@ -207,7 +209,6 @@ export async function startTaps(options: TapOptions): Promise<TapHandle> {
       coarseY: 0,
       wheelAccX: 0,
       wheelAccY: 0,
-      mods: new Set<string>(),
     }));
     const chunk = Buffer.alloc(4096);
 
@@ -268,10 +269,11 @@ export async function startTaps(options: TapOptions): Promise<TapHandle> {
             const name = BUTTON_NAMES[record.code] ?? `btn${record.code}`;
             emitInput({ t, k: "btn", b: name, down });
           } else {
-            const { record: keyRecord, modifier } = classifyKeyEvent(record.code, down, state.mods);
+            const { record: keyRecord, modifier } = classifyKeyEvent(record.code, down, held);
             if (modifier !== null) {
-              if (down) state.mods.add(modifier);
-              else state.mods.delete(modifier);
+              const key = `${state.device.path}:${record.code}`;
+              if (down) heldMods.set(key, modifier);
+              else heldMods.delete(key);
             }
             const event: TapEvent = { t, ...keyRecord };
             emitInput(event);

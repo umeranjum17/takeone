@@ -6,15 +6,36 @@
  */
 
 import assert from "node:assert/strict";
-import { spawn, execFileSync } from "node:child_process";
+import { spawn, spawnSync, execFileSync } from "node:child_process";
 import { createServer } from "node:net";
-import { chmod, mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 
 const here = dirname(fileURLToPath(import.meta.url));
+
+test("recorder commands reject unknown, missing and extraneous arguments before acting", async () => {
+  const base = await mkdtemp(join(tmpdir(), "takeone-flags-"));
+  try {
+    for (const args of [
+      ["record", "--bitrte", "8000"], ["record", "--bitrate"], ["record", "--fps", "30", "extra"],
+      ["list", "extra"], ["stop", "extra"], ["doctor", "extra"],
+    ]) {
+      const result = spawnSync(process.execPath, [join(here, "../cli.js"), ...args], {
+        encoding: "utf8", timeout: 3000,
+        env: { ...process.env, TAKEONE_DIR: join(base, "takes"), TAKEONE_STATE_DIR: join(base, "state") },
+      });
+      assert.equal(result.status, 1, `${args.join(" ")}: ${result.stderr}`);
+      assert.match(result.stderr, /invalid-arguments/);
+    }
+    await assert.rejects(stat(join(base, "takes")));
+    await assert.rejects(stat(join(base, "state")));
+  } finally {
+    await rm(base, { recursive: true, force: true });
+  }
+});
 
 test("record writes a complete take (pid file, events, take.json) and stops on SIGINT", { timeout: 60_000 }, async () => {
   const base = join(tmpdir(), `takeone-record-${process.pid}-${Math.random().toString(36).slice(2)}`);
