@@ -24,6 +24,12 @@ test("click: down/up within 300 ms and 6 px", () => {
   assert.equal(clicks[0]!.y, 10);
 });
 
+test("a short press moving nine pixels clicks at the down point", () => {
+  const acts = actionsFromEvents([win, ptr(10, 10, 400), btn(true, 500), ptr(19, 10, 550), btn(false, 600)], frames(), opts());
+  assert.deepEqual(acts.filter((a) => a.k === "click").map((a) => [a.x, a.y]), [[10, 10]]);
+  assert.equal(acts.filter((a) => a.k === "drag").length, 0);
+});
+
 test("second click within 400 ms and 6 px makes a double", () => {
   const acts = actionsFromEvents(
     [
@@ -106,6 +112,14 @@ test("shortcut records combos", () => {
   const sc = acts.find((a) => a.k === "shortcut");
   assert.ok(sc);
   assert.equal(sc.combo, "Ctrl+S");
+});
+
+test("shortcut key-up does not duplicate the key-down action", () => {
+  const acts = actionsFromEvents([win,
+    { t: 500, k: "key", cls: "char", down: true, combo: "Ctrl+S" },
+    { t: 600, k: "key", cls: "char", down: false, combo: "Ctrl+S" },
+  ], frames(), opts());
+  assert.deepEqual(acts.filter((a) => a.k === "shortcut").map((a) => a.t), [500]);
 });
 
 test("focus on window class change", () => {

@@ -177,17 +177,4 @@ export function buildRequest(beat: Beat, ctx: RequestCtx, askKeyMoment: boolean)
   return { body, tokens };
 }
 
-/** Pre-flight estimate across all beats. Returns null when within budget. */
-export function planTokens(
-  beats: Beat[],
-  ctxs: RequestCtx[],
-  askKeyMoment: boolean,
-): { tokens: number; usd: number } {
-  let tokens = 0;
-  for (let i = 0; i < beats.length; i++) {
-    tokens += buildRequest(beats[i]!, ctxs[i]!, askKeyMoment).tokens;
-  }
-  return { tokens, usd: (tokens * PRICE_PER_MTOK) / 1e6 };
-}
-
 export type { Decision };

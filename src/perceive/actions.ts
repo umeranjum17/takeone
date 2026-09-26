@@ -4,11 +4,10 @@
 import type { Action, BBox, Event, FrameRegions, Region } from "../types.ts";
 import { bboxIoU, unionBBox } from "../types.ts";
 
-export const CLICK_MAX_MS = 300;
-export const CLICK_MAX_PX = 6;
+export const CLICK_RELEASE_MAX_MS = 300;
+export const CLICK_RELEASE_MAX_PX = 12;
 export const DOUBLE_MS = 400;
-export const DRAG_MIN_MS = 300;
-export const DRAG_MIN_PX = 12;
+export const DOUBLE_MAX_PX = 6;
 export const SCROLL_GAP_MS = 500;
 export const TYPE_GAP_MS = 1200;
 export const DWELL_MIN_MS = 800;
@@ -62,7 +61,7 @@ export function actionsFromEvents(
 
   const regionCentroidNear = (t: number): [number, number] | null => {
     for (const f of frames) {
-      if (f.t < t || f.t > t + CLICK_MAX_MS) continue;
+      if (f.t < t || f.t > t + CLICK_RELEASE_MAX_MS) continue;
       let best: Region | null = null;
       for (const r of f.regions) {
         if (!best || r.area_frac > best.area_frac) best = r;
@@ -206,7 +205,8 @@ export function actionsFromEvents(
       const p1 = pointerAt(up.t) ?? p0;
       const held = up.t - e.t;
       const moved = Math.hypot(p1[0] - p0[0], p1[1] - p0[1]);
-      if (held > DRAG_MIN_MS || moved > DRAG_MIN_PX) {
+      const isClick = held <= CLICK_RELEASE_MAX_MS && moved <= CLICK_RELEASE_MAX_PX;
+      if (!isClick) {
         acts.push({
           k: "drag",
           t0: e.t,
@@ -221,7 +221,7 @@ export function actionsFromEvents(
           lastClick !== null &&
           lastClick.cls === (atWin?.cls ?? "") &&
           up.t - lastClick.t <= DOUBLE_MS &&
-          Math.hypot(p0[0] - lastClick.x, p0[1] - lastClick.y) <= CLICK_MAX_PX;
+          Math.hypot(p0[0] - lastClick.x, p0[1] - lastClick.y) <= DOUBLE_MAX_PX;
         if (isDouble) {
           // the two clicks become one action
           const lastIdx = acts.map((a) => a.k).lastIndexOf("click");
@@ -266,7 +266,7 @@ export function actionsFromEvents(
         window_cls: atWin?.cls ?? "",
       });
     } else if (e.k === "key") {
-      if (e.combo) {
+      if (e.combo && e.down) {
         acts.push({ k: "shortcut", t: e.t, combo: e.combo, window_cls: atWin?.cls ?? "" });
         continue;
       }

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildRequest, estimateTokens, planTokens, REQUEST_TOKEN_CAP } from "../src/decide/request.ts";
+import { buildRequest, estimateTokens, REQUEST_TOKEN_CAP } from "../src/decide/request.ts";
 import { heuristicDecision } from "../src/decide/heuristics.ts";
 import { mapAnswers, argmaxLevel, sumsTo1 } from "../src/decide/mapping.ts";
 import { redactText } from "../src/decide/redact.ts";
@@ -76,17 +76,6 @@ test("oversize non-zone request fields are refused before POST", () => {
 test("estimateTokens is ceil(chars / 3.5)", () => {
   assert.equal(estimateTokens("a".repeat(35)), 10);
   assert.equal(estimateTokens("a".repeat(36)), 11);
-});
-
-test("planTokens sums per-beat estimates and prices at $0.042 per million", () => {
-  const zones = [zone("z1", "act", [60, 32, 80, 56])];
-  const b1 = clickBeat(zones);
-  const b2 = clickBeat(zones);
-  b2.id = "b2";
-  const plan = planTokens([b1, b2], [{ currentShot: "x" }, { currentShot: "y" }], false);
-  const one = buildRequest(b1, { currentShot: "x" }, false).tokens;
-  assert.equal(plan.tokens, one * 2);
-  assert.ok(Math.abs(plan.usd - (plan.tokens * 0.042) / 1e6) < 1e-12);
 });
 
 // ---------------------------------------------------------------- heuristics
@@ -289,6 +278,12 @@ test("split OCR email tokens are redacted before sending", () => {
   const row = (word: string) => [...Array(10).fill(""), "95", word].join("\t");
   assert.equal(redactWords(["header", row("bob@"), row("example.com"), row("hello")].join("\n")), "[redacted] hello");
   assert.equal(redactText("bob @ example . com"), "[redacted]");
+});
+
+test("split OCR numeric and mixed-alphanumeric identifiers are redacted", () => {
+  const row = (word: string) => [...Array(10).fill(""), "95", word].join("\t");
+  assert.equal(redactWords(["header", row("123"), row("456"), row("ready")].join("\n")), "[redacted] ready");
+  assert.equal(redactWords(["header", row("abc123def4"), row("ghi567jkl8"), row("ready")].join("\n")), "[redacted] ready");
 });
 
 test("redactText masks emails, 6+ digit runs and 20+ char mixed alphanumerics", () => {

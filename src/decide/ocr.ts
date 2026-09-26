@@ -82,5 +82,16 @@ export function redactWords(tsv: string): string | null {
     if (words.length >= OCR_WORD_CAP) break;
   }
   if (words.length === 0) return null;
+  for (let i = 0; i < words.length; i++) {
+    if (!/^[A-Za-z0-9]+$/.test(words[i]!)) continue;
+    let combined = words[i]!;
+    for (let j = i + 1; j < words.length && /^[A-Za-z0-9]+$/.test(words[j]!); j++) {
+      combined += words[j]!;
+      if (/^\d{6,}$/.test(combined) || (combined.length >= 20 && /[A-Za-z]/.test(combined) && /\d/.test(combined))) {
+        words.splice(i, j - i + 1, "[redacted]");
+        break;
+      }
+    }
+  }
   return redactText(words.join(" "));
 }
