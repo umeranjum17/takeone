@@ -79,9 +79,10 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
     if (!existsSync(path)) throw new TakeInputError(file, "missing");
   }
   const eventsPath = join(dir, "events.jsonl");
-  if (!existsSync(eventsPath)) throw new TakeInputError("events.jsonl", "missing");
-  const events = await readEvents(eventsPath);
-  if (events.length === 0 && statSync(eventsPath).size > 0 && take.events !== "none") {
+  const hasEvents = existsSync(eventsPath);
+  if (!hasEvents && take.events !== "none") throw new TakeInputError("events.jsonl", "missing");
+  const events = hasEvents ? await readEvents(eventsPath) : [];
+  if (hasEvents && events.length === 0 && statSync(eventsPath).size > 0 && take.events !== "none") {
     throw new TakeInputError("events.jsonl", "invalid event data");
   }
 
