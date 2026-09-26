@@ -7,7 +7,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { BBox } from "../types.ts";
-import { redactText } from "./redact.ts";
+import { redactWord } from "./redact.ts";
 
 export const OCR_WORD_CAP = 12;
 export const OCR_MIN_CONF = 60;
@@ -78,9 +78,9 @@ export function redactWords(tsv: string): string | null {
     const conf = Number(cols[10]);
     const word = (cols[11] ?? "").trim();
     if (!word || !Number.isFinite(conf) || conf < OCR_MIN_CONF) continue;
-    words.push(word);
+    words.push(redactWord(word));
     if (words.length >= OCR_WORD_CAP) break;
   }
   if (words.length === 0) return null;
-  return redactText(words.join(" "));
+  return words.join(" ");
 }

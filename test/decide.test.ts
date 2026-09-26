@@ -279,6 +279,7 @@ test("sumsTo1 and argmaxLevel helpers", () => {
 test("OCR tokens are filtered individually, without fragment joining", () => {
   const row = (word: string) => [...Array(10).fill(""), "95", word].join("\t");
   assert.equal(redactWords(["header", row("bob@"), row("example.com"), row("hello")].join("\n")), "[redacted] [redacted] hello");
+  assert.equal(redactWords(["header", row("hello world"), row("safe")].join("\n")), "[redacted] safe");
   assert.equal(redactText("bob @ example . com"), "bob [redacted] example [redacted] com");
 });
 
