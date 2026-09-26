@@ -68,10 +68,28 @@ test("whole-screen non-16:9 frames cover the full source while 16:9 framing is u
     assert.equal(DEFAULTS.out_w, 1920);
     assert.equal(DEFAULTS.out_h, 1080);
   }
-  assert.deepEqual(
-    solveCamera([], [], { width: 3840, height: 2160, trim_start: 0, trim_end: 1 })[0],
-    { t: 0, x: 0, y: 0, w: 3840, h: 2160 },
-  );
+  const wide = solveCamera([], [], { width: 3840, height: 2160, trim_start: 0, trim_end: 1 })[0];
+  assert.deepEqual(wide, { t: 0, x: 0, y: 0, w: 3840, h: 2160 });
+  const zoomBeat = beat("wide-zoom", 2, 2500);
+  const zoomed = solveCamera([zoomBeat], [decision(zoomBeat)], {
+    width: 3840, height: 2160, trim_start: 0, trim_end: 4,
+  });
+  assert.deepEqual(zoomed[60], {
+    t: 2, x: 1318.7876879530677, y: 412.2611934930576,
+    w: 2091.19186034831, h: 1176.2954214459244,
+  });
+});
+
+test("non-16:9 padding eases through zoom and back without a crop jump", () => {
+  const zoom = beat("zoom", 2.5, 2500);
+  const all = { ...beat("all", 5.5, 0), zones: [{ name: "all", type: "all" as const, bbox: [0, 0, 3440, 1440] as [number, number, number, number] }] };
+  const frames = solveCamera([zoom, all], [decision(zoom), { ...decision(all), L: 0 }], {
+    width: 3440, height: 1440, trim_start: 0, trim_end: 8,
+  });
+  assert.deepEqual([frames[0].x, frames[0].y, frames[0].w, frames[0].h], [0, 0, 3440, 1440]);
+  assert.ok(Math.min(...frames.map((f) => f.w)) < 1700);
+  assert.ok(frames.at(-1)!.w > 3400);
+  assert.ok(frames.every((f, i) => !i || Math.abs(f.w - frames[i - 1].w) < 200));
 });
 
 test("move duration clamps and sendcmd emits one crop update per frame", () => {
