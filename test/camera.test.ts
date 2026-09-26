@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { applyOverrides } from "../src/camera/defaults.ts";
@@ -95,8 +94,14 @@ test("minimum shot length drops an arrival that is too close to the previous one
   assert.deepEqual(at(withShortShot, 4), at(withoutShortShot, 4));
 });
 
+test("redundant beats do not consume the move-rate budget", () => {
+  const beats = [2, 4, 6, 8, 10].map((time, index) => beat(`same${index}`, time, index === 4 ? 3300 : 300));
+  const result = camera(beats, beats.map((b) => decision(b, 2)), 12);
+  assert.ok(at(result, 11).x > at(result, 8.5).x + 500);
+});
+
 test("four-moves-per-ten-seconds limit discards lowest-importance excess", () => {
-  const beats = [1, 2, 3, 4, 5].map((time, index) => beat(`b${index}`, time, 300 + index * 700));
+  const beats = [1, 3, 5, 7, 9].map((time, index) => beat(`b${index}`, time, index % 2 ? 3300 : 300));
   const decisions = beats.map((b, index) => decision(b, index === 0 ? 0 : 2));
   const result = camera(beats, decisions, 7);
   // The low-importance first target is discarded, so it has not zoomed by its arrival.
@@ -140,9 +145,37 @@ test("long idle gap breathes back to the window framing", () => {
     zones: [{ name: "all", type: "all", bbox: [0, 0, 3840, 2160] }],
     kind: "idle",
   };
-  const result = camera([activity, idle], [decision(activity)], 8);
+  const result = camera([activity, idle], [decision(activity), decision(idle)], 8);
   assert.ok(at(result, 2).w < 3000);
   assert.ok(at(result, 5).w > 3700);
+});
+
+test("timestamped pointer actions follow interpolation, not the final position early", () => {
+  const drag = beat("drag", 2, 1900, "drag");
+  drag.t0 = 1;
+  drag.t1 = 5;
+  drag.zones[0] = zone("drag", [1700, 900, 400, 200]);
+  drag.actions = [{ t: 1000, x: 0, y: 1080 }, { t: 5000, x: 3840, y: 1080 }];
+  const moving = camera([drag], [decision(drag)], 5);
+  const stationary = camera([{ ...drag, actions: [{ t: 1000, x: 0, y: 1080 }, { t: 5000, x: 0, y: 1080 }] }], [decision(drag)], 5);
+  assert.deepEqual(at(moving, 1), at(stationary, 1));
+  assert.ok(at(moving, 4).x > at(stationary, 4).x + 100);
+});
+
+test("ultrawide crops fit both source dimensions", () => {
+  const frames = solveCamera([], [], { width: 3440, height: 1440, trim_end: 1 });
+  for (const f of frames) {
+    assert.ok(f.w <= 3440 && f.h <= 1440);
+    assert.ok(f.x >= 0 && f.y >= 0 && f.x + f.w <= 3440 && f.y + f.h <= 1440);
+  }
+});
+
+test("invalid planner references fail before rendering", () => {
+  const b = beat("a", 2, 300);
+  assert.throws(() => camera([b], []), /missing decision/);
+  assert.throws(() => camera([b], [{ ...decision(b), A: "missing" }]), /unknown zone/);
+  assert.throws(() => camera([b], [{ ...decision(b), B: "missing" }]), /unknown zone/);
+  assert.throws(() => camera([b], [{ ...decision(b), L: 4 as 3 }]), /invalid or missing decision/);
 });
 
 test("frame samples have smooth log zoom and fixed aspect", () => {
@@ -167,7 +200,7 @@ test("--set overrides validate values", () => {
 test("synthetic 4K source renders silent H.264 at 1920x1080 and 30fps", {
   timeout: 120_000,
 }, async () => {
-  const dir = await mkdtemp(join(tmpdir(), "takeone-render-"));
+  const dir = await mkdtemp(join(process.cwd(), "takeone:render-"));
   try {
     await mkdir(join(dir, "analysis"));
     execFileSync("ffmpeg", [
@@ -182,6 +215,13 @@ test("synthetic 4K source renders silent H.264 at 1920x1080 and 30fps", {
     await writeFile(join(dir, "analysis/beats.json"), JSON.stringify([fixtureBeat]));
     await writeFile(join(dir, "analysis/decisions.jsonl"), `${JSON.stringify(decision(fixtureBeat))}\n`);
 
+    await writeFile(join(dir, "take.json"), JSON.stringify({
+      id: "../../other", width: 3840, height: 2160, trim_start: 0, trim_end: 2,
+    }));
+    await assert.rejects(renderTake(dir), /invalid take id/);
+    await writeFile(join(dir, "take.json"), JSON.stringify({
+      id: "fixture", width: 3840, height: 2160, trim_start: 0, trim_end: 2,
+    }));
     const output = await renderTake(dir);
     const probe = execFileSync("ffprobe", [
       "-v", "error", "-select_streams", "v:0", "-show_entries",

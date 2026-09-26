@@ -49,7 +49,7 @@ function toFrame(
   d: CameraDefaults,
 ): CameraFrame {
   const z = clamp(state.z, 1, zMax(width, d));
-  const w = width / z;
+  const w = Math.min(width / z, height * d.out_w / d.out_h);
   const h = w * d.out_h / d.out_w;
   const x = clamp(state.cx - w / 2, 0, Math.max(0, width - w));
   const y = clamp(state.cy - h / 2, 0, Math.max(0, height - h));
@@ -118,18 +118,21 @@ function buildShots(
   d: CameraDefaults,
 ): Shot[] {
   const byId = new Map(decisions.map((decision) => [decision.beat, decision]));
-  return beats.flatMap((beat) => {
+  return beats.map((beat) => {
     const decision = byId.get(beat.id);
-    const zoneA = beat.zones.find((zone) => zone.name === decision?.A);
-    if (!decision || !zoneA) return [];
-    const zoneB = beat.zones.find((zone) => zone.name === decision.B) ?? zoneA;
-    return [{
+    if (!decision || !Number.isInteger(decision.L) || decision.L < 0 || decision.L > 3) {
+      throw new Error(`invalid or missing decision for beat ${beat.id}`);
+    }
+    const zoneA = beat.zones.find((zone) => zone.name === decision.A);
+    const zoneB = decision.B ? beat.zones.find((zone) => zone.name === decision.B) : zoneA;
+    if (!zoneA || !zoneB) throw new Error(`unknown zone for beat ${beat.id}`);
+    return {
       beat,
       decision,
       zoneA,
       zoneB,
       arrival: Math.max(start, beat.anchor_t - d.anchor_early),
-    }];
+    };
   }).sort((a, b) => a.arrival - b.arrival);
 }
 
@@ -174,17 +177,22 @@ function applyDwellAndShotLength(shots: Shot[], d: CameraDefaults): Shot[] {
   return accepted;
 }
 
-/** Anti-jitter rule: keep the four highest-importance moves in each 10-second span. */
-function applyMoveRateLimit(shots: Shot[], d: CameraDefaults): Shot[] {
-  let kept = shots;
-  for (const anchor of shots) {
-    const window = kept.filter((shot) => shot.arrival >= anchor.arrival
-      && shot.arrival < anchor.arrival + d.rate_window);
+function applyMoveRateLimit(targets: Target[], width: number, height: number, d: CameraDefaults): Target[] {
+  let state: CameraState = { cx: width / 2, cy: height / 2, z: 1 };
+  const moving = targets.filter((target) => {
+    if (isDeadzone(state, target.state, width, d)) return false;
+    state = target.state;
+    return true;
+  });
+  let kept = moving;
+  for (const anchor of moving) {
+    const window = kept.filter((target) => target.t >= anchor.t
+      && target.t < anchor.t + d.rate_window);
     if (window.length <= d.rate_max) continue;
     const winners = new Set([...window]
-      .sort((a, b) => b.decision.K - a.decision.K)
+      .sort((a, b) => b.importance - a.importance)
       .slice(0, d.rate_max));
-    kept = kept.filter((shot) => !window.includes(shot) || winners.has(shot));
+    kept = kept.filter((target) => !window.includes(target) || winners.has(target));
   }
   return kept;
 }
@@ -299,13 +307,23 @@ function followPointer(
   beat: Beat,
   decisions: Map<string, Decision>,
   width: number,
+  time: number,
   dt: number,
   velocity: { x: number; y: number },
   d: CameraDefaults,
 ): CameraState {
-  const pointer = [...beat.actions].reverse()
-    .map((action) => action as { x?: number; y?: number })
-    .find((action) => Number.isFinite(action.x) && Number.isFinite(action.y));
+  const points = beat.actions
+    .map((action) => action as { t?: number; x?: number; y?: number })
+    .filter((action) => Number.isFinite(action.x) && Number.isFinite(action.y))
+    .sort((a, b) => (a.t ?? -Infinity) - (b.t ?? -Infinity));
+  const before = points.filter((point) => point.t === undefined || point.t / 1000 <= time).at(-1);
+  const after = points.find((point) => point.t !== undefined && point.t / 1000 > time);
+  const ratio = before?.t !== undefined && after?.t !== undefined
+    ? (time - before.t / 1000) / ((after.t - before.t) / 1000) : 0;
+  const pointer = before && {
+    x: lerp(before.x!, after?.x ?? before.x!, ratio),
+    y: lerp(before.y!, after?.y ?? before.y!, ratio),
+  };
   const decision = decisions.get(beat.id);
   const zone = beat.zones.find((candidate) => candidate.name === decision?.A);
   const subject = pointer ?? (zone ? {
@@ -376,7 +394,7 @@ function sampleCamera(
       && ["drag", "travel", "type"].includes(beat.kind));
     if (activeBeat) {
       state = followPointer(state, previousFiltered, activeBeat, decisions, width,
-        time - previousTime, velocity, d);
+        time, time - previousTime, velocity, d);
     }
 
     const dt = time - previousTime;
@@ -405,7 +423,6 @@ export function solveCamera(
   const decisionMap = new Map(decisions.map((decision) => [decision.beat, decision]));
   const shots = buildShots(beats, decisions, start, d);
   const quietShots = applyDwellAndShotLength(shots, d);
-  const limitedShots = applyMoveRateLimit(quietShots, d);
-  const targets = buildTargets(limitedShots, beats, width, height, d);
+  const targets = applyMoveRateLimit(buildTargets(quietShots, beats, width, height, d), width, height, d);
   return sampleCamera(targets, beats, decisionMap, width, height, start, end, d);
 }

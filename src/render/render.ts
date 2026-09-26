@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { DEFAULTS, type CameraDefaults } from "../camera/defaults.ts";
 import { solveCamera } from "../camera/solver.ts";
 import type { Beat, CameraFrame, Decision, TakeMeta } from "../camera/types.ts";
@@ -52,10 +52,16 @@ export async function renderTake(dir: string, d: CameraDefaults = DEFAULTS): Pro
 
   const outputDir = join(dir, "out");
   await mkdir(outputDir, { recursive: true });
-  const output = join(outputDir, `${meta.id ?? dir.split("/").at(-1)}.mp4`);
+  const id = meta.id ?? basename(dir);
+  if (typeof id !== "string" || !/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(id) || id === "..") {
+    throw new Error(`invalid take id: ${id}`);
+  }
+  const output = join(outputDir, `${id}.mp4`);
   const trimStart = meta.trim_start ?? 0;
   const trimEnd = meta.trim_end ?? beats.at(-1)?.t1 ?? 0;
-  const filter = `sendcmd=f=${commandFile},crop@a=w=iw:h=ih:x=0:y=0:exact=1,scale=${d.out_w}:${d.out_h}:flags=lanczos,format=yuv420p`;
+  const escapedOption = commandFile.replace(/[\\:']/g, "\\$&");
+  const escapedPath = escapedOption.replace(/[\\',;\[\]]/g, "\\$&");
+  const filter = `sendcmd=f=${escapedPath},crop@a=w=iw:h=ih:x=0:y=0:exact=1,scale=${d.out_w}:${d.out_h}:flags=lanczos,format=yuv420p`;
 
   // Keep camera.cmd on failure for straightforward diagnosis and re-rendering.
   await runFfmpeg([
