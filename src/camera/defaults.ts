@@ -78,10 +78,20 @@ export function applyOverrides(overrides: Overrides): CameraDefaults {
   const out: CameraDefaults = { ...DEFAULTS };
   for (const [k, v] of Object.entries(overrides)) {
     const key = k as keyof CameraDefaults;
-    if (!(key in out) || typeof v !== "number" || !Number.isFinite(v)) {
+    const positive = ["out_w", "out_h", "fps", "max_upscale", "rate_window", "rate_max", "move_t_min", "move_t_max", "hop_zoom", "hop_zoom_div", "hop_t_scale", "follow_omega", "lowpass_omega", "l1_pad", "l2_pad", "l3_pad"];
+    const integers = ["out_w", "out_h", "fps", "rate_max"];
+    if (!(key in out) || typeof v !== "number" || !Number.isFinite(v)
+      || (positive.includes(k) ? v <= 0 : v < 0)
+      || (integers.includes(k) && !Number.isInteger(v))
+      || (["out_w", "out_h"].includes(k) && v % 2 !== 0)
+      || (["max_upscale", "deadzone_zoom", "l1_pad", "l2_pad", "l3_pad"].includes(k) && v < 1)
+      || (k === "deadzone_margin" && v >= 0.5)
+      || (k === "follow_inner" && (v === 0 || v > 1))
+      || (k === "cut_max" && v > 1)) {
       throw new Error(`unknown or invalid --set ${k}=${v}`);
     }
     out[key] = v;
   }
+  if (out.move_t_max < out.move_t_min) throw new Error("move_t_max must be at least move_t_min");
   return out;
 }

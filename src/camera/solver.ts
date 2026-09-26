@@ -124,7 +124,7 @@ function buildShots(
       throw new Error(`invalid or missing decision for beat ${beat.id}`);
     }
     const zoneA = beat.zones.find((zone) => zone.name === decision.A);
-    const zoneB = decision.B ? beat.zones.find((zone) => zone.name === decision.B) : zoneA;
+    const zoneB = decision.B === undefined ? zoneA : beat.zones.find((zone) => zone.name === decision.B);
     if (!zoneA || !zoneB) throw new Error(`unknown zone for beat ${beat.id}`);
     return {
       beat,
@@ -179,11 +179,16 @@ function applyDwellAndShotLength(shots: Shot[], d: CameraDefaults): Shot[] {
 
 function applyMoveRateLimit(targets: Target[], width: number, height: number, d: CameraDefaults): Target[] {
   let state: CameraState = { cx: width / 2, cy: height / 2, z: 1 };
-  const moving = targets.filter((target) => {
-    if (isDeadzone(state, target.state, width, d)) return false;
+  const moving: Target[] = [];
+  for (const target of targets) {
+    if (isDeadzone(state, target.state, width, d)) {
+      const previous = moving.at(-1);
+      if (previous) previous.importance = Math.max(previous.importance, target.importance);
+      continue;
+    }
+    moving.push({ ...target });
     state = target.state;
-    return true;
-  });
+  }
   let kept = moving;
   for (const anchor of moving) {
     const window = kept.filter((target) => target.t >= anchor.t
@@ -194,7 +199,12 @@ function applyMoveRateLimit(targets: Target[], width: number, height: number, d:
       .slice(0, d.rate_max));
     kept = kept.filter((target) => !window.includes(target) || winners.has(target));
   }
-  return kept;
+  state = { cx: width / 2, cy: height / 2, z: 1 };
+  return kept.filter((target) => {
+    if (isDeadzone(state, target.state, width, d)) return false;
+    state = target.state;
+    return true;
+  });
 }
 
 /** For cuts, wait until changed_frac stays below the threshold for the settle interval. */

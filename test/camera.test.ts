@@ -100,6 +100,14 @@ test("redundant beats do not consume the move-rate budget", () => {
   assert.ok(at(result, 11).x > at(result, 8.5).x + 500);
 });
 
+test("higher-priority repeat retains its zone under the move cap", () => {
+  const beats = [2, 3.5, 5, 6.5, 8, 9.5].map((time, index) =>
+    beat(`priority${index}`, time, index < 2 || index % 2 ? 300 : 3300));
+  const decisions = beats.map((b, index) => decision(b, index === 0 ? 0 : 2));
+  const result = camera(beats, decisions, 11);
+  assert.ok(at(result, 2.2).w < 3000);
+});
+
 test("four-moves-per-ten-seconds limit discards lowest-importance excess", () => {
   const beats = [1, 3, 5, 7, 9].map((time, index) => beat(`b${index}`, time, index % 2 ? 3300 : 300));
   const decisions = beats.map((b, index) => decision(b, index === 0 ? 0 : 2));
@@ -175,6 +183,8 @@ test("invalid planner references fail before rendering", () => {
   assert.throws(() => camera([b], []), /missing decision/);
   assert.throws(() => camera([b], [{ ...decision(b), A: "missing" }]), /unknown zone/);
   assert.throws(() => camera([b], [{ ...decision(b), B: "missing" }]), /unknown zone/);
+  assert.throws(() => camera([b], [{ ...decision(b), B: "" }]), /unknown zone/);
+  assert.doesNotThrow(() => camera([b], [decision(b)]));
   assert.throws(() => camera([b], [{ ...decision(b), L: 4 as 3 }]), /invalid or missing decision/);
 });
 
@@ -195,6 +205,12 @@ test("frame samples have smooth log zoom and fixed aspect", () => {
 test("--set overrides validate values", () => {
   assert.equal(applyOverrides({ fps: 24 }).fps, 24);
   assert.throws(() => applyOverrides({ unknown: 1 }));
+  for (const overrides of [
+    { fps: 0 }, { out_w: 0 }, { out_h: -2 }, { max_upscale: 0 },
+    { rate_max: 0 }, { rate_window: 0 }, { move_t_min: -1 },
+    { move_t_min: 2, move_t_max: 1 }, { hop_t_scale: 0 },
+    { follow_omega: 0 }, { deadzone_margin: 0.5 }, { follow_inner: 2 },
+  ]) assert.throws(() => applyOverrides(overrides), /invalid|must be at least/);
 });
 
 test("synthetic 4K source renders silent H.264 at 1920x1080 and 30fps", {
