@@ -6,7 +6,32 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { startTaps } from "../taps.js";
 import { evdevProbe } from "../doctor.js";
-import { EV_REL, REL_WHEEL, REL_HWHEEL, REL_WHEEL_HI_RES, REL_HWHEEL_HI_RES } from "../evdev.js";
+import { EV_KEY, EV_REL, REL_WHEEL, REL_HWHEEL, REL_WHEEL_HI_RES, REL_HWHEEL_HI_RES } from "../evdev.js";
+
+test("input is captured before stream geometry is available", async () => {
+  const base = await mkdtemp(join(tmpdir(), "takeone-early-input-"));
+  const deviceDir = join(base, "devices");
+  await mkdir(deviceDir);
+  const key = Buffer.alloc(24);
+  key.writeUInt16LE(EV_KEY, 16);
+  key.writeUInt16LE(30, 18);
+  key.writeInt32LE(1, 20);
+  await writeFile(join(deviceDir, "early-event-kbd"), key);
+  try {
+    const eventsPath = join(base, "events.jsonl");
+    const taps = await startTaps({ eventsPath, t0ns: process.hrtime.bigint(), deviceDir, evdevPollHz: 200 });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    assert.equal(taps.pointerMode, "none");
+    const early = (await readFile(eventsPath, "utf8")).trim().split("\n").map((line) => JSON.parse(line));
+    assert.equal(early.length, 1);
+    assert.equal(early[0].k, "key");
+    assert.ok(early[0].t >= 0);
+    taps.setMapping(null);
+    await taps.stop();
+  } finally {
+    await rm(base, { recursive: true, force: true });
+  }
+});
 
 test("one unreadable evdev device disables all event taps and doctor readiness", async () => {
   const base = await mkdtemp(join(tmpdir(), "takeone-partial-input-"));
@@ -87,6 +112,7 @@ test("video-only tap never reads or writes Hyprland events; unmapped pointer is 
   await writeFile(join(readableDevices, "fake-event-mouse"), "");
   let requests = 0;
   let delayReply = false;
+  let serverClosed = false;
   const server = createServer((conn) => {
     conn.on("data", (data) => {
       requests++;
@@ -124,12 +150,26 @@ test("video-only tap never reads or writes Hyprland events; unmapped pointer is 
     assert.ok(requests > 0);
     await mapped.stop();
     assert.equal(await readFile(eventsPath, "utf8"), "");
+
+    delayReply = false;
+    const runtimeLoss = await startTaps({ eventsPath, mapping, t0ns: process.hrtime.bigint(), deviceDir: readableDevices });
+    const before = requests;
+    const activeDeadline = Date.now() + 1000;
+    while (requests === before && Date.now() < activeDeadline) await new Promise((resolve) => setTimeout(resolve, 5));
+    assert.ok(requests > before);
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    serverClosed = true;
+    const lossDeadline = Date.now() + 1000;
+    while (runtimeLoss.pointerMode === "mapped" && Date.now() < lossDeadline) await new Promise((resolve) => setTimeout(resolve, 5));
+    assert.equal(runtimeLoss.pointerMode, "none");
+    assert.ok(runtimeLoss.warnings.some((warning) => warning.includes("ipc unavailable")));
+    await runtimeLoss.stop();
   } finally {
     if (oldRuntime === undefined) delete process.env.XDG_RUNTIME_DIR;
     else process.env.XDG_RUNTIME_DIR = oldRuntime;
     if (oldSig === undefined) delete process.env.HYPRLAND_INSTANCE_SIGNATURE;
     else process.env.HYPRLAND_INSTANCE_SIGNATURE = oldSig;
-    await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+    if (!serverClosed) await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
     await rm(base, { recursive: true, force: true });
   }
 });

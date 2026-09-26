@@ -79,7 +79,6 @@ export interface CaptureOptions {
 }
 
 export interface Capture {
-  startedNs: bigint;
   geometry: SurfaceGeometry;
   sessionId: string;
   /** The engine session, for take.json's session record. */
@@ -95,7 +94,6 @@ export interface Capture {
 
 export async function startCapture(options: CaptureOptions): Promise<Capture> {
   const { engine, takeDir, stateDir, fps, bitrateKbps, savedToken } = options;
-  const startedNs = process.hrtime.bigint();
 
   const offer = promiseWithCallbacks<{ sdp: string; sessionId: string; generation: number }>();
   const engineCandidates: Extract<EngineEvent, { event: "session.candidate" }>[] = [];
@@ -313,7 +311,6 @@ export async function startCapture(options: CaptureOptions): Promise<Capture> {
 
   let stopped = false;
   return {
-    startedNs,
     geometry: opened.geometry,
     sessionId: opened.sessionId,
     opened,
