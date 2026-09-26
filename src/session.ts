@@ -198,16 +198,20 @@ export async function startCapture(options: CaptureOptions): Promise<Capture> {
     // the engine string stays generic; capture itself is unaffected
   }
 
+  const interrupted = options.interrupted?.then((): never => {
+    throw new RecordError("capture-stopped", "recording stopped during negotiation", "run `takeone record` again");
+  });
+  const whileActive = <T>(promise: Promise<T>): Promise<T> =>
+    interrupted === undefined ? promise : Promise.race([promise, interrupted]);
   let description: Awaited<typeof offer.promise>;
   let offerTimer: NodeJS.Timeout | undefined;
   try {
-    description = await Promise.race([
+    description = await whileActive(Promise.race([
       offer.promise,
       new Promise<never>((_, reject) => { offerTimer = setTimeout(() => reject(new RecordError(
         "no-offer", "no session description arrived within 10s", "run `takeone doctor` and check desklink negotiation",
       )), TRACK_WATCHDOG_MS); }),
-      ...(options.interrupted ? [options.interrupted.then((): never => { throw new RecordError("capture-stopped", "recording stopped during negotiation", "run `takeone record` again"); })] : []),
-    ]);
+    ]));
   } catch (error) {
     await client.closeSession(opened.sessionId).catch(() => undefined);
     await client.stop().catch(() => undefined);
@@ -277,8 +281,8 @@ export async function startCapture(options: CaptureOptions): Promise<Capture> {
   }, TRACK_WATCHDOG_MS);
 
   try {
-  await pc.setRemoteDescription({ type: "offer", sdp: description.sdp });
-  await pc.setLocalDescription(await pc.createAnswer());
+  await whileActive(pc.setRemoteDescription({ type: "offer", sdp: description.sdp }));
+  await whileActive(pc.setLocalDescription(await whileActive(pc.createAnswer())));
   const answerSdp = pc.localDescription?.sdp;
   if (answerSdp === undefined) {
     throw new RecordError(
@@ -287,12 +291,12 @@ export async function startCapture(options: CaptureOptions): Promise<Capture> {
       "this is a werift/desklink interoperability failure; report it",
     );
   }
-  await client.acceptAnswer(description.sessionId, description.generation, answerSdp);
+  await whileActive(client.acceptAnswer(description.sessionId, description.generation, answerSdp));
 
   // Candidates the engine sent while the answer was being prepared.
   for (const buffered of engineCandidates.splice(0)) void addEngineCandidate(pc, buffered);
 
-  await trackReady.promise;
+  await whileActive(trackReady.promise);
   } catch (error) {
     clearTimeout(watchdog);
     if (recorder !== null) await recorder.stop().catch(() => undefined);

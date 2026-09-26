@@ -1,15 +1,11 @@
 #!/usr/bin/env node
 import { join } from "node:path";
 import { homedir } from "node:os";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync, unlinkSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import { makeTake, PreflightRefusal, TakeInputError } from "./make.ts";
 import { renderTake } from "./render/render.ts";
 import { applyOverrides } from "./camera/defaults.ts";
-
-async function recorderCommand(command: string, args: string[]): Promise<number> {
-  return runRecorderCommand(command, args);
-}
 
 export function takesDir(): string {
   return process.env["TAKEONE_DIR"] ?? join(homedir(), "Videos", "takeone");
@@ -59,7 +55,7 @@ takeone [list|record|stop|doctor]
 export async function main(argv: string[]): Promise<number> {
   const [cmd, ...rest] = argv;
   if (!cmd || cmd === "list" || cmd === "record" || cmd === "stop" || cmd === "doctor") {
-    return recorderCommand(cmd ?? "list", rest);
+    return runRecorderCommand(cmd ?? "list", rest);
   }
   if (cmd === "--help" || cmd === "-h" || cmd === "help") usage(0);
   if (cmd === "render") {
@@ -224,15 +220,16 @@ async function record(args: string[]): Promise<void> {
 async function stop(): Promise<void> {
   const { defaultStateDir } = await import("./record.js");
   const { toonTable } = await import("./toon.js");
-  const { rm } = await import("node:fs/promises");
-  const { withPidLock } = await import("./takes.js");
+  const { parsePidFile } = await import("./takes.js");
   const stateDirPath = defaultStateDir();
-  const recording = await withPidLock(stateDirPath, async () => {
-    const current = await readRecording(stateDirPath);
-    if (current === null) await rm(join(stateDirPath, "recording.pid"), { force: true });
-    return current;
-  });
+  const recording = await readRecording(stateDirPath);
   if (recording === null) {
+    try {
+      const pidPath = join(stateDirPath, "recording.pid");
+      if (parsePidFile(readFileSync(pidPath, "utf8")) === null) unlinkSync(pidPath);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
     fail({
       code: "not-recording",
       message: "no recording is active",

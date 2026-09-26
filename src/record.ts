@@ -12,7 +12,7 @@ import { getMonitors, hyprlandSockets } from "./hyprland.js";
 import { startCapture, DEFAULT_BITRATE_KBPS, DEFAULT_FPS, RecordError } from "./session.js";
 import { startTaps, type TapHandle } from "./taps.js";
 import { consumeToken } from "./token.js";
-import { withPidLock } from "./takes.js";
+import { processStartTicks } from "./takes.js";
 import type { TakeMeta } from "./types.js";
 
 export const VERSION = "0.1.0";
@@ -60,7 +60,9 @@ export function defaultStateDir(): string {
 
 async function writePidFile(stateDirPath: string, takeDir: string, startedAt: string): Promise<void> {
   await mkdir(stateDirPath, { recursive: true, mode: 0o700 });
-  const payload = JSON.stringify({ pid: process.pid, take: takeDir, started_at: startedAt });
+  const startTicks = processStartTicks(process.pid);
+  if (startTicks === null) throw new RecordError("pid-unavailable", "cannot read process start time", "check /proc is mounted");
+  const payload = JSON.stringify({ pid: process.pid, start_ticks: startTicks, take: takeDir, started_at: startedAt });
   const pidPath = join(stateDirPath, "recording.pid");
   try {
     await writeFile(pidPath, payload, { flag: "wx", mode: 0o600 });
@@ -102,7 +104,7 @@ export async function runRecord(options: RecordOptions = {}): Promise<RecordResu
     }
   }
   try {
-    await withPidLock(stateDirPath, () => writePidFile(stateDirPath, takeDir, startedAt.toISOString()));
+    await writePidFile(stateDirPath, takeDir, startedAt.toISOString());
   } catch (error) {
     await rm(takeDir, { recursive: true, force: true });
     throw error;
@@ -116,7 +118,9 @@ export async function runRecord(options: RecordOptions = {}): Promise<RecordResu
   const stopped = new Promise<Date>((resolveP) => {
     resolveStopped = resolveP;
   });
+  let stopRequested = false;
   const onStop = (): void => {
+    stopRequested = true;
     process.off("SIGINT", onStop);
     process.off("SIGTERM", onStop);
     resolveStopped(new Date());
@@ -135,6 +139,7 @@ export async function runRecord(options: RecordOptions = {}): Promise<RecordResu
       savedToken,
       interrupted: stopped,
     });
+    if (stopRequested) throw new RecordError("capture-stopped", "recording stopped during setup", "run `takeone record` again");
 
     // Coordinate-mapping self-check at record start: no monitor matching the
     // stream size within 2 px means no-pointer mode.
@@ -142,12 +147,14 @@ export async function runRecord(options: RecordOptions = {}): Promise<RecordResu
     let monitorRecord: unknown = null;
     const hypr = hyprlandSockets();
     if (hypr !== null) {
-      const monitors = await getMonitors(hypr.socket);
-      const picked = pickMonitor(monitors, capture.geometry);
-      if (picked !== null) {
-        mapping = picked;
-        monitorRecord = picked.monitor;
-      }
+      try {
+        const monitors = await getMonitors(hypr.socket);
+        const picked = pickMonitor(monitors, capture.geometry);
+        if (picked !== null) {
+          mapping = picked;
+          monitorRecord = picked.monitor;
+        }
+      } catch {}
     }
 
     const t0ns = capture.startedNs;
@@ -156,6 +163,7 @@ export async function runRecord(options: RecordOptions = {}): Promise<RecordResu
       mapping,
       t0ns,
     });
+    if (stopRequested) throw new RecordError("capture-stopped", "recording stopped during setup", "run `takeone record` again");
 
     const stoppedAt = await stopped;
 

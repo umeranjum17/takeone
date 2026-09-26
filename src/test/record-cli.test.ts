@@ -7,6 +7,7 @@
 
 import assert from "node:assert/strict";
 import { spawn, execFileSync } from "node:child_process";
+import { createServer } from "node:net";
 import { chmod, mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -28,7 +29,7 @@ test("record writes a complete take (pid file, events, take.json) and stops on S
   await chmod(wrapper, 0o755);
 
   const child = spawn(process.execPath, [join(here, "../cli.js"), "record", "--root", root, "--state-dir", stateDir], {
-    env: { ...process.env, MUXR_DESKLINK_ENGINE: wrapper },
+    env: { ...process.env, MUXR_DESKLINK_ENGINE: wrapper, HYPRLAND_INSTANCE_SIGNATURE: "unreachable", XDG_RUNTIME_DIR: base },
     stdio: ["ignore", "pipe", "pipe"],
   });
   const stderr: string[] = [];
@@ -66,8 +67,9 @@ test("record writes a complete take (pid file, events, take.json) and stops on S
 
   // The pid file is live while recording, naming this take.
   const pidFile = join(stateDir, "recording.pid");
-  const pidJson = JSON.parse(await readFile(pidFile, "utf8")) as { pid: number; take: string };
+  const pidJson = JSON.parse(await readFile(pidFile, "utf8")) as { pid: number; take: string; start_ticks: string };
   assert.equal(pidJson.take, takeDir);
+  assert.ok(/^\d+$/.test(pidJson.start_ticks));
   const rival = spawn(process.execPath, [join(here, "../cli.js"), "record", "--root", root, "--state-dir", stateDir], {
     env: { ...process.env, MUXR_DESKLINK_ENGINE: wrapper }, stdio: ["ignore", "pipe", "pipe"],
   });
@@ -103,7 +105,7 @@ test("record writes a complete take (pid file, events, take.json) and stops on S
   assert.deepEqual(plannerTake.stream, { w: 64, h: 64 });
   assert.equal(plannerTake.offset_ms, takeJson.clock?.offsetMs);
   assert.deepEqual(plannerTake.trim, takeJson.trim);
-  assert.equal(takeJson.pointer, "none", "64x64 stream matches no monitor: no-pointer mode");
+  assert.equal(takeJson.pointer, "none", "unreachable IPC must not abort recording");
   const firstRtp = Number((await readFile(framesPath, "utf8")).trim().split("\n")[0]!.split("\t")[0]);
   assert.ok(firstRtp / 90 + plannerTake.offset_ms >= 0);
   assert.ok(firstRtp / 90 + plannerTake.offset_ms <= takeJson.trim.end);
@@ -144,4 +146,43 @@ test("record writes a complete take (pid file, events, take.json) and stops on S
   await assert.rejects(stat(pidFile));
 
   await rm(base, { recursive: true, force: true });
+});
+
+test("stop during monitor setup does not publish an unusable take", { timeout: 20_000 }, async () => {
+  const base = join(tmpdir(), `takeone-setup-${process.pid}-${Math.random().toString(36).slice(2)}`);
+  const root = join(base, "takes");
+  const stateDir = join(base, "state");
+  const socketDir = join(base, "hypr", "test");
+  await mkdir(socketDir, { recursive: true });
+  await mkdir(root);
+  await mkdir(stateDir);
+  const wrapper = join(stateDir, "engine.sh");
+  await writeFile(wrapper, `#!/bin/sh\nexec "${process.execPath}" "${join(here, "fake-engine.js")}" serve\n`);
+  await chmod(wrapper, 0o755);
+  let monitorRequest!: () => void;
+  const requested = new Promise<void>((resolve) => { monitorRequest = resolve; });
+  const server = createServer((conn) => conn.on("data", () => {
+    monitorRequest();
+    setTimeout(() => conn.end("[]"), 100);
+  }));
+  await new Promise<void>((resolve) => server.listen(join(socketDir, ".socket.sock"), resolve));
+  const child = spawn(process.execPath, [join(here, "../cli.js"), "record", "--root", root, "--state-dir", stateDir], {
+    env: { ...process.env, MUXR_DESKLINK_ENGINE: wrapper, XDG_RUNTIME_DIR: base, HYPRLAND_INSTANCE_SIGNATURE: "test" },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  let stderr = "";
+  child.stderr.on("data", (chunk: Buffer) => { stderr += chunk.toString(); });
+  try {
+    await Promise.race([requested, new Promise<never>((_, reject) => setTimeout(() => reject(new Error("monitor request not reached")), 10_000))]);
+    child.kill("SIGINT");
+    assert.equal(await new Promise<number | null>((resolve) => child.on("exit", resolve)), 1);
+    assert.match(stderr, /capture-stopped/);
+    for (const id of await readdir(root)) {
+      await assert.rejects(stat(join(root, id, "take.json")));
+    }
+  } finally {
+    child.kill("SIGKILL");
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    await rm(base, { recursive: true, force: true });
+  }
 });
