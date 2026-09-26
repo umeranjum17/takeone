@@ -265,7 +265,7 @@ export function actionsFromEvents(
         if (w2.k === "wheel") {
           dx += w2.dx;
           dy += w2.dy;
-          detents++;
+          detents += Math.abs(w2.dx) + Math.abs(w2.dy);
           lastT = w2.t;
           used.add(j);
         }
