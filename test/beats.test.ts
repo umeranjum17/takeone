@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { segmentBeats, attachedResults, MAX_BEATS_PER_MIN } from "../src/beats/segment.ts";
+import { segmentBeats, attachedResults, MAX_BEATS_PER_MIN, actStart } from "../src/beats/segment.ts";
 import { zonesForBeat } from "../src/beats/zones.ts";
 import type { Action, FrameRegions, Region } from "../src/types.ts";
 import { STREAM, noopFrames } from "./helpers.ts";
@@ -120,7 +120,7 @@ test("trim boundaries and an all-idle take produce idle beats", () => {
   ]);
 });
 
-test("trim retains overlapping atomic actions but bounds beats and regions", () => {
+test("trim keeps actions starting inside inclusive bounds, clamps ends and regions", () => {
   const bounds = { ...opts(), startMs: 2000, endMs: 3000 };
   const pre: Region = { bbox: [10, 10, 20, 20], area_frac: 0.02 };
   const inside: Region = { bbox: [60, 50, 20, 20], area_frac: 0.02 };
@@ -131,7 +131,7 @@ test("trim retains overlapping atomic actions but bounds beats and regions", () 
     { t: 2750, changed_frac: 0.01, cut: false, regions: [inside] },
     { t: 3500, changed_frac: 0.01, cut: false, regions: [after] },
   ];
-  for (const [t0, t1, beat0, beat1] of [[1500, 2500, 2000, 2500], [2500, 3500, 2500, 3000]]) {
+  for (const [t0, t1, beat0, beat1] of [[2000, 2500, 2000, 2500], [2500, 3500, 2500, 3000]]) {
     const actions: Action[] = [
       { k: "type", t0: t0!, t1: t1!, region: [10, 10, 130, 90], window_cls: "chromium" },
       { k: "dwell", t0: t0!, t1: t1!, x: 20, y: 20, window_cls: "chromium" },
@@ -143,10 +143,11 @@ test("trim retains overlapping atomic actions but bounds beats and regions", () 
       const beats = segmentBeats([action], frames, bounds);
       assert.deepEqual(beats.map((b) => [b.kind, b.t0, b.t1]), [[action.k, beat0, beat1]], action.k);
       if (action.k === "type") assert.deepEqual((beats[0]!.actions[0] as typeof action).region, inside.bbox);
-      else assert.deepEqual(beats[0]!.actions[0], action);
+      else assert.deepEqual(beats[0]!.actions[0], { ...action, t1: beat1 });
     }
   }
-  assert.deepEqual(segmentBeats([click(1500), click(3500)], [], bounds), []);
+  assert.deepEqual(segmentBeats([click(1500), click(3500)], [], bounds).filter((b) => b.kind !== "idle"), []);
+  assert.deepEqual(segmentBeats([click(2000), click(3000)], [], bounds).flatMap((b) => b.actions).map((a) => actStart(a)), [2000, 3000]);
 });
 
 test("trim excludes later regions from results and candidate zones", () => {

@@ -67,6 +67,44 @@ function jevAnswers(): unknown {
   return { answers, usage: { input_tokens: 800 } };
 }
 
+test("make --no-jev renders the agreed beat/decision files into a 1920x1080 MP4", async () => {
+  const dir = newTake();
+  try {
+    assert.equal(await main(["make", dir, "--no-jev"]), 0);
+    const output = join(dir, "out", "t1.mp4");
+    assert.ok(existsSync(output));
+    const probe = JSON.parse(execFileSync("ffprobe", ["-v", "error", "-select_streams", "v:0", "-count_frames", "-show_entries", "stream=width,height,nb_read_frames", "-of", "json", output], { encoding: "utf8" }));
+    assert.deepEqual([probe.streams[0].width, probe.streams[0].height, Number(probe.streams[0].nb_read_frames)], [1920, 1080, 300]);
+    const beats = JSON.parse(readFileSync(join(dir, "analysis", "beats.json"), "utf8"));
+    const decisions = readFileSync(join(dir, "analysis", "decisions.jsonl"), "utf8").trim().split("\n").map(JSON.parse);
+    assert.ok(Array.isArray(beats));
+    assert.equal(beats.length, decisions.length);
+    assert.ok(beats.every((b: { t0: number; t1: number; zones: { type: string; t_change?: number }[] }) => b.t0 >= 0 && b.t1 <= 10 && b.zones.every((z) => Boolean(z.type) && (z.t_change === undefined || z.t_change >= b.t0 && z.t_change <= b.t1))));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("make renders partly and wholly off-screen windows", async () => {
+  const dir = newTake();
+  try {
+    const eventsPath = join(dir, "events.jsonl");
+    const events = readFileSync(eventsPath, "utf8").trim().split("\n").map(JSON.parse);
+    events[0].rect = [-10, 0, 200, 100];
+    events.push({ t: 6000, k: "win", cls: "chromium", title: "Outside", rect: [400, 0, 100, 100] });
+    events.sort((a, b) => a.t - b.t);
+    writeFileSync(eventsPath, events.map((e) => JSON.stringify(e)).join("\n") + "\n");
+
+    await makeTake(dir, { noJev: true, log: () => {}, warn: () => {} });
+    const beats = JSON.parse(readFileSync(join(dir, "analysis", "beats.json"), "utf8"));
+    assert.ok(beats.some((b: { window_rect?: number[] }) => JSON.stringify(b.window_rect) === "[0,0,190,100]"));
+    assert.ok(beats.some((b: { anchor_t: number; window_rect?: number[] }) => b.anchor_t >= 6 && b.window_rect === undefined));
+    assert.ok(existsSync(join(dir, "out", "t1.mp4")));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("CLI rejects malformed --max-tokens values", async () => {
   const error = console.error;
   const messages: string[] = [];
@@ -109,6 +147,49 @@ test("incomplete takes report the missing file; video-only mode permits empty ev
   }
 });
 
+test("make intersects trim with available video before rendering", async () => {
+  const dir = newTake();
+  try {
+    const framesPath = join(dir, "frames.tsv");
+    const lines = readFileSync(framesPath, "utf8").trimEnd().split("\n");
+    lines[0] = `90000\t${lines[0]!.split("\t")[1]}`;
+    writeFileSync(framesPath, lines.join("\n") + "\n");
+    const meta = JSON.parse(readFileSync(join(dir, "take.json"), "utf8"));
+    meta.trim = { start: 0, end: 9000 };
+    writeFileSync(join(dir, "take.json"), JSON.stringify(meta));
+    await makeTake(dir, { noJev: true, log: () => {}, warn: () => {} });
+    const saved = JSON.parse(readFileSync(join(dir, "take.json"), "utf8"));
+    const beats = JSON.parse(readFileSync(join(dir, "analysis", "beats.json"), "utf8"));
+    assert.equal(saved.trim_start, 0);
+    assert.equal(saved.trim_end, 8);
+    assert.ok(beats.every((b: { t0: number; t1: number; anchor_t: number }) => b.t0 >= 0 && b.anchor_t >= 0 && b.t1 <= 8));
+    assert.ok(existsSync(join(dir, "out", "t1.mp4")));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("make rejects trims with no video overlap before writing analysis", async () => {
+  const dir = newTake();
+  try {
+    const framesPath = join(dir, "frames.tsv");
+    const lines = readFileSync(framesPath, "utf8").trimEnd().split("\n");
+    lines[0] = `90000\t${lines[0]!.split("\t")[1]}`;
+    writeFileSync(framesPath, lines.join("\n") + "\n");
+    const takePath = join(dir, "take.json");
+    const original = JSON.parse(readFileSync(takePath, "utf8"));
+    for (const trim of [{ start: 0, end: 500 }, { start: 12000, end: 13000 }]) {
+      writeFileSync(takePath, JSON.stringify({ ...original, trim }));
+      await assert.rejects(makeTake(dir, { noJev: true, log: () => {}, warn: () => {} }),
+        (e: unknown) => e instanceof TakeInputError && e.file === "take.json" && /trim does not overlap video/.test(e.message));
+      assert.ok(!existsSync(join(dir, "analysis")));
+      assert.ok(!existsSync(join(dir, "out", "t1.mp4")));
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("invalid first frame clocks report frames.tsv before planning", async () => {
   const dir = newTake();
   try {
@@ -128,7 +209,7 @@ test("make --no-jev writes analysis files and heuristic decisions", async () => 
     assert.ok(existsSync(join(dir, "analysis", "regions.json")));
     assert.ok(existsSync(join(dir, "analysis", "actions.json")));
     assert.ok(existsSync(join(dir, "analysis", "beats.json")));
-    assert.ok(existsSync(join(dir, "analysis", "decisions.json")));
+    assert.ok(existsSync(join(dir, "analysis", "decisions.jsonl")));
     assert.equal(r.decisions.length, r.beats.length);
     assert.ok(r.beats.length >= 2, `expected several beats, got ${r.beats.length}`);
     for (const d of r.decisions) assert.equal(d.decided_by, "heuristic");
@@ -143,7 +224,7 @@ test("make --no-jev writes analysis files and heuristic decisions", async () => 
     // events.jsonl titles stay local: nothing in the analysis files carries the title
     const allAnalysis =
       readFileSync(join(dir, "analysis", "beats.json"), "utf8") +
-      readFileSync(join(dir, "analysis", "decisions.json"), "utf8");
+      readFileSync(join(dir, "analysis", "decisions.jsonl"), "utf8");
     assert.ok(!allAnalysis.includes("Quarterly report"));
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -191,7 +272,7 @@ test("make with a key decides via Jev and accounts usage; cache hit costs zero c
     const jevDecisions = r1.decisions.filter((d) => d.decided_by === "jev");
     assert.ok(jevDecisions.length >= 2);
     assert.equal(r1.jev.input_tokens, calls * 800);
-    assert.ok(existsSync(join(dir, "analysis", "decisions.jsonl")));
+    assert.ok(existsSync(join(dir, "analysis", "jev-cache.jsonl")));
     const callsAfterFirst = calls;
 
     // second run: identical requests, so every call is a cache hit
@@ -405,7 +486,8 @@ test("raw window identity requires screen-text opt-in and titles are redacted", 
     assert.ok(!JSON.stringify(normal.beats.flatMap((b) => b.zones.map((z) => z.desc))).includes("PrivateCustomerName"));
     const opted = await makeTake(dir, { noJev: true, screenText: true, log: () => {}, warn: () => {} });
     const descriptions = JSON.stringify(opted.beats.flatMap((b) => b.zones.map((z) => z.desc)));
-    assert.ok(descriptions.includes("PrivateCustomerName"));
+    assert.ok(descriptions.includes("[redacted]"));
+    assert.ok(!descriptions.includes("PrivateCustomerName"));
     assert.ok(descriptions.includes("[redacted]"));
     assert.ok(!descriptions.includes("12345abcdefghijklmnop"));
   } finally {

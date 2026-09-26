@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { actionsFromEvents } from "../src/perceive/actions.ts";
+import { segmentBeats } from "../src/beats/segment.ts";
 import type { Event, FrameRegions } from "../src/types.ts";
 import { STREAM, noopFrames } from "./helpers.ts";
 
@@ -46,6 +47,19 @@ test("second click within 400 ms and 6 px makes a double", () => {
   assert.equal((clicks[0] as { double?: boolean }).double, true);
 });
 
+test("clicks outside trim cannot consume an in-trim click", () => {
+  const clicks = (first: number, second: number) => [
+    win, ptr(10, 10, 100), btn(true, first - 50), btn(false, first),
+    btn(true, second - 50), btn(false, second),
+  ];
+  const after = actionsFromEvents(clicks(500, 700), frames(), { ...opts(), startMs: 400, endMs: 600 });
+  assert.deepEqual(after.filter((a) => a.k === "click").map((a) => [a.t, a.double]), [[500, undefined]]);
+  const before = actionsFromEvents(clicks(300, 500), frames(), { ...opts(), startMs: 400, endMs: 600 });
+  assert.deepEqual(before.filter((a) => a.k === "click").map((a) => [a.t, a.double]), [[500, undefined]]);
+  const within = actionsFromEvents(clicks(500, 700), frames(), { ...opts(), startMs: 400, endMs: 700 });
+  assert.deepEqual(within.filter((a) => a.k === "click").map((a) => [a.t, a.double]), [[700, true]]);
+});
+
 test("different mouse buttons remain separate clicks", () => {
   const acts = actionsFromEvents([
     win, ptr(10, 10, 400), btn(true, 500), btn(false, 550),
@@ -78,6 +92,36 @@ test("drag: moved more than 12 px even when brief", () => {
   assert.equal(acts.filter((a) => a.k === "click").length, 0);
 });
 
+test("drag and travel geometry excludes pointer movement after trim", () => {
+  const drag = actionsFromEvents([
+    win, ptr(10, 10, 100), btn(true, 200), ptr(50, 50, 500), ptr(200, 100, 900), btn(false, 1000),
+  ], frames(), { ...opts(), endMs: 600 }).find((a) => a.k === "drag");
+  assert.ok(drag);
+  assert.equal(drag.t1, 1000);
+  assert.deepEqual(drag.to, [50, 50]);
+  assert.deepEqual(drag.bbox, [10, 10, 40, 40]);
+
+  const travel = actionsFromEvents([
+    win, ptr(10, 10, 100), ptr(120, 10, 400), ptr(280, 90, 900),
+  ], frames(), { ...opts(), endMs: 600 }).find((a) => a.k === "travel");
+  assert.ok(travel);
+  assert.equal(travel.t1, 400);
+  assert.deepEqual(travel.to, [120, 10]);
+  assert.deepEqual(travel.bbox, [10, 10, 110, 0]);
+});
+
+test("post-trim pointer samples cannot create dwell or travel", () => {
+  const stationary = actionsFromEvents([
+    win, ptr(50, 50, 100), ptr(50, 50, 500), ptr(50, 50, 1000),
+  ], frames(), { ...opts(), endMs: 600 });
+  assert.equal(stationary.filter((a) => a.k === "dwell").length, 0);
+
+  const moving = actionsFromEvents([
+    win, ptr(10, 10, 100), ptr(30, 10, 500), ptr(250, 10, 1000),
+  ], frames(), { ...opts(), endMs: 600 });
+  assert.equal(moving.filter((a) => a.k === "travel").length, 0);
+});
+
 test("scroll merges wheel events with gaps under 500 ms", () => {
   const wheel = (t: number): Event => ({ t, k: "wheel", dx: 0, dy: 1 });
   const acts = actionsFromEvents(
@@ -89,6 +133,26 @@ test("scroll merges wheel events with gaps under 500 ms", () => {
   assert.equal(scrolls.length, 2); // 500,700 merge; 1400 is a new burst
   assert.equal(scrolls[0]!.detents, 2);
   assert.equal(scrolls[0]!.dy, 2);
+});
+
+test("scroll payload excludes wheel events after trim", () => {
+  const events: Event[] = [
+    win, ptr(50, 50, 100),
+    { t: 500, k: "wheel", dx: 2, dy: 1 },
+    { t: 900, k: "wheel", dx: 3, dy: 9 },
+  ];
+  const full = actionsFromEvents(events, frames(), opts()).find((a) => a.k === "scroll");
+  assert.ok(full);
+  assert.deepEqual([full.t1, full.dx, full.dy, full.detents], [900, 5, 10, 2]);
+
+  const scoped = actionsFromEvents(events, frames(), { ...opts(), endMs: 600 });
+  const scroll = scoped.find((a) => a.k === "scroll");
+  assert.ok(scroll);
+  assert.deepEqual([scroll.t0, scroll.t1, scroll.dx, scroll.dy, scroll.detents], [500, 500, 2, 1, 1]);
+  const beats = segmentBeats(scoped, frames(), { stream: STREAM, takeMs: 600, startMs: 0, endMs: 600 });
+  const retained = beats.flatMap((b) => b.actions).find((a) => a.k === "scroll");
+  assert.ok(retained);
+  assert.deepEqual([retained.t1, retained.dx, retained.dy, retained.detents], [500, 2, 1, 1]);
 });
 
 test("type merges key downs with gaps under 1.2 s", () => {

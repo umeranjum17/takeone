@@ -41,7 +41,7 @@ function usage(code: number): never {
   console.error(`takeone make <id> [--no-jev] [--about "<topic>"] [--screen-text] [--max-tokens N]
 takeone render <take-dir> [--set key=value]
 
-  Turns a recorded take into beats and camera decisions (pipeline steps 1-3).
+  make plans beats and camera decisions, then renders an MP4.
   render creates a camera path and MP4 from a planned take.
 
   --no-jev        decide every beat with the local heuristic; zero network calls

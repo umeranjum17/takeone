@@ -7,7 +7,7 @@ export interface Zone {
   name: string;
   type: ZoneType;
   bbox: [number, number, number, number]; // x, y, w, h in stream pixels
-  /** Result zone: time the region first changed (event clock, s). */
+  /** Result zone: time the region first changed (video-relative s). */
   t_change?: number;
 }
 
@@ -32,7 +32,7 @@ export interface Beat {
   actions: unknown[];
   zones: Zone[];
   kind: BeatKind;
-  /** Cut beats: changed_frac per 50 ms window after the cut (event clock, s). */
+  /** Cut beats: changed_frac at each analysis frame after the cut (video-relative s). */
   changed_frac?: { t: number; f: number }[];
 }
 

@@ -1,13 +1,8 @@
-// takeone make, steps 1-3: perceive, segment, decide.
-// Its output contract is not yet compatible with the existing render command.
-
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import type {
   Beat,
   Decision,
-  Event,
-  FrameRegions,
   JevAnswers,
   TakeMeta,
 } from "./types.ts";
@@ -28,7 +23,9 @@ import {
 } from "./decide/jev.ts";
 import { ocrZone } from "./decide/ocr.ts";
 import { redactText } from "./decide/redact.ts";
-import type { BBox } from "./types.ts";
+import { renderTake } from "./render/render.ts";
+import type { Beat as RenderBeat, Decision as RenderDecision, TakeMeta as RenderMeta } from "./camera/types.ts";
+import { clampBBox, type BBox } from "./types.ts";
 
 export const DEFAULT_TOKENS_PER_MIN = 40000;
 
@@ -89,6 +86,10 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
     throw new TakeInputError("frames.tsv", "invalid first frame timestamp");
   }
   const dec = await decodeAnalysisFrames(webm, take, framesTsv);
+  const videoEndMs = videoStartMs + dec.frames.length * 100;
+  const startMs = Math.max(videoStartMs, take.trim?.start ?? videoStartMs);
+  const endMs = Math.min(videoEndMs, take.trim?.end ?? videoEndMs);
+  if (!(endMs > startMs)) throw new TakeInputError("take.json", "trim does not overlap video");
   // advancing pointer walk: both streams are time-ordered
   let pi = 0;
   let last: { x: number; y: number } | null = null;
@@ -112,9 +113,7 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
     pointers,
     { w: dec.w, h: dec.h, streamW: take.stream.w, streamH: take.stream.h },
   );
-  const startMs = take.trim?.start ?? 0;
-  const endMs = take.trim?.end ?? takeDuration(frames, events);
-  const takeMs = Math.max(0, endMs - startMs);
+  const takeMs = endMs - startMs;
   const scopedFrames = frames.filter((f) => f.t >= startMs && f.t <= endMs);
   const winFor = (t: number): { cls: string; rect: BBox; title: string } | null => {
     let found: { cls: string; rect: BBox; title: string } | null = null;
@@ -128,6 +127,8 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
   const actions = actionsFromEvents(events, scopedFrames, {
     stream: take.stream,
     pointer: take.pointer ?? "hyprland",
+    startMs,
+    endMs,
   });
   actions.push(...frames.filter((f) => f.cut).map((f) => ({ k: "cut" as const, t: f.t, changed_frac: f.changed_frac, window_cls: winFor(f.t)?.cls ?? "" })));
   actions.sort((a, b) => ("t" in a ? a.t : a.t0) - ("t" in b ? b.t : b.t0));
@@ -149,7 +150,22 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
     });
     if (opts.screenText) await addScreenText(b, win, webm, videoStartMs);
   }
-  writeFileSync(join(analysisDir, "beats.json"), JSON.stringify({ take: take.id, beats }, null, 1));
+  const seconds = (ms: number) => (ms - videoStartMs) / 1000;
+  const renderBeats: RenderBeat[] = beats.map((b) => {
+    const window = winFor(b.anchor_t);
+    const windowRect = window && clampBBox(window.rect, take.stream.w, take.stream.h);
+    return {
+      id: b.id, t0: seconds(b.t0), t1: seconds(b.t1), anchor_t: seconds(b.anchor_t),
+      kind: b.kind, window_cls: b.window_cls,
+      ...(windowRect ? { window_rect: windowRect } : {}),
+      actions: b.actions.map((a) => "t1" in a ? { ...a, t0: seconds(a.t0), t1: seconds(a.t1) } : { ...a, t: seconds(a.t) }),
+      zones: b.zones.map((z) => ({ name: z.name, type: z.kind, bbox: z.bbox,
+        ...(z.kind === "res" && z.t !== undefined ? { t_change: seconds(Math.max(b.t0, Math.min(b.t1, z.t))) } : {}),
+      })),
+      ...(b.kind === "cut" ? { changed_frac: scopedFrames.filter((f) => f.t >= b.t0 && f.t <= b.t1).map((f) => ({ t: seconds(f.t), f: f.changed_frac })) } : {}),
+    };
+  });
+  writeFileSync(join(analysisDir, "beats.json"), JSON.stringify(renderBeats, null, 1));
 
   // 3 decide --------------------------------------------------------------
   const key = opts.noJev ? null : opts.apiKey !== undefined ? opts.apiKey : loadApiKey();
@@ -213,7 +229,7 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
       `preflight: ${beats.length} beats, ${reservedTokens} planned tokens, $${(reservedTokens * PRICE_PER_MTOK / 1e6).toFixed(6)} planned`,
     );
 
-    const cache = new DecisionCache(join(analysisDir, "decisions.jsonl"));
+    const cache = new DecisionCache(join(analysisDir, "jev-cache.jsonl"));
     const outcomes: ({ response: unknown; inputTokens?: number } | "failed")[] = new Array(beats.length);
     await pooled(jobs, CONCURRENCY, async (j) => {
       const r = await askBeat(j.body, key, cache, { fetchImpl: opts.fetchImpl,
@@ -289,10 +305,18 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
     }
   }
 
-  writeFileSync(join(analysisDir, "decisions.json"), JSON.stringify(decisions, null, 1));
+  const renderDecisions: RenderDecision[] = decisions.map((d) => ({
+    ...d, conf: Math.max(0, Math.min(1, d.conf.A ?? d.conf.B ?? d.conf.L ?? 0)),
+  }));
+  writeFileSync(join(analysisDir, "decisions.jsonl"), renderDecisions.map((d) => JSON.stringify(d)).join("\n") + "\n");
   const jev = { input_tokens: inputTokens, usd, failed };
   take.jev = jev;
-  writeFileSync(join(dir, "take.json"), JSON.stringify(take, null, 1) + "\n");
+  const renderMeta: RenderMeta = {
+    id: take.id, width: take.stream.w, height: take.stream.h,
+    trim_start: seconds(startMs), trim_end: seconds(endMs),
+  };
+  writeFileSync(join(dir, "take.json"), JSON.stringify({ ...take, ...renderMeta }, null, 1) + "\n");
+  await renderTake(dir);
 
   const byJev = decisions.filter((d) => d.decided_by === "jev").length;
   log(`make: ${beats.length} beats; ${byJev} by jev, ${decisions.length - byJev} by heuristic` +
@@ -366,13 +390,6 @@ function noulP(v: Record<string, unknown>): number | undefined {
   return undefined;
 }
 
-function takeDuration(frames: FrameRegions[], events: Event[]): number {
-  let maxT = 0;
-  if (frames.length > 0) maxT = frames[frames.length - 1]!.t;
-  for (const e of events) if (e.t > maxT) maxT = e.t;
-  return Math.max(maxT, 1000);
-}
-
 function finalFrame(
   beat: Beat,
   d: Decision,
@@ -399,7 +416,7 @@ async function addScreenText(
 ): Promise<void> {
   for (const z of beat.zones) {
     if (z.area_frac >= OCR_MAX_AREA) continue;
-    const text = await ocrZone(webm, z.bbox, Math.max(0, (z.t ?? beat.anchor_t) - videoStartMs));
+    const text = await ocrZone(webm, z.bbox, Math.max(0, Math.max(beat.t0, Math.min(beat.t1, z.t ?? beat.anchor_t)) - videoStartMs));
     if (text) z.desc.text = text;
   }
   if (win && beat.zones.length > 0) {

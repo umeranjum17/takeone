@@ -1,5 +1,5 @@
 // Jev client: one POST per beat, concurrency 8, 3 s timeout, one retry on 429
-// honouring retry-after, and a request-hash cache in analysis/decisions.jsonl.
+// honouring retry-after, and a request-hash cache in analysis/jev-cache.jsonl.
 // The API key is read from TYPESAFE_API_KEY or ~/.config/takeone/env, sent only
 // as a header, and never logged.
 
