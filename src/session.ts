@@ -72,6 +72,7 @@ export interface CaptureOptions {
   fps: number;
   bitrateKbps: number;
   savedToken: string | null;
+  onGeometry?: (geometry: SurfaceGeometry) => Promise<void>;
   /** Resolves when a stop is requested while still waiting on consent. */
   interrupted?: Promise<unknown>;
   /** Test hook: shrink the consent deadline. */
@@ -85,8 +86,6 @@ export interface Capture {
   opened: OpenedSession;
   /** From the handshake capabilities, e.g. "desklink-host/0.1.0". */
   engineVersion: string;
-  /** Resolves when the video track exists; rejects on the watchdog. */
-  ready: Promise<void>;
   frames(): FrameSample[];
   /** Graceful shutdown; resolves with the engine's final metrics. */
   stop(): Promise<SessionMetrics | null>;
@@ -189,13 +188,6 @@ export async function startCapture(options: CaptureOptions): Promise<Capture> {
     if (error instanceof RecordError) throw error; // already structured
     throw openRefused(error);
   }
-  try {
-    // Safe after the handshake and before any capture ask: no portal here.
-    engineVersion = (await client.capabilities()).engine;
-  } catch {
-    // the engine string stays generic; capture itself is unaffected
-  }
-
   const interrupted = options.interrupted?.then((): never => {
     throw new RecordError("capture-stopped", "recording stopped during negotiation", "run `takeone record` again");
   });
@@ -204,6 +196,10 @@ export async function startCapture(options: CaptureOptions): Promise<Capture> {
   let description: Awaited<typeof offer.promise>;
   let offerTimer: NodeJS.Timeout | undefined;
   try {
+    if (options.onGeometry !== undefined) await whileActive(options.onGeometry(opened.geometry));
+    try {
+      engineVersion = (await client.capabilities()).engine;
+    } catch {}
     description = await whileActive(Promise.race([
       offer.promise,
       new Promise<never>((_, reject) => { offerTimer = setTimeout(() => reject(new RecordError(
@@ -315,7 +311,6 @@ export async function startCapture(options: CaptureOptions): Promise<Capture> {
     sessionId: opened.sessionId,
     opened,
     engineVersion,
-    ready: Promise.resolve(),
     frames: () => frames,
     async stop(): Promise<SessionMetrics | null> {
       if (stopped) return null;

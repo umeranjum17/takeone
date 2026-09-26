@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { formatDoctor, type DoctorCheck } from "../doctor.js";
-import { structuredError, toonTable } from "../toon.js";
+import { toonTable } from "../toon.js";
 import { computeTrim } from "../record.js";
 
 test("doctor output is a TOON table with a stable shape", () => {
@@ -33,14 +33,6 @@ test("doctor output is a TOON table with a stable shape", () => {
 test("a detail containing a comma is quoted, not split", () => {
   const out = formatDoctor([{ check: "evdev", ok: false, detail: "missing group, add user" }]);
   assert.ok(out.includes('"missing group, add user"'));
-});
-
-test("structured errors are JSON with code, message and hint", () => {
-  const line = structuredError("consent-cancelled", "the dialog was cancelled", "run again");
-  const parsed = JSON.parse(line) as { error: { code: string; message: string; hint: string } };
-  assert.deepEqual(parsed, {
-    error: { code: "consent-cancelled", message: "the dialog was cancelled", hint: "run again" },
-  });
 });
 
 test("toonTable renders empty tables as a bare header", () => {

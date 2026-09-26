@@ -35,6 +35,7 @@ test("session answers a VP9 offer, records frames.tsv and screen.webm, saves the
     origin: "test",
   } as const;
 
+  let geometryBeforeVideo = false;
   const capture = await startCapture({
     engine: engine as unknown as Parameters<typeof startCapture>[0]["engine"],
     takeDir,
@@ -42,10 +43,15 @@ test("session answers a VP9 offer, records frames.tsv and screen.webm, saves the
     fps: 30,
     bitrateKbps: 40_000,
     savedToken: null,
+    onGeometry: async (geometry) => {
+      assert.equal(geometry.source.width, 64);
+      await assert.rejects(stat(join(takeDir, "frames.tsv")));
+      geometryBeforeVideo = true;
+    },
   });
+  assert.equal(geometryBeforeVideo, true);
   assert.equal(capture.engineVersion, "desklink-host/fake");
   assert.equal(capture.geometry.source.width, 64);
-  await capture.ready;
 
   // Wait for the fake engine's 20 frames to arrive over loopback.
   const deadline = Date.now() + 10_000;

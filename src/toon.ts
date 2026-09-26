@@ -17,12 +17,3 @@ export function toonTable(
   const body = rows.map((row) => `  ${row.map(cell).join(",")}`).join("\n");
   return `${head}\n${body}`;
 }
-
-/** A structured error line for stderr, as JSON with a next-step hint. */
-export function structuredError(
-  code: string,
-  message: string,
-  hint: string,
-): string {
-  return JSON.stringify({ error: { code, message, hint } });
-}
