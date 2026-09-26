@@ -153,20 +153,22 @@ interface Flags {
 
 function parseFlags(args: string[]): Flags {
   const flags: Flags = {};
-  const take = (name: string): string | undefined => {
-    const index = args.indexOf(name);
-    if (index === -1) return undefined;
-    const value = args[index + 1];
-    return typeof value === "string" ? value : undefined;
-  };
-  const fps = take("--fps");
-  if (fps !== undefined) flags.fps = Number(fps);
-  const bitrate = take("--bitrate");
-  if (bitrate !== undefined) flags.bitrateKbps = Number(bitrate);
-  const root = take("--root");
-  if (root !== undefined) flags.root = root;
-  const state = take("--state-dir");
-  if (state !== undefined) flags.state = state;
+  const seen = new Set<string>();
+  for (let i = 0; i < args.length; i += 2) {
+    const name = args[i]!;
+    const value = args[i + 1];
+    if (!["--fps", "--bitrate", "--root", "--state-dir"].includes(name) || value === undefined || value === "" || value.startsWith("--") || seen.has(name)) {
+      fail({ code: "invalid-arguments", message: `invalid record option: ${name}`, hint: "run `takeone --help`" });
+    }
+    seen.add(name);
+    if (name === "--fps" || name === "--bitrate") {
+      const number = Number(value);
+      if (!Number.isSafeInteger(number) || number <= 0) fail({ code: "invalid-arguments", message: `${name} must be a positive integer`, hint: "run `takeone --help`" });
+      if (name === "--fps") flags.fps = number;
+      else flags.bitrateKbps = number;
+    } else if (name === "--root") flags.root = value;
+    else flags.state = value;
+  }
   return flags;
 }
 
@@ -283,6 +285,7 @@ async function doctor(): Promise<number> {
 }
 
 async function runRecorderCommand(command: string, args: string[]): Promise<number> {
+  if (command !== "record" && args.length > 0) fail({ code: "invalid-arguments", message: `${command} takes no arguments`, hint: "run `takeone --help`" });
   if (command === "list") { await list(); return 0; }
   if (command === "record") { await record(args); return 0; }
   if (command === "stop") { await stop(); return 0; }
