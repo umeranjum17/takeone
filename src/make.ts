@@ -76,7 +76,7 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
   const take = JSON.parse(readFileSync(join(dir, "take.json"), "utf8")) as TakeMeta;
   const framesTsv = join(dir, "frames.tsv");
   const webm = join(dir, "screen.webm");
-  for (const [file, path] of [["screen.webm", webm], ["frames.tsv", framesTsv]]) {
+  for (const [file, path] of [["screen.webm", webm], ["frames.tsv", framesTsv]] as const) {
     if (!existsSync(path)) throw new TakeInputError(file, "missing");
   }
   const eventsPath = join(dir, "events.jsonl");

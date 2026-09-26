@@ -76,7 +76,7 @@ export type ActionKind = Action["k"];
 /** Candidate zone kinds, in the fixed vocabulary sent to Jev. */
 export type ZoneKind = "act" | "res" | "txt" | "path" | "win" | "all";
 
-/** Word description of a zone. Never contains digits. */
+/** Fixed-vocabulary zone description; optional opt-in text can contain digits. */
 export interface ZoneDesc {
   shows: string;
   size: string;
