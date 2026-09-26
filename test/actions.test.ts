@@ -155,16 +155,30 @@ test("scroll payload excludes wheel events after trim", () => {
   ];
   const full = actionsFromEvents(events, frames(), opts()).find((a) => a.k === "scroll");
   assert.ok(full);
-  assert.deepEqual([full.t1, full.dx, full.dy, full.detents], [900, 5, 10, 2]);
+  assert.deepEqual([full.t1, full.dx, full.dy, full.detents], [900, 5, 10, 15]);
 
   const scoped = actionsFromEvents(events, frames(), { ...opts(), endMs: 600 });
   const scroll = scoped.find((a) => a.k === "scroll");
   assert.ok(scroll);
-  assert.deepEqual([scroll.t0, scroll.t1, scroll.dx, scroll.dy, scroll.detents], [500, 500, 2, 1, 1]);
+  assert.deepEqual([scroll.t0, scroll.t1, scroll.dx, scroll.dy, scroll.detents], [500, 500, 2, 1, 3]);
   const beats = segmentBeats(scoped, frames(), { stream: STREAM, takeMs: 600, startMs: 0, endMs: 600 });
   const retained = beats.flatMap((b) => b.actions).find((a) => a.k === "scroll");
   assert.ok(retained);
-  assert.deepEqual([retained.t1, retained.dx, retained.dy, retained.detents], [500, 2, 1, 1]);
+  assert.deepEqual([retained.t1, retained.dx, retained.dy, retained.detents], [500, 2, 1, 3]);
+});
+
+test("fractional wheel reports count motion, not records", () => {
+  const acts = actionsFromEvents([
+    win, ptr(50, 50, 100),
+    { t: 500, k: "wheel", dx: 0, dy: 0.5 },
+    { t: 700, k: "wheel", dx: 0, dy: 0.5 },
+    { t: 1400, k: "wheel", dx: -0.25, dy: 0 },
+    { t: 1600, k: "wheel", dx: -0.75, dy: 0 },
+    { t: 2300, k: "wheel", dx: 0, dy: -0.5 },
+  ], frames(), opts());
+  assert.deepEqual(acts.filter((a) => a.k === "scroll").map((a) => [a.dx, a.dy, a.detents]), [
+    [0, 1, 1], [-1, 0, 1], [0, -0.5, 0.5],
+  ]);
 });
 
 test("type merges key downs with gaps under 1.2 s", () => {
