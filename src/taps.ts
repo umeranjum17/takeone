@@ -5,7 +5,7 @@
  * never recorded.
  */
 
-import { promises as fs, constants as fsConstants, openSync, readSync, closeSync } from "node:fs";
+import { promises as fs, constants as fsConstants, openSync, readSync, closeSync, fstatSync } from "node:fs";
 import { extractRecords, EV_SYN, EV_KEY, EV_REL, REL_WHEEL, REL_HWHEEL, REL_WHEEL_HI_RES, REL_HWHEEL_HI_RES, HI_RES_PER_DETENT, BUTTON_NAMES } from "./evdev.js";
 import { classifyKeyEvent } from "./keyclass.js";
 import { mapLogicalToStream, mapRectToStream, type MonitorInfo } from "./mapping.js";
@@ -46,6 +46,7 @@ const DEVICE_DIR = "/dev/input/by-id";
 interface EvdevDevice {
   path: string;
   fd: number;
+  character: boolean;
 }
 
 /**
@@ -69,10 +70,12 @@ async function evdevDevices(dir: string): Promise<{ devices: EvdevDevice[]; miss
   let eacces = false;
   let unreadable = false;
   for (const path of candidates) {
+    let fd: number | null = null;
     try {
-      const fd = openSync(path, fsConstants.O_RDONLY | fsConstants.O_NONBLOCK);
-      devices.push({ path, fd });
+      fd = openSync(path, fsConstants.O_RDONLY | fsConstants.O_NONBLOCK);
+      devices.push({ path, fd, character: fstatSync(fd).isCharacterDevice() });
     } catch (error) {
+      if (fd !== null) closeSync(fd);
       unreadable = true;
       if ((error as NodeJS.ErrnoException).code === "EACCES") eacces = true;
     }
@@ -98,6 +101,7 @@ export async function startTaps(options: TapOptions): Promise<TapHandle> {
   const out = await fs.open(eventsPath, "a", 0o600);
   let writes = Promise.resolve();
   let writeError: unknown = null;
+  let readError: Error | null = null;
   const emit = (event: TapEvent): void => {
     if (stopped) return;
     writes = writes.then(() => out.write(`${JSON.stringify(event)}\n`)).then(() => undefined).catch((error: unknown) => {
@@ -191,6 +195,7 @@ export async function startTaps(options: TapOptions): Promise<TapHandle> {
     const chunk = Buffer.alloc(4096);
 
     const drain = (state: (typeof states)[number]): void => {
+      if (readError !== null) return;
       const { device } = state;
       let bytesRead = 0;
       do {
@@ -199,8 +204,10 @@ export async function startTaps(options: TapOptions): Promise<TapHandle> {
         } catch (error) {
           const code = (error as NodeJS.ErrnoException).code;
           if (code === "EAGAIN" || code === "EINTR") return; // no data (or retry next tick)
-          return; // device went away: keep the rest running
+          readError = new Error(`evdev read failed: ${device.path}: ${String(error)}`);
+          return;
         }
+        if (bytesRead === 0 && device.character) readError = new Error(`evdev device closed: ${device.path}`);
         if (bytesRead > 0) handleChunk(chunk.subarray(0, bytesRead), state);
       } while (bytesRead > 0);
     };
@@ -278,6 +285,7 @@ export async function startTaps(options: TapOptions): Promise<TapHandle> {
       await writes;
       await out.close();
       if (writeError !== null) throw writeError;
+      if (readError !== null) throw readError;
     },
   };
 }

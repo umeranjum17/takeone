@@ -119,7 +119,7 @@ async function handle(line: string): Promise<void> {
         },
       });
       pc.connectionStateChange.subscribe((state) => {
-        if (state === "connected") pushFrames(track);
+        if (state === "connected") setTimeout(() => pushFrames(track), Number(process.env.FAKE_DELAY_FRAMES_MS ?? 0));
       });
       break;
     }

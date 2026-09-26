@@ -79,6 +79,27 @@ test("session answers a VP9 offer, records frames.tsv and screen.webm, saves the
   await rm(dirname(takeDir), { recursive: true, force: true });
 });
 
+test("stop before first packet aborts negotiation without a completed capture", { timeout: 15_000 }, async () => {
+  const { takeDir, stateDir } = await tempDirs();
+  const prior = process.env.FAKE_DELAY_FRAMES_MS;
+  process.env.FAKE_DELAY_FRAMES_MS = "3000";
+  let stop!: () => void;
+  const interrupted = new Promise<void>((resolve) => { stop = resolve; });
+  try {
+    const capture = startCapture({
+      engine: { command: process.execPath, args: [join(here, "fake-engine.js")], origin: "test" } as Parameters<typeof startCapture>[0]["engine"],
+      takeDir, stateDir, fps: 30, bitrateKbps: 40_000, savedToken: null, interrupted,
+    });
+    setTimeout(stop, 1000);
+    await assert.rejects(capture, (error: unknown) =>
+      error instanceof Error && (error as { code?: string }).code === "capture-stopped");
+  } finally {
+    if (prior === undefined) delete process.env.FAKE_DELAY_FRAMES_MS;
+    else process.env.FAKE_DELAY_FRAMES_MS = prior;
+    await rm(dirname(takeDir), { recursive: true, force: true });
+  }
+});
+
 test("unfinished WebM cannot finish a take successfully", { timeout: 30_000 }, async () => {
   const { takeDir, stateDir } = await tempDirs();
   const originalStop = MediaRecorder.prototype.stop;
