@@ -227,6 +227,8 @@ function buildTargets(
   beats: Beat[],
   width: number,
   height: number,
+  start: number,
+  end: number,
   d: CameraDefaults,
 ): Target[] {
   const targets = shots.flatMap((shot) => {
@@ -239,7 +241,7 @@ function buildTargets(
     }];
     if (shot.zoneB !== shot.zoneA && shot.decision.B) {
       const resultTime = shot.zoneB.t_change ?? shot.beat.t1;
-      result.push({
+      if (resultTime >= start && resultTime < end) result.push({
         t: resultTime + d.result_late,
         state: frame(shot.zoneB, shot.decision.L, width, height, shot.beat.window_rect, d),
         importance: shot.decision.K,
@@ -261,7 +263,8 @@ function buildTargets(
       importance: 0,
     });
   }
-  return targets.sort((a, b) => a.t - b.t);
+  return targets.filter((target) => target.t >= start && target.t < end
+    && (target.startAfter ?? start) < end).sort((a, b) => a.t - b.t);
 }
 
 function distance(from: CameraState, to: CameraState, width: number): number {
@@ -484,8 +487,10 @@ export function solveCamera(
   const width = take.width;
   const height = take.height;
   const decisionMap = new Map(decisions.map((decision) => [decision.beat, decision]));
-  const shots = buildShots(beats, decisions, start, d);
+  const visibleBeats = beats.filter((beat) => beat.t1 > start && beat.t0 < end);
+  const shots = buildShots(beats, decisions, start, d)
+    .filter((shot) => visibleBeats.includes(shot.beat));
   const quietShots = applyDwellAndShotLength(shots, d);
-  const targets = applyMoveRateLimit(buildTargets(quietShots, beats, width, height, d), width, height, d);
-  return sampleCamera(targets, beats, decisionMap, width, height, start, end, d);
+  const targets = applyMoveRateLimit(buildTargets(quietShots, visibleBeats, width, height, start, end, d), width, height, d);
+  return sampleCamera(targets, visibleBeats, decisionMap, width, height, start, end, d);
 }

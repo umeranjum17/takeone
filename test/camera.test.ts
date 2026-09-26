@@ -111,7 +111,7 @@ test("higher-priority repeat retains its zone under the move cap", () => {
 test("four-moves-per-ten-seconds limit discards lowest-importance excess", () => {
   const beats = [1, 3, 5, 7, 9].map((time, index) => beat(`b${index}`, time, index % 2 ? 3300 : 300));
   const decisions = beats.map((b, index) => decision(b, index === 0 ? 0 : 2));
-  const result = camera(beats, decisions, 7);
+  const result = camera(beats, decisions, 11);
   // The low-importance first target is discarded, so it has not zoomed by its arrival.
   assert.equal(at(result, 1.1).w, 3840);
 });
@@ -236,6 +236,43 @@ test("camera rejects ambiguous identities and times outside beats", () => {
   assert.throws(() => camera([{ ...b, zones: [b.zones[0], { ...b.zones[0] }] }], [d], 4), /invalid/);
   assert.throws(() => camera([b], [d, { ...d }], 4), /invalid/);
   assert.throws(() => camera([b], [d, { ...d, beat: "unknown" }], 4), /invalid/);
+});
+
+test("trimmed beats and targets cannot steer visible frames", () => {
+  const take = { width: 3840, height: 2160, trim_start: 10, trim_end: 12 };
+  const visible = beat("visible", 11, 3000);
+  const before = beat("before", 1, 300);
+  const after = beat("after", 13, 300);
+  const alone = solveCamera([visible], [decision(visible)], take);
+  assert.deepEqual(solveCamera([before, visible, after],
+    [decision(before), decision(visible), decision(after)], take), alone);
+  assert.deepEqual(solveCamera([before, after], [decision(before), decision(after)], take),
+    solveCamera([], [], take));
+
+  const result = beat("result", 10.3, 300);
+  result.t0 = 9.5;
+  result.t1 = 11;
+  result.zones.push({ ...zone("B", [3300, 900, 180, 120]), t_change: 9.9 });
+  const withoutResult = solveCamera([result], [decision(result)], { ...take, trim_end: 11 });
+  assert.deepEqual(solveCamera([result], [{ ...decision(result), B: "B" }],
+    { ...take, trim_end: 11 }), withoutResult);
+
+  const late = beat("late", 11.4, 3000);
+  late.t0 = 10.5;
+  late.t1 = 12.4;
+  assert.deepEqual(solveCamera([late], [decision(late)], { ...take, trim_end: 11 }),
+    solveCamera([], [], { ...take, trim_end: 11 }));
+  const lateCut = { ...late, id: "late-cut", kind: "cut" as const,
+    changed_frac: [{ t: 11.5, f: 0.01 }] };
+  assert.deepEqual(solveCamera([lateCut], [decision(lateCut)], { ...take, trim_end: 11 }),
+    solveCamera([], [], { ...take, trim_end: 11 }));
+
+  const idle = beat("idle-trim", 10.2, 300, "idle");
+  idle.t0 = 7;
+  idle.t1 = 11;
+  const withoutIdleTarget = { ...idle, kind: "click" as const };
+  assert.deepEqual(solveCamera([idle], [decision(idle)], { ...take, trim_end: 11 }),
+    solveCamera([withoutIdleTarget], [decision(idle)], { ...take, trim_end: 11 }));
 });
 
 test("frame samples have smooth log zoom and fixed aspect", () => {
