@@ -239,6 +239,8 @@ export function actionsFromEvents(
         }
       }
     } else if (e.k === "wheel") {
+      const end = opts.endMs ?? Infinity;
+      if (e.t > end) continue;
       // merge wheel events while gaps < SCROLL_GAP_MS
       let j = i;
       let dx = 0;
@@ -247,6 +249,7 @@ export function actionsFromEvents(
       let lastT = e.t;
       while (j < events.length) {
         const w2 = events[j]!;
+        if (w2.t > end) break;
         if (w2.k === "win" && w2.cls !== atWin?.cls) break;
         if (j > i && w2.t - lastT >= SCROLL_GAP_MS) break;
         if (w2.k === "wheel") {

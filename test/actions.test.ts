@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { actionsFromEvents } from "../src/perceive/actions.ts";
+import { segmentBeats } from "../src/beats/segment.ts";
 import type { Event, FrameRegions } from "../src/types.ts";
 import { STREAM, noopFrames } from "./helpers.ts";
 
@@ -119,6 +120,26 @@ test("scroll merges wheel events with gaps under 500 ms", () => {
   assert.equal(scrolls.length, 2); // 500,700 merge; 1400 is a new burst
   assert.equal(scrolls[0]!.detents, 2);
   assert.equal(scrolls[0]!.dy, 2);
+});
+
+test("scroll payload excludes wheel events after trim", () => {
+  const events: Event[] = [
+    win, ptr(50, 50, 100),
+    { t: 500, k: "wheel", dx: 2, dy: 1 },
+    { t: 900, k: "wheel", dx: 3, dy: 9 },
+  ];
+  const full = actionsFromEvents(events, frames(), opts()).find((a) => a.k === "scroll");
+  assert.ok(full);
+  assert.deepEqual([full.t1, full.dx, full.dy, full.detents], [900, 5, 10, 2]);
+
+  const scoped = actionsFromEvents(events, frames(), { ...opts(), endMs: 600 });
+  const scroll = scoped.find((a) => a.k === "scroll");
+  assert.ok(scroll);
+  assert.deepEqual([scroll.t0, scroll.t1, scroll.dx, scroll.dy, scroll.detents], [500, 500, 2, 1, 1]);
+  const beats = segmentBeats(scoped, frames(), { stream: STREAM, takeMs: 600, startMs: 0, endMs: 600 });
+  const retained = beats.flatMap((b) => b.actions).find((a) => a.k === "scroll");
+  assert.ok(retained);
+  assert.deepEqual([retained.t1, retained.dx, retained.dy, retained.detents], [500, 2, 1, 1]);
 });
 
 test("type merges key downs with gaps under 1.2 s", () => {
