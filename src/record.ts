@@ -169,8 +169,8 @@ export async function runRecord(options: RecordOptions = {}): Promise<RecordResu
 
     const stoppedAt = await stopped;
 
-    const finalMetrics = await capture.stop();
     if (taps !== null) await taps.stop();
+    const finalMetrics = await capture.stop();
 
     const clock = alignClock(capture.frames().map((frame) => ({ ...frame, recvMs: frame.recvMs - Number(t0ns) / 1e6 })));
     const durationMs = Math.max(0, stoppedAt.getTime() - tapStartedAt.getTime());
