@@ -18,7 +18,6 @@ export interface ClockAlign {
   offsetMs: number;
   /** Median residual after alignment. */
   medianMs: number;
-  /** Worst tail beyond the median residual: max(residual) - median. Warn above 50 ms. */
   spreadMs: number;
   frames: number;
 }
@@ -38,7 +37,7 @@ export function alignClock(samples: FrameSample[]): ClockAlign | null {
   return {
     offsetMs: min,
     medianMs: median,
-    spreadMs: (residuals[n - 1] ?? 0) - median,
+    spreadMs: (residuals[n - 1] ?? 0) - (residuals[0] ?? 0),
     frames: n,
   };
 }
