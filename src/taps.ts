@@ -20,7 +20,7 @@ export interface TapEvent {
 export interface TapOptions {
   eventsPath: string;
   /** Stream-pixel mapping; null runs in no-pointer mode. */
-  mapping: { monitor: MonitorInfo; scale: number } | null;
+  mapping?: { monitor: MonitorInfo; scale: number } | null;
   /** Monotonic take-start time from process.hrtime.bigint(). */
   t0ns: bigint;
   pollHz?: number;
@@ -37,6 +37,7 @@ export interface TapHandle {
   summary: TapSummary;
   pointerMode: "mapped" | "none";
   eventsMode: "on" | "none";
+  setMapping(mapping: { monitor: MonitorInfo; scale: number } | null): void;
   warnings: string[];
   stop(): Promise<void>;
 }
@@ -87,7 +88,7 @@ async function evdevDevices(dir: string): Promise<{ devices: EvdevDevice[]; miss
 }
 
 export async function startTaps(options: TapOptions): Promise<TapHandle> {
-  const { eventsPath, mapping, t0ns } = options;
+  const { eventsPath, t0ns } = options;
   const warnings: string[] = [];
   const summary: TapSummary = { firstInputMs: null, lastEventMs: null };
   const nowMs = (): number => {
@@ -96,7 +97,7 @@ export async function startTaps(options: TapOptions): Promise<TapHandle> {
   };
 
   let eventsMode: "on" | "none" = "on";
-  let pointerMode: "mapped" | "none" = mapping !== null ? "mapped" : "none";
+  let pointerMode: "mapped" | "none" = "none";
 
   const out = await fs.open(eventsPath, "a", 0o600);
   let writes = Promise.resolve();
@@ -119,25 +120,32 @@ export async function startTaps(options: TapOptions): Promise<TapHandle> {
   const polls = new Set<Promise<void>>();
   let stopped = false;
   const { devices, missingGroup } = await evdevDevices(options.deviceDir ?? DEVICE_DIR);
-  // --- Hyprland pointer and window polling -------------------------------
   const hypr: HyprlandSockets | null = hyprlandSockets();
-  if (hypr === null) {
+  let pointerTimer: NodeJS.Timeout | null = null;
+  const setMapping = (mapping: { monitor: MonitorInfo; scale: number } | null): void => {
+    if (stopped) return;
+    if (pointerTimer !== null) clearInterval(pointerTimer);
+    pointerTimer = null;
     pointerMode = "none";
-    warnings.push("hyprland ipc not found; pointer and window events disabled");
-  } else if (mapping === null) {
-    pointerMode = "none";
-    warnings.push("no monitor matches the stream size; pointer events disabled");
-  } else if (devices.length === 0) {
-    pointerMode = "none";
-  } else {
+    if (hypr === null) {
+      warnings.push("hyprland ipc not found; pointer and window events disabled");
+      return;
+    }
+    if (mapping === null) {
+      warnings.push("no monitor matches the stream size; pointer events disabled");
+      return;
+    }
+    if (devices.length === 0) return;
+    pointerMode = "mapped";
     const { monitor, scale } = mapping;
     let lastPos = "";
     let lastWin = "";
     const hz = options.pollHz ?? 60;
-    const timer = setInterval(() => {
+    pointerTimer = setInterval(() => {
       const poll = (async () => {
         try {
           const pos = await getCursorPos(hypr.socket);
+          if (pointerMode !== "mapped") return;
           if (pos !== null) {
             const key = `${pos.x},${pos.y}`;
             if (key !== lastPos) {
@@ -147,6 +155,7 @@ export async function startTaps(options: TapOptions): Promise<TapHandle> {
             }
           }
           const win = await getActiveWindow(hypr.socket);
+          if (pointerMode !== "mapped") return;
           const winKey = win === null ? "none" : `${win.address}|${win.title}|${win.rect.join(",")}`;
           if (winKey !== lastWin) {
             lastWin = winKey;
@@ -159,14 +168,19 @@ export async function startTaps(options: TapOptions): Promise<TapHandle> {
             });
           }
         } catch {
-          // a single failed poll is not an error; the tap keeps running
+          if (pointerMode === "mapped") {
+            pointerMode = "none";
+            warnings.push("hyprland ipc unavailable; pointer and window events disabled");
+            if (pointerTimer !== null) clearInterval(pointerTimer);
+            pointerTimer = null;
+          }
         }
       })();
       polls.add(poll);
       void poll.finally(() => polls.delete(poll));
     }, Math.round(1000 / hz));
-    timers.push(timer);
-  }
+  };
+  if (options.mapping !== undefined) setMapping(options.mapping);
 
   // --- evdev --------------------------------------------------------------
   evdevHandles.push(...devices);
@@ -273,13 +287,15 @@ export async function startTaps(options: TapOptions): Promise<TapHandle> {
 
   return {
     summary,
-    pointerMode,
+    get pointerMode() { return pointerMode; },
     eventsMode,
     warnings,
+    setMapping,
     async stop(): Promise<void> {
       if (stopped) return;
       stopped = true;
       for (const timer of timers) clearInterval(timer);
+      if (pointerTimer !== null) clearInterval(pointerTimer);
       for (const device of evdevHandles.splice(0)) closeSync(device.fd);
       await Promise.all(polls);
       await writes;
