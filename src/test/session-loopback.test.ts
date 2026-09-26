@@ -5,7 +5,7 @@
  */
 
 import assert from "node:assert/strict";
-import { readFile, rm, stat } from "node:fs/promises";
+import { mkdir, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { spawn } from "node:child_process";
@@ -76,4 +76,19 @@ test("session answers a VP9 offer, records frames.tsv and screen.webm, saves the
   assert.equal(mode, 0o600);
 
   await rm(dirname(takeDir), { recursive: true, force: true });
+});
+
+test("frames.tsv write failure cannot finish a take successfully", { timeout: 30_000 }, async () => {
+  const { takeDir, stateDir } = await tempDirs();
+  await mkdir(join(takeDir, "frames.tsv"));
+  try {
+    const capture = await startCapture({
+      engine: { command: process.execPath, args: [join(here, "fake-engine.js")], origin: "test" } as Parameters<typeof startCapture>[0]["engine"],
+      takeDir, stateDir, fps: 30, bitrateKbps: 40_000, savedToken: null,
+    });
+    await assert.rejects(capture.stop(), (error: unknown) =>
+      error instanceof Error && /frames-write-failed/.test(String((error as { code?: string }).code)));
+  } finally {
+    await rm(dirname(takeDir), { recursive: true, force: true });
+  }
 });

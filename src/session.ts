@@ -9,6 +9,7 @@
  */
 
 import { createWriteStream } from "node:fs";
+import { finished } from "node:stream/promises";
 import type { WriteStream } from "node:fs";
 import { RTCPeerConnection, useVP9 } from "werift";
 import { MediaRecorder } from "werift/nonstandard";
@@ -216,9 +217,8 @@ export async function startCapture(options: CaptureOptions): Promise<Capture> {
   }
 
   const framesStream: WriteStream = createWriteStream(`${takeDir}/frames.tsv`, { flags: "w" });
-  framesStream.on("error", (error) => {
-    console.error(structuredError("frames-write-failed", String(error), "check disk space; video keeps recording"));
-  });
+  const framesDone = finished(framesStream);
+  void framesDone.catch(() => undefined);
   const frames: FrameSample[] = [];
 
   // desklink offers exactly one codec: VP9 (capabilities.encode.codecs).
@@ -299,7 +299,8 @@ export async function startCapture(options: CaptureOptions): Promise<Capture> {
     await client.closeSession(opened.sessionId).catch(() => undefined);
     await client.stop().catch(() => undefined);
     await Promise.allSettled(tokenWrites);
-    await new Promise<void>((resolve) => framesStream.end(() => resolve()));
+    framesStream.end();
+    await framesDone.catch(() => undefined);
     throw error;
   }
   clearTimeout(watchdog);
@@ -327,7 +328,12 @@ export async function startCapture(options: CaptureOptions): Promise<Capture> {
       await client.closeSession(opened.sessionId).catch(() => undefined);
       await client.stop().catch(() => undefined);
       await Promise.allSettled(tokenWrites);
-      await new Promise<void>((resolve) => framesStream.end(() => resolve()));
+      framesStream.end();
+      try {
+        await framesDone;
+      } catch (error) {
+        throw new RecordError("frames-write-failed", String(error), "check disk space and record again");
+      }
       return finalMetrics;
     },
   };

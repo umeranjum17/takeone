@@ -88,6 +88,9 @@ async function handle(line: string): Promise<void> {
       });
       break;
     case "session.open": {
+      if (msg.params.max_width !== 7680 || msg.params.max_height !== 4320) {
+        throw new Error("source resolution bounds missing from session.open");
+      }
       // Test hook: hang on consent so callers can prove their timeout cancels.
       if (process.env.FAKE_HANG_OPEN !== undefined) return;
       reply(msg.id ?? 0, {

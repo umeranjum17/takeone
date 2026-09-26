@@ -20,7 +20,7 @@ export interface RecordingInfo {
 }
 
 export function parseTakeId(name: string): string | null {
-  return /^\d{8}-\d{6}$/.test(name) ? name : null;
+  return /^\d{8}-\d{6}(?:-[1-9]\d*)?$/.test(name) ? name : null;
 }
 
 /** Parse and liveness-check a pid file's content. Null when stale or absent. */
