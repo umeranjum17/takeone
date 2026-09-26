@@ -68,13 +68,34 @@ test("a cut always starts a new beat of kind cut", () => {
 
 test("long gaps around cuts become idle beats after the cut settles", () => {
   const cut: Action = { k: "cut", t: 1000, changed_frac: 0.6, window_cls: "chromium" };
-  const after = segmentBeats([cut, click(10000)], [], opts());
+  const settling: FrameRegions[] = [
+    { t: 1000, changed_frac: 0.6, cut: true, regions: [] },
+    ...[1100, 1200, 1300, 1400].map((t) => ({ t, changed_frac: 0.01, cut: false, regions: [] })),
+  ];
+  const after = segmentBeats([cut, click(10000)], settling, { ...opts(), startMs: 0, endMs: 10000 });
   assert.deepEqual(after.map((b) => [b.kind, b.t0, b.t1]), [
     ["cut", 1000, 1400], ["idle", 1400, 10000], ["click", 10000, 10000],
   ]);
-  const before = segmentBeats([win, click(500), { ...cut, t: 10000 }], [], opts());
+  const before = segmentBeats([win, click(500), { ...cut, t: 10000 }], [], { ...opts(), startMs: 0, endMs: 10000 });
   assert.deepEqual(before.map((b) => b.kind), ["click", "idle", "cut"]);
   assert.deepEqual([before[1]!.t0, before[1]!.t1], [500, 10000]);
+});
+
+test("cut settling follows quiet frames rather than a fixed tail", () => {
+  const frames: FrameRegions[] = [
+    ...[1000, 1100, 1200, 1300, 1400, 1500, 1600].map((t) => ({ t, changed_frac: 0.2, cut: t === 1000, regions: [] })),
+    ...[1700, 1800, 1900, 2000].map((t) => ({ t, changed_frac: 0.01, cut: false, regions: [] })),
+  ];
+  const beats = segmentBeats([{ k: "cut", t: 1000, changed_frac: 0.6 }, click(10000)], frames, { ...opts(), startMs: 0, endMs: 10000 });
+  assert.deepEqual(beats.map((b) => [b.kind, b.t0, b.t1]), [["cut", 1000, 2000], ["idle", 2000, 10000], ["click", 10000, 10000]]);
+});
+
+test("trim boundaries and an all-idle take produce idle beats", () => {
+  const bounds = { ...opts(), startMs: 2000, endMs: 10000 };
+  assert.deepEqual(segmentBeats([], [], bounds).map((b) => [b.kind, b.t0, b.t1]), [["idle", 2000, 10000]]);
+  assert.deepEqual(segmentBeats([click(5000)], [], bounds).map((b) => [b.kind, b.t0, b.t1]), [
+    ["idle", 2000, 5000], ["click", 5000, 5000], ["idle", 5000, 10000],
+  ]);
 });
 
 test("beats shorter than 0.8 s merge into the previous beat with the same window", () => {

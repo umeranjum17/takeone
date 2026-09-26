@@ -66,11 +66,13 @@ test("request size is capped at 1,200 estimated tokens even with huge zone text"
   assert.ok(tokens <= REQUEST_TOKEN_CAP, `tokens=${tokens}`);
 });
 
-test("oversize non-zone request fields are refused before POST", () => {
+test("oversize topic is refused while unknown shortcuts stay bounded", () => {
   const b = clickBeat([zone("z1", "all", [0, 0, 160, 120])]);
   assert.throws(() => buildRequest(b, { currentShot: "x", about: "topic".repeat(2000) }, true), /request exceeds/);
   b.actions = [{ k: "shortcut", t: 500, combo: "X".repeat(5000), window_cls: "chromium" }];
-  assert.throws(() => buildRequest(b, { currentShot: "x" }, false), /request exceeds/);
+  const request = buildRequest(b, { currentShot: "x" }, false);
+  assert.ok(request.tokens <= REQUEST_TOKEN_CAP);
+  assert.ok(!request.body.includes("X".repeat(5000)));
 });
 
 test("estimateTokens is ceil(chars / 3.5)", () => {
@@ -284,7 +286,7 @@ test("split OCR identifiers are redacted without masking spaced labels", () => {
   const row = (word: string, left: number, width: number, line = 1) => ["5", "1", "1", "1", line, "1", left, "0", width, "20", "95", word].join("\t");
   assert.equal(redactWords(["header", row("123", 0, 30), row("456", 31, 30), row("ready", 100, 50)].join("\n")), "[redacted] ready");
   assert.equal(redactWords(["header", row("abc123def4", 0, 60), row("ghi567jkl8", 61, 60), row("ready", 160, 50)].join("\n")), "[redacted] ready");
-  assert.equal(redactWords(["header", row("Quarterly", 0, 90), row("sales", 100, 40), row("report", 150, 45), row("2026", 205, 35)].join("\n")), "Quarterly sales report 2026");
+  assert.equal(redactWords(["header", row("Quarterly", 0, 90), row("sales", 91, 40), row("report", 132, 45), row("2026", 178, 35)].join("\n")), "Quarterly sales report 2026");
   assert.equal(redactWords(["header", row("abc123def4", 0, 60), row("ghi567jkl8", 61, 60, 2)].join("\n")), "abc123def4 ghi567jkl8");
 });
 
@@ -292,10 +294,21 @@ test("redactText masks emails, 6+ digit runs and 20+ char mixed alphanumerics", 
   assert.equal(redactText("mail me at bob@example.com now"), "mail me at [redacted] now");
   assert.equal(redactText("order 1234567890 shipped"), "order [redacted] shipped");
   assert.equal(redactText("id a1b2c3d4e5f6g7h8i9j0k1 done"), "id [redacted] done");
+  assert.equal(redactText("id 12345abcdefghijklmnop done"), "id [redacted] done");
   assert.equal(redactText("keep short123 and normal words"), "keep short123 and normal words");
 });
 
 // ------------------------------------------------------------ decision record
+
+test("requests send only fixed shortcut key names", () => {
+  const b = clickBeat([zone("z1", "act", [60, 32, 80, 56]), zone("z2", "all", [0, 0, 160, 120])]);
+  b.actions = [{ k: "shortcut", t: 500, combo: "Ctrl+S", window_cls: "chromium" }];
+  assert.match(JSON.parse(buildRequest(b, { currentShot: "x" }, false).body).state.beat.what_happened, /Ctrl\+S shortcut/);
+  b.actions = [{ k: "shortcut", t: 500, combo: "Ctrl+PrivateCustomerName", window_cls: "chromium" }];
+  const body = buildRequest(b, { currentShot: "x" }, false).body;
+  assert.match(JSON.parse(body).state.beat.what_happened, /a keyboard shortcut/);
+  assert.ok(!body.includes("PrivateCustomerName"));
+});
 
 test("decision record carries model and per-question confidence", () => {
   const zones = [zone("z1", "act", [60, 32, 80, 56]), zone("z2", "res", [0, 90, 100, 30], "a region that changed after the action")];

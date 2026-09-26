@@ -90,7 +90,7 @@ export function redactWords(tsv: string): string | null {
       const previous = words[j - 1]!;
       const next = words[j]!;
       const gap = next.left - previous.right;
-      if (next.line !== previous.line || previous.right <= previous.left || next.right <= next.left || previous.height <= 0 || next.height <= 0 || !Number.isFinite(gap) || gap < -2 || gap > Math.max(2, Math.min(previous.height, next.height) / 8) || !/^[A-Za-z0-9]+$/.test(next.text)) break;
+      if (next.line !== previous.line || previous.right <= previous.left || next.right <= next.left || previous.height <= 0 || next.height <= 0 || !Number.isFinite(gap) || gap < -2 || gap > Math.max(2, Math.min(previous.height, next.height) / 8) || !/^[A-Za-z0-9]+$/.test(next.text) || (!/\d/.test(combined) && !/\d/.test(next.text)) || (j > i + 1 && !/\d/.test(next.text))) break;
       combined += next.text;
       if (/^\d{6,}$/.test(combined) || (combined.length >= 20 && /[A-Za-z]/.test(combined) && /\d/.test(combined))) {
         words.splice(i, j - i + 1, { ...words[i]!, text: "[redacted]" });

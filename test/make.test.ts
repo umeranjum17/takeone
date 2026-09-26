@@ -96,9 +96,12 @@ test("incomplete takes report the missing file; video-only mode permits empty ev
     await assert.rejects(makeTake(dir, { noJev: true, log: () => {}, warn: () => {} }), (e: unknown) => e instanceof TakeInputError && e.file === "events.jsonl");
     const take = JSON.parse(readFileSync(join(dir, "take.json"), "utf8"));
     take.events = "none";
+    take.trim = { start: 1000, end: 9000 };
     writeFileSync(join(dir, "take.json"), JSON.stringify(take));
     const result = await makeTake(dir, { noJev: true, log: () => {}, warn: () => {} });
     assert.equal(result.jev.input_tokens, 0);
+    assert.deepEqual(result.beats.map((b) => [b.kind, b.t0, b.t1]), [["idle", 1000, 9000]]);
+    assert.equal(result.decisions[0]?.decided_by, "heuristic");
     rmSync(eventsPath);
     await makeTake(dir, { noJev: true, log: () => {}, warn: () => {} });
   } finally {
@@ -385,6 +388,26 @@ test("preflight refuses above --max-tokens before any call", async () => {
       (e: unknown) => e instanceof PreflightRefusal && /--no-jev/.test(e.message),
     );
     assert.equal(calls, 0);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("raw window identity requires screen-text opt-in and titles are redacted", async () => {
+  const dir = newTake();
+  try {
+    const path = join(dir, "events.jsonl");
+    const events = readFileSync(path, "utf8").trim().split("\n").map((line) => JSON.parse(line));
+    events[0].cls = "PrivateCustomerName";
+    events[0].title = "12345abcdefghijklmnop";
+    writeFileSync(path, events.map((e) => JSON.stringify(e)).join("\n") + "\n");
+    const normal = await makeTake(dir, { noJev: true, log: () => {}, warn: () => {} });
+    assert.ok(!JSON.stringify(normal.beats.flatMap((b) => b.zones.map((z) => z.desc))).includes("PrivateCustomerName"));
+    const opted = await makeTake(dir, { noJev: true, screenText: true, log: () => {}, warn: () => {} });
+    const descriptions = JSON.stringify(opted.beats.flatMap((b) => b.zones.map((z) => z.desc)));
+    assert.ok(descriptions.includes("PrivateCustomerName"));
+    assert.ok(descriptions.includes("[redacted]"));
+    assert.ok(!descriptions.includes("12345abcdefghijklmnop"));
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

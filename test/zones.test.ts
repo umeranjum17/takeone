@@ -126,11 +126,11 @@ test("word descriptions never contain digits", () => {
       assert.ok(!/\d/.test(part), `digits in "${part}"`);
     }
   }
-  // the app name also never carries digits (class "gtk4-app" -> "gtk-app")
-  const b2 = beatOf([{ k: "click", t: 500, x: 80, y: 60, window_cls: "gtk4-app" }]);
+  const b2 = beatOf([{ k: "click", t: 500, x: 80, y: 60, window_cls: "PrivateCustomer123" }]);
+  b2.window_cls = "PrivateCustomer123";
   const zones2 = zonesForBeat(b2, { ...base, winRect: [0, 0, 100, 80] });
   const winZone = zones2.find((z) => z.kind === "win")!;
-  assert.ok(!/\d/.test(winZone.desc.shows), winZone.desc.shows);
+  assert.equal(winZone.desc.shows, "the app window");
 });
 
 test("size words follow the area thresholds", () => {

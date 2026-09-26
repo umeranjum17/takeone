@@ -9,6 +9,8 @@ export const RESULT_AFTER_MS = 1500;
 export const IDLE_GAP_MS = 2000;
 export const MERGE_SHORT_MS = 800;
 export const MAX_BEATS_PER_MIN = 30;
+export const CUT_SETTLE_FRAC = 0.05;
+export const CUT_SETTLE_MS = 300;
 
 type CutAction = Extract<Action, { k: "cut" }>;
 
@@ -68,11 +70,22 @@ interface RawBeat {
 export function segmentBeats(
   actions: Action[],
   frames: FrameRegions[],
-  o: { stream: { w: number; h: number }; takeMs: number },
+  o: { stream: { w: number; h: number }; takeMs: number; startMs?: number; endMs?: number },
 ): Beat[] {
   const diag = Math.hypot(o.stream.w, o.stream.h);
-  const cuts = actions.filter((a): a is CutAction => a.k === "cut");
-  const acts = actions.filter((a) => a.k !== "cut");
+  const scoped = actions.filter((a) => actStart(a) >= (o.startMs ?? -Infinity) && actStart(a) <= (o.endMs ?? Infinity));
+  const cuts = scoped.filter((a): a is CutAction => a.k === "cut");
+  const acts = scoped.filter((a) => a.k !== "cut");
+  const cutEnd = (t: number): number => {
+    let quietStart: number | null = null;
+    for (const frame of frames) {
+      if (frame.t < t) continue;
+      if (frame.t > (o.endMs ?? Infinity)) break;
+      quietStart = frame.changed_frac < CUT_SETTLE_FRAC ? quietStart ?? frame.t : null;
+      if (quietStart !== null && frame.t - quietStart >= CUT_SETTLE_MS) return frame.t;
+    }
+    return o.endMs ?? o.takeMs;
+  };
 
   // walk actions and cuts in time order; a cut always closes the beat and
   // starts a cut beat; a gap >= IDLE_GAP_MS becomes an idle beat
@@ -80,8 +93,9 @@ export function segmentBeats(
   let cur: RawBeat | null = null;
   let activeWindow = "";
   const appendIdle = (t: number) => {
-    if (cur && t - cur.t1 >= IDLE_GAP_MS) {
-      raws.push({ t0: cur.t1, t1: t, anchor_t: cur.t1, anchorPt: null, window_cls: cur.window_cls, actions: [] });
+    const from = cur?.t1 ?? o.startMs;
+    if (from !== undefined && t - from >= IDLE_GAP_MS) {
+      raws.push({ t0: from, t1: t, anchor_t: from, anchorPt: null, window_cls: cur?.window_cls ?? activeWindow, actions: [] });
     }
   };
   const ai = acts[Symbol.iterator]();
@@ -98,7 +112,7 @@ export function segmentBeats(
       activeWindow = c.window_cls ?? activeWindow;
       cur = {
         t0: c.t,
-        t1: c.t + 400,
+        t1: cutEnd(c.t),
         anchor_t: c.t,
         anchorPt: null,
         window_cls: activeWindow,
@@ -138,6 +152,8 @@ export function segmentBeats(
       raws.push(cur);
     }
   }
+
+  if (o.endMs !== undefined) appendIdle(o.endMs);
 
   for (let i = 0; i + 1 < raws.length; i++) {
     const r = raws[i]!;

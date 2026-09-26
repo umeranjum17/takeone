@@ -35,6 +35,16 @@ export function estimateTokens(body: string): number {
   return Math.ceil(body.length / CHARS_PER_TOKEN);
 }
 
+const MODIFIERS: Record<string, string> = { ctrl: "Ctrl", control: "Ctrl", alt: "Alt", shift: "Shift", super: "Super", meta: "Super" };
+const KEYS = new Set([..."ABCDEFGHIJKLMNOPQRSTUVWXYZ", "ENTER", "TAB", "ESC", "SPACE", "BACKSPACE", "LEFT", "RIGHT", "UP", "DOWN"]);
+
+function shortcutWords(combo: string): string {
+  const parts = combo.split("+").map((part) => part.trim().toLowerCase());
+  const key = parts.pop()?.toUpperCase();
+  if (!key || !KEYS.has(key) || parts.length === 0 || parts.some((part) => !Object.hasOwn(MODIFIERS, part))) return "a keyboard shortcut";
+  return `the ${parts.map((part) => MODIFIERS[part]).join("+")}+${key} shortcut`;
+}
+
 /** Words describing what happened in a beat, from its actions and zones. Digit-free. */
 export function whatHappened(beat: Beat): string {
   const parts: string[] = [];
@@ -53,7 +63,7 @@ export function whatHappened(beat: Beat): string {
         parts.push("The user scrolled the view");
         break;
       case "shortcut":
-        parts.push(`The user pressed the ${a.combo} shortcut`);
+        parts.push(`The user pressed ${shortcutWords(a.combo)}`);
         break;
       case "dwell":
         parts.push("The user pointed at a control");

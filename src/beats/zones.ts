@@ -172,13 +172,6 @@ const APP_NAMES: Record<string, string> = {
   firefox: "Firefox",
 };
 
-function appName(cls: string): string {
-  const known = APP_NAMES[cls.toLowerCase()];
-  if (known) return known;
-  // fall back to the class, digits stripped so descriptions never contain any
-  return cls.replace(/[0-9]/g, "") || "the app";
-}
-
 const SIZE_WORDS: [number, string][] = [
   [0.01, "tiny, about one button or field"],
   [0.05, "small, a group of controls"],
@@ -242,8 +235,11 @@ function showsWords(kind: ZoneKind, beat: Beat, stream: { w: number; h: number }
       return "a region that changed after the action";
     case "path":
       return "the path the pointer moved along";
-    case "win":
-      return `the whole ${appName(beat.window_cls || "app")} window`;
+    case "win": {
+      const cls = beat.window_cls.toLowerCase();
+      const name = Object.hasOwn(APP_NAMES, cls) ? APP_NAMES[cls] : undefined;
+      return name ? `the whole ${name} window` : "the app window";
+    }
     case "all":
       return "the entire screen";
   }

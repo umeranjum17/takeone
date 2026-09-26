@@ -136,8 +136,10 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
   writeFileSync(join(analysisDir, "actions.json"), JSON.stringify({ take: take.id, actions }, null, 1));
 
   // 2 segment -------------------------------------------------------------
-  const takeMs = takeDuration(frames, events);
-  const beats = segmentBeats(actions, frames, { stream: take.stream, takeMs });
+  const startMs = take.trim?.start ?? 0;
+  const endMs = take.trim?.end ?? takeDuration(frames, events);
+  const takeMs = Math.max(0, endMs - startMs);
+  const beats = segmentBeats(actions, frames, { stream: take.stream, takeMs, startMs, endMs });
   for (const b of beats) {
     const win = winFor(b.anchor_t);
     b.zones = zonesForBeat(b, {
@@ -393,7 +395,7 @@ function shotDescription(prevBeat: Beat | null, prevDecision: Decision | null, w
 
 async function addScreenText(
   beat: Beat,
-  win: { rect: BBox; title: string } | null,
+  win: { rect: BBox; title: string; cls: string } | null,
   webm: string,
   videoStartMs: number,
 ): Promise<void> {
@@ -402,9 +404,9 @@ async function addScreenText(
     const text = await ocrZone(webm, z.bbox, Math.max(0, (z.t ?? beat.anchor_t) - videoStartMs));
     if (text) z.desc.text = text;
   }
-  if (win?.title && beat.zones.length > 0) {
-    const title = redactText(win.title);
+  if (win && beat.zones.length > 0) {
+    const label = [win.cls, win.title].filter(Boolean).map(redactText).join(" ");
     const winZone = beat.zones.find((z) => z.kind === "win" || z.kind === "all");
-    if (winZone) winZone.desc.text = winZone.desc.text ? `${winZone.desc.text} ${title}` : title;
+    if (winZone) winZone.desc.text = winZone.desc.text ? `${winZone.desc.text} ${label}` : label;
   }
 }
