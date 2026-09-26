@@ -103,13 +103,6 @@ export async function runRecord(options: RecordOptions = {}): Promise<RecordResu
       takeDir = join(root, `${id}-${suffix}`);
     }
   }
-  try {
-    await writePidFile(stateDirPath, takeDir, startedAt.toISOString());
-  } catch (error) {
-    await rm(takeDir, { recursive: true, force: true });
-    throw error;
-  }
-
   let taps: TapHandle | null = null;
   let capture: Awaited<ReturnType<typeof startCapture>> | null = null;
   let consentGranted = false;
@@ -128,6 +121,14 @@ export async function runRecord(options: RecordOptions = {}): Promise<RecordResu
   };
   process.on("SIGINT", onStop);
   process.on("SIGTERM", onStop);
+  try {
+    await writePidFile(stateDirPath, takeDir, startedAt.toISOString());
+  } catch (error) {
+    process.off("SIGINT", onStop);
+    process.off("SIGTERM", onStop);
+    await rm(takeDir, { recursive: true, force: true });
+    throw error;
+  }
   try {
     // Consume the single-use restore token before sending it.
     const savedToken = await consumeToken(stateDirPath);

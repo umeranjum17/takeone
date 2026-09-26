@@ -54,7 +54,9 @@ test("record writes a complete take (pid file, events, take.json) and stops on S
     stdio: ["ignore", "pipe", "pipe"],
   });
   const stderr: string[] = [];
+  let stdout = "";
   child.stderr.on("data", (chunk: Buffer) => stderr.push(chunk.toString()));
+  child.stdout.on("data", (chunk: Buffer) => { stdout += chunk.toString(); });
 
   // Wait for the 20 frames the fake engine sends.
   const takeDir = await (async (): Promise<string> => {
@@ -122,6 +124,10 @@ test("record writes a complete take (pid file, events, take.json) and stops on S
     metrics: { encoded_frames: number } | null;
     geometry: { source: { width: number; height: number } };
   };
+  const output = stdout.trim().split("\n");
+  assert.equal(output[0], "record[1]{id,take_path,frames,offset_ms,spread_ms,trim_ms}:");
+  assert.equal(output.length, 2);
+  assert.ok(output[1]!.includes(`${takeJson.id},${takeDir},`));
   assert.equal(takeJson.versions.engine, "desklink-host/fake");
   assert.equal(takeJson.geometry.source.width, 64);
   const { readTakeMeta } = await import(new URL("../../src/make.ts", import.meta.url).href);
@@ -172,7 +178,7 @@ test("record writes a complete take (pid file, events, take.json) and stops on S
   await rm(base, { recursive: true, force: true });
 });
 
-test("cancelled consent leaves neither input events nor an incomplete take", { timeout: 20_000 }, async () => {
+test("stop at PID publication leaves neither input events nor an incomplete take", { timeout: 20_000 }, async () => {
   const base = await mkdtemp(join(tmpdir(), "takeone-consent-record-"));
   const root = join(base, "takes");
   const stateDir = join(base, "state");
@@ -201,11 +207,10 @@ test("cancelled consent leaves neither input events nor an incomplete take", { t
       catch { await new Promise((resolve) => setTimeout(resolve, 20)); }
     }
     await stat(pidPath);
-    await new Promise((resolve) => setTimeout(resolve, 300));
     await assert.rejects(stat(join(takeDir, "events.jsonl")));
     child.kill("SIGINT");
     assert.equal(await new Promise<number | null>((resolve) => child.on("exit", resolve)), 1);
-    assert.match(stderr, /consent-cancelled/);
+    assert.match(stderr, /capture-stopped|consent-cancelled/);
     await assert.rejects(stat(takeDir));
     await assert.rejects(stat(join(stateDir, "recording.pid")));
   } finally {

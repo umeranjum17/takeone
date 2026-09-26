@@ -139,7 +139,7 @@ test("CLI rejects malformed --max-tokens values", async () => {
   }
 });
 
-test("incomplete takes report the missing file; video-only mode permits empty events", async () => {
+test("missing events are rejected while an empty recorded stream is valid", async () => {
   const dir = newTake();
   try {
     for (const file of ["screen.webm", "frames.tsv", "events.jsonl"]) {
@@ -150,9 +150,14 @@ test("incomplete takes report the missing file; video-only mode permits empty ev
       writeFileSync(path, original);
     }
     const eventsPath = join(dir, "events.jsonl");
-    writeFileSync(eventsPath, "");
-    await assert.rejects(makeTake(dir, { noJev: true, log: () => {}, warn: () => {} }), (e: unknown) => e instanceof TakeInputError && e.file === "events.jsonl");
     const take = JSON.parse(readFileSync(join(dir, "take.json"), "utf8"));
+    take.events = "on";
+    writeFileSync(join(dir, "take.json"), JSON.stringify(take));
+    writeFileSync(eventsPath, "not-json\n");
+    await assert.rejects(makeTake(dir, { noJev: true, log: () => {}, warn: () => {} }), (e: unknown) => e instanceof TakeInputError && e.file === "events.jsonl");
+    writeFileSync(eventsPath, "");
+    const silent = await makeTake(dir, { noJev: true, log: () => {}, warn: () => {} });
+    assert.ok(silent.beats.length > 0);
     take.events = "none";
     take.trim = { start: 1000, end: 9000 };
     writeFileSync(join(dir, "take.json"), JSON.stringify(take));
@@ -161,7 +166,7 @@ test("incomplete takes report the missing file; video-only mode permits empty ev
     assert.deepEqual(result.beats.map((b) => [b.kind, b.t0, b.t1]), [["idle", 1000, 9000]]);
     assert.equal(result.decisions[0]?.decided_by, "heuristic");
     rmSync(eventsPath);
-    await makeTake(dir, { noJev: true, log: () => {}, warn: () => {} });
+    await assert.rejects(makeTake(dir, { noJev: true, log: () => {}, warn: () => {} }), (e: unknown) => e instanceof TakeInputError && e.file === "events.jsonl");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

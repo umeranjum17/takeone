@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdirSync, existsSync, statSync } from "node:fs";
 import { join } from "node:path";
 import type {
   Beat,
@@ -79,8 +79,11 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
     if (!existsSync(path)) throw new TakeInputError(file, "missing");
   }
   const eventsPath = join(dir, "events.jsonl");
-  const events = existsSync(eventsPath) ? await readEvents(eventsPath) : [];
-  if (events.length === 0 && take.events !== "none") throw new TakeInputError("events.jsonl", "missing or empty; take.json events must be none for video-only mode");
+  if (!existsSync(eventsPath)) throw new TakeInputError("events.jsonl", "missing");
+  const events = await readEvents(eventsPath);
+  if (events.length === 0 && statSync(eventsPath).size > 0 && take.events !== "none") {
+    throw new TakeInputError("events.jsonl", "invalid event data");
+  }
 
   // 1 perceive ------------------------------------------------------------
   let videoStartMs: number;
