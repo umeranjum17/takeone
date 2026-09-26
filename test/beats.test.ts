@@ -1,0 +1,123 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { segmentBeats, attachedResults, MAX_BEATS_PER_MIN } from "../src/beats/segment.ts";
+import type { Action, FrameRegions, Region } from "../src/types.ts";
+import { STREAM, noopFrames } from "./helpers.ts";
+
+const opts = () => ({ stream: STREAM, takeMs: 60000 });
+
+const win: Action = { k: "focus", t: 0, cls: "chromium", rect: [0, 0, STREAM.w, STREAM.h] };
+function click(t: number, x = 20, y = 20, cls = "chromium"): Action {
+  return { k: "click", t, x, y, window_cls: cls };
+}
+function typeAct(t0: number, t1: number, cls = "chromium"): Action {
+  return { k: "type", t0, t1, window_cls: cls };
+}
+
+function framesWith(t: number, bbox: [number, number, number, number], areaFrac?: number): FrameRegions[] {
+  const [x, y, w, h] = bbox;
+  const r: Region = { bbox, area_frac: areaFrac ?? (w * h) / (STREAM.w * STREAM.h) };
+  return [...noopFrames(40, 0, 100).slice(0, Math.ceil(t / 100) + 5)].map((f) =>
+    f.t === t ? { ...f, regions: [r] } : f,
+  );
+}
+
+test("extends a beat while actions are close, same window, near the anchor", () => {
+  const beats = segmentBeats([win, click(500, 20, 20), click(1200, 30, 30), click(5000, 25, 25)], noopFrames(60, 0, 100), opts());
+  // focus@0 and the two clicks (700 ms apart, same window, near the anchor)
+  // form one beat; 5000 is beyond 1.2 s after 1200 -> its own beat, with the
+  // 1200-5000 gap as an idle beat
+  assert.equal(beats.length, 3);
+  assert.equal(beats[0]!.actions.length, 3);
+  assert.equal(beats[0]!.kind, "click");
+  assert.equal(beats[1]!.kind, "idle");
+  assert.equal(beats[2]!.kind, "click");
+});
+
+test("a gap of 2 s or more becomes an idle beat", () => {
+  const beats = segmentBeats([win, click(500), click(5000)], noopFrames(60, 0, 100), opts());
+  assert.equal(beats.length, 3);
+  assert.equal(beats[1]!.kind, "idle");
+  assert.equal(beats[1]!.t0, 500); // a click ends at its t
+  assert.equal(beats[1]!.t1, 5000);
+});
+
+test("a cut always starts a new beat of kind cut", () => {
+  const cut: Action = { k: "cut", t: 2000, changed_frac: 0.6 };
+  const beats = segmentBeats([win, click(500), cut, click(2500)], noopFrames(60, 0, 100), opts());
+  const cutBeat = beats.find((b) => b.kind === "cut");
+  assert.ok(cutBeat);
+  assert.equal(cutBeat.t0, 2000);
+  assert.equal(cutBeat.actions[0]!.k, "cut");
+  // actions before and after the cut sit in different beats
+  const clickBeats = beats.filter((b) => b.kind === "click");
+  assert.equal(clickBeats.length, 2);
+});
+
+test("beats shorter than 0.8 s merge into the previous beat with the same window", () => {
+  const beats = segmentBeats(
+    [win, click(500, 20, 20), typeAct(2000, 2100), typeAct(3500, 4500)],
+    noopFrames(60, 0, 100),
+    opts(),
+  );
+  // the 100 ms type beat folds into the previous chromium beat (which also
+  // carries the folded focus beat)
+  const merged = beats.find((b) => b.actions.some((a) => a.k === "type" && a.t0 === 2000));
+  assert.ok(merged);
+  assert.equal(merged.actions.length, 3); // focus + click + short type
+});
+
+test("beats shorter than 0.8 s merge into the next beat when the window differs", () => {
+  const beats = segmentBeats(
+    [typeAct(2000, 2100, "alacritty"), typeAct(3500, 4600, "alacritty"), click(6000, 20, 20, "chromium")],
+    noopFrames(70, 0, 100),
+    opts(),
+  );
+  // the 100 ms alacritty type beat has no previous beat, so it folds into the
+  // next alacritty beat; the trailing chromium click has no same-window next
+  // and glues into the previous beat as a last resort
+  const alBeats = beats.filter((b) => b.window_cls === "alacritty");
+  assert.equal(alBeats.length, 1);
+  assert.equal(alBeats[0]!.actions.length, 3); // short type + long type + folded click
+  assert.equal(alBeats[0]!.t0, 2000);
+});
+
+test("hard cap: beats per minute never exceed 30", () => {
+  // 45 rapid clicks at 1.1 s spacing, each beyond the 1.2 s extension? No:
+  // 1.1 s spacing is within 1.2 s, so use 1.3 s spacing and spread the anchors
+  // beyond 0.35 x diagonal by jumping across the frame.
+  const actions: Action[] = [win];
+  for (let i = 0; i < 45; i++) {
+    const x = (i % 2 === 0 ? 5 : 150);
+    actions.push(click(500 + i * 1300, x, 60));
+  }
+  const beats = segmentBeats(actions, noopFrames(500, 0, 100), opts());
+  assert.ok(beats.length <= MAX_BEATS_PER_MIN, `expected <= 30 beats/min, got ${beats.length}`);
+});
+
+test("result attachment: region of area >= 0.005 within 1.5 s after the last action", () => {
+  const frames = framesWith(1300, [0, 60, 60, 60]); // 3600/19200 = 0.1875 area
+  const beats = segmentBeats([win, click(500, 20, 20), click(1200, 30, 30)], frames, opts());
+  const b = beats[0]!;
+  assert.ok(b.results && b.results.length === 1, "expected a result attached");
+  assert.deepEqual(b.results![0]!.bbox, [0, 60, 60, 60]);
+});
+
+test("small or late regions are not attached as results", () => {
+  const frames = framesWith(5000, [0, 0, 30, 30]); // 900/19200 ~ 0.047 but too late (>1.5s)
+  const beats = segmentBeats([win, click(500, 20, 20)], frames, opts());
+  assert.ok(!beats[0]!.results);
+});
+
+test("attachedResults sorts largest first and respects the window", () => {
+  const frames: FrameRegions[] = [
+    { t: 1000, changed_frac: 0.1, cut: false, regions: [{ bbox: [0, 0, 10, 10], area_frac: 0.001 }] }, // too small
+    { t: 1200, changed_frac: 0.1, cut: false, regions: [{ bbox: [0, 0, 40, 40], area_frac: 0.083 }] },
+    { t: 1400, changed_frac: 0.1, cut: false, regions: [{ bbox: [80, 80, 20, 20], area_frac: 0.02 }] },
+    { t: 3000, changed_frac: 0.1, cut: false, regions: [{ bbox: [0, 0, 80, 80], area_frac: 0.33 }] }, // too late
+  ];
+  const res = attachedResults(frames, 1100, 2600);
+  assert.equal(res.length, 2);
+  assert.deepEqual(res[0]!.bbox, [0, 0, 40, 40]);
+  assert.deepEqual(res[1]!.bbox, [80, 80, 20, 20]);
+});

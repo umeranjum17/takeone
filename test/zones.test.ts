@@ -1,0 +1,155 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { zonesForBeat, delayWords, OCR_MAX_AREA } from "../src/beats/zones.ts";
+import { actStart } from "../src/beats/segment.ts";
+import type { Action, Beat, FrameRegions, Region } from "../src/types.ts";
+import { STREAM, noopFrames } from "./helpers.ts";
+
+const frames: FrameRegions[] = noopFrames(20, 0, 100);
+const base = { stream: STREAM, scale: 1, frames };
+
+function beatOf(actions: Action[], results?: Region[]): Beat {
+  return {
+    id: "b1",
+    t0: actStart(actions[0]!),
+    t1: 5000,
+    anchor_t: 500,
+    window_cls: "chromium",
+    actions,
+    zones: [],
+    kind: "click",
+    results,
+  };
+}
+
+test("act zone pads the click point by 40x28 x scale and unites small regions", () => {
+  const b = beatOf([{ k: "click", t: 500, x: 100, y: 60, window_cls: "chromium" }]);
+  const framesWithRegion: FrameRegions[] = [
+    ...frames.slice(0, 5),
+    { t: 600, changed_frac: 0.01, cut: false, regions: [{ bbox: [90, 50, 30, 20], area_frac: 0.01 }] },
+    ...frames.slice(6),
+  ];
+  const zones = zonesForBeat(b, { ...base, frames: framesWithRegion, winRect: [0, 0, 100, 100] });
+  const act = zones.find((z) => z.kind === "act")!;
+  // pad 40/28 around (100,60), united with the region at (90,50)-(120,70)
+  assert.equal(act.bbox[0], 60);
+  assert.equal(act.bbox[1], 32);
+  assert.deepEqual([act.bbox[2], act.bbox[3]], [80, 56]);
+});
+
+test("zones: dedupe IoU > 0.6 keeps the smaller, names are z1..zN smallest to largest", () => {
+  const b = beatOf([{ k: "click", t: 500, x: 80, y: 60, window_cls: "chromium" }]);
+  // act and a small window overlap but stay distinct (IoU < 0.6); zones are act + win + all
+  const winRect: [number, number, number, number] = [50, 40, 60, 40];
+  const zones = zonesForBeat(b, { ...base, winRect });
+  assert.equal(zones.length, 3); // act, win, all (win is not >90% of screen)
+  for (let i = 0; i < zones.length; i++) {
+    assert.equal(zones[i]!.name, `z${i + 1}`);
+  }
+  // smallest to largest
+  for (let i = 1; i < zones.length; i++) {
+    const a = zones[i - 1]!;
+    const c = zones[i]!;
+    assert.ok(a.bbox[2] * a.bbox[3] <= c.bbox[2] * c.bbox[3], `z${i} not >= z${i - 1} by area`);
+  }
+});
+
+test("win zone is skipped when the window covers more than 90% of the screen", () => {
+  const b = beatOf([{ k: "click", t: 500, x: 80, y: 60, window_cls: "chromium" }]);
+  const zones = zonesForBeat(b, { ...base, winRect: [0, 0, STREAM.w, STREAM.h] });
+  assert.ok(!zones.some((z) => z.kind === "win"));
+  assert.ok(zones.some((z) => z.kind === "all"));
+});
+
+test("res zone only exists when IoU against act is under 0.3", () => {
+  const results = [{ bbox: [0, 90, 100, 30] as [number, number, number, number], area_frac: 0.15 }]; // far from the act zone
+  const b = beatOf([{ k: "click", t: 500, x: 80, y: 60, window_cls: "chromium" }], results);
+  const zones = zonesForBeat(b, { ...base, winRect: [0, 0, 100, 80] });
+  assert.ok(zones.some((z) => z.kind === "res"));
+
+  const overlapping = [{ bbox: [60, 40, 40, 40] as [number, number, number, number], area_frac: 0.08 }]; // overlaps act heavily
+  const b2 = beatOf([{ k: "click", t: 500, x: 80, y: 60, window_cls: "chromium" }], overlapping);
+  const zones2 = zonesForBeat(b2, { ...base, winRect: [0, 0, 100, 80] });
+  assert.ok(!zones2.some((z) => z.kind === "res"));
+});
+
+test("txt zone from the typing region", () => {
+  const b = beatOf([{ k: "type", t0: 500, t1: 1500, window_cls: "chromium", region: [10, 10, 60, 20] }]);
+  const zones = zonesForBeat(b, { ...base, winRect: [0, 0, 100, 100] });
+  const txt = zones.find((z) => z.kind === "txt")!;
+  assert.deepEqual(txt.bbox, [10, 10, 60, 20]);
+});
+
+test("path zone from drag bbox", () => {
+  const b = beatOf([{ k: "drag", t0: 500, t1: 1200, from: [10, 10], to: [100, 80], bbox: [10, 10, 90, 70], window_cls: "chromium" }]);
+  const zones = zonesForBeat(b, { ...base, winRect: [0, 0, 100, 100] });
+  const path = zones.find((z) => z.kind === "path")!;
+  assert.deepEqual(path.bbox, [10, 10, 90, 70]);
+});
+
+test("word descriptions never contain digits", () => {
+  const b = beatOf([{ k: "click", t: 500, x: 80, y: 60, window_cls: "chromium" }], [
+    { bbox: [0, 90, 100, 30] as [number, number, number, number], area_frac: 0.15 },
+  ]);
+  b.t1 = 2500;
+  const zones = zonesForBeat(b, { ...base, winRect: [0, 0, 100, 80] });
+  assert.ok(zones.length >= 2);
+  for (const z of zones) {
+    for (const part of [z.desc.shows, z.desc.size, z.desc.where, z.desc.activity]) {
+      assert.ok(!/\d/.test(part), `digits in "${part}"`);
+    }
+  }
+  // the app name also never carries digits (class "gtk4-app" -> "gtk-app")
+  const b2 = beatOf([{ k: "click", t: 500, x: 80, y: 60, window_cls: "gtk4-app" }]);
+  const zones2 = zonesForBeat(b2, { ...base, winRect: [0, 0, 100, 80] });
+  const winZone = zones2.find((z) => z.kind === "win")!;
+  assert.ok(!/\d/.test(winZone.desc.shows), winZone.desc.shows);
+});
+
+test("size words follow the area thresholds", () => {
+  const b = beatOf([{ k: "click", t: 500, x: 80, y: 60, window_cls: "chromium" }]);
+  // all-zone size is "the whole screen"; win zone 100x80 of 160x120 = 41% -> large
+  const zones = zonesForBeat(b, { ...base, winRect: [0, 0, 100, 80] });
+  const all = zones.find((z) => z.kind === "all")!;
+  assert.equal(all.desc.size, "the whole screen");
+  const win = zones.find((z) => z.kind === "win")!;
+  assert.equal(win.desc.size, "large, most of the window");
+});
+
+test("where words use the 3x3 grid", () => {
+  const mk = (x: number, y: number) =>
+    beatOf([{ k: "click", t: 500, x, y, window_cls: "chromium" }]);
+  const center = zonesForBeat(mk(80, 60), { ...base, winRect: [40, 30, 80, 60] }).find((z) => z.kind === "act")!;
+  assert.equal(center.desc.where, "center");
+  const tl = zonesForBeat(mk(10, 10), { ...base, winRect: [0, 0, 60, 40] }).find((z) => z.kind === "act")!;
+  assert.equal(tl.desc.where, "top left");
+  const br = zonesForBeat(mk(150, 110), { ...base, winRect: [100, 80, 60, 40] }).find((z) => z.kind === "act")!;
+  assert.equal(br.desc.where, "bottom right");
+});
+
+test("delay words quantize without digits", () => {
+  assert.ok(!/\d/.test(delayWords(100)));
+  assert.ok(!/\d/.test(delayWords(900)));
+  assert.ok(!/\d/.test(delayWords(2500)));
+});
+
+test("at most 6 zones per beat", () => {
+  const b = beatOf([
+    { k: "click", t: 500, x: 80, y: 60, window_cls: "chromium" },
+    { k: "type", t0: 700, t1: 1500, window_cls: "chromium", region: [5, 5, 20, 10] },
+    { k: "drag", t0: 1600, t1: 2000, from: [10, 10], to: [30, 30], bbox: [10, 10, 20, 20], window_cls: "chromium" },
+  ]);
+  const zones = zonesForBeat(b, { ...base, winRect: [2, 2, 100, 80] });
+  assert.ok(zones.length <= 6);
+  assert.ok(zones.length >= 2);
+});
+
+test("OCR eligibility: zones under a quarter of the screen", () => {
+  const b = beatOf([{ k: "click", t: 500, x: 80, y: 60, window_cls: "chromium" }]);
+  const zones = zonesForBeat(b, { ...base, winRect: [0, 0, 100, 80] });
+  for (const z of zones) {
+    const eligible = z.area_frac < OCR_MAX_AREA;
+    if (z.kind === "all") assert.ok(!eligible);
+    if (z.kind === "act") assert.ok(eligible);
+  }
+});

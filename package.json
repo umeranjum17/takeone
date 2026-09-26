@@ -1,0 +1,21 @@
+{
+  "name": "takeone",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Turn a raw screen recording into a polished demo.",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "bin": {
+    "takeone": "./bin/takeone.ts"
+  },
+  "scripts": {
+    "test": "node --test",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.3",
+    "typescript": "^5.9.3"
+  }
+}

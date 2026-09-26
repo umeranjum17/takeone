@@ -1,0 +1,369 @@
+// takeone make, steps 1-3: perceive, segment, decide. Steps 4-5 (shoot,
+// render) arrive in a later slice and consume this module's output:
+//   analysis/regions.json, analysis/actions.json, analysis/beats.json,
+//   analysis/decisions.json (+ decisions.jsonl cache), take.json jev fields.
+
+import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
+import { join } from "node:path";
+import type {
+  Beat,
+  Decision,
+  Event,
+  FrameRegions,
+  JevAnswers,
+  TakeMeta,
+} from "./types.ts";
+import { perceiveRegions } from "./perceive/regions.ts";
+import { actionsFromEvents } from "./perceive/actions.ts";
+import { decodeAnalysisFrames, readEvents } from "./perceive/decode.ts";
+import { segmentBeats } from "./beats/segment.ts";
+import { zonesForBeat } from "./beats/zones.ts";
+import { buildRequest, planTokens, PRICE_PER_MTOK } from "./decide/request.ts";
+import { heuristicDecision } from "./decide/heuristics.ts";
+import { mapAnswers, frameRect } from "./decide/mapping.ts";
+import {
+  askBeat,
+  CONCURRENCY,
+  DecisionCache,
+  loadApiKey,
+  pooled,
+} from "./decide/jev.ts";
+import { ocrZone } from "./decide/ocr.ts";
+import { redactText } from "./decide/redact.ts";
+import type { BBox } from "./types.ts";
+
+export const DEFAULT_TOKENS_PER_MIN = 40000;
+export const JEV_PRICE = PRICE_PER_MTOK;
+
+export interface MakeOptions {
+  noJev?: boolean;
+  about?: string;
+  screenText?: boolean;
+  maxTokens?: number;
+  /** overrides loadApiKey(); injectable for tests */
+  apiKey?: string | null;
+  /** injectable for tests */
+  fetchImpl?: typeof fetch;
+  log?: (line: string) => void;
+  warn?: (line: string) => void;
+}
+
+export class PreflightRefusal extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "PreflightRefusal";
+  }
+}
+
+export interface MakeResult {
+  take: TakeMeta;
+  beats: Beat[];
+  decisions: Decision[];
+  jev: { input_tokens: number; usd: number; failed: number };
+}
+
+export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<MakeResult> {
+  const log = opts.log ?? ((s: string) => console.log(s));
+  const warn = opts.warn ?? ((s: string) => console.error(s));
+  const take = JSON.parse(readFileSync(join(dir, "take.json"), "utf8")) as TakeMeta;
+  const events = existsSync(join(dir, "events.jsonl")) ? await readEvents(join(dir, "events.jsonl")) : [];
+  const framesTsv = join(dir, "frames.tsv");
+  const webm = join(dir, "screen.webm");
+
+  // 1 perceive ------------------------------------------------------------
+  let frames: FrameRegions[] = [];
+  if (existsSync(webm) && existsSync(framesTsv)) {
+    const dec = await decodeAnalysisFrames(webm, take, framesTsv);
+    // advancing pointer walk: both streams are time-ordered
+    let pi = 0;
+    let last: { x: number; y: number } | null = null;
+    const pointers = dec.frames.map((f) => {
+      while (pi < events.length) {
+        const e = events[pi]!;
+        if (e.k !== "ptr") {
+          pi++;
+          continue;
+        }
+        if (e.t > f.t) break;
+        last = e;
+        pi++;
+      }
+      if (!last) return null;
+      return [(last.x * dec.w) / take.stream.w, (last.y * dec.h) / take.stream.h] as [number, number];
+    });
+    frames = perceiveRegions(
+      dec.frames.map((f) => f.data),
+      dec.frames.map((f) => f.t),
+      pointers,
+      { w: dec.w, h: dec.h, streamW: take.stream.w, streamH: take.stream.h },
+    );
+  }
+  const actions = actionsFromEvents(events, frames, {
+    stream: take.stream,
+    pointer: take.pointer ?? "hyprland",
+  });
+
+  const analysisDir = join(dir, "analysis");
+  mkdirSync(analysisDir, { recursive: true });
+  writeFileSync(join(analysisDir, "regions.json"), JSON.stringify({ take: take.id, fps: 10, frames }, null, 1));
+  writeFileSync(join(analysisDir, "actions.json"), JSON.stringify({ take: take.id, actions }, null, 1));
+
+  // 2 segment -------------------------------------------------------------
+  const takeMs = takeDuration(frames, events);
+  const beats = segmentBeats(actions, frames, { stream: take.stream, takeMs });
+  const winFor = (t: number): { rect: BBox; title: string } | null => {
+    let found: { rect: BBox; title: string } | null = null;
+    for (const e of events) {
+      if (e.k !== "win") continue;
+      if (e.t > t) break;
+      found = { rect: e.rect, title: e.title };
+    }
+    return found;
+  };
+  for (const b of beats) {
+    const win = winFor(b.anchor_t);
+    b.zones = zonesForBeat(b, {
+      winRect: win?.rect ?? null,
+      stream: take.stream,
+      scale: take.scale,
+      frames,
+    });
+    if (opts.screenText) await addScreenText(b, win, webm);
+  }
+  writeFileSync(join(analysisDir, "beats.json"), JSON.stringify({ take: take.id, beats }, null, 1));
+
+  // 3 decide --------------------------------------------------------------
+  const key = opts.noJev ? null : opts.apiKey !== undefined ? opts.apiKey : loadApiKey();
+  if (!opts.noJev && !key) warn("no TYPESAFE_API_KEY; using heuristic policy for all beats");
+
+  // heuristic pre-pass, in shot order, to fill current_shot
+  const heuristics: Decision[] = [];
+  let viewport: BBox | null = null; // null = full screen
+  for (const b of beats) {
+    const d = heuristicDecision(b, { viewport: viewport ? { bbox: viewport } : null });
+    heuristics.push(d);
+    viewport = finalFrame(b, d, winFor(b.anchor_t)?.rect ?? null, take.stream);
+  }
+
+  const decisions: Decision[] = [...heuristics];
+  let inputTokens = 0;
+  let failed = 0;
+  let usd = 0;
+
+  if (key) {
+    const minutes = Math.max(takeMs / 60000, 1 / 60);
+    const maxTokens = opts.maxTokens ?? Math.ceil(DEFAULT_TOKENS_PER_MIN * minutes);
+    const ctxs = beats.map((b, i) => ({
+      about: opts.about,
+      currentShot: shotDescription(beats[i - 1] ?? null, heuristics[i - 1] ?? null),
+      nextBeat: beats[i + 1],
+    }));
+    const plan = planTokens(beats, ctxs, Boolean(opts.about));
+    if (plan.tokens > maxTokens) {
+      throw new PreflightRefusal(
+        `planned ${plan.tokens} tokens exceeds the cap of ${maxTokens} (--max-tokens); ` +
+          `use --no-jev or raise the cap`,
+      );
+    }
+    log(
+      `preflight: ${beats.length} beats, ${plan.tokens} planned tokens, $${plan.usd.toFixed(6)} planned`,
+    );
+
+    const cache = new DecisionCache(join(analysisDir, "decisions.jsonl"));
+    interface Job {
+      i: number;
+      body: string;
+    }
+    const jobs: Job[] = beats.map((b, i) => ({
+      i,
+      body: buildRequest(b, ctxs[i]!, Boolean(opts.about)).body,
+    }));
+    const outcomes: ({ response: unknown; inputTokens?: number } | "failed")[] = new Array(beats.length);
+    await pooled(jobs, CONCURRENCY, async (j) => {
+      const r = await askBeat(j.body, key, cache, { fetchImpl: opts.fetchImpl });
+      if (r.decisionSource === "failed") {
+        outcomes[j.i] = "failed";
+      } else {
+        outcomes[j.i] = { response: r.response, inputTokens: r.inputTokens };
+      }
+    });
+    for (let i = 0; i < beats.length; i++) {
+      const o = outcomes[i]!;
+      if (o === "failed") {
+        failed++;
+        continue; // keep heuristic
+      }
+      if (o.inputTokens) {
+        inputTokens += o.inputTokens;
+        usd += (o.inputTokens * PRICE_PER_MTOK) / 1e6;
+      }
+      const d = mapJevResponse(beats[i]!, o.response, {
+        viewport: i === 0 ? null : finalFrame(beats[i - 1]!, decisions[i - 1]!, winFor(beats[i]!.anchor_t - 1)?.rect ?? null, take.stream),
+        winRect: winFor(beats[i]!.anchor_t)?.rect ?? null,
+        stream: take.stream,
+        about: opts.about,
+      });
+      if (d) {
+        if (o.inputTokens) d.input_tokens = o.inputTokens;
+        decisions[i] = d;
+      } else failed++;
+    }
+
+    // re-ask only beats whose actual previous shot differed from the heuristic one
+    const reask: Job[] = [];
+    for (let i = 1; i < beats.length; i++) {
+      const actual = shotDescription(beats[i - 1]!, decisions[i - 1]!);
+      if (actual !== ctxs[i]!.currentShot) {
+        reask.push({ i, body: buildRequest(beats[i]!, { ...ctxs[i]!, currentShot: actual }, Boolean(opts.about)).body });
+      }
+    }
+    if (reask.length > 0) {
+      const outcomes2: ({ response: unknown; inputTokens?: number } | "failed")[] = new Array(reask.length);
+      await pooled(reask, CONCURRENCY, async (j) => {
+        const r = await askBeat(j.body, key, cache, { fetchImpl: opts.fetchImpl });
+        outcomes2[reask.indexOf(j)] = r.decisionSource === "failed" ? "failed" : { response: r.response, inputTokens: r.inputTokens };
+      });
+      for (let k = 0; k < reask.length; k++) {
+        const j = reask[k]!;
+        const o = outcomes2[k]!;
+        if (o === "failed") {
+          failed++;
+          continue;
+        }
+        if (o.inputTokens) {
+          inputTokens += o.inputTokens;
+          usd += (o.inputTokens * PRICE_PER_MTOK) / 1e6;
+        }
+        const d = mapJevResponse(beats[j.i]!, o.response, {
+          viewport: finalFrame(beats[j.i - 1]!, decisions[j.i - 1]!, winFor(beats[j.i]!.anchor_t - 1)?.rect ?? null, take.stream),
+          winRect: winFor(beats[j.i]!.anchor_t)?.rect ?? null,
+          stream: take.stream,
+          about: opts.about,
+        });
+        if (d) {
+          if (o.inputTokens) d.input_tokens = o.inputTokens;
+          decisions[j.i] = d;
+        } else failed++;
+      }
+    }
+  }
+
+  writeFileSync(join(analysisDir, "decisions.json"), JSON.stringify(decisions, null, 1));
+  const jev = { input_tokens: inputTokens, usd, failed };
+  take.jev = jev;
+  writeFileSync(join(dir, "take.json"), JSON.stringify(take, null, 1) + "\n");
+
+  const byJev = decisions.filter((d) => d.decided_by === "jev").length;
+  log(`make: ${beats.length} beats; ${byJev} by jev, ${decisions.length - byJev} by heuristic` +
+    (key ? `; ${inputTokens} input tokens, $${usd.toFixed(6)}, ${failed} failed` : ""));
+  // seam: steps 4-5 (shoot, render) consume analysis/beats.json + decisions.json
+  return { take, beats, decisions, jev };
+}
+
+function mapJevResponse(
+  beat: Beat,
+  response: unknown,
+  ctx: { viewport: BBox | null; winRect: BBox | null; stream: { w: number; h: number }; about?: string },
+): Decision | null {
+  const answers = extractAnswers(response);
+  if (!answers) return null;
+  const d = mapAnswers(beat, answers, ctx);
+  if (d) d.input_tokens = undefined; // set by the caller from usage
+  return d;
+}
+
+/** Pull the five question answers out of a systemone response. */
+function extractAnswers(response: unknown): JevAnswers | null {
+  const r = response as {
+    answers?: Record<string, unknown>;
+    questions?: Record<string, unknown>;
+  };
+  const src = r?.answers ?? r?.questions ?? null;
+  if (!src || typeof src !== "object") return null;
+  const pick = (k: string): Record<string, unknown> | undefined => {
+    const v = (src as Record<string, unknown>)[k];
+    return v && typeof v === "object" ? (v as Record<string, unknown>) : undefined;
+  };
+  const asChoices = (v: Record<string, unknown> | undefined) =>
+    v
+      ? {
+          choice: typeof v["choice"] === "string" ? (v["choice"] as string) : undefined,
+          probabilities:
+            v["probabilities"] && typeof v["probabilities"] === "object"
+              ? (v["probabilities"] as Record<string, number>)
+              : undefined,
+          confidence: typeof v["confidence"] === "number" ? (v["confidence"] as number) : undefined,
+        }
+      : undefined;
+  const asScore = (v: Record<string, unknown> | undefined) =>
+    v
+      ? {
+          probabilities: Array.isArray(v["probabilities"]) ? (v["probabilities"] as number[]) : undefined,
+          confidence: typeof v["confidence"] === "number" ? (v["confidence"] as number) : undefined,
+        }
+      : undefined;
+  const ns = pick("new_subject");
+  return {
+    focus_start: asChoices(pick("focus_start")),
+    focus_end: asChoices(pick("focus_end")),
+    tightness: asScore(pick("tightness")),
+    new_subject:
+      ns && typeof ns["p"] === "number"
+        ? { p: ns["p"] as number }
+        : ns && ns["probabilities"] !== undefined
+          ? { p: noulP(ns) }
+          : undefined,
+    key_moment: asScore(pick("key_moment")),
+  };
+}
+
+function noulP(v: Record<string, unknown>): number | undefined {
+  const probs = v["probabilities"];
+  if (Array.isArray(probs) && probs.length === 2) {
+    return probs[1];
+  }
+  if (typeof v["p"] === "number") return v["p"] as number;
+  return undefined;
+}
+
+function takeDuration(frames: FrameRegions[], events: Event[]): number {
+  let maxT = 0;
+  if (frames.length > 0) maxT = frames[frames.length - 1]!.t;
+  for (const e of events) if (e.t > maxT) maxT = e.t;
+  return Math.max(maxT, 1000);
+}
+
+function finalFrame(
+  beat: Beat,
+  d: Decision,
+  winRect: BBox | null,
+  stream: { w: number; h: number },
+): BBox {
+  const zone = beat.zones.find((z) => z.name === d.B) ?? null;
+  return frameRect(zone, d.L, { stream, winRect });
+}
+
+/** Words for the shot on screen at the start of a beat. */
+function shotDescription(prevBeat: Beat | null, prevDecision: Decision | null): string {
+  if (!prevBeat || !prevDecision) return "Framing the entire screen.";
+  const z = prevBeat.zones.find((z) => z.name === prevDecision.B);
+  if (!z) return "Framing the entire screen.";
+  return `Framing zone ${z.name}, ${z.desc.shows}.`;
+}
+
+async function addScreenText(
+  beat: Beat,
+  win: { rect: BBox; title: string } | null,
+  webm: string,
+): Promise<void> {
+  for (const z of beat.zones) {
+    if (z.area_frac >= 0.25) continue;
+    const text = await ocrZone(webm, z.bbox, z.t ?? beat.anchor_t);
+    if (text) z.desc.text = text;
+  }
+  if (win?.title && beat.zones.length > 0) {
+    const title = redactText(win.title);
+    const winZone = beat.zones.find((z) => z.kind === "win" || z.kind === "all");
+    if (winZone) winZone.desc.text = winZone.desc.text ? `${winZone.desc.text} ${title}` : title;
+  }
+}
