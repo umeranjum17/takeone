@@ -1,0 +1,197 @@
+/**
+ * `takeone record` orchestration: capture + taps + stop handling + take.json.
+ */
+
+import { mkdir, writeFile, rename, rm } from "node:fs/promises";
+import { homedir } from "node:os";
+import { join, resolve } from "node:path";
+import { resolveEngine } from "@desklink/host";
+import { alignClock, SPREAD_WARN_MS, type ClockAlign } from "./clock.js";
+import { pickMonitor, type MonitorInfo } from "./mapping.js";
+import { getMonitors, hyprlandSockets } from "./hyprland.js";
+import { startCapture, DEFAULT_BITRATE_KBPS, DEFAULT_FPS, RecordError } from "./session.js";
+import { startTaps, type TapHandle } from "./taps.js";
+import { consumeToken } from "./token.js";
+
+export const VERSION = "0.1.0";
+
+export interface RecordOptions {
+  fps?: number;
+  bitrateKbps?: number;
+  takesRoot?: string;
+  stateDirPath?: string;
+}
+
+export interface RecordResult {
+  takeDir: string;
+  takeJson: TakeJson;
+}
+
+export interface TakeJson {
+  id: string;
+  started_at: string;
+  stopped_at: string;
+  fps: number;
+  bitrate_kbps: number;
+  geometry: unknown;
+  monitor: unknown;
+  pointer: "mapped" | "none" | "unmapped";
+  events: "on" | "none";
+  warnings: string[];
+  clock: ClockAlign | null;
+  trim: { start_ms: number; end_ms: number };
+  metrics: unknown | null;
+  versions: { takeone: string; engine: string; protocol: number; node: string };
+}
+
+function takeId(date = new Date()): string {
+  const pad = (n: number): string => String(n).padStart(2, "0");
+  return `${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}-${pad(date.getHours())}${pad(date.getMinutes())}${pad(date.getSeconds())}`;
+}
+
+export function defaultTakesRoot(): string {
+  return process.env.TAKEONE_TAKES_ROOT ?? join(homedir(), "Videos", "takeone");
+}
+
+export function defaultStateDir(): string {
+  return process.env.TAKEONE_STATE_DIR ?? join(homedir(), ".local", "state", "takeone");
+}
+
+async function writePidFile(stateDirPath: string, takeDir: string, startedAt: string): Promise<void> {
+  await mkdir(stateDirPath, { recursive: true, mode: 0o700 });
+  const payload = JSON.stringify({ pid: process.pid, take: takeDir, started_at: startedAt });
+  const pidPath = join(stateDirPath, "recording.pid");
+  const tmp = `${pidPath}.tmp.${process.pid}`;
+  await writeFile(tmp, payload, { flag: "wx", mode: 0o600 });
+  await rename(tmp, pidPath);
+}
+
+/**
+ * Runs until stopped (SIGINT/SIGTERM, what `takeone stop` sends). Resolves
+ * with the finished take's summary, or rejects with a structured RecordError.
+ */
+export async function runRecord(options: RecordOptions = {}): Promise<RecordResult> {
+  const fps = options.fps ?? DEFAULT_FPS;
+  const bitrateKbps = options.bitrateKbps ?? DEFAULT_BITRATE_KBPS;
+  const root = options.takesRoot !== undefined ? resolve(options.takesRoot) : defaultTakesRoot();
+  const stateDirPath =
+    options.stateDirPath !== undefined ? resolve(options.stateDirPath) : defaultStateDir();
+
+  const engine = resolveEngine();
+  if (engine === null) {
+    throw new RecordError(
+      "engine-missing",
+      "the desklink-host engine binary was not found",
+      "run `takeone doctor` for the exact missing piece",
+    );
+  }
+
+  await mkdir(root, { recursive: true });
+  const startedAt = new Date();
+  const id = takeId(startedAt);
+  const takeDir = join(root, id);
+  await mkdir(takeDir, { recursive: true });
+  await writePidFile(stateDirPath, takeDir, startedAt.toISOString());
+
+  let taps: TapHandle | null = null;
+  try {
+    // Consume the single-use restore token before sending it.
+    const savedToken = await consumeToken(stateDirPath);
+    const capture = await startCapture({
+      engine,
+      takeDir,
+      stateDir: stateDirPath,
+      fps,
+      bitrateKbps,
+      savedToken,
+    });
+
+    // Coordinate-mapping self-check at record start: no monitor matching the
+    // stream size within 2 px means no-pointer mode.
+    let mapping: { monitor: MonitorInfo; scale: number } | null = null;
+    let monitorRecord: unknown = null;
+    const hypr = hyprlandSockets();
+    if (hypr !== null) {
+      const monitors = await getMonitors(hypr.socket);
+      const picked = pickMonitor(monitors, capture.geometry);
+      if (picked !== null) {
+        mapping = picked;
+        monitorRecord = picked.monitor;
+      }
+    }
+
+    taps = await startTaps({
+      eventsPath: join(takeDir, "events.jsonl"),
+      mapping,
+      t0ns: process.hrtime.bigint(),
+    });
+
+    const stoppedAt = await new Promise<Date>((resolveStop) => {
+      const onStop = (): void => {
+        process.off("SIGINT", onStop);
+        process.off("SIGTERM", onStop);
+        resolveStop(new Date());
+      };
+      process.on("SIGINT", onStop);
+      process.on("SIGTERM", onStop);
+    });
+
+    const finalMetrics = await capture.stop();
+    if (taps !== null) await taps.stop();
+
+    const clock = alignClock(capture.frames());
+    const durationMs = Math.max(0, stoppedAt.getTime() - startedAt.getTime());
+    const warnings = [...taps.warnings];
+    if (clock !== null && clock.spreadMs > SPREAD_WARN_MS) {
+      warnings.push(`clock offset spread ${clock.spreadMs.toFixed(1)} ms exceeds ${SPREAD_WARN_MS} ms`);
+    }
+
+    const takeJson: TakeJson = {
+      id,
+      started_at: startedAt.toISOString(),
+      stopped_at: stoppedAt.toISOString(),
+      fps,
+      bitrate_kbps: bitrateKbps,
+      geometry: capture.geometry,
+      monitor: monitorRecord,
+      pointer: taps.pointerMode,
+      events: taps.eventsMode,
+      warnings,
+      clock,
+      trim: computeTrim(taps.summary, durationMs),
+      metrics: finalMetrics,
+      versions: {
+        takeone: VERSION,
+        engine: capture.engineVersion,
+        protocol: 2,
+        node: process.version,
+      },
+    };
+    await writeFile(join(takeDir, "take.json"), `${JSON.stringify(takeJson, null, 2)}\n`, "utf8");
+    return { takeDir, takeJson };
+  } finally {
+    await rm(join(stateDirPath, "recording.pid"), { force: true }).catch(() => undefined);
+    if (taps !== null) await taps.stop().catch(() => undefined);
+  }
+}
+
+/**
+ * Auto-trim bounds (design section 5 step 6). The start is the first input
+ * event (click/key/wheel; pointer moves are not actions) that lands more than
+ * 1 s into the take, minus 0.5 s. The end is the stop keypress minus 0.3 s
+ * when a key was pressed near the stop; otherwise the take's end.
+ */
+export function computeTrim(
+  summary: { firstInputMs: number | null; lastKeyMs: number | null },
+  durationMs: number,
+): { start_ms: number; end_ms: number } {
+  let start = 0;
+  if (summary.firstInputMs !== null && summary.firstInputMs > 1000) {
+    start = Math.max(0, summary.firstInputMs - 500);
+  }
+  let end = durationMs;
+  if (summary.lastKeyMs !== null && durationMs - summary.lastKeyMs <= 5000) {
+    end = Math.max(0, summary.lastKeyMs - 300);
+  }
+  return { start_ms: start, end_ms: Math.max(start, Math.min(end, durationMs)) };
+}
