@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
+import { mkdir, mkdtemp, readFile, readdir, readlink, rm, symlink, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import { test } from "node:test";
-import { formatDoctor, type DoctorCheck } from "../doctor.js";
+import { formatDoctor, runDoctor, type DoctorCheck } from "../doctor.js";
 import { toonTable } from "../toon.js";
 import { computeTrim } from "../record.js";
 
@@ -27,6 +29,37 @@ test("doctor output is a TOON table with a stable shape", () => {
     const found = lines.findIndex((line, i) => i >= cursor && line.startsWith(`  ${name},`));
     assert.ok(found >= cursor, `${name} missing or out of order`);
     cursor = found + 1;
+  }
+});
+
+test("doctor leaves an existing probe symlink and its target untouched", { timeout: 20_000 }, async () => {
+  const base = await mkdtemp(join(process.cwd(), ".doctor-test-"));
+  const state = join(base, "state");
+  await mkdir(state);
+  const target = join(state, "important");
+  const probe = join(state, ".doctor-probe");
+  await writeFile(target, "keep this");
+  await symlink(target, probe);
+  const previousState = process.env.TAKEONE_STATE_DIR;
+  const previousRoot = process.env.TAKEONE_DIR;
+  const previousHypr = process.env.HYPRLAND_INSTANCE_SIGNATURE;
+  process.env.TAKEONE_STATE_DIR = state;
+  process.env.TAKEONE_DIR = join(base, "takes");
+  delete process.env.HYPRLAND_INSTANCE_SIGNATURE;
+  try {
+    const checks = await runDoctor();
+    assert.equal(checks.find((check) => check.check === "state-dir")?.ok, true);
+    assert.equal(await readFile(target, "utf8"), "keep this");
+    assert.equal(await readlink(probe), target);
+    assert.deepEqual((await readdir(state)).sort(), [".doctor-probe", "important"]);
+  } finally {
+    if (previousState === undefined) delete process.env.TAKEONE_STATE_DIR;
+    else process.env.TAKEONE_STATE_DIR = previousState;
+    if (previousRoot === undefined) delete process.env.TAKEONE_DIR;
+    else process.env.TAKEONE_DIR = previousRoot;
+    if (previousHypr === undefined) delete process.env.HYPRLAND_INSTANCE_SIGNATURE;
+    else process.env.HYPRLAND_INSTANCE_SIGNATURE = previousHypr;
+    await rm(base, { recursive: true, force: true });
   }
 });
 
