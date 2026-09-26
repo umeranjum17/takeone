@@ -253,18 +253,9 @@ export function attachedResults(frames: FrameRegions[], fromT: number, untilT: n
   return out.sort((a, b) => b.r.area_frac - a.r.area_frac).map((x) => x.r);
 }
 
-/** The union bbox of a beat's attached result regions, or null. */
+/** The largest attached result region's bbox, or null. */
 export function resultBBox(beat: Beat): BBox | null {
-  const rs = beat.results;
-  if (!rs || rs.length === 0) return null;
-  let [x0, y0, x1, y1] = [rs[0]!.bbox[0], rs[0]!.bbox[1], rs[0]!.bbox[0] + rs[0]!.bbox[2], rs[0]!.bbox[1] + rs[0]!.bbox[3]];
-  for (const r of rs.slice(1)) {
-    x0 = Math.min(x0, r.bbox[0]);
-    y0 = Math.min(y0, r.bbox[1]);
-    x1 = Math.max(x1, r.bbox[0] + r.bbox[2]);
-    y1 = Math.max(y1, r.bbox[1] + r.bbox[3]);
-  }
-  return [x0, y0, x1 - x0, y1 - y0];
+  return beat.results?.reduce<Region | null>((best, r) => !best || r.area_frac > best.area_frac ? r : best, null)?.bbox ?? null;
 }
 
 /** The first-change time of the beat's attached results, or null. */

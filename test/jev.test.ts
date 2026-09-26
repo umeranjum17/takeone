@@ -35,6 +35,16 @@ test("callJev: 429 retries once honouring retry-after, then gives up", async () 
   assert.equal(calls, 2);
 });
 
+test("long retry-after fails promptly without retry", async () => {
+  let calls = 0;
+  const r = await callJev("{}", KEY, { timeoutMs: 50, fetchImpl: (async () => {
+    calls++;
+    return new Response("rate limited", { status: 429, headers: { "retry-after": "3600" } });
+  }) as typeof fetch });
+  assert.equal(r.ok, false);
+  assert.equal(calls, 1);
+});
+
 test("callJev: timeout fails the call", async () => {
   const fake = (async (_url: string | URL | Request, init?: RequestInit) => {
     return new Promise<Response>((_resolve, reject) => {
@@ -70,6 +80,19 @@ test("cache hit costs zero network calls", async () => {
     const r2 = await askBeat("{}", KEY, cache2, { fetchImpl: fake });
     assert.equal(r2.decisionSource, "cache");
     assert.equal(calls, 1);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("cache persistence failure does not discard successful response", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "takeone-cache-fail-"));
+  try {
+    const cache = new DecisionCache(join(dir, "missing", "decisions.jsonl"));
+    cache.put = () => { throw new Error("disk full"); };
+    const r = await askBeat("{}", KEY, cache, { fetchImpl: (async () => okResponse(JSON.stringify({ answers: {}, usage: { input_tokens: 8 } }))) as typeof fetch });
+    assert.equal(r.decisionSource, "api");
+    assert.equal(r.inputTokens, 8);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

@@ -142,6 +142,29 @@ test("travel: path over 25% of the diagonal within 1 s, no click", () => {
   assert.ok(tr, "expected a travel action");
 });
 
+test("interleaved input keeps every action and its event-time window", () => {
+  const other: Event = { t: 1000, k: "win", cls: "terminal", title: "Shell", rect: [0, 0, 80, 80] };
+  const events: Event[] = [
+    win, ptr(50, 50, 100), btn(true, 200),
+    { t: 220, k: "wheel", dx: 0, dy: 1 },
+    { t: 230, k: "key", cls: "char", down: true },
+    btn(false, 250),
+    { t: 300, k: "wheel", dx: 0, dy: 2 },
+    { t: 350, k: "key", cls: "char", down: true },
+    other, { t: 1100, k: "wheel", dx: 0, dy: 3 },
+    { t: 1200, k: "key", cls: "char", down: true },
+  ];
+  const acts = actionsFromEvents(events, frames(), opts());
+  assert.deepEqual(acts.filter((a) => a.k === "scroll").map((a) => [a.dy, a.window_cls]), [[3, "chromium"], [3, "terminal"]]);
+  assert.deepEqual(acts.filter((a) => a.k === "type").map((a) => [a.t0, a.t1, a.window_cls]), [[230, 350, "chromium"], [1200, 1200, "terminal"]]);
+  assert.equal(acts.find((a) => a.k === "click")?.window_cls, "chromium");
+});
+
+test("dwell does not span a completed button hold", () => {
+  const acts = actionsFromEvents([win, ptr(50, 50, 0), btn(true, 200), btn(false, 700), ptr(50, 50, 1000)], frames(), opts());
+  assert.equal(acts.filter((a) => a.k === "dwell").length, 0);
+});
+
 test("pointer none mode: click position falls back to the change region centroid", () => {
   const framesWithRegions: FrameRegions[] = [
     ...noopFrames(4, 0, 100),

@@ -85,7 +85,9 @@ function fitsInside(inner: BBox, outer: BBox, margin: number): boolean {
 /** Probabilities must sum to 1 +/- 0.01 or the answer falls back to heuristic. */
 export function sumsTo1(probs: Record<string, number> | number[] | undefined): boolean {
   if (!probs) return false;
-  const s = Object.values(probs).reduce((a, b) => a + b, 0);
+  const values = Object.values(probs);
+  if (values.length === 0 || values.some((p) => typeof p !== "number" || !Number.isFinite(p) || p < 0 || p > 1)) return false;
+  const s = values.reduce((a, b) => a + b, 0);
   return Math.abs(s - 1) <= CONF_SUM_TOL;
 }
 
@@ -110,8 +112,13 @@ export function mapAnswers(
   const fs = answers.focus_start;
   const fe = answers.focus_end;
   if (!fs?.choice || !fe?.choice) return null;
-  if (!sumsTo1(fs.probabilities)) return null;
-  if (!sumsTo1(fe.probabilities)) return null;
+  const names = beat.zones.map((z) => z.name);
+  const validChoice = (p: Record<string, number> | undefined) => p && Object.keys(p).every((n) => names.includes(n)) && sumsTo1(p);
+  const validConf = (c: number | undefined) => c === undefined || (Number.isFinite(c) && c >= 0 && c <= 1);
+  if (!validChoice(fs.probabilities) || !validChoice(fe.probabilities) ||
+      !Object.hasOwn(fs.probabilities!, fs.choice) || !Object.hasOwn(fe.probabilities!, fe.choice) ||
+      !validConf(fs.confidence) || !validConf(fe.confidence) ||
+      !validConf(answers.tightness?.confidence) || !validConf(answers.key_moment?.confidence)) return null;
   const byName = (n: string) => beat.zones.find((z) => z.name === n);
   const zA = byName(fs.choice);
   const zB = byName(fe.choice);
@@ -124,6 +131,7 @@ export function mapAnswers(
   let B = resolveChoice(zB, confB, fe.probabilities, beat);
 
   // tightness: argmax level, one level wider when confidence is low
+  if (answers.tightness?.probabilities?.length !== 4) return null;
   const rawL = argmaxLevel(answers.tightness?.probabilities);
   if (rawL === null) return null;
   let L: Tightness = rawL as Tightness;
@@ -132,13 +140,15 @@ export function mapAnswers(
 
   // new_subject probability
   const p = answers.new_subject?.p;
-  if (p === undefined || p < 0 || p > 1) return null;
+  if (p === undefined || !Number.isFinite(p) || p < 0 || p > 1) return null;
 
   // key moment (only asked with --about)
   let K: 0 | 1 | 2 = 1;
   if (ctx.about) {
+    if (answers.key_moment?.probabilities?.length !== 3) return null;
     const kl = argmaxLevel(answers.key_moment?.probabilities);
-    if (kl !== null) {
+    if (kl === null) return null;
+    {
       K = Math.min(2, kl) as 0 | 1 | 2;
       const confK = answers.key_moment?.confidence ?? 0;
       if (K === 2 && confK >= LOW_CONF) L = Math.min(3, L + KEY_MOMENT_TIGHTEN) as Tightness;

@@ -54,6 +54,21 @@ test("zones: dedupe IoU > 0.6 keeps the smaller, names are z1..zN smallest to la
   }
 });
 
+test("large window cannot replace the all candidate", () => {
+  const b = beatOf([{ k: "focus", t: 500, cls: "chromium", rect: [0, 0, 150, 90] }]);
+  const zones = zonesForBeat(b, { ...base, winRect: [0, 0, STREAM.w, STREAM.h * 0.7] });
+  assert.deepEqual(zones.map((z) => z.kind), ["win", "all"]);
+});
+
+test("result zone uses only the largest attached region", () => {
+  const b = beatOf([{ k: "click", t: 500, x: 90, y: 40, window_cls: "chromium" }], [
+    { bbox: [0, 90, 40, 20], area_frac: 0.1 },
+    { bbox: [140, 0, 20, 20], area_frac: 0.01 },
+  ]);
+  const zones = zonesForBeat(b, { ...base, winRect: null });
+  assert.deepEqual(zones.find((z) => z.kind === "res")?.bbox, [0, 90, 40, 20]);
+});
+
 test("win zone is skipped when the window covers more than 90% of the screen", () => {
   const b = beatOf([{ k: "click", t: 500, x: 80, y: 60, window_cls: "chromium" }]);
   const zones = zonesForBeat(b, { ...base, winRect: [0, 0, STREAM.w, STREAM.h] });

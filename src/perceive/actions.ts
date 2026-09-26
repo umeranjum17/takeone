@@ -40,8 +40,16 @@ export function actionsFromEvents(
   const acts: Action[] = [];
   const ptr: PtrSample[] = [];
   let win: { cls: string; rect: BBox } | null = null;
-  let downAt: { t: number; x: number; y: number } | null = null;
-  let lastClick: { t: number; x: number; y: number } | null = null;
+  let lastClick: { t: number; x: number; y: number; cls: string } | null = null;
+  const used = new Set<number>();
+  const windowAt = (t: number): { cls: string; rect: BBox } | null => {
+    let found: { cls: string; rect: BBox } | null = null;
+    for (const e of events) {
+      if (e.t > t) break;
+      if (e.k === "win") found = { cls: e.cls, rect: e.rect };
+    }
+    return found;
+  };
 
   const pointerAt = (t: number): [number, number] | null => {
     // last ptr sample at or before t
@@ -86,14 +94,16 @@ export function actionsFromEvents(
     // dwell: consecutive samples within DWELL_MAX_PX of the anchor for >= DWELL_MIN_MS, no button held
     let i = 0;
     // ponytail: O(ptr x events) rescan per dwell candidate; fine for minutes-long takes
-    const btnHeld = (t1: number): boolean => {
-      let held = false;
+    const btnHeld = (t0: number, t1: number): boolean => {
+      const held = new Set<string>();
       for (const e of events) {
         if (e.k !== "btn") continue;
         if (e.t > t1) break;
-        held = e.down;
+        if (e.t >= t0 && (held.size > 0 || e.down)) return true;
+        if (e.down) held.add(e.b);
+        else held.delete(e.b);
       }
-      return held;
+      return held.size > 0;
     };
     while (i < ptr.length) {
       const anchor = ptr[i]!;
@@ -105,7 +115,7 @@ export function actionsFromEvents(
         j++;
       }
       const last = ptr[j - 1]!;
-      if (last.t - anchor.t >= DWELL_MIN_MS && !btnHeld(last.t)) {
+      if (last.t - anchor.t >= DWELL_MIN_MS && !btnHeld(anchor.t, last.t)) {
         acts.push({ k: "dwell", t0: anchor.t, t1: last.t, x: anchor.x, y: anchor.y });
       }
       i = Math.max(j - 1, i + 1);
@@ -143,15 +153,18 @@ export function actionsFromEvents(
 
   // pass 3: buttons -> click/drag, wheel -> scroll, keys -> type/shortcut
   for (let i = 0; i < events.length; i++) {
+    if (used.has(i)) continue;
     const e = events[i]!;
+    const atWin = windowAt(e.t);
     if (e.k === "btn") {
       if (!e.down) continue;
       // find the matching up
-      let up: { t: number; idx: number } | null = null;
+      let up: { t: number } | null = null;
       for (let j = i + 1; j < events.length; j++) {
         const u = events[j]!;
         if (u.k === "btn" && u.b === e.b && !u.down) {
-          up = { t: u.t, idx: j };
+          up = { t: u.t };
+          used.add(j);
           break;
         }
       }
@@ -168,7 +181,7 @@ export function actionsFromEvents(
           from: p0,
           to: p1,
           bbox: pathBBox(ptr, e.t, lastPtr?.t ?? e.t, p0, p1),
-          window_cls: win?.cls ?? "",
+          window_cls: atWin?.cls ?? "",
         });
         continue;
       }
@@ -183,25 +196,25 @@ export function actionsFromEvents(
           from: p0,
           to: p1,
           bbox: pathBBox(ptr, e.t, up.t, p0, p1),
-          window_cls: win?.cls ?? "",
+          window_cls: atWin?.cls ?? "",
         });
       } else {
         const isDouble: boolean =
           lastClick !== null &&
+          lastClick.cls === (atWin?.cls ?? "") &&
           up.t - lastClick.t <= DOUBLE_MS &&
           Math.hypot(p0[0] - lastClick.x, p0[1] - lastClick.y) <= CLICK_MAX_PX;
         if (isDouble) {
           // the two clicks become one action
           const lastIdx = acts.map((a) => a.k).lastIndexOf("click");
           if (lastIdx >= 0) acts.splice(lastIdx, 1);
-          acts.push({ k: "click", t: up.t, x: p0[0], y: p0[1], double: true, window_cls: win?.cls ?? "" });
+          acts.push({ k: "click", t: up.t, x: p0[0], y: p0[1], double: true, window_cls: atWin?.cls ?? "" });
           lastClick = null;
         } else {
-          acts.push({ k: "click", t: up.t, x: p0[0], y: p0[1], window_cls: win?.cls ?? "" });
-          lastClick = { t: up.t, x: p0[0], y: p0[1] };
+          acts.push({ k: "click", t: up.t, x: p0[0], y: p0[1], window_cls: atWin?.cls ?? "" });
+          lastClick = { t: up.t, x: p0[0], y: p0[1], cls: atWin?.cls ?? "" };
         }
       }
-      i = up.idx;
     } else if (e.k === "wheel") {
       // merge wheel events while gaps < SCROLL_GAP_MS
       let j = i;
@@ -211,11 +224,15 @@ export function actionsFromEvents(
       let lastT = e.t;
       while (j < events.length) {
         const w2 = events[j]!;
-        if (w2.k !== "wheel" || (j > i && w2.t - lastT >= SCROLL_GAP_MS)) break;
-        dx += w2.dx;
-        dy += w2.dy;
-        detents++;
-        lastT = w2.t;
+        if (w2.k === "win" && w2.cls !== atWin?.cls) break;
+        if (w2.k === "wheel") {
+          if (j > i && w2.t - lastT >= SCROLL_GAP_MS) break;
+          dx += w2.dx;
+          dy += w2.dy;
+          detents++;
+          lastT = w2.t;
+          used.add(j);
+        }
         j++;
       }
       const p = pointerAt(e.t);
@@ -228,28 +245,30 @@ export function actionsFromEvents(
         dx,
         dy,
         detents,
-        window_cls: win?.cls ?? "",
+        window_cls: atWin?.cls ?? "",
       });
-      i = j - 1;
     } else if (e.k === "key") {
       if (e.combo) {
-        acts.push({ k: "shortcut", t: e.t, combo: e.combo, window_cls: win?.cls ?? "" });
+        acts.push({ k: "shortcut", t: e.t, combo: e.combo, window_cls: atWin?.cls ?? "" });
         continue;
       }
       if (!e.down || !TYPE_CLASSES.has(e.cls)) continue;
       // merge type bursts while gaps < TYPE_GAP_MS
-      let j = i;
+      let j = i + 1;
       let lastT = e.t;
-      while (j + 1 < events.length) {
-        const nx = events[j + 1]!;
-        if (nx.k !== "key" || !nx.down || !TYPE_CLASSES.has(nx.cls) || nx.t - lastT >= TYPE_GAP_MS)
-          break;
+      while (j < events.length) {
+        const nx = events[j]!;
+        if (nx.k === "win" && nx.cls !== atWin?.cls) break;
+        if (nx.k === "key" && nx.down && (nx.combo || !TYPE_CLASSES.has(nx.cls))) break;
+        if (nx.k === "key" && nx.down && TYPE_CLASSES.has(nx.cls)) {
+          if (nx.t - lastT >= TYPE_GAP_MS) break;
+          lastT = nx.t;
+          used.add(j);
+        }
         j++;
-        lastT = nx.t;
       }
-      const region = typingRegion(frames, e.t, lastT, win?.rect ?? null);
-      acts.push({ k: "type", t0: e.t, t1: lastT, window_cls: win?.cls ?? "", ...(region ? { region } : {}) });
-      i = j;
+      const region = typingRegion(frames, e.t, lastT, atWin?.rect ?? null);
+      acts.push({ k: "type", t0: e.t, t1: lastT, window_cls: atWin?.cls ?? "", ...(region ? { region } : {}) });
     }
   }
 

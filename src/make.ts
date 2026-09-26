@@ -18,9 +18,9 @@ import { actionsFromEvents } from "./perceive/actions.ts";
 import { decodeAnalysisFrames, readEvents } from "./perceive/decode.ts";
 import { segmentBeats } from "./beats/segment.ts";
 import { zonesForBeat } from "./beats/zones.ts";
-import { buildRequest, planTokens, PRICE_PER_MTOK } from "./decide/request.ts";
+import { buildRequest, planTokens, PRICE_PER_MTOK, REQUEST_TOKEN_CAP } from "./decide/request.ts";
 import { heuristicDecision } from "./decide/heuristics.ts";
-import { mapAnswers, frameRect } from "./decide/mapping.ts";
+import { mapAnswers, frameRect, sumsTo1 } from "./decide/mapping.ts";
 import {
   askBeat,
   CONCURRENCY,
@@ -155,18 +155,19 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
     const maxTokens = opts.maxTokens ?? Math.ceil(DEFAULT_TOKENS_PER_MIN * minutes);
     const ctxs = beats.map((b, i) => ({
       about: opts.about,
-      currentShot: shotDescription(beats[i - 1] ?? null, heuristics[i - 1] ?? null),
+      currentShot: shotDescription(beats[i - 1] ?? null, heuristics[i - 1] ?? null, i > 0 ? winFor(beats[i - 1]!.anchor_t)?.rect ?? null : null, take.stream),
       nextBeat: beats[i + 1],
     }));
     const plan = planTokens(beats, ctxs, Boolean(opts.about));
-    if (plan.tokens > maxTokens) {
+    const reservedTokens = plan.tokens + Math.max(0, beats.length - 1) * REQUEST_TOKEN_CAP;
+    if (reservedTokens > maxTokens) {
       throw new PreflightRefusal(
-        `planned ${plan.tokens} tokens exceeds the cap of ${maxTokens} (--max-tokens); ` +
+        `planned ${reservedTokens} tokens exceeds the cap of ${maxTokens} (--max-tokens); ` +
           `use --no-jev or raise the cap`,
       );
     }
     log(
-      `preflight: ${beats.length} beats, ${plan.tokens} planned tokens, $${plan.usd.toFixed(6)} planned`,
+      `preflight: ${beats.length} beats, ${reservedTokens} planned tokens, $${(reservedTokens * PRICE_PER_MTOK / 1e6).toFixed(6)} planned`,
     );
 
     const cache = new DecisionCache(join(analysisDir, "decisions.jsonl"));
@@ -212,7 +213,7 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
     // re-ask only beats whose actual previous shot differed from the heuristic one
     const reask: Job[] = [];
     for (let i = 1; i < beats.length; i++) {
-      const actual = shotDescription(beats[i - 1]!, decisions[i - 1]!);
+      const actual = shotDescription(beats[i - 1]!, decisions[i - 1]!, winFor(beats[i - 1]!.anchor_t)?.rect ?? null, take.stream);
       if (actual !== ctxs[i]!.currentShot) {
         reask.push({ i, body: buildRequest(beats[i]!, { ...ctxs[i]!, currentShot: actual }, Boolean(opts.about)).body });
       }
@@ -319,7 +320,7 @@ function extractAnswers(response: unknown): JevAnswers | null {
 
 function noulP(v: Record<string, unknown>): number | undefined {
   const probs = v["probabilities"];
-  if (Array.isArray(probs) && probs.length === 2) {
+  if (Array.isArray(probs) && probs.length === 2 && sumsTo1(probs)) {
     return probs[1];
   }
   if (typeof v["p"] === "number") return v["p"] as number;
@@ -344,11 +345,11 @@ function finalFrame(
 }
 
 /** Words for the shot on screen at the start of a beat. */
-function shotDescription(prevBeat: Beat | null, prevDecision: Decision | null): string {
+function shotDescription(prevBeat: Beat | null, prevDecision: Decision | null, winRect: BBox | null, stream: { w: number; h: number }): string {
   if (!prevBeat || !prevDecision) return "Framing the entire screen.";
-  const z = prevBeat.zones.find((z) => z.name === prevDecision.B);
-  if (!z) return "Framing the entire screen.";
-  return `Framing zone ${z.name}, ${z.desc.shows}.`;
+  const z = prevBeat.zones.find((zone) => zone.name === prevDecision.B);
+  const rect = finalFrame(prevBeat, prevDecision, winRect, stream);
+  return `Framing ${z?.desc.shows ?? "the screen"} at ${rect.join(",")}.`;
 }
 
 async function addScreenText(

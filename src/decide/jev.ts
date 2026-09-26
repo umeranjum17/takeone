@@ -91,7 +91,7 @@ export async function callJev(
     }
   };
   const first = await doCall();
-  if (first.status === 429) {
+  if (first.status === 429 && (first.retryAfterMs ?? 1000) >= 0 && (first.retryAfterMs ?? 1000) <= timeoutMs) {
     await new Promise((r) => setTimeout(r, first.retryAfterMs ?? 1000));
     return doCall();
   }
@@ -147,7 +147,9 @@ export async function askBeat(
   if (!key) return { decisionSource: "failed" };
   const r = await callJev(body, key, o);
   if (!r.ok || r.response === undefined) return { decisionSource: "failed" };
-  cache.put(body, r.response);
+  try {
+    cache.put(body, r.response);
+  } catch {}
   return { decisionSource: "api", response: r.response, inputTokens: r.inputTokens };
 }
 

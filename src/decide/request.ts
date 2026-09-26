@@ -171,7 +171,9 @@ export function buildRequest(beat: Beat, ctx: RequestCtx, askKeyMoment: boolean)
     zones,
   };
   const body = truncateZonesToCap(state, askKeyMoment);
-  return { body, tokens: estimateTokens(body) };
+  const tokens = estimateTokens(body);
+  if (tokens > REQUEST_TOKEN_CAP) throw new Error(`request exceeds ${REQUEST_TOKEN_CAP} estimated tokens`);
+  return { body, tokens };
 }
 
 /** Pre-flight estimate across all beats. Returns null when within budget. */

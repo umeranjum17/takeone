@@ -52,7 +52,7 @@ export function zonesForBeat(
   for (const c of cands) {
     const clamped = clampBBox(c.bbox, o.stream.w, o.stream.h);
     if (!clamped) continue;
-    const dup = kept.findIndex((k) => bboxIoU(k.bbox, clamped) > DEDUPE_IOU);
+    const dup = kept.findIndex((k) => c.kind !== "all" && k.kind !== "all" && bboxIoU(k.bbox, clamped) > DEDUPE_IOU);
     if (dup >= 0) {
       if (bboxArea(clamped) < bboxArea(kept[dup]!.bbox)) kept[dup] = { ...c, bbox: clamped };
       continue;
@@ -61,7 +61,8 @@ export function zonesForBeat(
   }
   kept.sort((a, b) => bboxArea(a.bbox) - bboxArea(b.bbox));
 
-  return kept.slice(0, MAX_ZONES).map((c, i) => {
+  const limited = kept.length > MAX_ZONES ? [...kept.slice(0, MAX_ZONES - 1), kept[kept.length - 1]!] : kept;
+  return limited.map((c, i) => {
     const desc = describeZone(c.kind, c.bbox, beat, o, c.t);
     return {
       name: `z${i + 1}`,

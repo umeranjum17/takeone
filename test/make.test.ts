@@ -114,7 +114,30 @@ test("make with a key decides via Jev and accounts usage; cache hit costs zero c
     const r2 = await makeTake(dir, { apiKey: KEY, fetchImpl: fake, log: () => {}, warn: () => {} });
     assert.equal(calls, callsAfterFirst);
     assert.equal(r2.jev.input_tokens, 0);
-    assert.ok(r2.decisions.every((d) => d.decided_by === "jev"));
+    assert.deepEqual(r2.decisions.map((d) => d.decided_by), r1.decisions.map((d) => d.decided_by));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("preflight reserves re-asks and current shots distinguish viewport positions", async () => {
+  const dir = newTake();
+  try {
+    const path = join(dir, "events.jsonl");
+    const events = readFileSync(path, "utf8").trim().split("\n").map((line) => JSON.parse(line));
+    events.splice(events.findIndex((e) => e.t === 6500), 0, { t: 6400, k: "ptr", x: 20, y: 30 });
+    writeFileSync(path, events.map((e) => JSON.stringify(e)).join("\n") + "\n");
+    const bodies: string[] = [];
+    const logs: string[] = [];
+    await makeTake(dir, { apiKey: KEY, maxTokens: 100000, log: (s) => logs.push(s), warn: () => {}, fetchImpl: (async (_url, init) => {
+      bodies.push(String(init?.body));
+      return new Response("boom", { status: 500 });
+    }) as typeof fetch });
+    const planned = Number(logs.find((s) => s.startsWith("preflight:"))!.match(/(\d+) planned tokens/)![1]);
+    assert.ok(planned >= bodies.reduce((sum, body) => sum + Math.ceil(body.length / 3.5), 0) * 2 - 1200);
+    const shots = bodies.map((body) => JSON.parse(body).state.current_shot);
+    assert.ok(new Set(shots).size > 1);
+    await assert.rejects(makeTake(dir, { apiKey: KEY, maxTokens: planned - 1, log: () => {}, warn: () => {}, fetchImpl: (async () => { throw new Error("called"); }) as typeof fetch }), PreflightRefusal);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

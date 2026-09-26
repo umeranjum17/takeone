@@ -65,6 +65,13 @@ test("request size is capped at 1,200 estimated tokens even with huge zone text"
   assert.ok(tokens <= REQUEST_TOKEN_CAP, `tokens=${tokens}`);
 });
 
+test("oversize non-zone request fields are refused before POST", () => {
+  const b = clickBeat([zone("z1", "all", [0, 0, 160, 120])]);
+  assert.throws(() => buildRequest(b, { currentShot: "x", about: "topic".repeat(2000) }, true), /request exceeds/);
+  b.actions = [{ k: "shortcut", t: 500, combo: "X".repeat(5000), window_cls: "chromium" }];
+  assert.throws(() => buildRequest(b, { currentShot: "x" }, false), /request exceeds/);
+});
+
 test("estimateTokens is ceil(chars / 3.5)", () => {
   assert.equal(estimateTokens("a".repeat(35)), 10);
   assert.equal(estimateTokens("a".repeat(36)), 11);
@@ -218,6 +225,22 @@ test("malformed answers fall back: missing choices, bad probability sums, bad p"
   );
   assert.equal(mapAnswers(beat, { ...goodAnswers, new_subject: {} }, ctx), null);
   assert.equal(mapAnswers(beat, { ...goodAnswers, tightness: {} }, ctx), null);
+});
+
+test("malformed probabilities and confidence refuse Jev mapping", () => {
+  const beat = clickBeat([zone("z1", "act", [60, 32, 80, 56]), zone("z2", "all", [0, 0, 160, 120])]);
+  const ctx = { viewport: null, winRect: null, stream: STREAM, about: "demo" };
+  const valid = { ...goodAnswers, key_moment: { probabilities: [0.1, 0.8, 0.1], confidence: 0.8 } };
+  const invalid: JevAnswers[] = [
+    { ...valid, focus_start: { choice: "z1", probabilities: { z1: 1.2, z2: -0.2 } } },
+    { ...valid, focus_end: { choice: "z2", probabilities: { z1: 0.5, bogus: 0.5 } } },
+    { ...valid, focus_end: { choice: "z2", probabilities: { z1: 0.5, z2: 0.5 }, confidence: Infinity } },
+    { ...valid, tightness: { probabilities: [0, 0, 0, 0, 1] } },
+    { ...valid, tightness: { probabilities: [0, 0, NaN, 1] } },
+    { ...valid, new_subject: { p: NaN } },
+    { ...valid, key_moment: { probabilities: [0, 0, 0, 1] } },
+  ];
+  for (const answer of invalid) assert.equal(mapAnswers(beat, answer, ctx), null);
 });
 
 test("sumsTo1 and argmaxLevel helpers", () => {
