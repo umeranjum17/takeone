@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { segmentBeats, attachedResults, MAX_BEATS_PER_MIN } from "../src/beats/segment.ts";
+import { zonesForBeat } from "../src/beats/zones.ts";
 import type { Action, FrameRegions, Region } from "../src/types.ts";
 import { STREAM, noopFrames } from "./helpers.ts";
 
@@ -90,41 +91,24 @@ test("cut settling follows quiet frames rather than a fixed tail", () => {
   assert.deepEqual(beats.map((b) => [b.kind, b.t0, b.t1]), [["cut", 1000, 2000], ["idle", 2000, 10000], ["click", 10000, 10000]]);
 });
 
-test("cuts split spanning actions and keep each side's activity", () => {
-  const pre: Region = { bbox: [10, 10, 20, 20], area_frac: 0.02 };
-  const during: Region = { bbox: [40, 40, 20, 20], area_frac: 0.02 };
-  const post: Region = { bbox: [120, 80, 20, 20], area_frac: 0.02 };
+test("actions stay atomic and cuts inside them do not create overlapping beats", () => {
   const frames: FrameRegions[] = [
-    { t: 1000, changed_frac: 0.01, cut: false, regions: [pre] },
     { t: 2000, changed_frac: 0.6, cut: true, regions: [] },
-    { t: 2100, changed_frac: 0.01, cut: false, regions: [during] },
-    ...[2200, 2300, 2400].map((t) => ({ t, changed_frac: 0.01, cut: false, regions: [] })),
-    { t: 3000, changed_frac: 0.01, cut: false, regions: [post] },
+    { t: 5000, changed_frac: 0.6, cut: true, regions: [] },
+    ...[5100, 5200, 5300, 5400].map((t) => ({ t, changed_frac: 0.01, cut: false, regions: [] })),
   ];
-  const spanning: Action[] = [
-    { k: "type", t0: 0, t1: 4000, region: [10, 10, 130, 90], window_cls: "chromium" },
+  const actions: Action[] = [
+    typeAct(0, 4000),
     { k: "dwell", t0: 0, t1: 4000, x: 20, y: 20, window_cls: "chromium" },
     { k: "scroll", t0: 0, t1: 4000, x: 20, y: 20, dx: 0, dy: 2, detents: 2, window_cls: "chromium" },
-    { k: "drag", t0: 0, t1: 4000, from: [10, 10], to: [80, 80], bbox: [10, 10, 70, 70], window_cls: "chromium" },
-    { k: "travel", t0: 0, t1: 4000, from: [10, 10], to: [80, 80], bbox: [10, 10, 70, 70], window_cls: "chromium" },
+    { k: "drag", t0: 0, t1: 4000, from: [10, 10], to: [10, 10], bbox: [10, 10, 70, 70], window_cls: "chromium" },
+    { k: "travel", t0: 0, t1: 4000, from: [10, 10], to: [10, 10], bbox: [10, 10, 70, 70], window_cls: "chromium" },
   ];
-  for (const action of spanning) {
-    const beats = segmentBeats([action, { k: "cut", t: 2000, changed_frac: 0.6 }], frames, opts());
-    assert.deepEqual(beats.map((b) => [b.kind, b.t0, b.t1]), [[action.k, 0, 2000], ["cut", 2000, 2400], [action.k, 2400, 4000]]);
-    assert.ok(!beats[0]!.results?.includes(during), action.k);
-    assert.equal("t1" in action ? action.t1 : undefined, 4000, action.k);
-    if (action.k === "type") {
-      assert.deepEqual((beats[0]!.actions[0] as typeof action).region, pre.bbox);
-      assert.deepEqual((beats[2]!.actions[0] as typeof action).region, post.bbox);
-    }
-    if (action.k === "drag" || action.k === "travel") {
-      const first = beats[0]!.actions[0] as typeof action;
-      const second = beats[2]!.actions[0] as typeof action;
-      assert.deepEqual(first.to, [45, 45]);
-      assert.deepEqual(second.from, [52, 52]);
-      assert.deepEqual(first.bbox, [10, 10, 35, 35]);
-      assert.deepEqual(second.bbox, [52, 52, 28, 28]);
-    }
+  for (const action of actions) {
+    const cuts: Action[] = [{ k: "cut", t: 2000, changed_frac: 0.6 }, { k: "cut", t: 5000, changed_frac: 0.6 }];
+    const beats = segmentBeats([action, ...cuts], frames, opts());
+    assert.deepEqual(beats.map((b) => [b.kind, b.t0, b.t1]), [[action.k, 0, 4000], ["cut", 5000, 5400]]);
+    assert.deepEqual(beats[0]!.actions[0], action);
   }
 });
 
@@ -136,34 +120,46 @@ test("trim boundaries and an all-idle take produce idle beats", () => {
   ]);
 });
 
-test("trim clips overlapping action intervals and their geometry on both sides", () => {
+test("trim retains overlapping atomic actions but bounds beats and regions", () => {
   const bounds = { ...opts(), startMs: 2000, endMs: 3000 };
-  const regions: FrameRegions[] = [
-    { t: 2250, changed_frac: 0.01, cut: false, regions: [{ bbox: [10, 10, 20, 20], area_frac: 0.02 }] },
-    { t: 2750, changed_frac: 0.01, cut: false, regions: [{ bbox: [120, 80, 20, 20], area_frac: 0.02 }] },
+  const pre: Region = { bbox: [10, 10, 20, 20], area_frac: 0.02 };
+  const inside: Region = { bbox: [60, 50, 20, 20], area_frac: 0.02 };
+  const after: Region = { bbox: [120, 80, 20, 20], area_frac: 0.02 };
+  const frames: FrameRegions[] = [
+    { t: 1750, changed_frac: 0.01, cut: false, regions: [pre] },
+    { t: 2250, changed_frac: 0.01, cut: false, regions: [inside] },
+    { t: 2750, changed_frac: 0.01, cut: false, regions: [inside] },
+    { t: 3500, changed_frac: 0.01, cut: false, regions: [after] },
   ];
-  const interval = (t0: number, t1: number): Action[] => [
-    { k: "type", t0, t1, region: [10, 10, 130, 90], window_cls: "chromium" },
-    { k: "dwell", t0, t1, x: 20, y: 20, window_cls: "chromium" },
-    { k: "scroll", t0, t1, x: 20, y: 20, dx: 0, dy: 2, detents: 2, window_cls: "chromium" },
-    { k: "drag", t0, t1, from: [10, 10], to: [80, 80], bbox: [10, 10, 70, 70], window_cls: "chromium" },
-    { k: "travel", t0, t1, from: [10, 10], to: [80, 80], bbox: [10, 10, 70, 70], window_cls: "chromium" },
-  ];
-  for (const [t0, t1, from, to, point] of [[1500, 2500, 2000, 2500, 45], [2500, 3500, 2500, 3000, 45]]) {
-    for (const action of interval(t0!, t1!)) {
-      const beats = segmentBeats([action], regions, bounds);
-      assert.deepEqual(beats.map((b) => [b.kind, b.t0, b.t1]), [[action.k, from, to]], action.k);
-      const clipped = beats[0]!.actions[0]!;
-      if (clipped.k === "drag" || clipped.k === "travel") {
-        assert.deepEqual(t0 === 1500 ? clipped.from : clipped.to, [point, point]);
-        assert.equal(clipped.bbox[2], 35);
-      }
-      if (clipped.k === "type") assert.deepEqual(clipped.region, t0 === 1500 ? [10, 10, 20, 20] : [120, 80, 20, 20]);
-      assert.equal("t0" in action ? action.t0 : undefined, t0);
-      assert.equal("t1" in action ? action.t1 : undefined, t1);
+  for (const [t0, t1, beat0, beat1] of [[1500, 2500, 2000, 2500], [2500, 3500, 2500, 3000]]) {
+    const actions: Action[] = [
+      { k: "type", t0: t0!, t1: t1!, region: [10, 10, 130, 90], window_cls: "chromium" },
+      { k: "dwell", t0: t0!, t1: t1!, x: 20, y: 20, window_cls: "chromium" },
+      { k: "scroll", t0: t0!, t1: t1!, x: 20, y: 20, dx: 0, dy: 2, detents: 2, window_cls: "chromium" },
+      { k: "drag", t0: t0!, t1: t1!, from: [10, 10], to: [10, 10], bbox: [10, 10, 70, 70], window_cls: "chromium" },
+      { k: "travel", t0: t0!, t1: t1!, from: [10, 10], to: [10, 10], bbox: [10, 10, 70, 70], window_cls: "chromium" },
+    ];
+    for (const action of actions) {
+      const beats = segmentBeats([action], frames, bounds);
+      assert.deepEqual(beats.map((b) => [b.kind, b.t0, b.t1]), [[action.k, beat0, beat1]], action.k);
+      if (action.k === "type") assert.deepEqual((beats[0]!.actions[0] as typeof action).region, inside.bbox);
+      else assert.deepEqual(beats[0]!.actions[0], action);
     }
   }
   assert.deepEqual(segmentBeats([click(1500), click(3500)], [], bounds), []);
+});
+
+test("trim excludes later regions from results and candidate zones", () => {
+  const inside: Region = { bbox: [20, 20, 20, 20], area_frac: 0.02 };
+  const outside: Region = { bbox: [120, 90, 20, 20], area_frac: 0.02 };
+  const frames: FrameRegions[] = [
+    { t: 2950, changed_frac: 0.02, cut: false, regions: [inside] },
+    { t: 3300, changed_frac: 0.02, cut: false, regions: [outside] },
+  ];
+  const beat = segmentBeats([click(2900)], frames, { ...opts(), startMs: 0, endMs: 3000 }).find((b) => b.kind === "click")!;
+  assert.deepEqual(beat.results, [inside]);
+  const zones = zonesForBeat(beat, { winRect: null, stream: STREAM, scale: 1, frames: frames.filter((f) => f.t <= 3000) });
+  assert.ok(!zones.some((z) => z.t === 3300 || z.kind === "res" && z.bbox[0] === 120));
 });
 
 test("beats shorter than 0.8 s merge into the previous beat with the same window", () => {

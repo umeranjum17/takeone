@@ -95,7 +95,7 @@ export function redactWords(tsv: string): string | null {
       const parts = words.slice(i, j + 1).map((word) => word.text);
       const numeric = /^\d{6,}$/.test(combined);
       const mixed = combined.length >= 20 && /[A-Za-z]/.test(combined) && /\d/.test(combined) &&
-        parts.some((part) => /^\d{5,}$/.test(part) || (/[A-Za-z]/.test(part) && /\d/.test(part)));
+        (/\d{5,}/.test(combined) || parts.some((part) => /[A-Za-z]/.test(part) && /\d/.test(part)));
       if (numeric || mixed) {
         words.splice(i, j - i + 1, { ...words[i]!, text: "[redacted]" });
         break;

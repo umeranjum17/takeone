@@ -76,9 +76,8 @@ export function segmentBeats(
   const diag = Math.hypot(o.stream.w, o.stream.h);
   const cutEnd = (t: number): number => {
     let quietStart: number | null = null;
-    for (const frame of frames) {
+    for (const frame of scopedFrames) {
       if (frame.t < t) continue;
-      if (frame.t > (o.endMs ?? Infinity)) break;
       quietStart = frame.changed_frac < CUT_SETTLE_FRAC ? quietStart ?? frame.t : null;
       if (quietStart !== null && frame.t - quietStart >= CUT_SETTLE_MS) return frame.t;
     }
@@ -96,70 +95,35 @@ export function segmentBeats(
       raws.push({ t0: from, t1: t, anchor_t: from, anchorPt: null, window_cls: cur?.window_cls ?? activeWindow, actions: [] });
     }
   };
-  const sliceAction = (a: Exclude<Action, { t: number }>, t0: number, t1: number): Action => {
-    if (a.k === "drag" || a.k === "travel") {
-      const point = (t: number): [number, number] => {
-        const fraction = (t - a.t0) / (a.t1 - a.t0);
-        return [a.from[0] + (a.to[0] - a.from[0]) * fraction, a.from[1] + (a.to[1] - a.from[1]) * fraction];
-      };
-      const from = point(t0);
-      const to = point(t1);
-      return { ...a, t0, t1, from, to, bbox: [Math.min(from[0], to[0]), Math.min(from[1], to[1]), Math.abs(to[0] - from[0]), Math.abs(to[1] - from[1])] };
-    }
-    if (a.k === "type") {
-      let region: BBox | undefined;
-      for (const frame of frames) {
-        if (frame.t < t0 || frame.t >= t1) continue;
-        for (const change of frame.regions) {
-          if (a.region && bboxIoU(change.bbox, a.region) > 0) region = region ? unionBBox(region, change.bbox) : change.bbox;
-        }
-      }
-      const { region: _whole, ...part } = a;
-      return { ...part, t0, t1, ...(region ? { region } : {}) };
-    }
-    if (a.k === "scroll") {
-      const fraction = (t1 - t0) / (a.t1 - a.t0);
-      return { ...a, t0, t1, dx: a.dx * fraction, dy: a.dy * fraction, detents: Math.round(a.detents * fraction) };
-    }
-    return { ...a, t0, t1 };
-  };
   const start = o.startMs ?? -Infinity;
   const end = o.endMs ?? Infinity;
-  const scoped = actions.flatMap((a): Action[] => {
-    const t0 = actStart(a);
-    const t1 = actEnd(a);
-    if (t0 > end || t1 < start) return [];
-    if (!("t1" in a) || t0 === t1 || (t0 >= start && t1 <= end)) return [a];
-    const from = Math.max(t0, start);
-    const to = Math.min(t1, end);
-    return to > from ? [sliceAction(a, from, to)] : [];
+  const scopedFrames = frames.filter((frame) => frame.t >= start && frame.t <= end);
+  const scoped = actions.filter((a) => "t1" in a ? a.t0 < end && a.t1 > start : actStart(a) >= start && actStart(a) <= end).map((a): Action => {
+    if (a.k !== "type" || !a.region || (o.startMs === undefined && o.endMs === undefined)) return a;
+    let region: BBox | undefined;
+    for (const frame of scopedFrames) {
+      if (frame.t < a.t0 || frame.t > a.t1) continue;
+      for (const change of frame.regions) {
+        if (bboxIoU(change.bbox, a.region) > 0) region = region ? unionBBox(region, change.bbox) : change.bbox;
+      }
+    }
+    const { region: _whole, ...rest } = a;
+    return { ...rest, ...(region ? { region } : {}) };
   });
-  const cuts = scoped.filter((a): a is CutAction => a.k === "cut");
   const acts = scoped.filter((a) => a.k !== "cut");
+  const cuts = scoped.filter((a): a is CutAction => a.k === "cut")
+    .filter((c) => !acts.some((a) => actStart(a) < c.t && actEnd(a) > c.t));
+  const timeStart = (a: Action) => Math.max(start, actStart(a));
+  const timeEnd = (a: Action) => Math.min(end, actEnd(a));
   let nextAct = 0;
   let nextCut = 0;
   while (nextAct < acts.length || nextCut < cuts.length) {
     const useCut =
       nextCut < cuts.length &&
-      (nextAct >= acts.length || cuts[nextCut]!.t <= actStart(acts[nextAct]!));
+      (nextAct >= acts.length || cuts[nextCut]!.t <= timeStart(acts[nextAct]!));
     if (useCut) {
       const c = cuts[nextCut++]!;
       const settled = cutEnd(c.t);
-      const remainders: Action[] = [];
-      for (const r of raws) {
-        if (r.t0 >= c.t || r.t1 <= c.t) continue;
-        r.t1 = c.t;
-        r.actions = r.actions.map((a) => {
-          if (!("t1" in a) || a.t1 <= c.t) return a;
-          if (settled < a.t1) remainders.push(sliceAction(a, settled, a.t1));
-          return sliceAction(a, a.t0, c.t);
-        });
-      }
-      for (const remainder of remainders) {
-        let at = nextAct;
-        while (at < acts.length && actStart(acts[at]!) <= actStart(remainder)) at++;
-        acts.splice(at, 0, remainder);
-      }
       appendIdle(c.t);
       activeWindow = c.window_cls ?? activeWindow;
       cur = {
@@ -174,7 +138,7 @@ export function segmentBeats(
       continue;
     }
     const a = acts[nextAct++]!;
-    const t = actStart(a);
+    const t = timeStart(a);
     const pt = actPoint(a);
     const windowCls = a.k === "focus" ? a.cls : a.window_cls ?? activeWindow;
     activeWindow = windowCls;
@@ -189,12 +153,12 @@ export function segmentBeats(
           diag * BEAT_SPREAD_FRAC);
     if (canExtend) {
       cur!.actions.push(a);
-      cur!.t1 = Math.max(cur!.t1, actEnd(a));
+      cur!.t1 = Math.max(cur!.t1, timeEnd(a));
     } else {
       appendIdle(t);
       cur = {
         t0: t,
-        t1: Math.max(actEnd(a), t),
+        t1: Math.max(timeEnd(a), t),
         anchor_t: t,
         anchorPt: pt,
         window_cls: windowCls,
@@ -292,9 +256,9 @@ export function segmentBeats(
   for (let i = 0; i < beats.length; i++) {
     const b = beats[i]!;
     if (b.kind === "idle" || b.kind === "cut") continue;
-    const lastAction = actEnd(b.actions[b.actions.length - 1]!);
-    const nextAction = beats.slice(i + 1).flatMap((next) => next.actions).map(actStart).find((t) => t >= lastAction);
-    b.results = attachedResults(frames, lastAction, Math.min(lastAction + RESULT_AFTER_MS, nextAction === undefined ? Infinity : nextAction - 1));
+    const lastAction = timeEnd(b.actions[b.actions.length - 1]!);
+    const nextAction = beats.slice(i + 1).flatMap((next) => next.actions).map(timeStart).find((t) => t >= lastAction);
+    b.results = attachedResults(scopedFrames, lastAction, Math.min(lastAction + RESULT_AFTER_MS, nextAction === undefined ? end : nextAction - 1));
     if (b.results.length === 0) delete b.results;
   }
 

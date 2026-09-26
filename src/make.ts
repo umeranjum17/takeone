@@ -114,6 +114,10 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
     pointers,
     { w: dec.w, h: dec.h, streamW: take.stream.w, streamH: take.stream.h },
   );
+  const startMs = take.trim?.start ?? 0;
+  const endMs = take.trim?.end ?? takeDuration(frames, events);
+  const takeMs = Math.max(0, endMs - startMs);
+  const scopedFrames = frames.filter((f) => f.t >= startMs && f.t <= endMs);
   const winFor = (t: number): { cls: string; rect: BBox; title: string } | null => {
     let found: { cls: string; rect: BBox; title: string } | null = null;
     for (const e of events) {
@@ -123,7 +127,7 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
     }
     return found;
   };
-  const actions = actionsFromEvents(events, frames, {
+  const actions = actionsFromEvents(events, scopedFrames, {
     stream: take.stream,
     pointer: take.pointer ?? "hyprland",
   });
@@ -136,17 +140,14 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
   writeFileSync(join(analysisDir, "actions.json"), JSON.stringify({ take: take.id, actions }, null, 1));
 
   // 2 segment -------------------------------------------------------------
-  const startMs = take.trim?.start ?? 0;
-  const endMs = take.trim?.end ?? takeDuration(frames, events);
-  const takeMs = Math.max(0, endMs - startMs);
-  const beats = segmentBeats(actions, frames, { stream: take.stream, takeMs, startMs, endMs });
+  const beats = segmentBeats(actions, scopedFrames, { stream: take.stream, takeMs, startMs, endMs });
   for (const b of beats) {
     const win = winFor(b.anchor_t);
     b.zones = zonesForBeat(b, {
       winRect: win?.rect ?? null,
       stream: take.stream,
       scale: take.scale,
-      frames,
+      frames: scopedFrames,
     });
     if (opts.screenText) await addScreenText(b, win, webm, videoStartMs);
   }
