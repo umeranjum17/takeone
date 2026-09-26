@@ -67,6 +67,7 @@ async function evdevDevices(dir: string): Promise<{ devices: EvdevDevice[]; miss
     .filter((n) => n.endsWith("-event-mouse") || n.endsWith("-event-kbd"))
     .sort()
     .map((n) => `${dir}/${n}`);
+  const complete = candidates.some((path) => path.endsWith("-event-mouse")) && candidates.some((path) => path.endsWith("-event-kbd"));
   const devices: EvdevDevice[] = [];
   let eacces = false;
   let unreadable = false;
@@ -81,10 +82,10 @@ async function evdevDevices(dir: string): Promise<{ devices: EvdevDevice[]; miss
       if ((error as NodeJS.ErrnoException).code === "EACCES") eacces = true;
     }
   }
-  if (unreadable) {
+  if (unreadable || !complete) {
     for (const device of devices) closeSync(device.fd);
   }
-  return { devices: unreadable ? [] : devices, missingGroup: eacces };
+  return { devices: unreadable || !complete ? [] : devices, missingGroup: eacces };
 }
 
 export async function startTaps(options: TapOptions): Promise<TapHandle> {

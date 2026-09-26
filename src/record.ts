@@ -134,6 +134,8 @@ export async function runRecord(options: RecordOptions = {}): Promise<RecordResu
     const t0ns = process.hrtime.bigint();
     taps = await startTaps({ eventsPath: join(takeDir, "events.jsonl"), t0ns });
     if (stopRequested) throw new RecordError("capture-stopped", "recording stopped during setup", "run `takeone record` again");
+    let mapping: { monitor: MonitorInfo; scale: number } | null = null;
+    let monitorRecord: unknown = null;
     capture = await startCapture({
       engine,
       takeDir,
@@ -142,26 +144,17 @@ export async function runRecord(options: RecordOptions = {}): Promise<RecordResu
       bitrateKbps,
       savedToken,
       interrupted: stopped,
-    });
-    if (stopRequested) throw new RecordError("capture-stopped", "recording stopped during setup", "run `takeone record` again");
-
-    // Coordinate-mapping self-check at record start: no monitor matching the
-    // stream size within 2 px means no-pointer mode.
-    let mapping: { monitor: MonitorInfo; scale: number } | null = null;
-    let monitorRecord: unknown = null;
-    const hypr = hyprlandSockets();
-    if (hypr !== null) {
-      try {
-        const monitors = await getMonitors(hypr.socket);
-        const picked = pickMonitor(monitors, capture.geometry);
-        if (picked !== null) {
-          mapping = picked;
-          monitorRecord = picked.monitor;
+      onGeometry: async (geometry) => {
+        const hypr = hyprlandSockets();
+        if (hypr !== null) {
+          try {
+            mapping = pickMonitor(await getMonitors(hypr.socket), geometry);
+            monitorRecord = mapping?.monitor ?? null;
+          } catch {}
         }
-      } catch {}
-    }
-
-    taps.setMapping(mapping);
+        taps!.setMapping(mapping);
+      },
+    });
     if (stopRequested) throw new RecordError("capture-stopped", "recording stopped during setup", "run `takeone record` again");
 
     const stoppedAt = await stopped;
