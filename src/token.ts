@@ -5,7 +5,8 @@
  */
 
 import { rmSync } from "node:fs";
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
 
 export const TOKEN_FILENAME = "portal-token";
 
@@ -21,9 +22,14 @@ async function ensureStateDir(stateDir: string): Promise<void> {
 export async function saveToken(stateDir: string, token: string): Promise<void> {
   await ensureStateDir(stateDir);
   const final = tokenPath(stateDir);
-  const tmp = `${final}.tmp.${process.pid}`;
-  await writeFile(tmp, token, { flag: "wx", mode: 0o600 });
-  await rename(tmp, final);
+  const tmp = `${final}.tmp.${randomUUID()}`;
+  try {
+    await writeFile(tmp, token, { flag: "wx", mode: 0o600 });
+    await rename(tmp, final);
+  } catch (error) {
+    await rm(tmp, { force: true }).catch(() => undefined);
+    throw error;
+  }
 }
 
 /**
