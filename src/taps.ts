@@ -25,6 +25,7 @@ export interface TapOptions {
   t0ns: bigint;
   pollHz?: number;
   evdevPollHz?: number;
+  deviceDir?: string;
 }
 
 export interface TapSummary {
@@ -35,7 +36,7 @@ export interface TapSummary {
 
 export interface TapHandle {
   summary: TapSummary;
-  pointerMode: "mapped" | "none" | "unmapped";
+  pointerMode: "mapped" | "none";
   eventsMode: "on" | "none";
   warnings: string[];
   stop(): Promise<void>;
@@ -54,17 +55,17 @@ interface EvdevDevice {
  * which starves every other fs operation in the process, so takeone polls
  * non-blocking fds instead.
  */
-async function evdevDevices(): Promise<{ devices: EvdevDevice[]; missingGroup: boolean }> {
+async function evdevDevices(dir: string): Promise<{ devices: EvdevDevice[]; missingGroup: boolean }> {
   let names: string[] = [];
   try {
-    names = await fs.readdir(DEVICE_DIR);
+    names = await fs.readdir(dir);
   } catch {
     return { devices: [], missingGroup: false };
   }
   const candidates = names
     .filter((n) => n.endsWith("-event-mouse") || n.endsWith("-event-kbd"))
     .sort()
-    .map((n) => `${DEVICE_DIR}/${n}`);
+    .map((n) => `${dir}/${n}`);
   const devices: EvdevDevice[] = [];
   let eacces = false;
   for (const path of candidates) {
@@ -88,7 +89,7 @@ export async function startTaps(options: TapOptions): Promise<TapHandle> {
   };
 
   let eventsMode: "on" | "none" = "on";
-  let pointerMode: "mapped" | "none" | "unmapped" = mapping !== null ? "mapped" : "none";
+  let pointerMode: "mapped" | "none" = mapping !== null ? "mapped" : "none";
 
   const out = await fs.open(eventsPath, "a");
   const emit = (event: TapEvent): void => {
@@ -103,14 +104,17 @@ export async function startTaps(options: TapOptions): Promise<TapHandle> {
   const timers: NodeJS.Timeout[] = [];
   const evdevHandles: EvdevDevice[] = [];
   let stopped = false;
+  const { devices, missingGroup } = await evdevDevices(options.deviceDir ?? DEVICE_DIR);
   // --- Hyprland pointer and window polling -------------------------------
   const hypr: HyprlandSockets | null = hyprlandSockets();
   if (hypr === null) {
     pointerMode = "none";
     warnings.push("hyprland ipc not found; pointer and window events disabled");
   } else if (mapping === null) {
-    pointerMode = "unmapped";
+    pointerMode = "none";
     warnings.push("no monitor matches the stream size; pointer events disabled");
+  } else if (devices.length === 0) {
+    pointerMode = "none";
   } else {
     const { monitor, scale } = mapping;
     let lastPos = "";
@@ -149,7 +153,6 @@ export async function startTaps(options: TapOptions): Promise<TapHandle> {
   }
 
   // --- evdev --------------------------------------------------------------
-  const { devices, missingGroup } = await evdevDevices();
   evdevHandles.push(...devices);
   if (devices.length === 0) {
     eventsMode = "none";

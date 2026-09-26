@@ -2,7 +2,7 @@
  * `takeone record` orchestration: capture + taps + stop handling + take.json.
  */
 
-import { mkdir, writeFile, readFile, rm } from "node:fs/promises";
+import { mkdir, writeFile, rm } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { resolveEngine } from "@desklink/host";
@@ -36,7 +36,7 @@ export interface TakeJson extends TakeMeta {
   bitrate_kbps: number;
   geometry: unknown;
   monitor: unknown;
-  pointer: "mapped" | "none" | "unmapped";
+  pointer: "mapped" | "none";
   events: "on" | "none";
   warnings: string[];
   clock: ClockAlign | null;
@@ -65,17 +65,6 @@ async function writePidFile(stateDirPath: string, takeDir: string, startedAt: st
     await writeFile(pidPath, payload, { flag: "wx", mode: 0o600 });
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-    let stale = false;
-    try {
-      const old = JSON.parse(await readFile(pidPath, "utf8")) as { pid?: number };
-      if (typeof old.pid === "number" && Number.isSafeInteger(old.pid) && old.pid > 0) {
-        try { process.kill(old.pid, 0); } catch (e) { stale = (e as NodeJS.ErrnoException).code === "ESRCH"; }
-      }
-    } catch {}
-    if (stale) {
-      await rm(pidPath, { force: true });
-      return writePidFile(stateDirPath, takeDir, startedAt);
-    }
     throw new RecordError("already-recording", "another recorder owns the PID marker", "run `takeone stop` before recording again");
   }
 }

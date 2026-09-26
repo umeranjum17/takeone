@@ -21,6 +21,8 @@ const TAKE_JSON = JSON.stringify({
 
 test("take ids match YYYYMMDD-HHMMSS", () => {
   assert.equal(parseTakeId("20260926-051122"), "20260926-051122");
+  assert.equal(parseTakeId("20260926-051122-1"), "20260926-051122-1");
+  assert.equal(parseTakeId("20260926-051122-0"), null);
   assert.equal(parseTakeId("not-a-take"), null);
   assert.equal(parseTakeId("2026092-051122"), null);
 });
@@ -30,12 +32,15 @@ test("listing reports complete takes with take.json and skips foreign entries", 
   try {
     await mkdir(join(root, "20260101-000001"));
     await writeFile(join(root, "20260101-000001", "take.json"), TAKE_JSON);
+    await mkdir(join(root, "20260101-000001-1"));
+    await writeFile(join(root, "20260101-000001-1", "take.json"), TAKE_JSON);
     await mkdir(join(root, "random-dir"));
     await writeFile(join(root, "notes.txt"), "hello");
 
     const takes = await listTakes(root, null);
-    assert.equal(takes.length, 1);
-    const take = takes[0]!;
+    assert.equal(takes.length, 2);
+    assert.ok(takes.some((entry) => entry.id === "20260101-000001-1" && entry.status === "complete"));
+    const take = takes.find((entry) => entry.id === "20260101-000001")!;
     assert.equal(take.id, "20260101-000001");
     assert.equal(take.status, "complete");
     assert.equal(take.durationMs, 60_000);

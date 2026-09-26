@@ -2,7 +2,7 @@
  * Full CLI dry-run: `takeone record` against the fake engine (no portal, no
  * real capture), stopped with SIGINT like `takeone stop` sends. The fake
  * geometry (64x64) matches no real monitor, so the record runs in
- * pointer:"unmapped" mode -- the self-check fallback exercised for real.
+ * pointer:"none" mode -- the self-check fallback exercised for real.
  */
 
 import assert from "node:assert/strict";
@@ -102,15 +102,32 @@ test("record writes a complete take (pid file, events, take.json) and stops on S
   assert.deepEqual(plannerTake.stream, { w: 64, h: 64 });
   assert.equal(plannerTake.offset_ms, takeJson.clock?.offsetMs);
   assert.deepEqual(plannerTake.trim, takeJson.trim);
-  assert.equal(takeJson.pointer, "unmapped", "64x64 stream matches no monitor: no-pointer mode");
-  assert.equal(takeJson.events, "on");
+  assert.equal(takeJson.pointer, "none", "64x64 stream matches no monitor: no-pointer mode");
+  const firstRtp = Number((await readFile(framesPath, "utf8")).trim().split("\n")[0]!.split("\t")[0]);
+  assert.ok(firstRtp / 90 + plannerTake.offset_ms >= 0);
+  assert.ok(firstRtp / 90 + plannerTake.offset_ms <= takeJson.trim.end);
   assert.ok(takeJson.clock !== null && takeJson.clock.frames === 20, "clock aligned over 20 frames");
   assert.ok(takeJson.metrics !== null && takeJson.metrics.encoded_frames === 20);
 
-  // events.jsonl exists (empty is fine on a headless runner with no input).
-  await stat(join(takeDir, "events.jsonl"));
+  const events = await readFile(join(takeDir, "events.jsonl"), "utf8");
+  if (takeJson.events === "none") assert.equal(events, "");
   const webm = await stat(join(takeDir, "screen.webm"));
   assert.ok(webm.size > 0);
+
+  await writeFile(pidFile, JSON.stringify({ pid: 2147470000, take: takeDir }));
+  const stale = spawn(process.execPath, [join(here, "../cli.js"), "record", "--root", root, "--state-dir", stateDir], {
+    env: { ...process.env, MUXR_DESKLINK_ENGINE: wrapper }, stdio: ["ignore", "pipe", "pipe"],
+  });
+  let staleError = "";
+  stale.stderr.on("data", (chunk: Buffer) => { staleError += chunk.toString(); });
+  assert.equal(await new Promise<number | null>((resolveP) => stale.on("exit", resolveP)), 1);
+  assert.match(staleError, /already-recording/);
+  assert.equal(JSON.parse(await readFile(pidFile, "utf8")).pid, 2147470000);
+  const stopper = spawn(process.execPath, [join(here, "../cli.js"), "stop"], {
+    env: { ...process.env, TAKEONE_STATE_DIR: stateDir }, stdio: ["ignore", "pipe", "pipe"],
+  });
+  assert.equal(await new Promise<number | null>((resolveP) => stopper.on("exit", resolveP)), 1);
+  await assert.rejects(stat(pidFile));
 
   await rm(base, { recursive: true, force: true });
 });
