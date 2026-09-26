@@ -139,7 +139,7 @@ test("CLI rejects malformed --max-tokens values", async () => {
   }
 });
 
-test("missing events are rejected while an empty recorded stream is valid", async () => {
+test("make accepts video-only missing events and silent recorded streams", async () => {
   const dir = newTake();
   try {
     for (const file of ["screen.webm", "frames.tsv", "events.jsonl"]) {
@@ -166,7 +166,9 @@ test("missing events are rejected while an empty recorded stream is valid", asyn
     assert.deepEqual(result.beats.map((b) => [b.kind, b.t0, b.t1]), [["idle", 1000, 9000]]);
     assert.equal(result.decisions[0]?.decided_by, "heuristic");
     rmSync(eventsPath);
-    await assert.rejects(makeTake(dir, { noJev: true, log: () => {}, warn: () => {} }), (e: unknown) => e instanceof TakeInputError && e.file === "events.jsonl");
+    const missing = await makeTake(dir, { noJev: true, log: () => {}, warn: () => {} });
+    assert.deepEqual(missing.beats, result.beats);
+    assert.deepEqual(missing.decisions, result.decisions);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
