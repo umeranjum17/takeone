@@ -1,6 +1,3 @@
-// takeone make, steps 1-3: perceive, segment, decide.
-// Its output contract is not yet compatible with the existing render command.
-
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import type {

@@ -84,8 +84,8 @@ export function segmentBeats(
     return o.endMs ?? o.takeMs;
   };
 
-  // walk actions and cuts in time order; a cut always closes the beat and
-  // starts a cut beat; a gap >= IDLE_GAP_MS becomes an idle beat
+  // Walk actions and cuts in time order. Cuts inside an action are discarded;
+  // long gaps form idle beats unless the hard beat cap later merges them.
   const raws: RawBeat[] = [];
   let cur: RawBeat | null = null;
   let activeWindow = "";
@@ -214,8 +214,8 @@ export function segmentBeats(
     }
   }
 
-  // hard cap 30 beats per minute: merge the adjacent same-window pair with the
-  // smallest combined duration. A cap must always be enforceable, so when no
+  // Hard cap 30 beats per minute, even over idle/cut boundaries: merge the
+  // adjacent same-window pair with the smallest combined duration. A cap must always be enforceable, so when no
   // same-window pair remains, the smallest pair regardless.
   // ponytail: quadratic rescan; beats are bounded by the cap so this is tiny.
   const cap = Math.max(1, Math.ceil((o.takeMs / 60000) * MAX_BEATS_PER_MIN));
