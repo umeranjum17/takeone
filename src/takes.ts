@@ -1,6 +1,7 @@
 /** Listing of takes under the takes root. */
 
-import { mkdir, readFile, readdir, rm } from "node:fs/promises";
+import { readFileSync } from "node:fs";
+import { readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
 
 export interface TakeEntry {
@@ -19,19 +20,20 @@ export interface RecordingInfo {
   take: string;
 }
 
-export async function withPidLock<T>(stateDir: string, action: () => Promise<T>): Promise<T> {
-  await mkdir(stateDir, { recursive: true, mode: 0o700 });
-  const lock = join(stateDir, "recording.lock");
-  await mkdir(lock, { mode: 0o700 });
-  try {
-    return await action();
-  } finally {
-    await rm(lock, { recursive: true, force: true });
-  }
-}
-
 export function parseTakeId(name: string): string | null {
   return /^\d{8}-\d{6}(?:-[1-9]\d*)?$/.test(name) ? name : null;
+}
+
+export function processStartTicks(pid: number): string | null {
+  try {
+    const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
+    const end = stat.lastIndexOf(") ");
+    if (end < 0) return null;
+    const ticks = stat.slice(end + 2).split(" ")[19];
+    return ticks !== undefined && /^\d+$/.test(ticks) ? ticks : null;
+  } catch {
+    return null;
+  }
 }
 
 /** Parse and liveness-check a pid file's content. Null when stale or absent. */
@@ -42,15 +44,13 @@ export function parsePidFile(content: string): RecordingInfo | null {
   } catch {
     return null;
   }
+  if (parsed === null || typeof parsed !== "object") return null;
   const pid = (parsed as { pid?: unknown }).pid;
   const take = (parsed as { take?: unknown }).take;
+  const startTicks = (parsed as { start_ticks?: unknown }).start_ticks;
   if (typeof pid !== "number" || !Number.isInteger(pid) || pid <= 0) return null;
   if (typeof take !== "string" || take === "") return null;
-  try {
-    process.kill(pid, 0); // throws ESRCH when the process is gone
-  } catch {
-    return null;
-  }
+  if (typeof startTicks !== "string" || startTicks !== processStartTicks(pid)) return null;
   return { pid, take };
 }
 

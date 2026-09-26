@@ -3,7 +3,7 @@ import { mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { listTakes, parsePidFile, parseTakeId, withPidLock } from "../takes.js";
+import { listTakes, parsePidFile, parseTakeId, processStartTicks } from "../takes.js";
 
 async function tempRoot(): Promise<string> {
   const dir = join(tmpdir(), `takeone-test-${process.pid}-${Math.random().toString(36).slice(2)}`);
@@ -88,30 +88,20 @@ test("newest take sorts first", async () => {
   }
 });
 
-test("PID mutations exclude a concurrent stop or record", async () => {
-  const root = await tempRoot();
-  let release!: () => void;
-  const held = withPidLock(root, () => new Promise<void>((resolve) => { release = resolve; }));
-  try {
-    while (release === undefined) await new Promise((resolve) => setTimeout(resolve, 1));
-    await assert.rejects(withPidLock(root, async () => {}), { code: "EEXIST" });
-  } finally {
-    release();
-    await held;
-    await withPidLock(root, async () => {});
-    await rm(root, { recursive: true, force: true });
-  }
-});
-
 test("parsePidFile validates content and liveness", () => {
-  assert.deepEqual(parsePidFile(JSON.stringify({ pid: process.pid, take: "/tmp/x" })), {
+  const start_ticks = processStartTicks(process.pid);
+  assert.ok(start_ticks !== null);
+  assert.deepEqual(parsePidFile(JSON.stringify({ pid: process.pid, start_ticks, take: "/tmp/x" })), {
     pid: process.pid,
     take: "/tmp/x",
   });
+  assert.equal(parsePidFile(JSON.stringify({ pid: process.pid, start_ticks: "0", take: "/tmp/x" })), null);
   // dead pid
   assert.equal(parsePidFile(JSON.stringify({ pid: 2147470000, take: "/tmp/x" })), null);
   // malformed
   assert.equal(parsePidFile("garbage"), null);
+  assert.equal(parsePidFile("null"), null);
+  assert.equal(parsePidFile(JSON.stringify({ pid: process.pid, take: "/tmp/x" })), null);
   assert.equal(parsePidFile(JSON.stringify({ pid: -1, take: "/tmp/x" })), null);
   assert.equal(parsePidFile(JSON.stringify({ pid: process.pid })), null);
 });

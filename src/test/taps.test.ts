@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createServer } from "node:net";
-import { chmod, mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { startTaps } from "../taps.js";
@@ -25,6 +25,20 @@ test("one unreadable evdev device disables all event taps and doctor readiness",
     assert.equal((await evdevProbe(deviceDir)).ok, false);
   } finally {
     await chmod(join(deviceDir, "two-event-kbd"), 0o600);
+    await rm(base, { recursive: true, force: true });
+  }
+});
+
+test("an evdev device lost mid-recording fails completion", async () => {
+  const base = await mkdtemp(join(tmpdir(), "takeone-device-loss-"));
+  const deviceDir = join(base, "devices");
+  await mkdir(deviceDir);
+  await symlink("/dev/null", join(deviceDir, "gone-event-kbd"));
+  try {
+    const taps = await startTaps({ eventsPath: join(base, "events.jsonl"), mapping: null, t0ns: process.hrtime.bigint(), deviceDir, evdevPollHz: 200 });
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    await assert.rejects(taps.stop(), /evdev device closed/);
+  } finally {
     await rm(base, { recursive: true, force: true });
   }
 });
