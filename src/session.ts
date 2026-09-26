@@ -71,7 +71,7 @@ export interface CaptureOptions {
   stateDir: string;
   fps: number;
   bitrateKbps: number;
-  savedToken: string | null;
+  savedToken: string | null | (() => Promise<string | null>);
   onConsent?: () => Promise<void>;
   onGeometry?: (geometry: SurfaceGeometry) => Promise<void>;
   /** Resolves when a stop is requested while still waiting on consent. */
@@ -104,6 +104,7 @@ export async function startCapture(options: CaptureOptions): Promise<Capture> {
     if (tokenWriteError !== null) throw new RecordError("token-write-failed", String(tokenWriteError), "check state directory permissions and record again");
   };
   let peerConnection: RTCPeerConnection | null = null;
+  let remoteDescriptionReady = false;
 
   const client = await EngineClient.start(engine.command, engine.args, {
     onEvent: (event) => {
@@ -119,7 +120,7 @@ export async function startCapture(options: CaptureOptions): Promise<Capture> {
           tokenWriteError ??= error instanceof Error ? error : new Error(String(error));
         });
       } else if (event.event === "session.candidate") {
-        if (peerConnection === null) engineCandidates.push(event);
+        if (peerConnection === null || !remoteDescriptionReady) engineCandidates.push(event);
         else void addEngineCandidate(peerConnection, event);
       }
     },
@@ -139,6 +140,7 @@ export async function startCapture(options: CaptureOptions): Promise<Capture> {
     // the session bus -> the prompt is withdrawn). The client's own, later
     // timeout would SIGKILL instead, which can leave the picker on screen.
     const consentTimeoutMs = options.consentTimeoutMs ?? CONSENT_TIMEOUT_MS;
+    const token = typeof savedToken === "function" ? await savedToken() : savedToken;
     const openPromise = client.openSession(
       {
         source: { kind: "portal" },
@@ -148,7 +150,7 @@ export async function startCapture(options: CaptureOptions): Promise<Capture> {
         maxHeight: 4320,
         bitrateKbps,
         iceServers: [], // loopback only
-        ...(savedToken === null ? {} : { restoreToken: savedToken }),
+        ...(token === null ? {} : { restoreToken: token }),
       },
       consentTimeoutMs + 30_000,
     );
@@ -279,6 +281,8 @@ export async function startCapture(options: CaptureOptions): Promise<Capture> {
 
   try {
   await whileActive(pc.setRemoteDescription({ type: "offer", sdp: description.sdp }));
+  remoteDescriptionReady = true;
+  for (const buffered of engineCandidates.splice(0)) void addEngineCandidate(pc, buffered);
   await whileActive(pc.setLocalDescription(await whileActive(pc.createAnswer())));
   const answerSdp = pc.localDescription?.sdp;
   if (answerSdp === undefined) {
@@ -298,9 +302,6 @@ export async function startCapture(options: CaptureOptions): Promise<Capture> {
       ),
     );
   }, TRACK_WATCHDOG_MS);
-
-  // Candidates the engine sent while the answer was being prepared.
-  for (const buffered of engineCandidates.splice(0)) void addEngineCandidate(pc, buffered);
 
   await whileActive(trackReady.promise);
   } catch (error) {
