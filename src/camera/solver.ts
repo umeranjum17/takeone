@@ -41,7 +41,7 @@ export function zMax(width: number, d: CameraDefaults = DEFAULTS): number {
   return Math.max(1, width / (d.out_w / d.max_upscale));
 }
 
-/** Clamp a camera centre and convert it to the 16:9 source crop. */
+/** Clamp a camera centre and convert it to the configured output-aspect source crop. */
 function toFrame(
   state: CameraState,
   width: number,
