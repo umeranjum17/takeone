@@ -89,6 +89,10 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
     throw new TakeInputError("frames.tsv", "invalid first frame timestamp");
   }
   const dec = await decodeAnalysisFrames(webm, take, framesTsv);
+  const videoEndMs = videoStartMs + dec.frames.length * 100;
+  const startMs = Math.max(videoStartMs, take.trim?.start ?? videoStartMs);
+  const endMs = Math.min(videoEndMs, take.trim?.end ?? videoEndMs);
+  if (!(endMs > startMs)) throw new TakeInputError("take.json", "trim does not overlap video");
   // advancing pointer walk: both streams are time-ordered
   let pi = 0;
   let last: { x: number; y: number } | null = null;
@@ -112,10 +116,7 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
     pointers,
     { w: dec.w, h: dec.h, streamW: take.stream.w, streamH: take.stream.h },
   );
-  const videoEndMs = videoStartMs + dec.frames.length * 100;
-  const startMs = Math.max(videoStartMs, take.trim?.start ?? videoStartMs);
-  const endMs = Math.min(videoEndMs, take.trim?.end ?? videoEndMs);
-  const takeMs = Math.max(0, endMs - startMs);
+  const takeMs = endMs - startMs;
   const scopedFrames = frames.filter((f) => f.t >= startMs && f.t <= endMs);
   const winFor = (t: number): { cls: string; rect: BBox; title: string } | null => {
     let found: { cls: string; rect: BBox; title: string } | null = null;
@@ -129,6 +130,7 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
   const actions = actionsFromEvents(events, scopedFrames, {
     stream: take.stream,
     pointer: take.pointer ?? "hyprland",
+    startMs,
     endMs,
   });
   actions.push(...frames.filter((f) => f.cut).map((f) => ({ k: "cut" as const, t: f.t, changed_frac: f.changed_frac, window_cls: winFor(f.t)?.cls ?? "" })));

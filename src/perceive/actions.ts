@@ -35,7 +35,7 @@ const TYPE_CLASSES = new Set(["char", "space", "backspace", "enter", "tab"]);
 export function actionsFromEvents(
   events: Event[],
   frames: FrameRegions[],
-  opts: { stream: { w: number; h: number }; pointer: string; endMs?: number },
+  opts: { stream: { w: number; h: number }; pointer: string; startMs?: number; endMs?: number },
 ): Action[] {
   const acts: Action[] = [];
   const ptr: PtrSample[] = [];
@@ -221,6 +221,7 @@ export function actionsFromEvents(
           window_cls: atWin?.cls ?? "",
         });
       } else {
+        if (up.t < (opts.startMs ?? -Infinity) || up.t > (opts.endMs ?? Infinity)) continue;
         const isDouble: boolean =
           lastClick !== null &&
           lastClick.cls === (atWin?.cls ?? "") &&

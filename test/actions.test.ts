@@ -47,6 +47,19 @@ test("second click within 400 ms and 6 px makes a double", () => {
   assert.equal((clicks[0] as { double?: boolean }).double, true);
 });
 
+test("clicks outside trim cannot consume an in-trim click", () => {
+  const clicks = (first: number, second: number) => [
+    win, ptr(10, 10, 100), btn(true, first - 50), btn(false, first),
+    btn(true, second - 50), btn(false, second),
+  ];
+  const after = actionsFromEvents(clicks(500, 700), frames(), { ...opts(), startMs: 400, endMs: 600 });
+  assert.deepEqual(after.filter((a) => a.k === "click").map((a) => [a.t, a.double]), [[500, undefined]]);
+  const before = actionsFromEvents(clicks(300, 500), frames(), { ...opts(), startMs: 400, endMs: 600 });
+  assert.deepEqual(before.filter((a) => a.k === "click").map((a) => [a.t, a.double]), [[500, undefined]]);
+  const within = actionsFromEvents(clicks(500, 700), frames(), { ...opts(), startMs: 400, endMs: 700 });
+  assert.deepEqual(within.filter((a) => a.k === "click").map((a) => [a.t, a.double]), [[700, true]]);
+});
+
 test("different mouse buttons remain separate clicks", () => {
   const acts = actionsFromEvents([
     win, ptr(10, 10, 400), btn(true, 500), btn(false, 550),

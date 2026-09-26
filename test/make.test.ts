@@ -169,6 +169,27 @@ test("make intersects trim with available video before rendering", async () => {
   }
 });
 
+test("make rejects trims with no video overlap before writing analysis", async () => {
+  const dir = newTake();
+  try {
+    const framesPath = join(dir, "frames.tsv");
+    const lines = readFileSync(framesPath, "utf8").trimEnd().split("\n");
+    lines[0] = `90000\t${lines[0]!.split("\t")[1]}`;
+    writeFileSync(framesPath, lines.join("\n") + "\n");
+    const takePath = join(dir, "take.json");
+    const original = JSON.parse(readFileSync(takePath, "utf8"));
+    for (const trim of [{ start: 0, end: 500 }, { start: 12000, end: 13000 }]) {
+      writeFileSync(takePath, JSON.stringify({ ...original, trim }));
+      await assert.rejects(makeTake(dir, { noJev: true, log: () => {}, warn: () => {} }),
+        (e: unknown) => e instanceof TakeInputError && e.file === "take.json" && /trim does not overlap video/.test(e.message));
+      assert.ok(!existsSync(join(dir, "analysis")));
+      assert.ok(!existsSync(join(dir, "out", "t1.mp4")));
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("invalid first frame clocks report frames.tsv before planning", async () => {
   const dir = newTake();
   try {
