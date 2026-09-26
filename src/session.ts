@@ -72,6 +72,7 @@ export interface CaptureOptions {
   fps: number;
   bitrateKbps: number;
   savedToken: string | null;
+  onConsent?: () => Promise<void>;
   onGeometry?: (geometry: SurfaceGeometry) => Promise<void>;
   /** Resolves when a stop is requested while still waiting on consent. */
   interrupted?: Promise<unknown>;
@@ -204,6 +205,7 @@ export async function startCapture(options: CaptureOptions): Promise<Capture> {
   let description: Awaited<typeof offer.promise>;
   let offerTimer: NodeJS.Timeout | undefined;
   try {
+    if (options.onConsent !== undefined) await whileActive(options.onConsent());
     if (options.onGeometry !== undefined) await whileActive(options.onGeometry(opened.geometry));
     try {
       engineVersion = (await client.capabilities()).engine;

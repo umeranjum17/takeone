@@ -169,6 +169,48 @@ test("record writes a complete take (pid file, events, take.json) and stops on S
   await rm(base, { recursive: true, force: true });
 });
 
+test("cancelled consent leaves neither input events nor an incomplete take", { timeout: 20_000 }, async () => {
+  const base = await mkdtemp(join(tmpdir(), "takeone-consent-record-"));
+  const root = join(base, "takes");
+  const stateDir = join(base, "state");
+  await mkdir(root);
+  await mkdir(stateDir);
+  const wrapper = join(base, "engine.sh");
+  await writeFile(wrapper, `#!/bin/sh\nexec "${process.execPath}" "${join(here, "fake-engine.js")}" serve\n`);
+  await chmod(wrapper, 0o755);
+  const child = spawn(process.execPath, [join(here, "../cli.js"), "record", "--root", root, "--state-dir", stateDir], {
+    env: { ...process.env, MUXR_DESKLINK_ENGINE: wrapper, FAKE_HANG_OPEN: "1" }, stdio: ["ignore", "pipe", "pipe"],
+  });
+  let stderr = "";
+  child.stderr.on("data", (chunk: Buffer) => { stderr += chunk.toString(); });
+  try {
+    let takeDir = "";
+    const deadline = Date.now() + 10_000;
+    while (Date.now() < deadline) {
+      const entries = await readdir(root);
+      if (entries.length > 0) { takeDir = join(root, entries[0]!); break; }
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    assert.ok(takeDir);
+    const pidPath = join(stateDir, "recording.pid");
+    while (Date.now() < deadline) {
+      try { await stat(pidPath); break; }
+      catch { await new Promise((resolve) => setTimeout(resolve, 20)); }
+    }
+    await stat(pidPath);
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    await assert.rejects(stat(join(takeDir, "events.jsonl")));
+    child.kill("SIGINT");
+    assert.equal(await new Promise<number | null>((resolve) => child.on("exit", resolve)), 1);
+    assert.match(stderr, /consent-cancelled/);
+    await assert.rejects(stat(takeDir));
+    await assert.rejects(stat(join(stateDir, "recording.pid")));
+  } finally {
+    child.kill("SIGKILL");
+    await rm(base, { recursive: true, force: true });
+  }
+});
+
 test("stop during monitor setup does not publish an unusable take", { timeout: 20_000 }, async () => {
   const base = join(tmpdir(), `takeone-setup-${process.pid}-${Math.random().toString(36).slice(2)}`);
   const root = join(base, "takes");
