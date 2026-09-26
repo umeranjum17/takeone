@@ -130,6 +130,10 @@ export async function runRecord(options: RecordOptions = {}): Promise<RecordResu
   try {
     // Consume the single-use restore token before sending it.
     const savedToken = await consumeToken(stateDirPath);
+    const tapStartedAt = new Date();
+    const t0ns = process.hrtime.bigint();
+    taps = await startTaps({ eventsPath: join(takeDir, "events.jsonl"), t0ns });
+    if (stopRequested) throw new RecordError("capture-stopped", "recording stopped during setup", "run `takeone record` again");
     capture = await startCapture({
       engine,
       takeDir,
@@ -157,12 +161,7 @@ export async function runRecord(options: RecordOptions = {}): Promise<RecordResu
       } catch {}
     }
 
-    const t0ns = capture.startedNs;
-    taps = await startTaps({
-      eventsPath: join(takeDir, "events.jsonl"),
-      mapping,
-      t0ns,
-    });
+    taps.setMapping(mapping);
     if (stopRequested) throw new RecordError("capture-stopped", "recording stopped during setup", "run `takeone record` again");
 
     const stoppedAt = await stopped;
@@ -171,7 +170,7 @@ export async function runRecord(options: RecordOptions = {}): Promise<RecordResu
     if (taps !== null) await taps.stop();
 
     const clock = alignClock(capture.frames().map((frame) => ({ ...frame, recvMs: frame.recvMs - Number(t0ns) / 1e6 })));
-    const durationMs = Math.max(0, stoppedAt.getTime() - startedAt.getTime());
+    const durationMs = Math.max(0, stoppedAt.getTime() - tapStartedAt.getTime());
     const warnings = [...taps.warnings];
     if (clock !== null && clock.spreadMs > SPREAD_WARN_MS) {
       warnings.push(`clock offset spread ${clock.spreadMs.toFixed(1)} ms exceeds ${SPREAD_WARN_MS} ms`);
@@ -182,7 +181,7 @@ export async function runRecord(options: RecordOptions = {}): Promise<RecordResu
       stream: { w: capture.geometry.encoded.width, h: capture.geometry.encoded.height },
       scale: mapping?.scale ?? 1,
       offset_ms: clock?.offsetMs ?? 0,
-      started_at: startedAt.toISOString(),
+      started_at: tapStartedAt.toISOString(),
       stopped_at: stoppedAt.toISOString(),
       fps,
       bitrate_kbps: bitrateKbps,
