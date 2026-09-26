@@ -46,6 +46,15 @@ test("second click within 400 ms and 6 px makes a double", () => {
   assert.equal((clicks[0] as { double?: boolean }).double, true);
 });
 
+test("different mouse buttons remain separate clicks", () => {
+  const acts = actionsFromEvents([
+    win, ptr(10, 10, 400), btn(true, 500), btn(false, 550),
+    { t: 800, k: "btn", b: "right", down: true },
+    { t: 850, k: "btn", b: "right", down: false },
+  ], frames(), opts());
+  assert.deepEqual(acts.filter((a) => a.k === "click").map((a) => [a.t, a.double]), [[550, undefined], [850, undefined]]);
+});
+
 test("drag: held more than 300 ms", () => {
   const acts = actionsFromEvents(
     [win, ptr(10, 10, 400), btn(true, 500), ptr(60, 60, 700), btn(false, 1000), ptr(60, 60, 1000)],
@@ -163,6 +172,15 @@ test("travel: path over 25% of the diagonal within 1 s, no click", () => {
   const acts = actionsFromEvents(events, frames(), opts());
   const tr = acts.find((a) => a.k === "travel");
   assert.ok(tr, "expected a travel action");
+});
+
+test("held-button movement is a drag, not travel", () => {
+  const acts = actionsFromEvents([
+    win, ptr(0, 0, 0), btn(true, 10), ptr(30, 10, 100),
+    ptr(90, 40, 300), ptr(150, 60, 500), btn(false, 900),
+  ], frames(), opts());
+  assert.equal(acts.filter((a) => a.k === "drag").length, 1);
+  assert.equal(acts.filter((a) => a.k === "travel").length, 0);
 });
 
 test("interleaved input keeps every action and its event-time window", () => {

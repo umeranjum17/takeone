@@ -280,10 +280,12 @@ test("split OCR email tokens are redacted before sending", () => {
   assert.equal(redactText("bob @ example . com"), "[redacted]");
 });
 
-test("split OCR numeric and mixed-alphanumeric identifiers are redacted", () => {
-  const row = (word: string) => [...Array(10).fill(""), "95", word].join("\t");
-  assert.equal(redactWords(["header", row("123"), row("456"), row("ready")].join("\n")), "[redacted] ready");
-  assert.equal(redactWords(["header", row("abc123def4"), row("ghi567jkl8"), row("ready")].join("\n")), "[redacted] ready");
+test("split OCR identifiers are redacted without masking spaced labels", () => {
+  const row = (word: string, left: number, width: number, line = 1) => ["5", "1", "1", "1", line, "1", left, "0", width, "20", "95", word].join("\t");
+  assert.equal(redactWords(["header", row("123", 0, 30), row("456", 31, 30), row("ready", 100, 50)].join("\n")), "[redacted] ready");
+  assert.equal(redactWords(["header", row("abc123def4", 0, 60), row("ghi567jkl8", 61, 60), row("ready", 160, 50)].join("\n")), "[redacted] ready");
+  assert.equal(redactWords(["header", row("Quarterly", 0, 90), row("sales", 100, 40), row("report", 150, 45), row("2026", 205, 35)].join("\n")), "Quarterly sales report 2026");
+  assert.equal(redactWords(["header", row("abc123def4", 0, 60), row("ghi567jkl8", 61, 60, 2)].join("\n")), "abc123def4 ghi567jkl8");
 });
 
 test("redactText masks emails, 6+ digit runs and 20+ char mixed alphanumerics", () => {

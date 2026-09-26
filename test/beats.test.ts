@@ -66,6 +66,17 @@ test("a cut always starts a new beat of kind cut", () => {
   assert.equal(clickBeats.length, 2);
 });
 
+test("long gaps around cuts become idle beats after the cut settles", () => {
+  const cut: Action = { k: "cut", t: 1000, changed_frac: 0.6, window_cls: "chromium" };
+  const after = segmentBeats([cut, click(10000)], [], opts());
+  assert.deepEqual(after.map((b) => [b.kind, b.t0, b.t1]), [
+    ["cut", 1000, 1400], ["idle", 1400, 10000], ["click", 10000, 10000],
+  ]);
+  const before = segmentBeats([win, click(500), { ...cut, t: 10000 }], [], opts());
+  assert.deepEqual(before.map((b) => b.kind), ["click", "idle", "cut"]);
+  assert.deepEqual([before[1]!.t0, before[1]!.t1], [500, 10000]);
+});
+
 test("beats shorter than 0.8 s merge into the previous beat with the same window", () => {
   const beats = segmentBeats(
     [win, click(500, 20, 20), typeAct(2000, 2100), typeAct(3500, 4500)],

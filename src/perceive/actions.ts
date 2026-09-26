@@ -40,7 +40,7 @@ export function actionsFromEvents(
   const acts: Action[] = [];
   const ptr: PtrSample[] = [];
   let win: { cls: string; rect: BBox } | null = null;
-  let lastClick: { t: number; x: number; y: number; cls: string } | null = null;
+  let lastClick: { t: number; x: number; y: number; cls: string; button: string } | null = null;
   const used = new Set<number>();
   const heldIntervals: [number, number][] = [];
   const buttonTimes: number[] = [];
@@ -143,6 +143,7 @@ export function actionsFromEvents(
       i = Math.max(j - 1, i + 1);
     }
     // travel: cumulative path over a 1 s window > 25% of the diagonal, no click inside
+    intervalIndex = 0;
     let buttonIndex = 0;
     for (let a = 0; a < ptr.length; a++) {
       const start = ptr[a]!;
@@ -156,7 +157,7 @@ export function actionsFromEvents(
         const end = ptr[b - 1]!;
         while (buttonIndex < buttonTimes.length && buttonTimes[buttonIndex]! < start.t) buttonIndex++;
         const hasClick = buttonIndex < buttonTimes.length && buttonTimes[buttonIndex]! <= end.t;
-        if (!hasClick) {
+        if (!hasClick && !btnHeld(start.t, end.t)) {
           const xs = ptr.slice(a, b).map((s) => s.x);
           const ys = ptr.slice(a, b).map((s) => s.y);
           acts.push({
@@ -220,6 +221,7 @@ export function actionsFromEvents(
         const isDouble: boolean =
           lastClick !== null &&
           lastClick.cls === (atWin?.cls ?? "") &&
+          lastClick.button === e.b &&
           up.t - lastClick.t <= DOUBLE_MS &&
           Math.hypot(p0[0] - lastClick.x, p0[1] - lastClick.y) <= DOUBLE_MAX_PX;
         if (isDouble) {
@@ -230,7 +232,7 @@ export function actionsFromEvents(
           lastClick = null;
         } else {
           acts.push({ k: "click", t: up.t, x: p0[0], y: p0[1], window_cls: atWin?.cls ?? "" });
-          lastClick = { t: up.t, x: p0[0], y: p0[1], cls: atWin?.cls ?? "" };
+          lastClick = { t: up.t, x: p0[0], y: p0[1], cls: atWin?.cls ?? "", button: e.b };
         }
       }
     } else if (e.k === "wheel") {

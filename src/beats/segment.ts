@@ -79,6 +79,11 @@ export function segmentBeats(
   const raws: RawBeat[] = [];
   let cur: RawBeat | null = null;
   let activeWindow = "";
+  const appendIdle = (t: number) => {
+    if (cur && t - cur.t1 >= IDLE_GAP_MS) {
+      raws.push({ t0: cur.t1, t1: t, anchor_t: cur.t1, anchorPt: null, window_cls: cur.window_cls, actions: [] });
+    }
+  };
   const ai = acts[Symbol.iterator]();
   let nextAct: IteratorResult<Action>;
   let nextCut = 0;
@@ -89,16 +94,17 @@ export function segmentBeats(
       (nextAct.done || cuts[nextCut]!.t <= actStart(nextAct.value));
     if (useCut) {
       const c = cuts[nextCut++]!;
-      cur = null; // a cut always starts a new beat
+      appendIdle(c.t);
       activeWindow = c.window_cls ?? activeWindow;
-      raws.push({
+      cur = {
         t0: c.t,
-        t1: c.t,
+        t1: c.t + 400,
         anchor_t: c.t,
         anchorPt: null,
         window_cls: activeWindow,
         actions: [c],
-      });
+      };
+      raws.push(cur);
       continue;
     }
     const a = nextAct.value;
@@ -109,6 +115,7 @@ export function segmentBeats(
     activeWindow = windowCls;
     const canExtend =
       cur !== null &&
+      cur.actions[0]?.k !== "cut" &&
       t - cur.t1 <= BEAT_GAP_MS &&
       windowCls === cur.window_cls &&
       (!pt ||
@@ -119,16 +126,7 @@ export function segmentBeats(
       cur!.actions.push(a);
       cur!.t1 = Math.max(cur!.t1, actEnd(a));
     } else {
-      if (cur && t - cur.t1 >= IDLE_GAP_MS) {
-        raws.push({
-          t0: cur.t1,
-          t1: t,
-          anchor_t: cur.t1,
-          anchorPt: null,
-          window_cls: cur.window_cls,
-          actions: [],
-        });
-      }
+      appendIdle(t);
       cur = {
         t0: t,
         t1: Math.max(actEnd(a), t),
@@ -141,13 +139,9 @@ export function segmentBeats(
     }
   }
 
-  // cut beats extend to the start of the next beat
-  for (let i = 0; i < raws.length; i++) {
+  for (let i = 0; i + 1 < raws.length; i++) {
     const r = raws[i]!;
-    if (r.actions.length === 1 && r.actions[0]!.k === "cut") {
-      const next = raws[i + 1];
-      r.t1 = Math.max(next ? next.t0 : r.t0 + 1000, r.t0 + 400);
-    }
+    if (r.actions[0]?.k === "cut") r.t1 = Math.min(r.t1, raws[i + 1]!.t0);
   }
 
   // merge beats shorter than MERGE_SHORT_MS into the previous beat when the
