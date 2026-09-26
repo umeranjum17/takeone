@@ -228,9 +228,10 @@ async function record(args: string[]): Promise<void> {
       ...(flags.state === undefined ? {} : { stateDirPath: flags.state }),
     });
     const { takeJson } = result;
-    console.log(`take ${takeJson.id} written: ${result.takeDir}`);
-    console.log(toonTable("stop", ["frames", "offset_ms", "spread_ms", "trim_ms"], [
+    console.log(toonTable("record", ["id", "take_path", "frames", "offset_ms", "spread_ms", "trim_ms"], [
       [
+        takeJson.id,
+        result.takeDir,
         takeJson.clock?.frames ?? 0,
         takeJson.clock === null ? null : takeJson.clock.offsetMs.toFixed(1),
         takeJson.clock === null ? null : takeJson.clock.spreadMs.toFixed(1),
