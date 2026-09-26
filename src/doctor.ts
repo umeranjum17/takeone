@@ -1,6 +1,7 @@
 /** `takeone doctor`: what the recorder needs on this machine, and what's missing. */
 
 import { execFile } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { promises as fs } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -124,8 +125,13 @@ export async function runDoctor(): Promise<DoctorCheck[]> {
   const state = process.env.TAKEONE_STATE_DIR ?? join(homedir(), ".local", "state", "takeone");
   try {
     await fs.mkdir(state, { recursive: true, mode: 0o700 });
-    await fs.writeFile(join(state, ".doctor-probe"), "");
-    await fs.rm(join(state, ".doctor-probe"), { force: true });
+    const probe = join(state, `.doctor-probe-${randomUUID()}`);
+    const handle = await fs.open(probe, "wx", 0o600);
+    try {
+      await handle.close();
+    } finally {
+      await fs.rm(probe, { force: true });
+    }
     checks.push({ check: "state-dir", ok: true, detail: state });
   } catch (error) {
     checks.push({
