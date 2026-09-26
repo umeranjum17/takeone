@@ -28,7 +28,7 @@ import { ocrZone } from "./decide/ocr.ts";
 import { redactText } from "./decide/redact.ts";
 import { renderTake } from "./render/render.ts";
 import type { Beat as RenderBeat, Decision as RenderDecision, TakeMeta as RenderMeta } from "./camera/types.ts";
-import type { BBox } from "./types.ts";
+import { clampBBox, type BBox } from "./types.ts";
 
 export const DEFAULT_TOKENS_PER_MIN = 40000;
 
@@ -150,16 +150,20 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
     if (opts.screenText) await addScreenText(b, win, webm, videoStartMs);
   }
   const seconds = (ms: number) => (ms - videoStartMs) / 1000;
-  const renderBeats: RenderBeat[] = beats.map((b) => ({
-    id: b.id, t0: seconds(b.t0), t1: seconds(b.t1), anchor_t: seconds(b.anchor_t),
-    kind: b.kind, window_cls: b.window_cls,
-    ...(winFor(b.anchor_t)?.rect ? { window_rect: winFor(b.anchor_t)!.rect } : {}),
-    actions: b.actions.map((a) => "t1" in a ? { ...a, t0: seconds(a.t0), t1: seconds(a.t1) } : { ...a, t: seconds(a.t) }),
-    zones: b.zones.map((z) => ({ name: z.name, type: z.kind, bbox: z.bbox,
-      ...(z.kind === "res" && z.t !== undefined ? { t_change: seconds(Math.max(b.t0, Math.min(b.t1, z.t))) } : {}),
-    })),
-    ...(b.kind === "cut" ? { changed_frac: scopedFrames.filter((f) => f.t >= b.t0 && f.t <= b.t1).map((f) => ({ t: seconds(f.t), f: f.changed_frac })) } : {}),
-  }));
+  const renderBeats: RenderBeat[] = beats.map((b) => {
+    const window = winFor(b.anchor_t);
+    const windowRect = window && clampBBox(window.rect, take.stream.w, take.stream.h);
+    return {
+      id: b.id, t0: seconds(b.t0), t1: seconds(b.t1), anchor_t: seconds(b.anchor_t),
+      kind: b.kind, window_cls: b.window_cls,
+      ...(windowRect ? { window_rect: windowRect } : {}),
+      actions: b.actions.map((a) => "t1" in a ? { ...a, t0: seconds(a.t0), t1: seconds(a.t1) } : { ...a, t: seconds(a.t) }),
+      zones: b.zones.map((z) => ({ name: z.name, type: z.kind, bbox: z.bbox,
+        ...(z.kind === "res" && z.t !== undefined ? { t_change: seconds(Math.max(b.t0, Math.min(b.t1, z.t))) } : {}),
+      })),
+      ...(b.kind === "cut" ? { changed_frac: scopedFrames.filter((f) => f.t >= b.t0 && f.t <= b.t1).map((f) => ({ t: seconds(f.t), f: f.changed_frac })) } : {}),
+    };
+  });
   writeFileSync(join(analysisDir, "beats.json"), JSON.stringify(renderBeats, null, 1));
 
   // 3 decide --------------------------------------------------------------

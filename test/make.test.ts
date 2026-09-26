@@ -85,6 +85,26 @@ test("make --no-jev renders the agreed beat/decision files into a 1920x1080 MP4"
   }
 });
 
+test("make renders partly and wholly off-screen windows", async () => {
+  const dir = newTake();
+  try {
+    const eventsPath = join(dir, "events.jsonl");
+    const events = readFileSync(eventsPath, "utf8").trim().split("\n").map(JSON.parse);
+    events[0].rect = [-10, 0, 200, 100];
+    events.push({ t: 6000, k: "win", cls: "chromium", title: "Outside", rect: [400, 0, 100, 100] });
+    events.sort((a, b) => a.t - b.t);
+    writeFileSync(eventsPath, events.map((e) => JSON.stringify(e)).join("\n") + "\n");
+
+    await makeTake(dir, { noJev: true, log: () => {}, warn: () => {} });
+    const beats = JSON.parse(readFileSync(join(dir, "analysis", "beats.json"), "utf8"));
+    assert.ok(beats.some((b: { window_rect?: number[] }) => JSON.stringify(b.window_rect) === "[0,0,190,100]"));
+    assert.ok(beats.some((b: { anchor_t: number; window_rect?: number[] }) => b.anchor_t >= 6 && b.window_rect === undefined));
+    assert.ok(existsSync(join(dir, "out", "t1.mp4")));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("CLI rejects malformed --max-tokens values", async () => {
   const error = console.error;
   const messages: string[] = [];
