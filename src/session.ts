@@ -30,7 +30,7 @@ export const DEFAULT_BITRATE_KBPS = 40000;
 /** A track that never arrives is a negotiation failure (design section 12). */
 export const TRACK_WATCHDOG_MS = 10_000;
 /** A portal open may wait on a person at the computer. */
-const CONSENT_TIMEOUT_MS = 120_000;
+export const CONSENT_TIMEOUT_MS = 120_000;
 
 export class RecordError extends Error {
   readonly code: string;
@@ -71,6 +71,10 @@ export interface CaptureOptions {
   fps: number;
   bitrateKbps: number;
   savedToken: string | null;
+  /** Resolves when a stop is requested while still waiting on consent. */
+  interrupted?: Promise<unknown>;
+  /** Test hook: shrink the consent deadline. */
+  consentTimeoutMs?: number;
 }
 
 export interface Capture {
@@ -122,7 +126,12 @@ export async function startCapture(options: CaptureOptions): Promise<Capture> {
   let opened: OpenedSession;
   let engineVersion = "desklink-host";
   try {
-    opened = await client.openSession(
+    // Our own deadline governs, so a timeout cancels via a clean engine
+    // shutdown (stdin EOF -> engine exit -> the portal request's sender leaves
+    // the session bus -> the prompt is withdrawn). The client's own, later
+    // timeout would SIGKILL instead, which can leave the picker on screen.
+    const consentTimeoutMs = options.consentTimeoutMs ?? CONSENT_TIMEOUT_MS;
+    const openPromise = client.openSession(
       {
         source: { kind: "portal" },
         permissions: ["view"], // takeone never asks for input authority
@@ -131,10 +140,50 @@ export async function startCapture(options: CaptureOptions): Promise<Capture> {
         iceServers: [], // loopback only
         ...(savedToken === null ? {} : { restoreToken: savedToken }),
       },
-      CONSENT_TIMEOUT_MS,
+      consentTimeoutMs + 30_000,
     );
+    let cancelDeadline = (): void => undefined;
+    const deadline = new Promise<never>((_, reject) => {
+      const timer = setTimeout(
+        () =>
+          reject(
+            new RecordError(
+              "consent-timeout",
+              `nobody approved the screen-share dialog within ${consentTimeoutMs / 1000}s; the portal request was cancelled and the picker withdrawn`,
+              "if a screen-share picker is still visible it is stale and can be closed; run `takeone record` again when the desktop is free",
+            ),
+          ),
+        consentTimeoutMs,
+      );
+      cancelDeadline = (): void => clearTimeout(timer);
+    });
+    const interrupted =
+      options.interrupted === undefined
+        ? null
+        : options.interrupted.then((): never => {
+            throw new RecordError(
+              "consent-cancelled",
+              "takeone stop arrived while waiting for screen-share consent",
+              "run `takeone record` again to try once more",
+            );
+          });
+    try {
+      opened = await Promise.race(
+        interrupted === null
+          ? [openPromise, deadline]
+          : [openPromise, deadline, interrupted],
+      );
+    } catch (error) {
+      cancelDeadline();
+      // Cancel the portal request: shut the engine down cleanly so its DBus
+      // session-bus connection closes and the compositor withdraws the prompt.
+      await client.stop().catch(() => undefined);
+      throw error;
+    }
+    cancelDeadline();
   } catch (error) {
     await client.stop().catch(() => undefined);
+    if (error instanceof RecordError) throw error; // already structured
     throw openRefused(error);
   }
   try {

@@ -88,6 +88,8 @@ async function handle(line: string): Promise<void> {
       });
       break;
     case "session.open": {
+      // Test hook: hang on consent so callers can prove their timeout cancels.
+      if (process.env.FAKE_HANG_OPEN !== undefined) return;
       reply(msg.id ?? 0, {
         sessionId: SESSION,
         generation: 1,
