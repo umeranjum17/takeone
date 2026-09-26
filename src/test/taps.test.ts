@@ -55,6 +55,25 @@ test("one unreadable evdev device disables all event taps and doctor readiness",
   }
 });
 
+test("an unreadable evdev directory reports the missing input group", { skip: process.getuid?.() === 0 }, async () => {
+  const base = await mkdtemp(join(tmpdir(), "takeone-device-dir-"));
+  const deviceDir = join(base, "devices");
+  await mkdir(deviceDir);
+  await chmod(deviceDir, 0);
+  try {
+    const taps = await startTaps({ eventsPath: join(base, "events.jsonl"), mapping: null, t0ns: process.hrtime.bigint(), deviceDir });
+    assert.equal(taps.eventsMode, "none");
+    assert.ok(taps.warnings.some((warning) => warning.includes("group 'input'")));
+    await taps.stop();
+    const check = await evdevProbe(deviceDir);
+    assert.equal(check.ok, false);
+    assert.match(check.detail, /group 'input'/);
+  } finally {
+    await chmod(deviceDir, 0o700);
+    await rm(base, { recursive: true, force: true });
+  }
+});
+
 test("a missing mouse or keyboard class disables events and doctor readiness", async () => {
   const base = await mkdtemp(join(tmpdir(), "takeone-missing-class-"));
   const deviceDir = join(base, "devices");
@@ -142,7 +161,7 @@ test("video-only tap never reads or writes Hyprland events; unmapped pointer is 
       const reply = data.toString().includes("cursorpos") ? '{"x":10,"y":10}' : JSON.stringify({
         class: "Private", title: "Secret", address: "0x1", at: [0, 0], size: [100, 100],
       });
-      if (delayReply) setTimeout(() => conn.end(reply), 80);
+      if (delayReply) setTimeout(() => conn.end(reply), 160);
       else conn.end(reply);
     });
   });
@@ -167,10 +186,13 @@ test("video-only tap never reads or writes Hyprland events; unmapped pointer is 
     await unmapped.stop();
 
     delayReply = true;
-    const mapped = await startTaps({ eventsPath, mapping, t0ns: process.hrtime.bigint(), deviceDir: readableDevices });
+    const beforeMapped = requests;
+    const mapped = await startTaps({ eventsPath, mapping, t0ns: process.hrtime.bigint(), deviceDir: readableDevices, pollHz: 200 });
     const deadline = Date.now() + 1000;
-    while (requests === 0 && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 5));
-    assert.ok(requests > 0);
+    while (requests === beforeMapped && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 5));
+    assert.ok(requests > beforeMapped);
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    assert.equal(requests, beforeMapped + 1, "pointer polls must not overlap while IPC is pending");
     await mapped.stop();
     assert.equal(await readFile(eventsPath, "utf8"), "");
 
