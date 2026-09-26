@@ -1,7 +1,5 @@
-// takeone make, steps 1-3: perceive, segment, decide. Steps 4-5 (shoot,
-// render) arrive in a later slice and consume this module's output:
-//   analysis/regions.json, analysis/actions.json, analysis/beats.json,
-//   analysis/decisions.json (+ decisions.jsonl cache), take.json jev fields.
+// takeone make, steps 1-3: perceive, segment, decide.
+// Its output contract is not yet compatible with the existing render command.
 
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 import { join } from "node:path";
@@ -299,7 +297,6 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
   const byJev = decisions.filter((d) => d.decided_by === "jev").length;
   log(`make: ${beats.length} beats; ${byJev} by jev, ${decisions.length - byJev} by heuristic` +
     (key ? `; ${inputTokens} input tokens, $${usd.toFixed(6)}, ${failed} failed` : ""));
-  // seam: steps 4-5 (shoot, render) consume analysis/beats.json + decisions.json
   return { take, beats, decisions, jev };
 }
 

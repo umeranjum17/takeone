@@ -1,10 +1,11 @@
-// takeone CLI. This slice implements `make` (pipeline steps 1-3); record and
-// render arrive from their own lanes.
-
+#!/usr/bin/env node
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { existsSync } from "node:fs";
+import { pathToFileURL } from "node:url";
 import { makeTake, PreflightRefusal, TakeInputError } from "./make.ts";
+import { renderTake } from "./render/render.ts";
+import { applyOverrides } from "./camera/defaults.ts";
 
 export function takesDir(): string {
   return process.env["TAKEONE_DIR"] ?? join(homedir(), "Videos", "takeone");
@@ -38,9 +39,10 @@ function parseArgs(argv: string[]): Args {
 
 function usage(code: number): never {
   console.error(`takeone make <id> [--no-jev] [--about "<topic>"] [--screen-text] [--max-tokens N]
+takeone render <take-dir> [--set key=value]
 
   Turns a recorded take into beats and camera decisions (pipeline steps 1-3).
-  Steps 4-5 (shoot, render) are built by another slice.
+  render creates a camera path and MP4 from a planned take.
 
   --no-jev        decide every beat with the local heuristic; zero network calls
   --about         optional demo topic; adds the key_moment question
@@ -52,10 +54,29 @@ function usage(code: number): never {
 export async function main(argv: string[]): Promise<number> {
   const [cmd, ...rest] = argv;
   if (!cmd || cmd === "--help" || cmd === "-h") usage(cmd ? 0 : 2);
+  if (cmd === "render") {
+    const [dir, ...args] = rest;
+    if (!dir) { console.error("usage: takeone render <take-dir>"); return 2; }
+    try {
+      const overrides: Record<string, number | string> = {};
+      for (let i = 0; i < args.length; i++) {
+        if (args[i] !== "--set") throw Error(`unknown option ${args[i]}`);
+        const value = args[++i];
+        const match = /^([^=]+)=([^=]+)$/.exec(value ?? "");
+        if (!match) throw Error(`invalid --set ${value}`);
+        const [, k, v] = match;
+        const n = Number(v);
+        overrides[k!] = k === "background" ? v! : Number.isFinite(n) ? n : NaN;
+      }
+      console.log(await renderTake(dir, applyOverrides(overrides)));
+      return 0;
+    } catch (e) {
+      console.error(e instanceof Error ? e.message : e);
+      return 1;
+    }
+  }
   if (cmd !== "make") {
-    console.error(
-      `takeone: unknown command "${cmd}". This slice provides "make"; "record" and the renderer are separate lanes.`,
-    );
+    console.error(`takeone: unknown command "${cmd}". Use "make" or "render".`);
     return 2;
   }
   const a = parseArgs(rest);
@@ -82,4 +103,11 @@ export async function main(argv: string[]): Promise<number> {
     }
     throw e;
   }
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main(process.argv.slice(2)).then(
+    (code) => { process.exitCode = code; },
+    (e) => { console.error(e instanceof Error ? e.message : e); process.exitCode = 1; },
+  );
 }

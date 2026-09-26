@@ -4,12 +4,8 @@
   "private": true,
   "description": "Turn a raw screen recording into a polished demo.",
   "type": "module",
-  "engines": {
-    "node": ">=22"
-  },
-  "bin": {
-    "takeone": "./bin/takeone.ts"
-  },
+  "engines": { "node": ">=22" },
+  "bin": { "takeone": "./bin/takeone.ts" },
   "scripts": {
     "test": "node --test",
     "typecheck": "tsc --noEmit"
