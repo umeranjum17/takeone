@@ -4,6 +4,7 @@ import { buildRequest, estimateTokens, planTokens, REQUEST_TOKEN_CAP } from "../
 import { heuristicDecision } from "../src/decide/heuristics.ts";
 import { mapAnswers, argmaxLevel, sumsTo1 } from "../src/decide/mapping.ts";
 import { redactText } from "../src/decide/redact.ts";
+import { redactWords } from "../src/decide/ocr.ts";
 import type { Action, Beat, Decision, JevAnswers, Zone } from "../src/types.ts";
 import { STREAM } from "./helpers.ts";
 
@@ -177,6 +178,21 @@ test("B = A when B fits the frame chosen for A with 8% margin", () => {
   assert.equal(d.B, "z1");
 });
 
+test("widened end focus is not collapsed using its original small zone", () => {
+  const zones = [
+    zone("z1", "act", [40, 40, 20, 20]),
+    zone("z2", "res", [43, 43, 10, 10]),
+    zone("z3", "all", [0, 0, 160, 120]),
+  ];
+  const answers: JevAnswers = {
+    focus_start: { choice: "z1", probabilities: { z1: 1 }, confidence: 1 },
+    focus_end: { choice: "z2", probabilities: { z2: 0.5, z3: 0.5 }, confidence: 0 },
+    tightness: { probabilities: [0, 0, 0, 1], confidence: 1 },
+    new_subject: { p: 0.5 },
+  };
+  assert.equal(mapAnswers(clickBeat(zones), answers, { viewport: null, winRect: null, stream: STREAM })?.B, "z3");
+});
+
 test("confidence < 0.5 widens A to the smallest zone containing the top two", () => {
   const zones = [
     zone("z1", "act", [60, 32, 80, 56]),
@@ -268,6 +284,12 @@ test("sumsTo1 and argmaxLevel helpers", () => {
 });
 
 // ------------------------------------------------------------------ redaction
+
+test("split OCR email tokens are redacted before sending", () => {
+  const row = (word: string) => [...Array(10).fill(""), "95", word].join("\t");
+  assert.equal(redactWords(["header", row("bob@"), row("example.com"), row("hello")].join("\n")), "[redacted] hello");
+  assert.equal(redactText("bob @ example . com"), "[redacted]");
+});
 
 test("redactText masks emails, 6+ digit runs and 20+ char mixed alphanumerics", () => {
   assert.equal(redactText("mail me at bob@example.com now"), "mail me at [redacted] now");

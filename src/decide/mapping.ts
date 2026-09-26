@@ -152,7 +152,7 @@ export function mapAnswers(
 
   // B = A when B fits the frame chosen for A with 8% margin
   const frameA = frameRect(byName(A) ?? null, L, { stream: ctx.stream, winRect: ctx.winRect });
-  if (fitsInside(zB.bbox, frameA, FIT_MARGIN)) B = A;
+  if (fitsInside(byName(B)!.bbox, frameA, FIT_MARGIN)) B = A;
 
   return {
     beat: beat.id,

@@ -182,7 +182,15 @@ test("dwell and travel retain their event-time window", () => {
   ];
   const acts = actionsFromEvents(events, frames(), opts());
   assert.equal(acts.find((a) => a.k === "dwell")?.window_cls, "chromium");
-  assert.equal(acts.find((a) => a.k === "travel" && a.t0 === 2200)?.window_cls, "terminal");
+  assert.equal(acts.find((a) => a.k === "travel" && a.t0 >= 2100)?.window_cls, "terminal");
+});
+
+test("pointer dwell and travel stop at a window transition without another pointer sample", () => {
+  const next: Event = { t: 500, k: "win", cls: "terminal", title: "Shell", rect: [0, 0, 100, 100] };
+  const stationary = actionsFromEvents([win, ptr(50, 50, 0), next, ptr(50, 50, 1000)], frames(), opts());
+  assert.equal(stationary.filter((a) => a.k === "dwell").length, 0);
+  const moving = actionsFromEvents([win, ptr(10, 10, 0), ptr(20, 10, 400), next, ptr(80, 10, 800), ptr(140, 10, 1000)], frames(), opts());
+  assert.ok(moving.filter((a) => a.k === "travel").every((a) => a.t1 <= 500 || a.t0 >= 500));
 });
 
 test("pointer none mode: click position falls back to the change region centroid", () => {

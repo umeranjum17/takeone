@@ -84,6 +84,12 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
   if (events.length === 0 && take.events !== "none") throw new TakeInputError("events.jsonl", "missing or empty; take.json events must be none for video-only mode");
 
   // 1 perceive ------------------------------------------------------------
+  let videoStartMs: number;
+  try {
+    videoStartMs = firstFrameTimeMs(framesTsv, take);
+  } catch {
+    throw new TakeInputError("frames.tsv", "invalid first frame timestamp");
+  }
   const dec = await decodeAnalysisFrames(webm, take, framesTsv);
   // advancing pointer walk: both streams are time-ordered
   let pi = 0;
@@ -132,7 +138,6 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
   // 2 segment -------------------------------------------------------------
   const takeMs = takeDuration(frames, events);
   const beats = segmentBeats(actions, frames, { stream: take.stream, takeMs });
-  const videoStartMs = opts.screenText ? firstFrameTimeMs(framesTsv, take) : 0;
   for (const b of beats) {
     const win = winFor(b.anchor_t);
     b.zones = zonesForBeat(b, {

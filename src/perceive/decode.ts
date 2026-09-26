@@ -64,10 +64,11 @@ export async function decodeAnalysisFrames(webm: string, take: TakeMeta, framesT
 /** First frame capture time on the event clock: rtp/90 + offset_ms. */
 export function firstFrameTimeMs(framesTsv: string, take: TakeMeta): number {
   const line = readFirstLineSync(framesTsv);
-  if (!line) return 0;
-  const rtp = Number(line.split("\t")[0]);
-  if (!Number.isFinite(rtp)) return 0;
-  return rtp / 90 + (take.offset_ms ?? 0);
+  const [rtp, recv] = line?.split("\t") ?? [];
+  if (!rtp || !recv || !/^\d+$/.test(rtp) || !/^\d+$/.test(recv) || !Number.isSafeInteger(Number(rtp)) || !Number.isFinite(Number(recv)) || !Number.isFinite(take.offset_ms ?? 0)) {
+    throw new Error("invalid first frame timestamp");
+  }
+  return Number(rtp) / 90 + (take.offset_ms ?? 0);
 }
 
 function readFirstLineSync(path: string): string | null {

@@ -106,6 +106,18 @@ test("incomplete takes report the missing file; video-only mode permits empty ev
   }
 });
 
+test("invalid first frame clocks report frames.tsv before planning", async () => {
+  const dir = newTake();
+  try {
+    for (const contents of ["", "oops\t0\n", "0\tbad\n"]) {
+      writeFileSync(join(dir, "frames.tsv"), contents);
+      await assert.rejects(makeTake(dir, { noJev: true, log: () => {}, warn: () => {} }), (e: unknown) => e instanceof TakeInputError && e.file === "frames.tsv" && /invalid first frame timestamp/.test(e.message));
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("make --no-jev writes analysis files and heuristic decisions", async () => {
   const dir = newTake();
   try {

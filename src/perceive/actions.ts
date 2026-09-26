@@ -85,6 +85,11 @@ export function actionsFromEvents(
     else if (e.k === "win") {
       if (!win || win.cls !== e.cls) {
         acts.push({ k: "focus", t: e.t, cls: e.cls, rect: e.rect });
+        const last = ptr[ptr.length - 1];
+        if (last) {
+          if (last.t < e.t) ptr.push({ ...last, t: e.t });
+          ptr.push({ ...last, t: e.t, window_cls: e.cls });
+        }
       }
       win = { cls: e.cls, rect: e.rect };
     } else if (e.k === "btn") {
@@ -118,6 +123,7 @@ export function actionsFromEvents(
       let j = i + 1;
       while (
         j < ptr.length &&
+        ptr[j]!.window_cls === anchor.window_cls &&
         Math.hypot(ptr[j]!.x - anchor.x, ptr[j]!.y - anchor.y) <= DWELL_MAX_PX
       ) {
         j++;
@@ -143,7 +149,7 @@ export function actionsFromEvents(
       const start = ptr[a]!;
       let len = 0;
       let b = a + 1;
-      while (b < ptr.length && ptr[b]!.t - start.t <= TRAVEL_WINDOW_MS) {
+      while (b < ptr.length && ptr[b]!.window_cls === start.window_cls && ptr[b]!.t - start.t <= TRAVEL_WINDOW_MS) {
         len += Math.hypot(ptr[b]!.x - ptr[b - 1]!.x, ptr[b]!.y - ptr[b - 1]!.y);
         b++;
       }
