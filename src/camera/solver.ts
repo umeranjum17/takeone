@@ -420,14 +420,57 @@ function sampleCamera(
   return frames;
 }
 
+function validateCameraInputs(beats: Beat[], decisions: Decision[], take: TakeMeta): void {
+  const finite = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value);
+  const time = (value: unknown) => finite(value) && value >= 0;
+  const rect = (value: unknown, width: number, height: number) => Array.isArray(value) && value.length === 4
+    && value.every(finite) && value[0] >= 0 && value[1] >= 0
+    && value[2] > 0 && value[3] > 0
+    && value[0] + value[2] <= width && value[1] + value[3] <= height;
+  if (!Array.isArray(beats) || !Array.isArray(decisions) || !take
+    || !Number.isInteger(take.width) || take.width <= 0
+    || !Number.isInteger(take.height) || take.height <= 0
+    || (take.trim_start !== undefined && !time(take.trim_start))
+    || (take.trim_end !== undefined && !time(take.trim_end))
+    || (take.trim_end !== undefined && take.trim_end <= (take.trim_start ?? 0))) {
+    throw new Error("invalid take geometry, trim, or camera inputs");
+  }
+  for (const beat of beats) {
+    if (!beat || !time(beat.t0) || !time(beat.t1) || beat.t1 < beat.t0
+      || !time(beat.anchor_t) || !Array.isArray(beat.zones) || !Array.isArray(beat.actions)
+      || (beat.window_rect !== undefined && !rect(beat.window_rect, take.width, take.height))
+      || (beat.changed_frac !== undefined && (!Array.isArray(beat.changed_frac)
+        || beat.changed_frac.some((sample) => !sample || !time(sample.t)
+          || !finite(sample.f) || sample.f < 0 || sample.f > 1)))
+      || beat.zones.some((zone) => !zone || !rect(zone.bbox, take.width, take.height)
+        || (zone.t_change !== undefined && !time(zone.t_change)))
+      || beat.actions.some((action) => {
+        if (!action || typeof action !== "object") return true;
+        const event = action as { k?: string; t?: unknown; x?: unknown; y?: unknown };
+        return (event.t !== undefined && !time(event.t))
+          || ((event.k === "ptr" || event.x !== undefined || event.y !== undefined)
+            && (!finite(event.x) || !finite(event.y)
+              || event.x < 0 || event.x > take.width || event.y < 0 || event.y > take.height
+              || (event.k === "ptr" && !time(event.t))));
+      })) throw new Error(`invalid camera input for beat ${beat?.id}`);
+  }
+  for (const decision of decisions) {
+    if (!decision || !Number.isInteger(decision.K) || decision.K < 0 || decision.K > 2) {
+      throw new Error(`invalid camera decision for beat ${decision?.beat}`);
+    }
+  }
+}
+
 export function solveCamera(
   beats: Beat[],
   decisions: Decision[],
   take: TakeMeta,
   d: CameraDefaults = DEFAULTS,
 ): CameraFrame[] {
+  validateCameraInputs(beats, decisions, take);
   const start = take.trim_start ?? 0;
   const end = take.trim_end ?? Math.max(0, ...beats.map((beat) => beat.t1));
+  if (end <= start) throw new Error("invalid camera trim duration");
   const width = take.width;
   const height = take.height;
   const decisionMap = new Map(decisions.map((decision) => [decision.beat, decision]));

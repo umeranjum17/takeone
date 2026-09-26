@@ -188,6 +188,44 @@ test("invalid planner references fail before rendering", () => {
   assert.throws(() => camera([b], [{ ...decision(b), L: 4 as 3 }]), /invalid or missing decision/);
 });
 
+test("camera rejects unusable take, planner, and event inputs", () => {
+  const valid = () => {
+    const b = beat("validated", 2, 300, "cut");
+    b.window_rect = [0, 0, 3840, 2160];
+    b.zones[0].t_change = 2;
+    b.changed_frac = [{ t: 2, f: 0.1 }];
+    b.actions = [{ k: "ptr", t: 2000, x: 350, y: 950 }];
+    return b;
+  };
+  const take = { width: 3840, height: 2160, trim_start: 0, trim_end: 4 };
+  const b = valid();
+  assert.ok(solveCamera([b], [decision(b, 2)], take).length > 0);
+  for (const patch of [
+    { width: 0 }, { height: NaN }, { trim_start: -1 },
+    { trim_end: Infinity }, { trim_start: 4, trim_end: 2 },
+  ]) assert.throws(() => solveCamera([b], [decision(b)], { ...take, ...patch }), /invalid/);
+  for (const change of [
+    (item: Beat) => { item.anchor_t = NaN; },
+    (item: Beat) => { item.t0 = Infinity; },
+    (item: Beat) => { item.t1 = -1; },
+    (item: Beat) => { item.zones[0].bbox = [300, 900, 0, 120]; },
+    (item: Beat) => { item.zones[0].bbox = [3800, 900, 180, 120]; },
+    (item: Beat) => { item.window_rect = [0, 0, 4000, 2160]; },
+    (item: Beat) => { item.zones[0].t_change = NaN; },
+    (item: Beat) => { item.changed_frac = [{ t: NaN, f: 0.1 }]; },
+    (item: Beat) => { item.changed_frac = [{ t: 2, f: 2 }]; },
+    (item: Beat) => { item.actions = [{ k: "ptr", t: NaN, x: 350, y: 950 }]; },
+    (item: Beat) => { item.actions = [{ k: "ptr", t: 2000, x: NaN, y: 950 }]; },
+    (item: Beat) => { item.actions = [{ k: "ptr", t: 2000, x: 350, y: 4000 }]; },
+  ]) {
+    const broken = valid();
+    change(broken);
+    assert.throws(() => solveCamera([broken], [decision(broken)], take), /invalid/);
+  }
+  assert.throws(() => solveCamera([b], [{ ...decision(b), K: undefined as unknown as 2 }], take), /invalid/);
+  assert.throws(() => solveCamera([b], [{ ...decision(b), K: 3 as 2 }], take), /invalid/);
+});
+
 test("frame samples have smooth log zoom and fixed aspect", () => {
   const first = beat("first", 1, 2800);
   const second = beat("second", 3, 500, "type");
