@@ -125,6 +125,7 @@ async function handle(line: string): Promise<void> {
     }
     case "session.description":
       await pc.setRemoteDescription({ type: "answer", sdp: msg.params.description.sdp });
+      if (process.env.FAKE_DELAY_ANSWER_MS) await new Promise((resolve) => setTimeout(resolve, Number(process.env.FAKE_DELAY_ANSWER_MS)));
       reply(msg.id ?? 0, { accepted: true });
       break;
     case "session.candidate":

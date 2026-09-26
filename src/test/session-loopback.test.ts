@@ -85,6 +85,24 @@ test("session answers a VP9 offer, records frames.tsv and screen.webm, saves the
   await rm(dirname(takeDir), { recursive: true, force: true });
 });
 
+test("no-track watchdog starts after answer acceptance", { timeout: 30_000 }, async () => {
+  const { takeDir, stateDir } = await tempDirs();
+  const previous = process.env.FAKE_DELAY_ANSWER_MS;
+  process.env.FAKE_DELAY_ANSWER_MS = "10500";
+  try {
+    const capture = await startCapture({
+      engine: { command: process.execPath, args: [join(here, "fake-engine.js")], origin: "test" } as Parameters<typeof startCapture>[0]["engine"],
+      takeDir, stateDir, fps: 30, bitrateKbps: 40_000, savedToken: null,
+    });
+    assert.ok(capture.frames().length > 0);
+    await capture.stop();
+  } finally {
+    if (previous === undefined) delete process.env.FAKE_DELAY_ANSWER_MS;
+    else process.env.FAKE_DELAY_ANSWER_MS = previous;
+    await rm(dirname(takeDir), { recursive: true, force: true });
+  }
+});
+
 test("a failed replacement-token write fails capture completion", { timeout: 30_000 }, async () => {
   const { takeDir, stateDir } = await tempDirs();
   const invalidStateDir = join(stateDir, "not-a-directory");

@@ -275,15 +275,7 @@ export async function startCapture(options: CaptureOptions): Promise<Capture> {
   });
 
   void trackReady.promise.catch(() => undefined);
-  const watchdog = setTimeout(() => {
-    trackReady.reject(
-      new RecordError(
-        "no-track",
-        `no video track arrived within ${TRACK_WATCHDOG_MS / 1000}s of answering the engine's offer`,
-        "werift may not interoperate with this desklink build; run `takeone doctor`, then report it",
-      ),
-    );
-  }, TRACK_WATCHDOG_MS);
+  let watchdog: ReturnType<typeof setTimeout> | undefined;
 
   try {
   await whileActive(pc.setRemoteDescription({ type: "offer", sdp: description.sdp }));
@@ -297,6 +289,15 @@ export async function startCapture(options: CaptureOptions): Promise<Capture> {
     );
   }
   await whileActive(client.acceptAnswer(description.sessionId, description.generation, answerSdp));
+  watchdog = setTimeout(() => {
+    trackReady.reject(
+      new RecordError(
+        "no-track",
+        `no video track arrived within ${TRACK_WATCHDOG_MS / 1000}s of answering the engine's offer`,
+        "werift may not interoperate with this desklink build; run `takeone doctor`, then report it",
+      ),
+    );
+  }, TRACK_WATCHDOG_MS);
 
   // Candidates the engine sent while the answer was being prepared.
   for (const buffered of engineCandidates.splice(0)) void addEngineCandidate(pc, buffered);
