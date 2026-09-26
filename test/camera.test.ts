@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import test from "node:test";
@@ -114,6 +114,26 @@ test("four-moves-per-ten-seconds limit discards lowest-importance excess", () =>
   const result = camera(beats, decisions, 11);
   // The low-importance first target is discarded, so it has not zoomed by its arrival.
   assert.equal(at(result, 1.1).w, 3840);
+});
+
+test("later targets wait until the action shot is visible", () => {
+  const action = beat("action", 2, 300);
+  action.zones.push({ ...zone("result", [3300, 900, 180, 120]), t_change: 2 });
+  const withResult = camera([action], [{ ...decision(action), B: "result" }], 4);
+  const actionOnly = camera([action], [decision(action)], 4);
+  assert.deepEqual(at(withResult, 1.9), at(actionOnly, 1.9));
+  assert.ok(at(withResult, 3.5).x > 1000);
+
+  const next = beat("next", 3.3, 3300);
+  assert.deepEqual(at(camera([action, next], [decision(action), decision(next)], 5), 1.9),
+    at(actionOnly, 1.9));
+
+  const idle = beat("idle-widen", 0.5, 2500, "idle");
+  idle.t0 = 0;
+  idle.t1 = 5;
+  idle.zones[0].bbox = [2100, 600, 1400, 900];
+  assert.deepEqual(at(camera([action, idle], [decision(action), decision(idle)], 5), 1.5),
+    at(camera([idle], [decision(idle)], 5), 1.5));
 });
 
 test("cut move waits until changed_frac remains settled for 300ms", () => {
@@ -307,6 +327,16 @@ test("frame samples have smooth log zoom and fixed aspect", () => {
     const previous = result[index - 1];
     assert.ok(Math.abs(current.w / current.h - 16 / 9) < 1e-9);
     assert.ok(Math.abs(Math.log(current.w / previous.w)) < 0.5);
+  }
+});
+
+test("render CLI rejects unknown and malformed override arguments", () => {
+  for (const args of [["--sset", "fps=24"], ["--set", "fps=24=30"], ["--set", "fps=24", "extra"]]) {
+    const result = spawnSync(process.execPath,
+      ["--experimental-strip-types", "src/cli.ts", "render", ".", ...args],
+      { encoding: "utf8" });
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /unknown option|invalid --set/);
   }
 });
 

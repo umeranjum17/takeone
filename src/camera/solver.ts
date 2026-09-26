@@ -388,8 +388,10 @@ function sampleCamera(
     const time = start + index / d.fps;
     // Start each move early enough to arrive at its intended shot time.
     while (targetIndex < targets.length) {
+      if (move && previousTime < move.end) break;
       const target = targets[targetIndex];
-      const candidateMove = createMove(state, target.state, target.t, width, d, target.startAfter);
+      const candidateMove = createMove(state, target.state, target.t, width, d,
+        Math.max(target.startAfter ?? 0, move?.end ?? 0, previousTime));
       if (candidateMove.start > time) break;
       targetIndex++;
       if (isDeadzone(state, target.state, width, d)) continue;
