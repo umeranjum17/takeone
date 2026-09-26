@@ -249,11 +249,13 @@ export async function startTaps(options: TapOptions): Promise<TapHandle> {
       for (const record of records) {
         if (stopped) return;
         if (record.type === EV_SYN && record.code === 0) {
-          if (!state.hiresY && state.coarseY) emitInput({ t: nowMs(), k: "wheel", dy: state.coarseY, dx: 0 });
-          if (!state.hiresX && state.coarseX) emitInput({ t: nowMs(), k: "wheel", dy: 0, dx: state.coarseX });
-          state.coarseX = state.coarseY = 0;
+          const dy = state.hiresY ? state.wheelAccY / HI_RES_PER_DETENT : state.coarseY;
+          const dx = state.hiresX ? state.wheelAccX / HI_RES_PER_DETENT : state.coarseX;
+          if (dy) emitInput({ t: nowMs(), k: "wheel", dy, dx: 0 });
+          if (dx) emitInput({ t: nowMs(), k: "wheel", dy: 0, dx });
+          state.coarseX = state.coarseY = state.wheelAccX = state.wheelAccY = 0;
+          state.hiresX = state.hiresY = false;
         } else if (record.type === EV_REL) {
-          const detent = (delta: number): number => Math.trunc(delta / HI_RES_PER_DETENT);
           if (record.code === REL_WHEEL) {
             state.coarseY += record.value;
           } else if (record.code === REL_HWHEEL) {
@@ -261,19 +263,9 @@ export async function startTaps(options: TapOptions): Promise<TapHandle> {
           } else if (record.code === REL_WHEEL_HI_RES) {
             state.hiresY = true;
             state.wheelAccY += record.value;
-            if (Math.abs(state.wheelAccY) >= HI_RES_PER_DETENT) {
-              const dy = detent(state.wheelAccY);
-              state.wheelAccY -= dy * HI_RES_PER_DETENT;
-              emitInput({ t: nowMs(), k: "wheel", dy, dx: 0 });
-            }
           } else if (record.code === REL_HWHEEL_HI_RES) {
             state.hiresX = true;
             state.wheelAccX += record.value;
-            if (Math.abs(state.wheelAccX) >= HI_RES_PER_DETENT) {
-              const dx = detent(state.wheelAccX);
-              state.wheelAccX -= dx * HI_RES_PER_DETENT;
-              emitInput({ t: nowMs(), k: "wheel", dy: 0, dx });
-            }
           }
         } else if (record.type === EV_KEY && (record.value === 1 || record.value === 0)) {
           const down = record.value === 1;

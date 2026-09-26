@@ -171,7 +171,7 @@ test("an evdev device lost mid-recording fails completion", async () => {
   }
 });
 
-test("wheel reports prefer high-resolution values on both axes from the first report", async () => {
+test("wheel reports preserve fractional detents and per-report coarse fallback on both axes", async () => {
   const base = await mkdtemp(join(tmpdir(), "takeone-wheel-"));
   const deviceDir = join(base, "devices");
   await mkdir(deviceDir);
@@ -187,6 +187,8 @@ test("wheel reports prefer high-resolution values on both axes from the first re
     record(EV_REL, REL_WHEEL, 1), record(EV_REL, REL_WHEEL_HI_RES, 120),
     record(EV_REL, REL_HWHEEL, -1), record(EV_REL, REL_HWHEEL_HI_RES, -120), syn,
     record(EV_REL, REL_WHEEL, -1), record(EV_REL, REL_HWHEEL, 1), syn,
+    record(EV_REL, REL_WHEEL_HI_RES, 60), record(EV_REL, REL_HWHEEL_HI_RES, -30), syn,
+    record(EV_REL, REL_WHEEL_HI_RES, 60), record(EV_REL, REL_HWHEEL_HI_RES, -90), syn,
   ]));
   await writeFile(join(deviceDir, "other-event-mouse"), Buffer.concat([
     record(EV_REL, REL_WHEEL, -1), record(EV_REL, REL_HWHEEL, 1), syn,
@@ -200,7 +202,11 @@ test("wheel reports prefer high-resolution values on both axes from the first re
     await taps.stop();
     const wheels = (await readFile(eventsPath, "utf8")).trim().split("\n").map((line) => JSON.parse(line))
       .filter((event) => event.k === "wheel").map(({ dx, dy }) => [dx, dy]);
-    assert.deepEqual(wheels, [[0, 1], [-1, 0], [0, -1], [1, 0]]);
+    assert.deepEqual(wheels, [
+      [0, 1], [-1, 0], [0, -1], [1, 0],
+      [0, 0.5], [-0.25, 0], [0, 0.5], [-0.75, 0],
+      [0, -1], [1, 0],
+    ]);
   } finally {
     await rm(base, { recursive: true, force: true });
   }

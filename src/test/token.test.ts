@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { chmod, mkdir, readFile, rm, stat } from "node:fs/promises";
+import { chmod, mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -36,6 +36,23 @@ test("a replacement token overwrites the saved one", async () => {
     await saveToken(dir, "first");
     await saveToken(dir, "second");
     assert.equal(await consumeToken(dir), "second");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("stale token temp cannot block replacement and failed rename cleans its temp", async () => {
+  const dir = await tempStateDir();
+  try {
+    const stale = `${tokenPath(dir)}.tmp.${process.pid}`;
+    await writeFile(stale, "old");
+    await saveToken(dir, "new");
+    assert.equal(await readFile(tokenPath(dir), "utf8"), "new");
+    assert.equal(await readFile(stale, "utf8"), "old");
+    await consumeToken(dir);
+    await mkdir(tokenPath(dir));
+    await assert.rejects(saveToken(dir, "failed"));
+    assert.deepEqual((await readdir(dir)).sort(), ["portal-token", `portal-token.tmp.${process.pid}`].sort());
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
