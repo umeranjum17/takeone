@@ -131,8 +131,6 @@ export async function runRecord(options: RecordOptions = {}): Promise<RecordResu
   }
   try {
     if (stopRequested) throw new RecordError("capture-stopped", "recording stopped during setup", "run `takeone record` again");
-    // Consume the single-use restore token before sending it.
-    const savedToken = await consumeToken(stateDirPath);
     const tapStartedAt = new Date();
     const t0ns = process.hrtime.bigint();
     taps = await startTaps({ eventsPath: join(takeDir, "events.jsonl"), t0ns });
@@ -145,7 +143,12 @@ export async function runRecord(options: RecordOptions = {}): Promise<RecordResu
       stateDir: stateDirPath,
       fps,
       bitrateKbps,
-      savedToken,
+      savedToken: async () => {
+        if (stopRequested) throw new RecordError("capture-stopped", "recording stopped during setup", "run `takeone record` again");
+        const token = await consumeToken(stateDirPath, () => stopRequested);
+        if (stopRequested) throw new RecordError("capture-stopped", "recording stopped during setup", "run `takeone record` again");
+        return token;
+      },
       interrupted: stopped,
       onConsent: () => {
         consentGranted = true;

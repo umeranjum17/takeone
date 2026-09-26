@@ -315,6 +315,15 @@ test("pointer loss keeps earlier clicks but never reuses stale coordinates", () 
   assert.deepEqual(acts.filter((a) => a.k === "scroll").map((scroll) => [scroll.x, scroll.y]), [[0, 0]]);
 });
 
+test("a drag crossing pointer loss has no fabricated end position", () => {
+  const acts = actionsFromEvents([
+    win, ptr(20, 30, 100), btn(true, 200),
+    { t: 300, k: "ptr-lost" }, { t: 300, k: "win", cls: "", title: "", rect: null },
+    btn(false, 900),
+  ], frames(), { stream: STREAM, pointer: "none" });
+  assert.equal(acts.some((action) => action.k === "drag" || action.k === "click"), false);
+});
+
 test("pointer none mode: click position falls back to the change region centroid", () => {
   const framesWithRegions: FrameRegions[] = [
     ...noopFrames(4, 0, 100),

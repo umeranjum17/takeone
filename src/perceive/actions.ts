@@ -193,9 +193,11 @@ export function actionsFromEvents(
       const upIndex = ups.get(i);
       const up = upIndex === undefined ? null : { t: events[upIndex]!.t };
       if (upIndex !== undefined) used.add(upIndex);
+      if (pointerLosses.some((loss) => loss > e.t && loss <= (up?.t ?? opts.endMs ?? Infinity))) continue;
       const p0 = pointerAt(e.t) ?? (opts.pointer === "none" || pointerLosses.some((loss) => loss <= e.t) ? regionCentroidNear(e.t) : null);
       if (!p0) continue;
       if (!up) {
+        if (pointerAt(e.t) === null) continue;
         // button never released: treat as drag end at the last pointer sample
         const last = visiblePtr.at(-1);
         const lastPtr = last && last.t >= e.t && !pointerLosses.some((loss) => loss > last.t && loss <= (opts.endMs ?? Infinity)) ? last : null;
@@ -216,7 +218,8 @@ export function actionsFromEvents(
       const moved = Math.hypot(p1[0] - p0[0], p1[1] - p0[1]);
       const isClick = held <= CLICK_RELEASE_MAX_MS && moved <= CLICK_RELEASE_MAX_PX;
       if (!isClick) {
-        const endPoint = pointerAt(Math.min(up.t, opts.endMs ?? up.t), visiblePtr) ?? p0;
+        const endPoint = pointerAt(Math.min(up.t, opts.endMs ?? up.t), visiblePtr);
+        if (!endPoint) continue;
         acts.push({
           k: "drag",
           t0: e.t,

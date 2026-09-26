@@ -4,7 +4,8 @@
  * moment it is read, so a crash cannot leave a stale token that silently fails.
  */
 
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { rmSync } from "node:fs";
+import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 
 export const TOKEN_FILENAME = "portal-token";
 
@@ -29,13 +30,14 @@ export async function saveToken(stateDir: string, token: string): Promise<void> 
  * Read and delete the saved token (single use: consume before sending).
  * Returns null when none is saved.
  */
-export async function consumeToken(stateDir: string): Promise<string | null> {
+export async function consumeToken(stateDir: string, cancelled?: () => boolean): Promise<string | null> {
   let token: string;
   try {
     token = (await readFile(tokenPath(stateDir), "utf8")).trim();
   } catch {
     return null;
   }
-  await rm(tokenPath(stateDir), { force: true });
+  if (cancelled?.()) return null;
+  rmSync(tokenPath(stateDir), { force: true });
   return token === "" ? null : token;
 }

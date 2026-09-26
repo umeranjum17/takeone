@@ -41,6 +41,18 @@ test("a replacement token overwrites the saved one", async () => {
   }
 });
 
+test("cancelled token consumption leaves the one-use token available", async () => {
+  const dir = await tempStateDir();
+  try {
+    await saveToken(dir, "still-available");
+    assert.equal(await consumeToken(dir, () => true), null);
+    assert.equal(await readFile(tokenPath(dir), "utf8"), "still-available");
+    assert.equal(await consumeToken(dir), "still-available");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("consume with no saved token returns null", async () => {
   const dir = await tempStateDir();
   try {
