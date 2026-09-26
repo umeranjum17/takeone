@@ -68,6 +68,15 @@ test("record writes a complete take (pid file, events, take.json) and stops on S
   const pidFile = join(stateDir, "recording.pid");
   const pidJson = JSON.parse(await readFile(pidFile, "utf8")) as { pid: number; take: string };
   assert.equal(pidJson.take, takeDir);
+  const rival = spawn(process.execPath, [join(here, "../cli.js"), "record", "--root", root, "--state-dir", stateDir], {
+    env: { ...process.env, MUXR_DESKLINK_ENGINE: wrapper }, stdio: ["ignore", "pipe", "pipe"],
+  });
+  let rivalError = "";
+  rival.stderr.on("data", (chunk: Buffer) => { rivalError += chunk.toString(); });
+  const rivalExit = await new Promise<number | null>((resolveP) => rival.on("exit", resolveP));
+  assert.equal(rivalExit, 1);
+  assert.match(rivalError, /already-recording/);
+  assert.equal(JSON.parse(await readFile(pidFile, "utf8")).pid, child.pid);
 
   // Stop the way `takeone stop` does.
   child.kill("SIGINT");
@@ -80,14 +89,19 @@ test("record writes a complete take (pid file, events, take.json) and stops on S
   const takeJson = JSON.parse(await readFile(join(takeDir, "take.json"), "utf8")) as {
     pointer: string;
     events: string;
-    clock: { frames: number; offset_ms: number } | null;
-    trim: { start_ms: number; end_ms: number };
+    clock: { frames: number; offsetMs: number } | null;
+    trim: { start: number; end: number };
     versions: { engine: string; takeone: string };
     metrics: { encoded_frames: number } | null;
     geometry: { source: { width: number; height: number } };
   };
   assert.equal(takeJson.versions.engine, "desklink-host/fake");
   assert.equal(takeJson.geometry.source.width, 64);
+  const { readTakeMeta } = await import(new URL("../../src/make.ts", import.meta.url).href);
+  const plannerTake = readTakeMeta(takeDir);
+  assert.deepEqual(plannerTake.stream, { w: 64, h: 64 });
+  assert.equal(plannerTake.offset_ms, takeJson.clock?.offsetMs);
+  assert.deepEqual(plannerTake.trim, takeJson.trim);
   assert.equal(takeJson.pointer, "unmapped", "64x64 stream matches no monitor: no-pointer mode");
   assert.equal(takeJson.events, "on");
   assert.ok(takeJson.clock !== null && takeJson.clock.frames === 20, "clock aligned over 20 frames");

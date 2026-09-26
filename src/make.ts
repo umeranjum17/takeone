@@ -68,10 +68,14 @@ export interface MakeResult {
   jev: { input_tokens: number; usd: number; failed: number };
 }
 
+export function readTakeMeta(dir: string): TakeMeta {
+  return JSON.parse(readFileSync(join(dir, "take.json"), "utf8")) as TakeMeta;
+}
+
 export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<MakeResult> {
   const log = opts.log ?? ((s: string) => console.log(s));
   const warn = opts.warn ?? ((s: string) => console.error(s));
-  const take = JSON.parse(readFileSync(join(dir, "take.json"), "utf8")) as TakeMeta;
+  const take = readTakeMeta(dir);
   const framesTsv = join(dir, "frames.tsv");
   const webm = join(dir, "screen.webm");
   for (const [file, path] of [["screen.webm", webm], ["frames.tsv", framesTsv]] as const) {

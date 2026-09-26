@@ -82,7 +82,7 @@ export function keyInfoFor(code: number): KeyInfo {
   if (code === 28) return { cls: "enter", name: "Enter" };
   if (code === 14) return { cls: "backspace", name: "Backspace" };
   if (code === 15) return { cls: "tab", name: "Tab" };
-  if (code === 55) return { cls: "space", name: "Space" };
+  if (code === 57) return { cls: "space", name: "Space" };
   const mod = MODIFIER_NAMES[code];
   if (mod !== undefined) return { cls: "mod", name: mod };
   const nav = NAV_NAMES[code];
