@@ -94,6 +94,19 @@ export async function runRecord(options: RecordOptions = {}): Promise<RecordResu
   await writePidFile(stateDirPath, takeDir, startedAt.toISOString());
 
   let taps: TapHandle | null = null;
+  // The stop handlers are registered before the consent dialog can appear, so
+  // `takeone stop` always works - including while waiting on the prompt.
+  let resolveStopped!: (at: Date) => void;
+  const stopped = new Promise<Date>((resolveP) => {
+    resolveStopped = resolveP;
+  });
+  const onStop = (): void => {
+    process.off("SIGINT", onStop);
+    process.off("SIGTERM", onStop);
+    resolveStopped(new Date());
+  };
+  process.on("SIGINT", onStop);
+  process.on("SIGTERM", onStop);
   try {
     // Consume the single-use restore token before sending it.
     const savedToken = await consumeToken(stateDirPath);
@@ -104,6 +117,7 @@ export async function runRecord(options: RecordOptions = {}): Promise<RecordResu
       fps,
       bitrateKbps,
       savedToken,
+      interrupted: stopped,
     });
 
     // Coordinate-mapping self-check at record start: no monitor matching the
@@ -126,15 +140,7 @@ export async function runRecord(options: RecordOptions = {}): Promise<RecordResu
       t0ns: process.hrtime.bigint(),
     });
 
-    const stoppedAt = await new Promise<Date>((resolveStop) => {
-      const onStop = (): void => {
-        process.off("SIGINT", onStop);
-        process.off("SIGTERM", onStop);
-        resolveStop(new Date());
-      };
-      process.on("SIGINT", onStop);
-      process.on("SIGTERM", onStop);
-    });
+    const stoppedAt = await stopped;
 
     const finalMetrics = await capture.stop();
     if (taps !== null) await taps.stop();
