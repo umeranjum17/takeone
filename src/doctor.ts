@@ -35,8 +35,10 @@ export async function evdevProbe(dir = "/dev/input/by-id"): Promise<DoctorCheck>
   let names: string[] = [];
   try {
     names = await fs.readdir(dir);
-  } catch {
-    return { check: "evdev", ok: false, detail: "/dev/input/by-id missing" };
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === "EACCES"
+      ? { check: "evdev", ok: false, detail: "cannot read evdev directory; add the user to group 'input' and log in again" }
+      : { check: "evdev", ok: false, detail: `${dir} missing` };
   }
   const candidates = names.filter((n) => n.endsWith("-event-mouse") || n.endsWith("-event-kbd"));
   let readable = 0;
