@@ -28,6 +28,13 @@ test("residuals concentrate on the median and spread tracks the worst tail", () 
   assert.equal(aligned.spreadMs, 50);
 });
 
+test("spread includes an early fast frame even when the median is late", () => {
+  const aligned = alignClock(samples([40, 120, 120]));
+  assert.ok(aligned !== null);
+  assert.equal(aligned.spreadMs, 80);
+  assert.ok(aligned.spreadMs > SPREAD_WARN_MS);
+});
+
 test("spread above 50 ms exceeds the warn threshold", () => {
   const delays = [40, 40, 40, 40, 40, 40, 40, 40, 40, 200];
   const rows = samples(delays);

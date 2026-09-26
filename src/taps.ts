@@ -30,7 +30,6 @@ export interface TapOptions {
 
 export interface TapSummary {
   firstInputMs: number | null;
-  lastKeyMs: number | null;
   lastEventMs: number | null;
 }
 
@@ -68,21 +67,26 @@ async function evdevDevices(dir: string): Promise<{ devices: EvdevDevice[]; miss
     .map((n) => `${dir}/${n}`);
   const devices: EvdevDevice[] = [];
   let eacces = false;
+  let unreadable = false;
   for (const path of candidates) {
     try {
       const fd = openSync(path, fsConstants.O_RDONLY | fsConstants.O_NONBLOCK);
       devices.push({ path, fd });
     } catch (error) {
+      unreadable = true;
       if ((error as NodeJS.ErrnoException).code === "EACCES") eacces = true;
     }
   }
-  return { devices, missingGroup: eacces && devices.length === 0 };
+  if (unreadable) {
+    for (const device of devices) closeSync(device.fd);
+  }
+  return { devices: unreadable ? [] : devices, missingGroup: eacces };
 }
 
 export async function startTaps(options: TapOptions): Promise<TapHandle> {
   const { eventsPath, mapping, t0ns } = options;
   const warnings: string[] = [];
-  const summary: TapSummary = { firstInputMs: null, lastKeyMs: null, lastEventMs: null };
+  const summary: TapSummary = { firstInputMs: null, lastEventMs: null };
   const nowMs = (): number => {
     const delta = process.hrtime.bigint() - t0ns;
     return Math.round(Number(delta) / 100) / 10; // 0.1 ms resolution
@@ -246,7 +250,6 @@ export async function startTaps(options: TapOptions): Promise<TapHandle> {
               else state.mods.delete(modifier);
             }
             const event: TapEvent = { t, ...keyRecord };
-            if (down) summary.lastKeyMs = t;
             emitInput(event);
           }
         }

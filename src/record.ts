@@ -205,20 +205,15 @@ export async function runRecord(options: RecordOptions = {}): Promise<RecordResu
 /**
  * Auto-trim bounds (design section 5 step 6). The start is the first input
  * event (click/key/wheel; pointer moves are not actions) that lands more than
- * 1 s into the take, minus 0.5 s. The end is the stop keypress minus 0.3 s
- * when a key was pressed near the stop; otherwise the take's end.
+ * 1 s into the take, minus 0.5 s.
  */
 export function computeTrim(
-  summary: { firstInputMs: number | null; lastKeyMs: number | null },
+  summary: { firstInputMs: number | null },
   durationMs: number,
 ): { start: number; end: number } {
   let start = 0;
   if (summary.firstInputMs !== null && summary.firstInputMs > 1000) {
     start = Math.max(0, summary.firstInputMs - 500);
   }
-  let end = durationMs;
-  if (summary.lastKeyMs !== null && durationMs - summary.lastKeyMs <= 5000) {
-    end = Math.max(0, summary.lastKeyMs - 300);
-  }
-  return { start, end: Math.max(start, Math.min(end, durationMs)) };
+  return { start, end: durationMs };
 }
