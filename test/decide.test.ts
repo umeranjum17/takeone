@@ -287,6 +287,7 @@ test("split OCR identifiers are redacted without masking spaced labels", () => {
   assert.equal(redactWords(["header", row("123", 0, 30), row("456", 31, 30), row("ready", 100, 50)].join("\n")), "[redacted] ready");
   assert.equal(redactWords(["header", row("abc123def4", 0, 60), row("ghi567jkl8", 61, 60), row("ready", 160, 50)].join("\n")), "[redacted] ready");
   assert.equal(redactWords(["header", row("abcdefghij", 0, 60), row("klmnopqrst", 61, 60), row("12345", 122, 30), row("ready", 160, 50)].join("\n")), "[redacted] ready");
+  assert.equal(redactWords(["header", row("abcdefgh", 0, 48), row("ijklmno", 49, 42), row("12345", 92, 30)].join("\n")), "[redacted]");
   assert.equal(redactWords(["header", row("12345", 0, 30), row("abcdefghij", 31, 60), row("klmnopqrst", 92, 60)].join("\n")), "[redacted]");
   assert.equal(redactWords(["header", row("Quarterly", 0, 90), row("sales", 91, 40), row("report", 132, 45), row("2026", 178, 35)].join("\n")), "Quarterly sales report 2026");
   assert.equal(redactWords(["header", row("abc123def4", 0, 60), row("ghi567jkl8", 61, 60, 2)].join("\n")), "abc123def4 ghi567jkl8");

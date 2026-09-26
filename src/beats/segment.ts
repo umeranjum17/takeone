@@ -1,6 +1,7 @@
 // Beat segmentation (design 7.1). Pure functions over plain data.
 
 import type { Action, BBox, Beat, BeatKind, FrameRegions, Region } from "../types.ts";
+import { bboxIoU, unionBBox } from "../types.ts";
 
 export const BEAT_GAP_MS = 1200; // next action must start within this of last activity
 export const BEAT_SPREAD_FRAC = 0.35; // ... and within this x diagonal of the first action point
@@ -98,26 +99,62 @@ export function segmentBeats(
       raws.push({ t0: from, t1: t, anchor_t: from, anchorPt: null, window_cls: cur?.window_cls ?? activeWindow, actions: [] });
     }
   };
-  const ai = acts[Symbol.iterator]();
-  let nextAct: IteratorResult<Action>;
+  const sliceAction = (a: Exclude<Action, { t: number }>, t0: number, t1: number): Action => {
+    if (a.k === "drag" || a.k === "travel") {
+      const point = (t: number): [number, number] => {
+        const fraction = (t - a.t0) / (a.t1 - a.t0);
+        return [a.from[0] + (a.to[0] - a.from[0]) * fraction, a.from[1] + (a.to[1] - a.from[1]) * fraction];
+      };
+      const from = point(t0);
+      const to = point(t1);
+      return { ...a, t0, t1, from, to, bbox: [Math.min(from[0], to[0]), Math.min(from[1], to[1]), Math.abs(to[0] - from[0]), Math.abs(to[1] - from[1])] };
+    }
+    if (a.k === "type") {
+      let region: BBox | undefined;
+      for (const frame of frames) {
+        if (frame.t < t0 || frame.t >= t1) continue;
+        for (const change of frame.regions) {
+          if (a.region && bboxIoU(change.bbox, a.region) > 0) region = region ? unionBBox(region, change.bbox) : change.bbox;
+        }
+      }
+      const { region: _whole, ...part } = a;
+      return { ...part, t0, t1, ...(region ? { region } : {}) };
+    }
+    if (a.k === "scroll") {
+      const fraction = (t1 - t0) / (a.t1 - a.t0);
+      return { ...a, t0, t1, dx: a.dx * fraction, dy: a.dy * fraction, detents: Math.round(a.detents * fraction) };
+    }
+    return { ...a, t0, t1 };
+  };
+  let nextAct = 0;
   let nextCut = 0;
-  nextAct = ai.next();
-  while (!nextAct.done || nextCut < cuts.length) {
+  while (nextAct < acts.length || nextCut < cuts.length) {
     const useCut =
       nextCut < cuts.length &&
-      (nextAct.done || cuts[nextCut]!.t <= actStart(nextAct.value));
+      (nextAct >= acts.length || cuts[nextCut]!.t <= actStart(acts[nextAct]!));
     if (useCut) {
       const c = cuts[nextCut++]!;
+      const settled = cutEnd(c.t);
+      const remainders: Action[] = [];
       for (const r of raws) {
         if (r.t0 >= c.t || r.t1 <= c.t) continue;
         r.t1 = c.t;
-        r.actions = r.actions.map((a) => "t1" in a && a.t1 > c.t ? { ...a, t1: c.t } : a);
+        r.actions = r.actions.map((a) => {
+          if (!("t1" in a) || a.t1 <= c.t) return a;
+          if (settled < a.t1) remainders.push(sliceAction(a, settled, a.t1));
+          return sliceAction(a, a.t0, c.t);
+        });
+      }
+      for (const remainder of remainders) {
+        let at = nextAct;
+        while (at < acts.length && actStart(acts[at]!) <= actStart(remainder)) at++;
+        acts.splice(at, 0, remainder);
       }
       appendIdle(c.t);
       activeWindow = c.window_cls ?? activeWindow;
       cur = {
         t0: c.t,
-        t1: cutEnd(c.t),
+        t1: settled,
         anchor_t: c.t,
         anchorPt: null,
         window_cls: activeWindow,
@@ -126,8 +163,7 @@ export function segmentBeats(
       raws.push(cur);
       continue;
     }
-    const a = nextAct.value;
-    nextAct = ai.next();
+    const a = acts[nextAct++]!;
     const t = actStart(a);
     const pt = actPoint(a);
     const windowCls = a.k === "focus" ? a.cls : a.window_cls ?? activeWindow;

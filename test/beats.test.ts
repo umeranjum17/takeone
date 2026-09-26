@@ -90,15 +90,19 @@ test("cut settling follows quiet frames rather than a fixed tail", () => {
   assert.deepEqual(beats.map((b) => [b.kind, b.t0, b.t1]), [["cut", 1000, 2000], ["idle", 2000, 10000], ["click", 10000, 10000]]);
 });
 
-test("cuts close every spanning action before results can cross the boundary", () => {
-  const region: Region = { bbox: [10, 10, 60, 50], area_frac: 0.1 };
+test("cuts split spanning actions and keep each side's activity", () => {
+  const pre: Region = { bbox: [10, 10, 20, 20], area_frac: 0.02 };
+  const during: Region = { bbox: [40, 40, 20, 20], area_frac: 0.02 };
+  const post: Region = { bbox: [120, 80, 20, 20], area_frac: 0.02 };
   const frames: FrameRegions[] = [
+    { t: 1000, changed_frac: 0.01, cut: false, regions: [pre] },
     { t: 2000, changed_frac: 0.6, cut: true, regions: [] },
-    { t: 2100, changed_frac: 0.01, cut: false, regions: [region] },
+    { t: 2100, changed_frac: 0.01, cut: false, regions: [during] },
     ...[2200, 2300, 2400].map((t) => ({ t, changed_frac: 0.01, cut: false, regions: [] })),
+    { t: 3000, changed_frac: 0.01, cut: false, regions: [post] },
   ];
   const spanning: Action[] = [
-    typeAct(0, 4000),
+    { k: "type", t0: 0, t1: 4000, region: [10, 10, 130, 90], window_cls: "chromium" },
     { k: "dwell", t0: 0, t1: 4000, x: 20, y: 20, window_cls: "chromium" },
     { k: "scroll", t0: 0, t1: 4000, x: 20, y: 20, dx: 0, dy: 2, detents: 2, window_cls: "chromium" },
     { k: "drag", t0: 0, t1: 4000, from: [10, 10], to: [80, 80], bbox: [10, 10, 70, 70], window_cls: "chromium" },
@@ -106,11 +110,21 @@ test("cuts close every spanning action before results can cross the boundary", (
   ];
   for (const action of spanning) {
     const beats = segmentBeats([action, { k: "cut", t: 2000, changed_frac: 0.6 }], frames, opts());
-    assert.equal(beats[0]!.t1, 2000, action.k);
-    assert.equal("t1" in beats[0]!.actions[0]! ? beats[0]!.actions[0]!.t1 : undefined, 2000, action.k);
-    assert.equal(beats[1]!.kind, "cut", action.k);
-    assert.ok(!beats[0]!.results?.includes(region), action.k);
+    assert.deepEqual(beats.map((b) => [b.kind, b.t0, b.t1]), [[action.k, 0, 2000], ["cut", 2000, 2400], [action.k, 2400, 4000]]);
+    assert.ok(!beats[0]!.results?.includes(during), action.k);
     assert.equal("t1" in action ? action.t1 : undefined, 4000, action.k);
+    if (action.k === "type") {
+      assert.deepEqual((beats[0]!.actions[0] as typeof action).region, pre.bbox);
+      assert.deepEqual((beats[2]!.actions[0] as typeof action).region, post.bbox);
+    }
+    if (action.k === "drag" || action.k === "travel") {
+      const first = beats[0]!.actions[0] as typeof action;
+      const second = beats[2]!.actions[0] as typeof action;
+      assert.deepEqual(first.to, [45, 45]);
+      assert.deepEqual(second.from, [52, 52]);
+      assert.deepEqual(first.bbox, [10, 10, 35, 35]);
+      assert.deepEqual(second.bbox, [52, 52, 28, 28]);
+    }
   }
 });
 
