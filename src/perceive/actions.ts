@@ -118,58 +118,56 @@ export function actionsFromEvents(
       while (intervalIndex < heldIntervals.length && heldIntervals[intervalIndex]![1] <= t0) intervalIndex++;
       return intervalIndex < heldIntervals.length && heldIntervals[intervalIndex]![0] < t1;
     };
-    while (i < ptr.length) {
-      const anchor = ptr[i]!;
+    while (i < visiblePtr.length) {
+      const anchor = visiblePtr[i]!;
       let j = i + 1;
       while (
-        j < ptr.length &&
-        ptr[j]!.window_cls === anchor.window_cls &&
-        Math.hypot(ptr[j]!.x - anchor.x, ptr[j]!.y - anchor.y) <= DWELL_MAX_PX
+        j < visiblePtr.length &&
+        visiblePtr[j]!.window_cls === anchor.window_cls &&
+        Math.hypot(visiblePtr[j]!.x - anchor.x, visiblePtr[j]!.y - anchor.y) <= DWELL_MAX_PX
       ) {
         j++;
       }
       let freeStart = i;
       for (let k = i + 1; k < j; k++) {
-        if (!btnHeld(ptr[k - 1]!.t, ptr[k]!.t)) continue;
-        const last = ptr[k - 1]!;
-        if (last.t - ptr[freeStart]!.t >= DWELL_MIN_MS) {
-          acts.push({ k: "dwell", t0: ptr[freeStart]!.t, t1: last.t, x: ptr[freeStart]!.x, y: ptr[freeStart]!.y, window_cls: ptr[freeStart]!.window_cls });
+        if (!btnHeld(visiblePtr[k - 1]!.t, visiblePtr[k]!.t)) continue;
+        const last = visiblePtr[k - 1]!;
+        if (last.t - visiblePtr[freeStart]!.t >= DWELL_MIN_MS) {
+          acts.push({ k: "dwell", t0: visiblePtr[freeStart]!.t, t1: last.t, x: visiblePtr[freeStart]!.x, y: visiblePtr[freeStart]!.y, window_cls: visiblePtr[freeStart]!.window_cls });
         }
         freeStart = k;
       }
-      const last = ptr[j - 1]!;
-      if (last.t - ptr[freeStart]!.t >= DWELL_MIN_MS) {
-        acts.push({ k: "dwell", t0: ptr[freeStart]!.t, t1: last.t, x: ptr[freeStart]!.x, y: ptr[freeStart]!.y, window_cls: ptr[freeStart]!.window_cls });
+      const last = visiblePtr[j - 1]!;
+      if (last.t - visiblePtr[freeStart]!.t >= DWELL_MIN_MS) {
+        acts.push({ k: "dwell", t0: visiblePtr[freeStart]!.t, t1: last.t, x: visiblePtr[freeStart]!.x, y: visiblePtr[freeStart]!.y, window_cls: visiblePtr[freeStart]!.window_cls });
       }
       i = Math.max(j - 1, i + 1);
     }
     // travel: cumulative path over a 1 s window > 25% of the diagonal, no click inside
     intervalIndex = 0;
     let buttonIndex = 0;
-    for (let a = 0; a < ptr.length; a++) {
-      const start = ptr[a]!;
+    for (let a = 0; a < visiblePtr.length; a++) {
+      const start = visiblePtr[a]!;
       let len = 0;
       let b = a + 1;
-      while (b < ptr.length && ptr[b]!.window_cls === start.window_cls && ptr[b]!.t - start.t <= TRAVEL_WINDOW_MS) {
-        len += Math.hypot(ptr[b]!.x - ptr[b - 1]!.x, ptr[b]!.y - ptr[b - 1]!.y);
+      while (b < visiblePtr.length && visiblePtr[b]!.window_cls === start.window_cls && visiblePtr[b]!.t - start.t <= TRAVEL_WINDOW_MS) {
+        len += Math.hypot(visiblePtr[b]!.x - visiblePtr[b - 1]!.x, visiblePtr[b]!.y - visiblePtr[b - 1]!.y);
         b++;
       }
       if (len > frameDiag * TRAVEL_FRAC && b - a >= 2) {
-        const end = ptr[b - 1]!;
+        const end = visiblePtr[b - 1]!;
         while (buttonIndex < buttonTimes.length && buttonTimes[buttonIndex]! < start.t) buttonIndex++;
         const hasClick = buttonIndex < buttonTimes.length && buttonTimes[buttonIndex]! <= end.t;
         if (!hasClick && !btnHeld(start.t, end.t)) {
-          const path = ptr.slice(a, b).filter((s) => opts.endMs === undefined || s.t <= opts.endMs);
-          const xs = path.map((s) => s.x);
-          const ys = path.map((s) => s.y);
-          const endPoint = path.at(-1) ?? start;
+          const xs = visiblePtr.slice(a, b).map((s) => s.x);
+          const ys = visiblePtr.slice(a, b).map((s) => s.y);
           acts.push({
             k: "travel",
             t0: start.t,
             t1: end.t,
             from: [start.x, start.y],
-            to: [endPoint.x, endPoint.y],
-            bbox: [Math.min(start.x, ...xs), Math.min(start.y, ...ys), Math.max(start.x, ...xs) - Math.min(start.x, ...xs), Math.max(start.y, ...ys) - Math.min(start.y, ...ys)],
+            to: [end.x, end.y],
+            bbox: [Math.min(...xs), Math.min(...ys), Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys)],
             window_cls: start.window_cls,
           });
           a = b - 1; // do not emit overlapping travels

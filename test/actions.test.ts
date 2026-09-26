@@ -91,9 +91,21 @@ test("drag and travel geometry excludes pointer movement after trim", () => {
     win, ptr(10, 10, 100), ptr(120, 10, 400), ptr(280, 90, 900),
   ], frames(), { ...opts(), endMs: 600 }).find((a) => a.k === "travel");
   assert.ok(travel);
-  assert.equal(travel.t1, 900);
+  assert.equal(travel.t1, 400);
   assert.deepEqual(travel.to, [120, 10]);
   assert.deepEqual(travel.bbox, [10, 10, 110, 0]);
+});
+
+test("post-trim pointer samples cannot create dwell or travel", () => {
+  const stationary = actionsFromEvents([
+    win, ptr(50, 50, 100), ptr(50, 50, 500), ptr(50, 50, 1000),
+  ], frames(), { ...opts(), endMs: 600 });
+  assert.equal(stationary.filter((a) => a.k === "dwell").length, 0);
+
+  const moving = actionsFromEvents([
+    win, ptr(10, 10, 100), ptr(30, 10, 500), ptr(250, 10, 1000),
+  ], frames(), { ...opts(), endMs: 600 });
+  assert.equal(moving.filter((a) => a.k === "travel").length, 0);
 });
 
 test("scroll merges wheel events with gaps under 500 ms", () => {
