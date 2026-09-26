@@ -2,6 +2,6 @@
 import { renderTake } from "./render/render.ts";
 const [cmd,dir,...args]=process.argv.slice(2);
 if(cmd!=="render"||!dir){console.error("usage: takeone render <take-dir>");process.exitCode=2;}else{
- try { const overrides:Record<string,number>={}; for(let i=0;i<args.length;i++){if(args[i]!=="--set")throw Error(`unknown option ${args[i]}`);const value=args[++i];const match=/^([^=]+)=([^=]+)$/.exec(value??"");if(!match)throw Error(`invalid --set ${value}`);const [,k,v]=match;const n=Number(v);if(!Number.isFinite(n))throw Error(`invalid --set ${value}`);overrides[k]=n;} const {applyOverrides}=await import("./camera/defaults.ts"); console.log(await renderTake(dir,applyOverrides(overrides))); }
+ try { const overrides:Record<string,number|string>={}; for(let i=0;i<args.length;i++){if(args[i]!=="--set")throw Error(`unknown option ${args[i]}`);const value=args[++i];const match=/^([^=]+)=([^=]+)$/.exec(value??"");if(!match)throw Error(`invalid --set ${value}`);const [,k,v]=match;const n=Number(v);overrides[k]=k==="background"?v:Number.isFinite(n)?n:NaN;} const {applyOverrides}=await import("./camera/defaults.ts"); console.log(await renderTake(dir,applyOverrides(overrides))); }
  catch(e){console.error(e instanceof Error?e.message:e);process.exitCode=1;}
 }

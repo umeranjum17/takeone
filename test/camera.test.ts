@@ -3,7 +3,7 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import test from "node:test";
-import { applyOverrides } from "../src/camera/defaults.ts";
+import { applyOverrides, DEFAULTS } from "../src/camera/defaults.ts";
 import { frame, moveDuration, solveCamera, zMax } from "../src/camera/solver.ts";
 import type { Beat, Decision, Zone } from "../src/camera/types.ts";
 import { renderTake, sendcmd } from "../src/render/render.ts";
@@ -59,6 +59,19 @@ test("framing expands to 16:9 and respects source and upscale clamps", () => {
     assert.ok(result.cx >= 0 && result.cx <= 3840);
     assert.ok(result.cy >= 0 && result.cy <= 2160);
   }
+});
+
+test("whole-screen non-16:9 frames cover the full source while 16:9 framing is unchanged", () => {
+  for (const [width, height] of [[3440, 1440], [1440, 2560]]) {
+    const whole = solveCamera([], [], { width, height, trim_start: 0, trim_end: 1 })[0];
+    assert.deepEqual([whole.x, whole.y, whole.w, whole.h], [0, 0, width, height]);
+    assert.equal(DEFAULTS.out_w, 1920);
+    assert.equal(DEFAULTS.out_h, 1080);
+  }
+  assert.deepEqual(
+    solveCamera([], [], { width: 3840, height: 2160, trim_start: 0, trim_end: 1 })[0],
+    { t: 0, x: 0, y: 0, w: 3840, h: 2160 },
+  );
 });
 
 test("move duration clamps and sendcmd emits one crop update per frame", () => {

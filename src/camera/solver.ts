@@ -49,10 +49,14 @@ function toFrame(
   d: CameraDefaults,
 ): CameraFrame {
   const z = clamp(state.z, 1, zMax(width, d));
-  const w = Math.min(width / z, height * d.out_w / d.out_h);
-  const h = w * d.out_h / d.out_w;
-  const x = clamp(state.cx - w / 2, 0, Math.max(0, width - w));
-  const y = clamp(state.cy - h / 2, 0, Math.max(0, height - h));
+  const aspect = d.out_w / d.out_h;
+  const sourceAspect = width / height;
+  // Preserve the historical 16:9 framing path exactly; only whole-screen shots pad.
+  const padded = Math.abs(sourceAspect - aspect) > 1e-9 && state.z <= 1;
+  const w = padded ? width : Math.min(width / z, height * aspect);
+  const h = padded ? height : w / aspect;
+  const x = padded ? 0 : clamp(state.cx - w / 2, 0, Math.max(0, width - w));
+  const y = padded ? 0 : clamp(state.cy - h / 2, 0, Math.max(0, height - h));
   return { t: 0, x, y, w, h };
 }
 

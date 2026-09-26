@@ -61,7 +61,7 @@ export async function renderTake(dir: string, d: CameraDefaults = DEFAULTS): Pro
   const trimStart = meta.trim_start ?? 0;
   const escapedOption = commandFile.replace(/[\\:']/g, "\\$&");
   const escapedPath = escapedOption.replace(/[\\',;\[\]]/g, "\\$&");
-  const filter = `sendcmd=f=${escapedPath},crop@a=w=iw:h=ih:x=0:y=0:exact=1,scale=${d.out_w}:${d.out_h}:flags=lanczos,format=yuv420p`;
+  const filter = `sendcmd=f=${escapedPath},crop@a=w=iw:h=ih:x=0:y=0:exact=1,scale=${d.out_w}:${d.out_h}:force_original_aspect_ratio=decrease:force_divisible_by=2:flags=lanczos,pad=${d.out_w}:${d.out_h}:(ow-iw)/2:(oh-ih)/2:color=${d.background},format=yuv420p`;
 
   // Keep camera.cmd on failure for straightforward diagnosis and re-rendering.
   await runFfmpeg([
