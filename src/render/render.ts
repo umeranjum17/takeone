@@ -45,7 +45,8 @@ export async function renderTake(dir: string, d: CameraDefaults = DEFAULTS): Pro
   const decisions = decisionLines.split(/\r?\n/).filter(Boolean)
     .map((line) => JSON.parse(line) as Decision);
 
-  const frames = solveCamera(beats, decisions, meta, d);
+  const trimEnd = meta.trim_end ?? Math.max(0, ...beats.map((beat) => beat.t1));
+  const frames = solveCamera(beats, decisions, { ...meta, trim_end: trimEnd }, d);
   await writeFile(join(dir, "camera.json"), JSON.stringify(frames));
   const commandFile = join(dir, "camera.cmd");
   await writeFile(commandFile, sendcmd(frames));
@@ -58,7 +59,6 @@ export async function renderTake(dir: string, d: CameraDefaults = DEFAULTS): Pro
   }
   const output = join(outputDir, `${id}.mp4`);
   const trimStart = meta.trim_start ?? 0;
-  const trimEnd = meta.trim_end ?? beats.at(-1)?.t1 ?? 0;
   const escapedOption = commandFile.replace(/[\\:']/g, "\\$&");
   const escapedPath = escapedOption.replace(/[\\',;\[\]]/g, "\\$&");
   const filter = `sendcmd=f=${escapedPath},crop@a=w=iw:h=ih:x=0:y=0:exact=1,scale=${d.out_w}:${d.out_h}:flags=lanczos,format=yuv420p`;

@@ -435,15 +435,21 @@ function validateCameraInputs(beats: Beat[], decisions: Decision[], take: TakeMe
     || (take.trim_end !== undefined && take.trim_end <= (take.trim_start ?? 0))) {
     throw new Error("invalid take geometry, trim, or camera inputs");
   }
+  const beatIds = new Set<string>();
   for (const beat of beats) {
-    if (!beat || !time(beat.t0) || !time(beat.t1) || beat.t1 < beat.t0
-      || !time(beat.anchor_t) || !Array.isArray(beat.zones) || !Array.isArray(beat.actions)
+    if (!beat || typeof beat.id !== "string" || !beat.id || beatIds.has(beat.id)
+      || !time(beat.t0) || !time(beat.t1) || beat.t1 < beat.t0
+      || !time(beat.anchor_t) || beat.anchor_t < beat.t0 || beat.anchor_t > beat.t1
+      || !Array.isArray(beat.zones) || !Array.isArray(beat.actions)
       || (beat.window_rect !== undefined && !rect(beat.window_rect, take.width, take.height))
       || (beat.changed_frac !== undefined && (!Array.isArray(beat.changed_frac)
         || beat.changed_frac.some((sample) => !sample || !time(sample.t)
           || !finite(sample.f) || sample.f < 0 || sample.f > 1)))
-      || beat.zones.some((zone) => !zone || !rect(zone.bbox, take.width, take.height)
-        || (zone.t_change !== undefined && !time(zone.t_change)))
+      || beat.zones.some((zone) => !zone || typeof zone.name !== "string" || !zone.name
+        || !rect(zone.bbox, take.width, take.height)
+        || (zone.t_change !== undefined && (!time(zone.t_change)
+          || zone.t_change < beat.t0 || zone.t_change > beat.t1)))
+      || new Set(beat.zones.map((zone) => zone.name)).size !== beat.zones.length
       || beat.actions.some((action) => {
         if (!action || typeof action !== "object") return true;
         const event = action as { k?: string; t?: unknown; x?: unknown; y?: unknown };
@@ -453,11 +459,15 @@ function validateCameraInputs(beats: Beat[], decisions: Decision[], take: TakeMe
               || event.x < 0 || event.x > take.width || event.y < 0 || event.y > take.height
               || (event.k === "ptr" && !time(event.t))));
       })) throw new Error(`invalid camera input for beat ${beat?.id}`);
+    beatIds.add(beat.id);
   }
+  const decided = new Set<string>();
   for (const decision of decisions) {
-    if (!decision || !Number.isInteger(decision.K) || decision.K < 0 || decision.K > 2) {
+    if (!decision || !beatIds.has(decision.beat) || decided.has(decision.beat)
+      || !Number.isInteger(decision.K) || decision.K < 0 || decision.K > 2) {
       throw new Error(`invalid camera decision for beat ${decision?.beat}`);
     }
+    decided.add(decision.beat);
   }
 }
 

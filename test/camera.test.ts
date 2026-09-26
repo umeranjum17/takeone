@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import test from "node:test";
 import { applyOverrides } from "../src/camera/defaults.ts";
@@ -226,6 +226,18 @@ test("camera rejects unusable take, planner, and event inputs", () => {
   assert.throws(() => solveCamera([b], [{ ...decision(b), K: 3 as 2 }], take), /invalid/);
 });
 
+test("camera rejects ambiguous identities and times outside beats", () => {
+  const b = beat("unique", 2, 300);
+  const d = decision(b);
+  assert.ok(camera([b], [d], 4).length > 0);
+  assert.throws(() => camera([{ ...b, anchor_t: 20 }], [d], 4), /invalid/);
+  assert.throws(() => camera([{ ...b, zones: [{ ...b.zones[0], t_change: 20 }] }], [d], 4), /invalid/);
+  assert.throws(() => camera([b, { ...b }], [d], 4), /invalid/);
+  assert.throws(() => camera([{ ...b, zones: [b.zones[0], { ...b.zones[0] }] }], [d], 4), /invalid/);
+  assert.throws(() => camera([b], [d, { ...d }], 4), /invalid/);
+  assert.throws(() => camera([b], [d, { ...d, beat: "unknown" }], 4), /invalid/);
+});
+
 test("frame samples have smooth log zoom and fixed aspect", () => {
   const first = beat("first", 1, 2800);
   const second = beat("second", 3, 500, "type");
@@ -249,6 +261,35 @@ test("--set overrides validate values", () => {
     { move_t_min: 2, move_t_max: 1 }, { hop_t_scale: 0 },
     { follow_omega: 0 }, { deadzone_margin: 0.5 }, { follow_inner: 2 },
   ]) assert.throws(() => applyOverrides(overrides), /invalid|must be at least/);
+});
+
+test("render without trim_end uses the latest beat end", { timeout: 120_000 }, async () => {
+  const dir = await mkdtemp(join(process.cwd(), "takeone:duration-"));
+  try {
+    await mkdir(join(dir, "analysis"));
+    execFileSync("ffmpeg", [
+      "-v", "error", "-f", "lavfi", "-i", "color=c=blue:s=320x180:r=30:d=2",
+      "-c:v", "libvpx-vp9", "-deadline", "realtime", "-cpu-used", "8",
+      "-y", join(dir, "screen.webm"),
+    ]);
+    const later = { ...beat("later", 0.8, 20), t0: 0.2, t1: 1.8,
+      zones: [zone("later", [20, 20, 40, 30])] };
+    const earlier = { ...beat("earlier", 0.7, 80), t0: 0.1, t1: 1.2,
+      zones: [zone("earlier", [80, 20, 40, 30])] };
+    await writeFile(join(dir, "take.json"), JSON.stringify({ id: "duration", width: 320, height: 180 }));
+    await writeFile(join(dir, "analysis/beats.json"), JSON.stringify([later, earlier]));
+    await writeFile(join(dir, "analysis/decisions.jsonl"),
+      [decision(later), decision(earlier)].map((d) => JSON.stringify(d)).join("\n") + "\n");
+    const output = await renderTake(dir);
+    const frames = JSON.parse(await readFile(join(dir, "camera.json"), "utf8"));
+    assert.equal(frames.at(-1).t, 1.8);
+    const count = execFileSync("ffprobe", ["-v", "error", "-select_streams", "v:0",
+      "-show_entries", "stream=nb_frames", "-of", "default=noprint_wrappers=1:nokey=1", output],
+    { encoding: "utf8" });
+    assert.equal(Number(count.trim()), 54);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 });
 
 test("synthetic 4K source renders silent H.264 at 1920x1080 and 30fps", {
