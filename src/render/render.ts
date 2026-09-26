@@ -6,13 +6,13 @@ import { solveCamera } from "../camera/solver.ts";
 import type { Beat, CameraFrame, Decision, TakeMeta } from "../camera/types.ts";
 
 /** Encode one crop command per sampled camera frame for FFmpeg's crop filter. */
-export function sendcmd(frames: CameraFrame[]): string {
+export function sendcmd(frames: CameraFrame[], offsetX = 0, offsetY = 0): string {
   return frames.map((frame) => {
     const t = frame.t.toFixed(6);
     const w = Math.round(frame.w);
     const h = Math.round(frame.h);
-    const x = Math.round(frame.x);
-    const y = Math.round(frame.y);
+    const x = Math.round(frame.x + offsetX);
+    const y = Math.round(frame.y + offsetY);
     return `${t} [enter] crop@a w ${w}, crop@a h ${h}, crop@a x ${x}, crop@a y ${y};`;
   }).join("\n") + "\n";
 }
@@ -49,7 +49,12 @@ export async function renderTake(dir: string, d: CameraDefaults = DEFAULTS): Pro
   const frames = solveCamera(beats, decisions, { ...meta, trim_end: trimEnd }, d);
   await writeFile(join(dir, "camera.json"), JSON.stringify(frames));
   const commandFile = join(dir, "camera.cmd");
-  await writeFile(commandFile, sendcmd(frames));
+  const aspect = d.out_w / d.out_h;
+  const canvasW = Math.ceil(Math.max(meta.width, meta.height * aspect) / 2) * 2;
+  const canvasH = Math.ceil(Math.max(meta.height, meta.width / aspect) / 2) * 2;
+  const offsetX = Math.round((canvasW - meta.width) / 2);
+  const offsetY = Math.round((canvasH - meta.height) / 2);
+  await writeFile(commandFile, sendcmd(frames, offsetX, offsetY));
 
   const outputDir = join(dir, "out");
   await mkdir(outputDir, { recursive: true });
@@ -61,7 +66,7 @@ export async function renderTake(dir: string, d: CameraDefaults = DEFAULTS): Pro
   const trimStart = meta.trim_start ?? 0;
   const escapedOption = commandFile.replace(/[\\:']/g, "\\$&");
   const escapedPath = escapedOption.replace(/[\\',;\[\]]/g, "\\$&");
-  const filter = `sendcmd=f=${escapedPath},crop@a=w=iw:h=ih:x=0:y=0:exact=1,scale=${d.out_w}:${d.out_h}:flags=lanczos,format=yuv420p`;
+  const filter = `pad=${canvasW}:${canvasH}:${offsetX}:${offsetY}:color=${d.background},sendcmd=f=${escapedPath},crop@a=w=iw:h=ih:x=0:y=0:exact=1,scale=${d.out_w}:${d.out_h}:flags=lanczos,format=yuv420p`;
 
   // Keep camera.cmd on failure for straightforward diagnosis and re-rendering.
   await runFfmpeg([

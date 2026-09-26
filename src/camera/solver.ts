@@ -41,7 +41,7 @@ export function zMax(width: number, d: CameraDefaults = DEFAULTS): number {
   return Math.max(1, width / (d.out_w / d.max_upscale));
 }
 
-/** Clamp a camera centre and convert it to the configured output-aspect source crop. */
+/** Convert a camera centre to an output-aspect viewport, allowing padded overscan. */
 function toFrame(
   state: CameraState,
   width: number,
@@ -49,10 +49,18 @@ function toFrame(
   d: CameraDefaults,
 ): CameraFrame {
   const z = clamp(state.z, 1, zMax(width, d));
-  const w = Math.min(width / z, height * d.out_w / d.out_h);
-  const h = w * d.out_h / d.out_w;
-  const x = clamp(state.cx - w / 2, 0, Math.max(0, width - w));
-  const y = clamp(state.cy - h / 2, 0, Math.max(0, height - h));
+  const aspect = d.out_w / d.out_h;
+  const nonWide = Math.abs(width / height - aspect) > 1e-9;
+  // Keep the viewport at the output aspect; padded overscan shrinks with zoom.
+  const baseW = nonWide ? Math.max(width, height * aspect) : width;
+  const w = nonWide ? baseW / z : Math.min(width / z, height * aspect);
+  const h = w / aspect;
+  const rawX = state.cx - w / 2;
+  const rawY = state.cy - h / 2;
+  const x = nonWide && (w > width || h > height)
+    ? rawX : clamp(rawX, 0, Math.max(0, width - w));
+  const y = nonWide && (w > width || h > height)
+    ? rawY : clamp(rawY, 0, Math.max(0, height - h));
   return { t: 0, x, y, w, h };
 }
 

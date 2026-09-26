@@ -4,6 +4,7 @@
 export interface CameraDefaults {
   out_w: number;
   out_h: number;
+  background: string;
   fps: number;
   max_upscale: number; // never upscale source pixels more than this
   deadzone_margin: number; // 8% margin for the deadzone rule
@@ -39,6 +40,7 @@ export interface CameraDefaults {
 export const DEFAULTS: CameraDefaults = {
   out_w: 1920,
   out_h: 1080,
+  background: "#202124",
   fps: 30,
   max_upscale: 1.25,
   deadzone_margin: 0.08,
@@ -71,13 +73,17 @@ export const DEFAULTS: CameraDefaults = {
   l3_pad: 1.35,
 };
 
-export type Overrides = Partial<Record<keyof CameraDefaults, number>>;
+export type Overrides = Partial<Omit<CameraDefaults, "background">> & { background?: string };
 
 /** Apply `--set key=value` overrides onto a copy of DEFAULTS. */
 export function applyOverrides(overrides: Overrides): CameraDefaults {
   const out: CameraDefaults = { ...DEFAULTS };
   for (const [k, v] of Object.entries(overrides)) {
     const key = k as keyof CameraDefaults;
+    if (key === "background" && typeof v === "string" && /^#[0-9a-f]{6}$/i.test(v)) {
+      (out as unknown as Record<string, unknown>)[key] = v;
+      continue;
+    }
     const positive = ["out_w", "out_h", "fps", "max_upscale", "rate_window", "rate_max", "move_t_min", "move_t_max", "hop_zoom", "hop_zoom_div", "hop_t_scale", "follow_omega", "lowpass_omega", "l1_pad", "l2_pad", "l3_pad"];
     const integers = ["out_w", "out_h", "fps", "rate_max"];
     if (!(key in out) || typeof v !== "number" || !Number.isFinite(v)
