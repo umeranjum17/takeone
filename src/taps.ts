@@ -60,8 +60,8 @@ async function evdevDevices(dir: string): Promise<{ devices: EvdevDevice[]; miss
   let names: string[] = [];
   try {
     names = await fs.readdir(dir);
-  } catch {
-    return { devices: [], missingGroup: false };
+  } catch (error) {
+    return { devices: [], missingGroup: (error as NodeJS.ErrnoException).code === "EACCES" };
   }
   const candidates = names
     .filter((n) => n.endsWith("-event-mouse") || n.endsWith("-event-kbd"))
@@ -142,11 +142,12 @@ export async function startTaps(options: TapOptions): Promise<TapHandle> {
     let lastPos = "";
     let lastWin = "";
     const hz = options.pollHz ?? 60;
-    pointerTimer = setInterval(() => {
+    const timer = setInterval(() => {
+      if (polls.size !== 0) return;
       const poll = (async () => {
         try {
           const pos = await getCursorPos(hypr.socket);
-          if (pointerMode !== "mapped") return;
+          if (pointerMode !== "mapped" || pointerTimer !== timer) return;
           if (pos !== null) {
             const key = `${pos.x},${pos.y}`;
             if (key !== lastPos) {
@@ -156,7 +157,7 @@ export async function startTaps(options: TapOptions): Promise<TapHandle> {
             }
           }
           const win = await getActiveWindow(hypr.socket);
-          if (pointerMode !== "mapped") return;
+          if (pointerMode !== "mapped" || pointerTimer !== timer) return;
           const winKey = win === null ? "none" : `${win.address}|${win.title}|${win.rect.join(",")}`;
           if (winKey !== lastWin) {
             lastWin = winKey;
@@ -169,7 +170,7 @@ export async function startTaps(options: TapOptions): Promise<TapHandle> {
             });
           }
         } catch {
-          if (pointerMode === "mapped") {
+          if (pointerMode === "mapped" && pointerTimer === timer) {
             pointerMode = "none";
             warnings.push("hyprland ipc unavailable; pointer and window events disabled");
             if (pointerTimer !== null) clearInterval(pointerTimer);
@@ -180,6 +181,7 @@ export async function startTaps(options: TapOptions): Promise<TapHandle> {
       polls.add(poll);
       void poll.finally(() => polls.delete(poll));
     }, Math.round(1000 / hz));
+    pointerTimer = timer;
   };
   if (options.mapping !== undefined) setMapping(options.mapping);
 
