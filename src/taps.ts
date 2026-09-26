@@ -91,9 +91,14 @@ export async function startTaps(options: TapOptions): Promise<TapHandle> {
   let eventsMode: "on" | "none" = "on";
   let pointerMode: "mapped" | "none" = mapping !== null ? "mapped" : "none";
 
-  const out = await fs.open(eventsPath, "a");
+  const out = await fs.open(eventsPath, "a", 0o600);
+  let writes = Promise.resolve();
+  let writeError: unknown = null;
   const emit = (event: TapEvent): void => {
-    void out.write(`${JSON.stringify(event)}\n`);
+    if (stopped) return;
+    writes = writes.then(() => out.write(`${JSON.stringify(event)}\n`)).then(() => undefined).catch((error: unknown) => {
+      writeError ??= error;
+    });
   };
   const emitInput = (event: TapEvent): void => {
     if (summary.firstInputMs === null) summary.firstInputMs = event.t;
@@ -103,6 +108,7 @@ export async function startTaps(options: TapOptions): Promise<TapHandle> {
 
   const timers: NodeJS.Timeout[] = [];
   const evdevHandles: EvdevDevice[] = [];
+  const polls = new Set<Promise<void>>();
   let stopped = false;
   const { devices, missingGroup } = await evdevDevices(options.deviceDir ?? DEVICE_DIR);
   // --- Hyprland pointer and window polling -------------------------------
@@ -121,7 +127,7 @@ export async function startTaps(options: TapOptions): Promise<TapHandle> {
     let lastWin = "";
     const hz = options.pollHz ?? 60;
     const timer = setInterval(() => {
-      void (async () => {
+      const poll = (async () => {
         try {
           const pos = await getCursorPos(hypr.socket);
           if (pos !== null) {
@@ -148,6 +154,8 @@ export async function startTaps(options: TapOptions): Promise<TapHandle> {
           // a single failed poll is not an error; the tap keeps running
         }
       })();
+      polls.add(poll);
+      void poll.finally(() => polls.delete(poll));
     }, Math.round(1000 / hz));
     timers.push(timer);
   }
@@ -263,7 +271,10 @@ export async function startTaps(options: TapOptions): Promise<TapHandle> {
       stopped = true;
       for (const timer of timers) clearInterval(timer);
       for (const device of evdevHandles.splice(0)) closeSync(device.fd);
+      await Promise.all(polls);
+      await writes;
       await out.close();
+      if (writeError !== null) throw writeError;
     },
   };
 }

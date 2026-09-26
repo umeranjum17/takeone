@@ -1,6 +1,6 @@
 /** Listing of takes under the takes root. */
 
-import { readFile, readdir } from "node:fs/promises";
+import { mkdir, readFile, readdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 
 export interface TakeEntry {
@@ -17,6 +17,17 @@ export interface TakeEntry {
 export interface RecordingInfo {
   pid: number;
   take: string;
+}
+
+export async function withPidLock<T>(stateDir: string, action: () => Promise<T>): Promise<T> {
+  await mkdir(stateDir, { recursive: true, mode: 0o700 });
+  const lock = join(stateDir, "recording.lock");
+  await mkdir(lock, { mode: 0o700 });
+  try {
+    return await action();
+  } finally {
+    await rm(lock, { recursive: true, force: true });
+  }
 }
 
 export function parseTakeId(name: string): string | null {
