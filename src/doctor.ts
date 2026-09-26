@@ -50,12 +50,12 @@ export async function evdevProbe(dir = "/dev/input/by-id"): Promise<DoctorCheck>
       if ((error as NodeJS.ErrnoException).code === "EACCES") eacces = true;
     }
   }
-  if (readable > 0 && readable === candidates.length) {
+  if (readable === candidates.length && candidates.some((name) => name.endsWith("-event-mouse")) && candidates.some((name) => name.endsWith("-event-kbd"))) {
     return { check: "evdev", ok: true, detail: `${readable} readable device(s)` };
   }
   return eacces
     ? { check: "evdev", ok: false, detail: "not all devices readable; add the user to group 'input' and log in again" }
-    : { check: "evdev", ok: false, detail: candidates.length === 0 ? "no *-event-mouse or *-event-kbd devices" : "some evdev devices are unreadable" };
+    : { check: "evdev", ok: false, detail: candidates.length === 0 ? "no *-event-mouse or *-event-kbd devices" : readable === candidates.length ? "both *-event-mouse and *-event-kbd devices required" : "some evdev devices are unreadable" };
 }
 
 export async function runDoctor(): Promise<DoctorCheck[]> {

@@ -17,6 +17,7 @@ test("input is captured before stream geometry is available", async () => {
   key.writeUInt16LE(30, 18);
   key.writeInt32LE(1, 20);
   await writeFile(join(deviceDir, "early-event-kbd"), key);
+  await writeFile(join(deviceDir, "early-event-mouse"), "");
   try {
     const eventsPath = join(base, "events.jsonl");
     const taps = await startTaps({ eventsPath, t0ns: process.hrtime.bigint(), deviceDir, evdevPollHz: 200 });
@@ -54,11 +55,31 @@ test("one unreadable evdev device disables all event taps and doctor readiness",
   }
 });
 
+test("a missing mouse or keyboard class disables events and doctor readiness", async () => {
+  const base = await mkdtemp(join(tmpdir(), "takeone-missing-class-"));
+  const deviceDir = join(base, "devices");
+  await mkdir(deviceDir);
+  try {
+    for (const kind of ["mouse", "kbd"]) {
+      const path = join(deviceDir, `only-event-${kind}`);
+      await writeFile(path, "");
+      const taps = await startTaps({ eventsPath: join(base, "events.jsonl"), mapping: null, t0ns: process.hrtime.bigint(), deviceDir });
+      assert.equal(taps.eventsMode, "none");
+      await taps.stop();
+      assert.equal((await evdevProbe(deviceDir)).ok, false);
+      await rm(path);
+    }
+  } finally {
+    await rm(base, { recursive: true, force: true });
+  }
+});
+
 test("an evdev device lost mid-recording fails completion", async () => {
   const base = await mkdtemp(join(tmpdir(), "takeone-device-loss-"));
   const deviceDir = join(base, "devices");
   await mkdir(deviceDir);
   await symlink("/dev/null", join(deviceDir, "gone-event-kbd"));
+  await writeFile(join(deviceDir, "good-event-mouse"), "");
   try {
     const taps = await startTaps({ eventsPath: join(base, "events.jsonl"), mapping: null, t0ns: process.hrtime.bigint(), deviceDir, evdevPollHz: 200 });
     await new Promise((resolve) => setTimeout(resolve, 30));
@@ -88,6 +109,7 @@ test("wheel reports prefer high-resolution values on both axes from the first re
   await writeFile(join(deviceDir, "other-event-mouse"), Buffer.concat([
     record(EV_REL, REL_WHEEL, -1), record(EV_REL, REL_HWHEEL, 1), syn,
   ]));
+  await writeFile(join(deviceDir, "fake-event-kbd"), "");
   try {
     const eventsPath = join(base, "events.jsonl");
     const taps = await startTaps({ eventsPath, mapping: null, t0ns: process.hrtime.bigint(), deviceDir, evdevPollHz: 200 });
@@ -110,6 +132,7 @@ test("video-only tap never reads or writes Hyprland events; unmapped pointer is 
   await mkdir(emptyDevices);
   await mkdir(readableDevices);
   await writeFile(join(readableDevices, "fake-event-mouse"), "");
+  await writeFile(join(readableDevices, "fake-event-kbd"), "");
   let requests = 0;
   let delayReply = false;
   let serverClosed = false;

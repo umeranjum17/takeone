@@ -161,10 +161,13 @@ test("stop during monitor setup does not publish an unusable take", { timeout: 2
   await chmod(wrapper, 0o755);
   let monitorRequest!: () => void;
   const requested = new Promise<void>((resolve) => { monitorRequest = resolve; });
-  const server = createServer((conn) => conn.on("data", () => {
-    monitorRequest();
-    setTimeout(() => conn.end("[]"), 100);
-  }));
+  const server = createServer((conn) => {
+    conn.on("error", () => undefined);
+    conn.on("data", () => {
+      monitorRequest();
+      setTimeout(() => conn.end("[]"), 100);
+    });
+  });
   await new Promise<void>((resolve) => server.listen(join(socketDir, ".socket.sock"), resolve));
   const child = spawn(process.execPath, [join(here, "../cli.js"), "record", "--root", root, "--state-dir", stateDir], {
     env: { ...process.env, MUXR_DESKLINK_ENGINE: wrapper, XDG_RUNTIME_DIR: base, HYPRLAND_INSTANCE_SIGNATURE: "test" },
