@@ -111,7 +111,7 @@ function actZone(
     const at = actStart(a);
     if (!pt) continue;
     for (const f of o.frames) {
-      if (f.t < at - 100 || f.t > at + ACT_REGION_MS) continue;
+      if (f.t < beat.t0 || f.t > beat.t1 || f.t < at - 100 || f.t > at + ACT_REGION_MS) continue;
       for (const r of f.regions) {
         if (r.area_frac >= SMALL_REGION_AREA) continue;
         const [rx, ry, rw, rh] = r.bbox;

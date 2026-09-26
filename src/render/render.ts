@@ -41,6 +41,13 @@ function runFfmpeg(args: string[]): Promise<void> {
 export async function renderTake(dir: string, d: CameraDefaults = DEFAULTS): Promise<string> {
   const meta = JSON.parse(await readFile(join(dir, "take.json"), "utf8")) as TakeMeta;
   const beats = JSON.parse(await readFile(join(dir, "analysis/beats.json"), "utf8")) as Beat[];
+  // The planner stores seconds; the existing FOLLOW solver consumes action timestamps in ms.
+  if ("stream" in meta) for (const beat of beats) beat.actions = beat.actions.map((action) => {
+    const a = action as { t?: number; t0?: number; t1?: number };
+    return { ...a, ...(a.t === undefined ? {} : { t: a.t * 1000 }),
+      ...(a.t0 === undefined ? {} : { t0: a.t0 * 1000 }),
+      ...(a.t1 === undefined ? {} : { t1: a.t1 * 1000 }) };
+  });
   const decisionLines = await readFile(join(dir, "analysis/decisions.jsonl"), "utf8");
   const decisions = decisionLines.split(/\r?\n/).filter(Boolean)
     .map((line) => JSON.parse(line) as Decision);

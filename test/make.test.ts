@@ -67,6 +67,24 @@ function jevAnswers(): unknown {
   return { answers, usage: { input_tokens: 800 } };
 }
 
+test("make --no-jev renders the agreed beat/decision files into a 1920x1080 MP4", async () => {
+  const dir = newTake();
+  try {
+    assert.equal(await main(["make", dir, "--no-jev"]), 0);
+    const output = join(dir, "out", "t1.mp4");
+    assert.ok(existsSync(output));
+    const probe = JSON.parse(execFileSync("ffprobe", ["-v", "error", "-select_streams", "v:0", "-count_frames", "-show_entries", "stream=width,height,nb_read_frames", "-of", "json", output], { encoding: "utf8" }));
+    assert.deepEqual([probe.streams[0].width, probe.streams[0].height, Number(probe.streams[0].nb_read_frames)], [1920, 1080, 300]);
+    const beats = JSON.parse(readFileSync(join(dir, "analysis", "beats.json"), "utf8"));
+    const decisions = readFileSync(join(dir, "analysis", "decisions.jsonl"), "utf8").trim().split("\n").map(JSON.parse);
+    assert.ok(Array.isArray(beats));
+    assert.equal(beats.length, decisions.length);
+    assert.ok(beats.every((b: { t0: number; t1: number; zones: { type: string; t_change?: number }[] }) => b.t0 >= 0 && b.t1 <= 10 && b.zones.every((z) => Boolean(z.type) && (z.t_change === undefined || z.t_change >= b.t0 && z.t_change <= b.t1))));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("CLI rejects malformed --max-tokens values", async () => {
   const error = console.error;
   const messages: string[] = [];
@@ -128,7 +146,7 @@ test("make --no-jev writes analysis files and heuristic decisions", async () => 
     assert.ok(existsSync(join(dir, "analysis", "regions.json")));
     assert.ok(existsSync(join(dir, "analysis", "actions.json")));
     assert.ok(existsSync(join(dir, "analysis", "beats.json")));
-    assert.ok(existsSync(join(dir, "analysis", "decisions.json")));
+    assert.ok(existsSync(join(dir, "analysis", "decisions.jsonl")));
     assert.equal(r.decisions.length, r.beats.length);
     assert.ok(r.beats.length >= 2, `expected several beats, got ${r.beats.length}`);
     for (const d of r.decisions) assert.equal(d.decided_by, "heuristic");
@@ -143,7 +161,7 @@ test("make --no-jev writes analysis files and heuristic decisions", async () => 
     // events.jsonl titles stay local: nothing in the analysis files carries the title
     const allAnalysis =
       readFileSync(join(dir, "analysis", "beats.json"), "utf8") +
-      readFileSync(join(dir, "analysis", "decisions.json"), "utf8");
+      readFileSync(join(dir, "analysis", "decisions.jsonl"), "utf8");
     assert.ok(!allAnalysis.includes("Quarterly report"));
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -191,7 +209,7 @@ test("make with a key decides via Jev and accounts usage; cache hit costs zero c
     const jevDecisions = r1.decisions.filter((d) => d.decided_by === "jev");
     assert.ok(jevDecisions.length >= 2);
     assert.equal(r1.jev.input_tokens, calls * 800);
-    assert.ok(existsSync(join(dir, "analysis", "decisions.jsonl")));
+    assert.ok(existsSync(join(dir, "analysis", "jev-cache.jsonl")));
     const callsAfterFirst = calls;
 
     // second run: identical requests, so every call is a cache hit
@@ -405,7 +423,8 @@ test("raw window identity requires screen-text opt-in and titles are redacted", 
     assert.ok(!JSON.stringify(normal.beats.flatMap((b) => b.zones.map((z) => z.desc))).includes("PrivateCustomerName"));
     const opted = await makeTake(dir, { noJev: true, screenText: true, log: () => {}, warn: () => {} });
     const descriptions = JSON.stringify(opted.beats.flatMap((b) => b.zones.map((z) => z.desc)));
-    assert.ok(descriptions.includes("PrivateCustomerName"));
+    assert.ok(descriptions.includes("[redacted]"));
+    assert.ok(!descriptions.includes("PrivateCustomerName"));
     assert.ok(descriptions.includes("[redacted]"));
     assert.ok(!descriptions.includes("12345abcdefghijklmnop"));
   } finally {

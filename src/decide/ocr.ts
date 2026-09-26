@@ -71,36 +71,16 @@ function tesseract(png: string): Promise<string> {
 
 /** Parse tesseract TSV, keep words with conf >= OCR_MIN_CONF, cap and redact. */
 export function redactWords(tsv: string): string | null {
-  const words: { text: string; left: number; right: number; height: number; line: string }[] = [];
+  const words: string[] = [];
   for (const line of tsv.split("\n").slice(1)) {
     const cols = line.split("\t");
     if (cols.length < 12) continue;
     const conf = Number(cols[10]);
     const word = (cols[11] ?? "").trim();
     if (!word || !Number.isFinite(conf) || conf < OCR_MIN_CONF) continue;
-    const left = Number(cols[6]);
-    words.push({ text: word, left, right: left + Number(cols[8]), height: Number(cols[9]), line: cols.slice(1, 5).join(":") });
+    words.push(word);
     if (words.length >= OCR_WORD_CAP) break;
   }
   if (words.length === 0) return null;
-  for (let i = 0; i < words.length; i++) {
-    if (!/^[A-Za-z0-9]+$/.test(words[i]!.text)) continue;
-    let combined = words[i]!.text;
-    for (let j = i + 1; j < words.length; j++) {
-      const previous = words[j - 1]!;
-      const next = words[j]!;
-      const gap = next.left - previous.right;
-      if (next.line !== previous.line || previous.right <= previous.left || next.right <= next.left || previous.height <= 0 || next.height <= 0 || !Number.isFinite(gap) || gap < -2 || gap > Math.max(2, Math.min(previous.height, next.height) / 8) || !/^[A-Za-z0-9]+$/.test(next.text)) break;
-      combined += next.text;
-      const parts = words.slice(i, j + 1).map((word) => word.text);
-      const numeric = /^\d{6,}$/.test(combined);
-      const mixed = combined.length >= 20 && /[A-Za-z]/.test(combined) && /\d/.test(combined) &&
-        (/\d{5,}/.test(combined) || parts.some((part) => /[A-Za-z]/.test(part) && /\d/.test(part)));
-      if (numeric || mixed) {
-        words.splice(i, j - i + 1, { ...words[i]!, text: "[redacted]" });
-        break;
-      }
-    }
-  }
-  return redactText(words.map((word) => word.text).join(" "));
+  return redactText(words.join(" "));
 }

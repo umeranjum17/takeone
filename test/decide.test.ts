@@ -276,33 +276,34 @@ test("sumsTo1 and argmaxLevel helpers", () => {
 
 // ------------------------------------------------------------------ redaction
 
-test("split OCR email tokens are redacted before sending", () => {
+test("OCR tokens are filtered individually, without fragment joining", () => {
   const row = (word: string) => [...Array(10).fill(""), "95", word].join("\t");
-  assert.equal(redactWords(["header", row("bob@"), row("example.com"), row("hello")].join("\n")), "[redacted] hello");
-  assert.equal(redactText("bob @ example . com"), "[redacted]");
+  assert.equal(redactWords(["header", row("bob@"), row("example.com"), row("hello")].join("\n")), "[redacted] [redacted] hello");
+  assert.equal(redactText("bob @ example . com"), "bob [redacted] example [redacted] com");
 });
 
-test("split OCR identifiers are redacted without masking spaced labels", () => {
+test("OCR keeps only alphabetic words of length two through fifteen", () => {
   const row = (word: string, left: number, width: number, line = 1) => ["5", "1", "1", "1", line, "1", left, "0", width, "20", "95", word].join("\t");
-  assert.equal(redactWords(["header", row("123", 0, 30), row("456", 31, 30), row("ready", 100, 50)].join("\n")), "[redacted] ready");
-  assert.equal(redactWords(["header", row("abc123def4", 0, 60), row("ghi567jkl8", 61, 60), row("ready", 160, 50)].join("\n")), "[redacted] ready");
-  assert.equal(redactWords(["header", row("abcdefghij", 0, 60), row("klmnopqrst", 61, 60), row("12345", 122, 30), row("ready", 160, 50)].join("\n")), "[redacted] ready");
-  assert.equal(redactWords(["header", row("abcdefgh", 0, 48), row("ijklmno", 49, 42), row("12345", 92, 30)].join("\n")), "[redacted]");
-  assert.equal(redactWords(["header", row("abcde", 0, 30), row("fghij", 31, 30), row("klmno", 62, 30), row("12345", 93, 30)].join("\n")), "[redacted]");
-  assert.equal(redactWords(["header", row("abc", 0, 18), row("def", 19, 18), row("ghi", 38, 18), row("jkl", 57, 18), row("mnop", 76, 24), row("12345", 101, 30)].join("\n")), "[redacted]");
-  assert.equal(redactWords(["header", row("abcdefghij", 0, 60), row("klmnopqrst", 61, 60), row("1234", 122, 24), row("5", 147, 6)].join("\n")), "[redacted]");
-  assert.equal(redactWords(["header", row("abc", 0, 18), row("123", 19, 18), row("456", 38, 18), row("def", 57, 18)].join("\n")), "abc [redacted] def");
-  assert.equal(redactWords(["header", row("12345", 0, 30), row("abcdefghij", 31, 60), row("klmnopqrst", 92, 60)].join("\n")), "[redacted]");
-  assert.equal(redactWords(["header", row("Quarterly", 0, 90), row("sales", 91, 40), row("report", 132, 45), row("2026", 178, 35)].join("\n")), "Quarterly sales report 2026");
-  assert.equal(redactWords(["header", row("abc123def4", 0, 60), row("ghi567jkl8", 61, 60, 2)].join("\n")), "abc123def4 ghi567jkl8");
+  assert.equal(redactWords(["header", row("123", 0, 30), row("456", 31, 30), row("ready", 100, 50)].join("\n")), "[redacted] [redacted] ready");
+  assert.equal(redactWords(["header", row("abc123def4", 0, 60), row("ghi567jkl8", 61, 60), row("ready", 160, 50)].join("\n")), "[redacted] [redacted] ready");
+  assert.equal(redactWords(["header", row("abcdefghij", 0, 60), row("klmnopqrst", 61, 60), row("12345", 122, 30), row("ready", 160, 50)].join("\n")), "abcdefghij klmnopqrst [redacted] ready");
+  assert.equal(redactWords(["header", row("abcdefgh", 0, 48), row("ijklmno", 49, 42), row("12345", 92, 30)].join("\n")), "abcdefgh ijklmno [redacted]");
+  assert.equal(redactWords(["header", row("abcde", 0, 30), row("fghij", 31, 30), row("klmno", 62, 30), row("12345", 93, 30)].join("\n")), "abcde fghij klmno [redacted]");
+  assert.equal(redactWords(["header", row("abc", 0, 18), row("def", 19, 18), row("ghi", 38, 18), row("jkl", 57, 18), row("mnop", 76, 24), row("12345", 101, 30)].join("\n")), "abc def ghi jkl mnop [redacted]");
+  assert.equal(redactWords(["header", row("abcdefghij", 0, 60), row("klmnopqrst", 61, 60), row("1234", 122, 24), row("5", 147, 6)].join("\n")), "abcdefghij klmnopqrst [redacted] [redacted]");
+  assert.equal(redactWords(["header", row("abc", 0, 18), row("123", 19, 18), row("456", 38, 18), row("def", 57, 18)].join("\n")), "abc [redacted] [redacted] def");
+  assert.equal(redactWords(["header", row("12345", 0, 30), row("abcdefghij", 31, 60), row("klmnopqrst", 92, 60)].join("\n")), "[redacted] abcdefghij klmnopqrst");
+  assert.equal(redactWords(["header", row("Quarterly", 0, 90), row("sales", 91, 40), row("report", 132, 45), row("2026", 178, 35)].join("\n")), "Quarterly sales report [redacted]");
+  assert.equal(redactWords(["header", row("abc123def4", 0, 60), row("ghi567jkl8", 61, 60, 2)].join("\n")), "[redacted] [redacted]");
 });
 
-test("redactText masks emails, 6+ digit runs and 20+ char mixed alphanumerics", () => {
+test("window title tokens use the same strict filter", () => {
   assert.equal(redactText("mail me at bob@example.com now"), "mail me at [redacted] now");
   assert.equal(redactText("order 1234567890 shipped"), "order [redacted] shipped");
   assert.equal(redactText("id a1b2c3d4e5f6g7h8i9j0k1 done"), "id [redacted] done");
   assert.equal(redactText("id 12345abcdefghijklmnop done"), "id [redacted] done");
-  assert.equal(redactText("keep short123 and normal words"), "keep short123 and normal words");
+  assert.equal(redactText("keep short123 and normal words"), "keep [redacted] and normal words");
+  assert.equal(redactText("a alphabeticwordxx alphabeticwordx"), "[redacted] [redacted] alphabeticwordx");
 });
 
 // ------------------------------------------------------------ decision record
