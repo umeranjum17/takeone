@@ -51,24 +51,24 @@ test("computeTrim: start trims before the first real action, end cuts the stop k
   // First input at 2.0 s (past the 1 s gate), last key at duration - 800 ms.
   const duration = 30_000;
   const trim = computeTrim({ firstInputMs: 2000, lastKeyMs: duration - 800 }, duration);
-  assert.equal(trim.start_ms, 1500);
-  assert.equal(trim.end_ms, duration - 1100);
+  assert.equal(trim.start, 1500);
+  assert.equal(trim.end, duration - 1100);
 });
 
 test("computeTrim: an early first input keeps the whole start", () => {
   const trim = computeTrim({ firstInputMs: 400, lastKeyMs: null }, 10_000);
-  assert.equal(trim.start_ms, 0);
-  assert.equal(trim.end_ms, 10_000);
+  assert.equal(trim.start, 0);
+  assert.equal(trim.end, 10_000);
 });
 
 test("computeTrim: a stop keypress far from the end does not trim the end", () => {
   const duration = 30_000;
   const trim = computeTrim({ firstInputMs: 3000, lastKeyMs: 5_000 }, duration);
-  assert.equal(trim.start_ms, 2500);
-  assert.equal(trim.end_ms, duration); // last key was mid-take, not the stop key
+  assert.equal(trim.start, 2500);
+  assert.equal(trim.end, duration); // last key was mid-take, not the stop key
 });
 
 test("computeTrim: no input at all leaves the take untrimmed", () => {
   const trim = computeTrim({ firstInputMs: null, lastKeyMs: null }, 8_000);
-  assert.deepEqual(trim, { start_ms: 0, end_ms: 8000 });
+  assert.deepEqual(trim, { start: 0, end: 8000 });
 });

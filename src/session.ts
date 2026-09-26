@@ -78,6 +78,7 @@ export interface CaptureOptions {
 }
 
 export interface Capture {
+  startedNs: bigint;
   geometry: SurfaceGeometry;
   sessionId: string;
   /** The engine session, for take.json's session record. */
@@ -93,6 +94,7 @@ export interface Capture {
 
 export async function startCapture(options: CaptureOptions): Promise<Capture> {
   const { engine, takeDir, stateDir, fps, bitrateKbps, savedToken } = options;
+  const startedNs = process.hrtime.bigint();
 
   const offer = promiseWithCallbacks<{ sdp: string; sessionId: string; generation: number }>();
   const engineCandidates: Extract<EngineEvent, { event: "session.candidate" }>[] = [];
@@ -136,6 +138,8 @@ export async function startCapture(options: CaptureOptions): Promise<Capture> {
         source: { kind: "portal" },
         permissions: ["view"], // takeone never asks for input authority
         maxFps: fps,
+        maxWidth: 7680,
+        maxHeight: 4320,
         bitrateKbps,
         iceServers: [], // loopback only
         ...(savedToken === null ? {} : { restoreToken: savedToken }),
@@ -193,7 +197,23 @@ export async function startCapture(options: CaptureOptions): Promise<Capture> {
     // the engine string stays generic; capture itself is unaffected
   }
 
-  const description = await offer.promise;
+  let description: Awaited<typeof offer.promise>;
+  let offerTimer: NodeJS.Timeout | undefined;
+  try {
+    description = await Promise.race([
+      offer.promise,
+      new Promise<never>((_, reject) => { offerTimer = setTimeout(() => reject(new RecordError(
+        "no-offer", "no session description arrived within 10s", "run `takeone doctor` and check desklink negotiation",
+      )), TRACK_WATCHDOG_MS); }),
+      ...(options.interrupted ? [options.interrupted.then((): never => { throw new RecordError("capture-stopped", "recording stopped during negotiation", "run `takeone record` again"); })] : []),
+    ]);
+  } catch (error) {
+    await client.closeSession(opened.sessionId).catch(() => undefined);
+    await client.stop().catch(() => undefined);
+    throw error;
+  } finally {
+    clearTimeout(offerTimer);
+  }
 
   const framesStream: WriteStream = createWriteStream(`${takeDir}/frames.tsv`, { flags: "w" });
   framesStream.on("error", (error) => {
@@ -244,6 +264,7 @@ export async function startCapture(options: CaptureOptions): Promise<Capture> {
     });
   });
 
+  void trackReady.promise.catch(() => undefined);
   const watchdog = setTimeout(() => {
     trackReady.reject(
       new RecordError(
@@ -254,12 +275,11 @@ export async function startCapture(options: CaptureOptions): Promise<Capture> {
     );
   }, TRACK_WATCHDOG_MS);
 
+  try {
   await pc.setRemoteDescription({ type: "offer", sdp: description.sdp });
   await pc.setLocalDescription(await pc.createAnswer());
   const answerSdp = pc.localDescription?.sdp;
   if (answerSdp === undefined) {
-    clearTimeout(watchdog);
-    await client.stop().catch(() => undefined);
     throw new RecordError(
       "answer-failed",
       "werift produced no SDP answer for the engine's offer",
@@ -271,17 +291,22 @@ export async function startCapture(options: CaptureOptions): Promise<Capture> {
   // Candidates the engine sent while the answer was being prepared.
   for (const buffered of engineCandidates.splice(0)) void addEngineCandidate(pc, buffered);
 
-  try {
-    await trackReady.promise;
+  await trackReady.promise;
   } catch (error) {
     clearTimeout(watchdog);
+    if (recorder !== null) await recorder.stop().catch(() => undefined);
+    await pc.close().catch(() => undefined);
+    await client.closeSession(opened.sessionId).catch(() => undefined);
     await client.stop().catch(() => undefined);
+    await Promise.allSettled(tokenWrites);
+    await new Promise<void>((resolve) => framesStream.end(() => resolve()));
     throw error;
   }
   clearTimeout(watchdog);
 
   let stopped = false;
   return {
+    startedNs,
     geometry: opened.geometry,
     sessionId: opened.sessionId,
     opened,

@@ -2,7 +2,7 @@
  * `takeone record` orchestration: capture + taps + stop handling + take.json.
  */
 
-import { mkdir, writeFile, rename, rm } from "node:fs/promises";
+import { mkdir, writeFile, readFile, rm } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { resolveEngine } from "@desklink/host";
@@ -12,6 +12,7 @@ import { getMonitors, hyprlandSockets } from "./hyprland.js";
 import { startCapture, DEFAULT_BITRATE_KBPS, DEFAULT_FPS, RecordError } from "./session.js";
 import { startTaps, type TapHandle } from "./taps.js";
 import { consumeToken } from "./token.js";
+import type { TakeMeta } from "./types.js";
 
 export const VERSION = "0.1.0";
 
@@ -27,7 +28,7 @@ export interface RecordResult {
   takeJson: TakeJson;
 }
 
-export interface TakeJson {
+export interface TakeJson extends TakeMeta {
   id: string;
   started_at: string;
   stopped_at: string;
@@ -39,7 +40,6 @@ export interface TakeJson {
   events: "on" | "none";
   warnings: string[];
   clock: ClockAlign | null;
-  trim: { start_ms: number; end_ms: number };
   metrics: unknown | null;
   versions: { takeone: string; engine: string; protocol: number; node: string };
 }
@@ -50,7 +50,7 @@ function takeId(date = new Date()): string {
 }
 
 export function defaultTakesRoot(): string {
-  return process.env.TAKEONE_TAKES_ROOT ?? join(homedir(), "Videos", "takeone");
+  return process.env.TAKEONE_DIR ?? process.env.TAKEONE_TAKES_ROOT ?? join(homedir(), "Videos", "takeone");
 }
 
 export function defaultStateDir(): string {
@@ -61,9 +61,23 @@ async function writePidFile(stateDirPath: string, takeDir: string, startedAt: st
   await mkdir(stateDirPath, { recursive: true, mode: 0o700 });
   const payload = JSON.stringify({ pid: process.pid, take: takeDir, started_at: startedAt });
   const pidPath = join(stateDirPath, "recording.pid");
-  const tmp = `${pidPath}.tmp.${process.pid}`;
-  await writeFile(tmp, payload, { flag: "wx", mode: 0o600 });
-  await rename(tmp, pidPath);
+  try {
+    await writeFile(pidPath, payload, { flag: "wx", mode: 0o600 });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+    let stale = false;
+    try {
+      const old = JSON.parse(await readFile(pidPath, "utf8")) as { pid?: number };
+      if (typeof old.pid === "number" && Number.isSafeInteger(old.pid) && old.pid > 0) {
+        try { process.kill(old.pid, 0); } catch (e) { stale = (e as NodeJS.ErrnoException).code === "ESRCH"; }
+      }
+    } catch {}
+    if (stale) {
+      await rm(pidPath, { force: true });
+      return writePidFile(stateDirPath, takeDir, startedAt);
+    }
+    throw new RecordError("already-recording", "another recorder owns the PID marker", "run `takeone stop` before recording again");
+  }
 }
 
 /**
@@ -89,11 +103,23 @@ export async function runRecord(options: RecordOptions = {}): Promise<RecordResu
   await mkdir(root, { recursive: true });
   const startedAt = new Date();
   const id = takeId(startedAt);
-  const takeDir = join(root, id);
-  await mkdir(takeDir, { recursive: true });
-  await writePidFile(stateDirPath, takeDir, startedAt.toISOString());
+  let takeDir = join(root, id);
+  for (let suffix = 1; ; suffix++) {
+    try { await mkdir(takeDir); break; }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      takeDir = join(root, `${id}-${suffix}`);
+    }
+  }
+  try {
+    await writePidFile(stateDirPath, takeDir, startedAt.toISOString());
+  } catch (error) {
+    await rm(takeDir, { recursive: true, force: true });
+    throw error;
+  }
 
   let taps: TapHandle | null = null;
+  let capture: Awaited<ReturnType<typeof startCapture>> | null = null;
   // The stop handlers are registered before the consent dialog can appear, so
   // `takeone stop` always works - including while waiting on the prompt.
   let resolveStopped!: (at: Date) => void;
@@ -110,7 +136,7 @@ export async function runRecord(options: RecordOptions = {}): Promise<RecordResu
   try {
     // Consume the single-use restore token before sending it.
     const savedToken = await consumeToken(stateDirPath);
-    const capture = await startCapture({
+    capture = await startCapture({
       engine,
       takeDir,
       stateDir: stateDirPath,
@@ -134,10 +160,11 @@ export async function runRecord(options: RecordOptions = {}): Promise<RecordResu
       }
     }
 
+    const t0ns = capture.startedNs;
     taps = await startTaps({
       eventsPath: join(takeDir, "events.jsonl"),
       mapping,
-      t0ns: process.hrtime.bigint(),
+      t0ns,
     });
 
     const stoppedAt = await stopped;
@@ -145,7 +172,7 @@ export async function runRecord(options: RecordOptions = {}): Promise<RecordResu
     const finalMetrics = await capture.stop();
     if (taps !== null) await taps.stop();
 
-    const clock = alignClock(capture.frames());
+    const clock = alignClock(capture.frames().map((frame) => ({ ...frame, recvMs: frame.recvMs - Number(t0ns) / 1e6 })));
     const durationMs = Math.max(0, stoppedAt.getTime() - startedAt.getTime());
     const warnings = [...taps.warnings];
     if (clock !== null && clock.spreadMs > SPREAD_WARN_MS) {
@@ -153,7 +180,10 @@ export async function runRecord(options: RecordOptions = {}): Promise<RecordResu
     }
 
     const takeJson: TakeJson = {
-      id,
+      id: takeDir.slice(root.length + 1),
+      stream: { w: capture.geometry.encoded.width, h: capture.geometry.encoded.height },
+      scale: mapping?.scale ?? 1,
+      offset_ms: clock?.offsetMs ?? 0,
       started_at: startedAt.toISOString(),
       stopped_at: stoppedAt.toISOString(),
       fps,
@@ -178,6 +208,7 @@ export async function runRecord(options: RecordOptions = {}): Promise<RecordResu
   } finally {
     await rm(join(stateDirPath, "recording.pid"), { force: true }).catch(() => undefined);
     if (taps !== null) await taps.stop().catch(() => undefined);
+    if (capture !== null) await capture.stop().catch(() => undefined);
   }
 }
 
@@ -190,7 +221,7 @@ export async function runRecord(options: RecordOptions = {}): Promise<RecordResu
 export function computeTrim(
   summary: { firstInputMs: number | null; lastKeyMs: number | null },
   durationMs: number,
-): { start_ms: number; end_ms: number } {
+): { start: number; end: number } {
   let start = 0;
   if (summary.firstInputMs !== null && summary.firstInputMs > 1000) {
     start = Math.max(0, summary.firstInputMs - 500);
@@ -199,5 +230,5 @@ export function computeTrim(
   if (summary.lastKeyMs !== null && durationMs - summary.lastKeyMs <= 5000) {
     end = Math.max(0, summary.lastKeyMs - 300);
   }
-  return { start_ms: start, end_ms: Math.max(start, Math.min(end, durationMs)) };
+  return { start, end: Math.max(start, Math.min(end, durationMs)) };
 }

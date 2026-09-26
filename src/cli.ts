@@ -12,7 +12,7 @@ async function recorderCommand(command: string, args: string[]): Promise<number>
 }
 
 export function takesDir(): string {
-  return process.env["TAKEONE_DIR"] ?? join(homedir(), "Videos", "takeone");
+  return process.env["TAKEONE_DIR"] ?? process.env["TAKEONE_TAKES_ROOT"] ?? join(homedir(), "Videos", "takeone");
 }
 
 interface Args {
@@ -209,7 +209,7 @@ async function record(args: string[]): Promise<void> {
         takeJson.clock?.frames ?? 0,
         takeJson.clock === null ? null : takeJson.clock.offsetMs.toFixed(1),
         takeJson.clock === null ? null : takeJson.clock.spreadMs.toFixed(1),
-        `${takeJson.trim.start_ms}-${takeJson.trim.end_ms}`,
+        `${takeJson.trim.start}-${takeJson.trim.end}`,
       ],
     ]));
   } catch (error) {

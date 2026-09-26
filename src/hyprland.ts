@@ -43,11 +43,13 @@ export function hyprRequest(socket: string, command: string, timeoutMs = 1000): 
 
 export async function getCursorPos(socket: string): Promise<{ x: number; y: number } | null> {
   const out = await hyprRequest(socket, "j/cursorpos");
-  const parts = out.trim().split(",");
-  const x = Number(parts[0]);
-  const y = Number(parts[1]);
-  if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
-  return { x, y };
+  try {
+    const { x, y } = JSON.parse(out) as { x: unknown; y: unknown };
+    return typeof x === "number" && typeof y === "number" && Number.isFinite(x) && Number.isFinite(y)
+      ? { x, y } : null;
+  } catch {
+    return null;
+  }
 }
 
 export interface ActiveWindow {
