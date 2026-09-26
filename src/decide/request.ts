@@ -1,14 +1,13 @@
 // Jev request building, token estimation and the 1,200-token per-request cap.
 // Pure functions over plain data: no Node imports.
 
-import type { Beat, Decision, Zone } from "../types.ts";
+import type { Beat, Decision } from "../types.ts";
 
 export const JEV_ENDPOINT = "https://api.typesafe.ai/v1/systemone";
 export const JEV_MODEL = "jev-latest";
 export const PRICE_PER_MTOK = 0.042;
 export const REQUEST_TOKEN_CAP = 1200;
 export const CHARS_PER_TOKEN = 3.5;
-export const MAX_ZONES = 6;
 
 export interface RequestCtx {
   /** optional demo topic from --about */
@@ -187,11 +186,6 @@ export function planTokens(
     tokens += buildRequest(beats[i]!, ctxs[i]!, askKeyMoment).tokens;
   }
   return { tokens, usd: (tokens * PRICE_PER_MTOK) / 1e6 };
-}
-
-/** Which zones would carry OCR text (area under OCR_MAX_AREA). */
-export function ocrEligible(zones: Zone[]): Zone[] {
-  return zones.filter((z) => z.area_frac < 0.25);
 }
 
 export type { Decision };

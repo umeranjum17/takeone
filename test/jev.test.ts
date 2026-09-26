@@ -45,6 +45,20 @@ test("long retry-after fails promptly without retry", async () => {
   assert.equal(calls, 1);
 });
 
+test("retry-after HTTP-date and absent header respect bounded delay", async () => {
+  for (const header of [new Date(Date.now() + 3600000).toUTCString(), null]) {
+    let calls = 0;
+    const fake = (async () => {
+      calls++;
+      return new Response("rate limited", { status: 429, headers: header ? { "retry-after": header } : {} });
+    }) as typeof fetch;
+    const r = await callJev("{}", KEY, { fetchImpl: fake, timeoutMs: 50 });
+    assert.equal(r.status, 429);
+    assert.equal(calls, 1);
+    assert.ok((r.retryAfterMs ?? 0) > 50);
+  }
+});
+
 test("callJev: timeout fails the call", async () => {
   const fake = (async (_url: string | URL | Request, init?: RequestInit) => {
     return new Promise<Response>((_resolve, reject) => {

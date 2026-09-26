@@ -15,9 +15,9 @@ import type {
 } from "./types.ts";
 import { perceiveRegions } from "./perceive/regions.ts";
 import { actionsFromEvents } from "./perceive/actions.ts";
-import { decodeAnalysisFrames, readEvents } from "./perceive/decode.ts";
+import { decodeAnalysisFrames, firstFrameTimeMs, readEvents } from "./perceive/decode.ts";
 import { segmentBeats } from "./beats/segment.ts";
-import { zonesForBeat } from "./beats/zones.ts";
+import { zonesForBeat, OCR_MAX_AREA } from "./beats/zones.ts";
 import { buildRequest, planTokens, PRICE_PER_MTOK, REQUEST_TOKEN_CAP } from "./decide/request.ts";
 import { heuristicDecision } from "./decide/heuristics.ts";
 import { mapAnswers, frameRect, sumsTo1 } from "./decide/mapping.ts";
@@ -33,7 +33,6 @@ import { redactText } from "./decide/redact.ts";
 import type { BBox } from "./types.ts";
 
 export const DEFAULT_TOKENS_PER_MIN = 40000;
-export const JEV_PRICE = PRICE_PER_MTOK;
 
 export interface MakeOptions {
   noJev?: boolean;
@@ -122,6 +121,7 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
     }
     return found;
   };
+  const videoStartMs = opts.screenText ? firstFrameTimeMs(framesTsv, take) : 0;
   for (const b of beats) {
     const win = winFor(b.anchor_t);
     b.zones = zonesForBeat(b, {
@@ -130,7 +130,7 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
       scale: take.scale,
       frames,
     });
-    if (opts.screenText) await addScreenText(b, win, webm);
+    if (opts.screenText) await addScreenText(b, win, webm, videoStartMs);
   }
   writeFileSync(join(analysisDir, "beats.json"), JSON.stringify({ take: take.id, beats }, null, 1));
 
@@ -365,10 +365,11 @@ async function addScreenText(
   beat: Beat,
   win: { rect: BBox; title: string } | null,
   webm: string,
+  videoStartMs: number,
 ): Promise<void> {
   for (const z of beat.zones) {
-    if (z.area_frac >= 0.25) continue;
-    const text = await ocrZone(webm, z.bbox, z.t ?? beat.anchor_t);
+    if (z.area_frac >= OCR_MAX_AREA) continue;
+    const text = await ocrZone(webm, z.bbox, Math.max(0, (z.t ?? beat.anchor_t) - videoStartMs));
     if (text) z.desc.text = text;
   }
   if (win?.title && beat.zones.length > 0) {

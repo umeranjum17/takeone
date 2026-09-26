@@ -133,6 +133,15 @@ test("dwell: pointer within 12 px for >= 0.8 s with no button", () => {
   assert.ok(dw.t1 - dw.t0 >= 800);
 });
 
+test("dwell preserves each button-free portion of a stationary run", () => {
+  const before = actionsFromEvents([win, ptr(50, 50, 0), ptr(50, 50, 1000), btn(true, 1100), btn(false, 1300), ptr(50, 50, 2200)], frames(), opts());
+  assert.deepEqual(before.filter((a) => a.k === "dwell").map((a) => [a.t0, a.t1]), [[0, 1000]]);
+  const after = actionsFromEvents([win, ptr(50, 50, 0), btn(true, 100), btn(false, 300), ptr(50, 50, 500), ptr(50, 50, 1500)], frames(), opts());
+  assert.deepEqual(after.filter((a) => a.k === "dwell").map((a) => [a.t0, a.t1]), [[500, 1500]]);
+  const boundary = actionsFromEvents([win, ptr(50, 50, 0), btn(true, 100), btn(false, 700), ptr(50, 50, 700), ptr(50, 50, 1700)], frames(), opts());
+  assert.deepEqual(boundary.filter((a) => a.k === "dwell").map((a) => [a.t0, a.t1]), [[700, 1700]]);
+});
+
 test("travel: path over 25% of the diagonal within 1 s, no click", () => {
   // diagonal ~200; 25% = 50 px of path
   const events: Event[] = [win, ptr(10, 10, 100)];

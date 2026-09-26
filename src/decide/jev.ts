@@ -11,7 +11,6 @@ import { JEV_ENDPOINT, JEV_MODEL } from "./request.ts";
 
 export const CONCURRENCY = 8;
 export const TIMEOUT_MS = 3000;
-export const PRICE_PER_MTOK = 0.042;
 
 export interface CacheLine {
   key: string;
@@ -71,8 +70,10 @@ export async function callJev(
         signal: ac.signal,
       });
       if (res.status === 429) {
-        const ra = Number(res.headers.get("retry-after"));
-        return { ok: false, status: 429, retryAfterMs: Number.isFinite(ra) ? ra * 1000 : 1000 };
+        const header = res.headers.get("retry-after")?.trim();
+        const seconds = header && /^\d+(?:\.\d+)?$/.test(header) ? Number(header) * 1000 : NaN;
+        const date = header && !Number.isFinite(seconds) ? Date.parse(header) - Date.now() : NaN;
+        return { ok: false, status: 429, retryAfterMs: Number.isFinite(seconds) ? seconds : Number.isFinite(date) ? date : 1000 };
       }
       const text = await res.text();
       if (!res.ok) return { ok: false, status: res.status, error: `HTTP ${res.status}` };

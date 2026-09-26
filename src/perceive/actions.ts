@@ -109,8 +109,8 @@ export function actionsFromEvents(
     let i = 0;
     let intervalIndex = 0;
     const btnHeld = (t0: number, t1: number): boolean => {
-      while (intervalIndex < heldIntervals.length && heldIntervals[intervalIndex]![1] < t0) intervalIndex++;
-      return intervalIndex < heldIntervals.length && heldIntervals[intervalIndex]![0] <= t1;
+      while (intervalIndex < heldIntervals.length && heldIntervals[intervalIndex]![1] <= t0) intervalIndex++;
+      return intervalIndex < heldIntervals.length && heldIntervals[intervalIndex]![0] < t1;
     };
     while (i < ptr.length) {
       const anchor = ptr[i]!;
@@ -121,9 +121,18 @@ export function actionsFromEvents(
       ) {
         j++;
       }
+      let freeStart = i;
+      for (let k = i + 1; k < j; k++) {
+        if (!btnHeld(ptr[k - 1]!.t, ptr[k]!.t)) continue;
+        const last = ptr[k - 1]!;
+        if (last.t - ptr[freeStart]!.t >= DWELL_MIN_MS) {
+          acts.push({ k: "dwell", t0: ptr[freeStart]!.t, t1: last.t, x: ptr[freeStart]!.x, y: ptr[freeStart]!.y });
+        }
+        freeStart = k;
+      }
       const last = ptr[j - 1]!;
-      if (last.t - anchor.t >= DWELL_MIN_MS && !btnHeld(anchor.t, last.t)) {
-        acts.push({ k: "dwell", t0: anchor.t, t1: last.t, x: anchor.x, y: anchor.y });
+      if (last.t - ptr[freeStart]!.t >= DWELL_MIN_MS) {
+        acts.push({ k: "dwell", t0: ptr[freeStart]!.t, t1: last.t, x: ptr[freeStart]!.x, y: ptr[freeStart]!.y });
       }
       i = Math.max(j - 1, i + 1);
     }

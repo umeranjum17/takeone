@@ -12,11 +12,6 @@ export const WIDE_UNION_FRAC = 0.7; // union of top two over this -> all
 export const KEY_MOMENT_TIGHTEN = 1;
 export const CONF_SUM_TOL = 0.01;
 
-/** Non-upscale zoom rule: the tightest framing the source resolution allows. */
-export function zoomMax(streamW: number, outW: number, maxUpscale = 1.25): number {
-  return streamW / (outW / maxUpscale);
-}
-
 /**
  * The frame rect for a zone at tightness L (design 10.1 frame()). This is the
  * decision-side estimate of what the viewer sees; the camera lane owns the
