@@ -283,6 +283,7 @@ test("video-only tap never reads or writes Hyprland events; unmapped pointer is 
 
     invalidWindow = false;
     const runtimeLoss = await startTaps({ eventsPath, mapping, t0ns: process.hrtime.bigint(), deviceDir: readableDevices });
+    await runtimeLoss.confirmConsent();
     const before = requests;
     const activeDeadline = Date.now() + 1000;
     while (requests === before && Date.now() < activeDeadline) await new Promise((resolve) => setTimeout(resolve, 5));
@@ -294,6 +295,10 @@ test("video-only tap never reads or writes Hyprland events; unmapped pointer is 
     assert.equal(runtimeLoss.pointerMode, "none");
     assert.ok(runtimeLoss.warnings.some((warning) => warning.includes("ipc unavailable")));
     await runtimeLoss.stop();
+    const recorded = (await readFile(eventsPath, "utf8")).trim().split("\n").map((line) => JSON.parse(line));
+    assert.ok(recorded.some((event) => event.k === "ptr"));
+    assert.ok(recorded.some((event) => event.k === "ptr-lost"));
+    assert.equal(recorded.at(-1).rect, null);
   } finally {
     if (oldRuntime === undefined) delete process.env.XDG_RUNTIME_DIR;
     else process.env.XDG_RUNTIME_DIR = oldRuntime;

@@ -106,12 +106,9 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
   const pointers = dec.frames.map((f) => {
     while (pi < events.length) {
       const e = events[pi]!;
-      if (e.k !== "ptr") {
-        pi++;
-        continue;
-      }
       if (e.t > f.t) break;
-      last = e;
+      if (e.k === "ptr") last = e;
+      else if (e.k === "ptr-lost") last = null;
       pi++;
     }
     if (!last) return null;

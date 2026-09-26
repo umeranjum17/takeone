@@ -13,7 +13,7 @@ import { getActiveWindow, getCursorPos, hyprlandSockets, type HyprlandSockets } 
 
 export interface TapEvent {
   t: number;
-  k: "ptr" | "btn" | "wheel" | "key" | "win";
+  k: "ptr" | "ptr-lost" | "btn" | "wheel" | "key" | "win";
   [field: string]: unknown;
 }
 
@@ -132,6 +132,11 @@ export async function startTaps(options: TapOptions): Promise<TapHandle> {
   let pointerTimer: NodeJS.Timeout | null = null;
   const setMapping = (mapping: { monitor: MonitorInfo; scale: number } | null): void => {
     if (stopped) return;
+    if (pointerMode === "mapped") {
+      const t = nowMs();
+      emit({ t, k: "ptr-lost" });
+      emit({ t, k: "win", cls: "", title: "", rect: null });
+    }
     if (pointerTimer !== null) clearInterval(pointerTimer);
     pointerTimer = null;
     pointerMode = "none";
@@ -177,6 +182,9 @@ export async function startTaps(options: TapOptions): Promise<TapHandle> {
         } catch {
           if (pointerMode === "mapped" && pointerTimer === timer) {
             pointerMode = "none";
+            const t = nowMs();
+            emit({ t, k: "ptr-lost" });
+            emit({ t, k: "win", cls: "", title: "", rect: null });
             warnings.push("hyprland ipc unavailable; pointer and window events disabled");
             if (pointerTimer !== null) clearInterval(pointerTimer);
             pointerTimer = null;
