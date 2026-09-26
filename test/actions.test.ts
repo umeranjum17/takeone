@@ -17,6 +17,18 @@ function btn(down: boolean, t: number): Event {
   return { t, k: "btn", b: "left", down };
 }
 
+test("no focused window clears focus and later actions have no stale class", () => {
+  const acts = actionsFromEvents([
+    win, ptr(10, 10, 100),
+    { t: 200, k: "win", cls: "", title: "", rect: null },
+    btn(true, 300), btn(false, 350),
+    { t: 400, k: "win", cls: "editor", title: "Edit", rect: [0, 0, 100, 100] },
+    btn(true, 500), btn(false, 550),
+  ], frames(), opts());
+  assert.deepEqual(acts.filter((a) => a.k === "focus").map((a) => a.cls), ["chromium", "editor"]);
+  assert.deepEqual(acts.filter((a) => a.k === "click").map((a) => a.window_cls), ["", "editor"]);
+});
+
 test("click: down/up within 300 ms and 6 px", () => {
   const acts = actionsFromEvents([win, ptr(10, 10, 400), btn(true, 500), btn(false, 560), ptr(12, 12, 560)], frames(), opts());
   const clicks = acts.filter((a) => a.k === "click");

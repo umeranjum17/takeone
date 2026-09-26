@@ -103,6 +103,9 @@ test("record writes a complete take (pid file, events, take.json) and stops on S
 
   // Stop the way `takeone stop` does.
   child.kill("SIGINT");
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(child.exitCode, null);
+  child.kill("SIGTERM");
   const code = await new Promise<number | null>((resolveP) => child.on("exit", (exitCode) => resolveP(exitCode)));
   assert.equal(code, 0, `record exited ${code}; stderr: ${stderr.join("")}`);
 
