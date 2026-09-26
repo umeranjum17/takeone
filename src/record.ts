@@ -112,7 +112,8 @@ export async function runRecord(options: RecordOptions = {}): Promise<RecordResu
 
   let taps: TapHandle | null = null;
   let capture: Awaited<ReturnType<typeof startCapture>> | null = null;
-  let published = false;
+  let consentGranted = false;
+  let discardTake = false;
   // The stop handlers are registered before the consent dialog can appear, so
   // `takeone stop` always works - including while waiting on the prompt.
   let resolveStopped!: (at: Date) => void;
@@ -133,7 +134,7 @@ export async function runRecord(options: RecordOptions = {}): Promise<RecordResu
     const savedToken = await consumeToken(stateDirPath);
     const tapStartedAt = new Date();
     const t0ns = process.hrtime.bigint();
-    taps = await startTaps({ eventsPath: join(takeDir, "events.jsonl"), t0ns, bufferUntilConsent: true });
+    taps = await startTaps({ eventsPath: join(takeDir, "events.jsonl"), t0ns });
     if (stopRequested) throw new RecordError("capture-stopped", "recording stopped during setup", "run `takeone record` again");
     let mapping: { monitor: MonitorInfo; scale: number } | null = null;
     let monitorRecord: unknown = null;
@@ -145,7 +146,10 @@ export async function runRecord(options: RecordOptions = {}): Promise<RecordResu
       bitrateKbps,
       savedToken,
       interrupted: stopped,
-      onConsent: () => taps!.confirmConsent(),
+      onConsent: () => {
+        consentGranted = true;
+        return taps!.confirmConsent();
+      },
       onGeometry: async (geometry) => {
         const hypr = hyprlandSockets();
         if (hypr !== null) {
@@ -196,15 +200,18 @@ export async function runRecord(options: RecordOptions = {}): Promise<RecordResu
       },
     };
     await writeFile(join(takeDir, "take.json"), `${JSON.stringify(takeJson, null, 2)}\n`, { mode: 0o600 });
-    published = true;
     return { takeDir, takeJson };
+  } catch (error) {
+    discardTake = !consentGranted && (stopRequested || (error instanceof RecordError &&
+      (error.code === "consent-cancelled" || error.code === "consent-timeout")));
+    throw error;
   } finally {
     process.off("SIGINT", onStop);
     process.off("SIGTERM", onStop);
     await rm(join(stateDirPath, "recording.pid"), { force: true }).catch(() => undefined);
     if (taps !== null) await taps.stop().catch(() => undefined);
     if (capture !== null) await capture.stop().catch(() => undefined);
-    if (!published) await rm(takeDir, { recursive: true, force: true });
+    if (discardTake) await rm(takeDir, { recursive: true, force: true });
   }
 }
 

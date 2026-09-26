@@ -211,6 +211,46 @@ test("cancelled consent leaves neither input events nor an incomplete take", { t
   }
 });
 
+test("a metadata failure preserves captured video", { timeout: 30_000 }, async () => {
+  const base = await mkdtemp(join(tmpdir(), "takeone-keep-video-"));
+  const root = join(base, "takes");
+  const stateDir = join(base, "state");
+  await mkdir(root);
+  await mkdir(stateDir);
+  const wrapper = join(base, "engine.sh");
+  await writeFile(wrapper, `#!/bin/sh\nexec "${process.execPath}" "${join(here, "fake-engine.js")}" serve\n`);
+  await chmod(wrapper, 0o755);
+  const child = spawn(process.execPath, [join(here, "../cli.js"), "record", "--root", root, "--state-dir", stateDir], {
+    env: { ...process.env, MUXR_DESKLINK_ENGINE: wrapper, HYPRLAND_INSTANCE_SIGNATURE: "unreachable", XDG_RUNTIME_DIR: base },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  try {
+    let takeDir = "";
+    const deadline = Date.now() + 15_000;
+    while (Date.now() < deadline) {
+      const entries = await readdir(root);
+      if (entries.length > 0) { takeDir = join(root, entries[0]!); break; }
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    assert.ok(takeDir);
+    const framesPath = join(takeDir, "frames.tsv");
+    let frames = 0;
+    while (Date.now() < deadline && frames < 20) {
+      try { frames = (await readFile(framesPath, "utf8")).trim().split("\n").length; }
+      catch {}
+      if (frames < 20) await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    assert.equal(frames, 20);
+    await mkdir(join(takeDir, "take.json"));
+    child.kill("SIGINT");
+    assert.equal(await new Promise<number | null>((resolve) => child.on("exit", resolve)), 1);
+    assert.ok((await stat(join(takeDir, "screen.webm"))).size > 0);
+  } finally {
+    child.kill("SIGKILL");
+    await rm(base, { recursive: true, force: true });
+  }
+});
+
 test("stop during monitor setup does not publish an unusable take", { timeout: 20_000 }, async () => {
   const base = join(tmpdir(), `takeone-setup-${process.pid}-${Math.random().toString(36).slice(2)}`);
   const root = join(base, "takes");

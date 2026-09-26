@@ -36,20 +36,26 @@ export function hyprRequest(socket: string, command: string, timeoutMs = 1000): 
     conn.on("data", (chunk: Buffer) => {
       data += chunk.toString("utf8");
     });
-    conn.on("close", () => resolve(data));
-    conn.on("end", () => resolve(data));
+    const finish = (): void => {
+      try {
+        JSON.parse(data);
+        resolve(data);
+      } catch {
+        reject(new Error(`invalid hyprland ipc response: ${command}`));
+      }
+    };
+    conn.on("close", finish);
+    conn.on("end", finish);
   });
 }
 
-export async function getCursorPos(socket: string): Promise<{ x: number; y: number } | null> {
-  const out = await hyprRequest(socket, "j/cursorpos");
-  try {
-    const { x, y } = JSON.parse(out) as { x: unknown; y: unknown };
-    return typeof x === "number" && typeof y === "number" && Number.isFinite(x) && Number.isFinite(y)
-      ? { x, y } : null;
-  } catch {
-    return null;
+export async function getCursorPos(socket: string): Promise<{ x: number; y: number }> {
+  const raw = JSON.parse(await hyprRequest(socket, "j/cursorpos")) as { x?: unknown; y?: unknown } | null;
+  if (raw !== null && typeof raw === "object" &&
+    typeof raw.x === "number" && typeof raw.y === "number" && Number.isFinite(raw.x) && Number.isFinite(raw.y)) {
+    return { x: raw.x, y: raw.y };
   }
+  throw new Error("invalid hyprland cursor response");
 }
 
 export interface ActiveWindow {
@@ -69,14 +75,9 @@ interface RawWindow {
 
 export async function getActiveWindow(socket: string): Promise<ActiveWindow | null> {
   const out = await hyprRequest(socket, "j/activewindow");
-  const text = out.trim();
-  if (text === "" || text === "{}") return null;
-  let raw: RawWindow;
-  try {
-    raw = JSON.parse(text) as RawWindow;
-  } catch {
-    return null;
-  }
+  const raw = JSON.parse(out) as RawWindow | null;
+  if (raw !== null && typeof raw === "object" && !Array.isArray(raw) && Object.keys(raw).length === 0) return null;
+  if (raw === null || typeof raw !== "object" || Array.isArray(raw)) throw new Error("invalid hyprland window response");
   const at = raw.at;
   const size = raw.size;
   if (
@@ -90,7 +91,7 @@ export async function getActiveWindow(socket: string): Promise<ActiveWindow | nu
     typeof size[0] !== "number" ||
     typeof size[1] !== "number"
   ) {
-    return null;
+    throw new Error("invalid hyprland window response");
   }
   return {
     cls: raw.class,
@@ -111,26 +112,21 @@ interface RawMonitor {
 
 export async function getMonitors(socket: string): Promise<MonitorInfo[]> {
   const out = await hyprRequest(socket, "j/monitors");
-  let raw: unknown;
-  try {
-    raw = JSON.parse(out);
-  } catch {
-    return [];
-  }
-  if (!Array.isArray(raw)) return [];
+  const raw: unknown = JSON.parse(out);
+  if (!Array.isArray(raw)) throw new Error("invalid hyprland monitors response");
   const monitors: MonitorInfo[] = [];
   for (const item of raw) {
+    if (item === null || typeof item !== "object" || Array.isArray(item)) throw new Error("invalid hyprland monitors response");
     const m = item as RawMonitor;
     if (
-      typeof m.name === "string" &&
-      typeof m.x === "number" &&
-      typeof m.y === "number" &&
-      typeof m.width === "number" &&
-      typeof m.height === "number" &&
-      typeof m.scale === "number"
-    ) {
-      monitors.push({ name: m.name, x: m.x, y: m.y, width: m.width, height: m.height, scale: m.scale });
-    }
+      typeof m.name !== "string" ||
+      typeof m.x !== "number" ||
+      typeof m.y !== "number" ||
+      typeof m.width !== "number" ||
+      typeof m.height !== "number" ||
+      typeof m.scale !== "number"
+    ) throw new Error("invalid hyprland monitors response");
+    monitors.push({ name: m.name, x: m.x, y: m.y, width: m.width, height: m.height, scale: m.scale });
   }
   return monitors;
 }
