@@ -1,0 +1,12 @@
+{
+  "name": "takeone",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Private screen-recording studio: turns a raw capture into a polished demo with zoom, pan and hold decided afterwards.",
+  "type": "module",
+  "engines": { "node": ">=22" },
+  "bin": { "takeone": "src/cli.ts" },
+  "scripts": {
+    "test": "node --experimental-strip-types --test test/*.test.ts"
+  }
+}
