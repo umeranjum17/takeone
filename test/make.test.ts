@@ -147,6 +147,28 @@ test("incomplete takes report the missing file; video-only mode permits empty ev
   }
 });
 
+test("make intersects trim with available video before rendering", async () => {
+  const dir = newTake();
+  try {
+    const framesPath = join(dir, "frames.tsv");
+    const lines = readFileSync(framesPath, "utf8").trimEnd().split("\n");
+    lines[0] = `90000\t${lines[0]!.split("\t")[1]}`;
+    writeFileSync(framesPath, lines.join("\n") + "\n");
+    const meta = JSON.parse(readFileSync(join(dir, "take.json"), "utf8"));
+    meta.trim = { start: 0, end: 9000 };
+    writeFileSync(join(dir, "take.json"), JSON.stringify(meta));
+    await makeTake(dir, { noJev: true, log: () => {}, warn: () => {} });
+    const saved = JSON.parse(readFileSync(join(dir, "take.json"), "utf8"));
+    const beats = JSON.parse(readFileSync(join(dir, "analysis", "beats.json"), "utf8"));
+    assert.equal(saved.trim_start, 0);
+    assert.equal(saved.trim_end, 8);
+    assert.ok(beats.every((b: { t0: number; t1: number; anchor_t: number }) => b.t0 >= 0 && b.anchor_t >= 0 && b.t1 <= 8));
+    assert.ok(existsSync(join(dir, "out", "t1.mp4")));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("invalid first frame clocks report frames.tsv before planning", async () => {
   const dir = newTake();
   try {

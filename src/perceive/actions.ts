@@ -35,7 +35,7 @@ const TYPE_CLASSES = new Set(["char", "space", "backspace", "enter", "tab"]);
 export function actionsFromEvents(
   events: Event[],
   frames: FrameRegions[],
-  opts: { stream: { w: number; h: number }; pointer: string },
+  opts: { stream: { w: number; h: number }; pointer: string; endMs?: number },
 ): Action[] {
   const acts: Action[] = [];
   const ptr: PtrSample[] = [];
@@ -47,16 +47,16 @@ export function actionsFromEvents(
   const ups = new Map<number, number>();
   const pending = new Map<string, number>();
 
-  const pointerAt = (t: number): [number, number] | null => {
+  const pointerAt = (t: number, samples = ptr): [number, number] | null => {
     // last ptr sample at or before t
     let lo = 0;
-    let hi = ptr.length;
+    let hi = samples.length;
     while (lo < hi) {
       const mid = (lo + hi) >>> 1;
-      if (ptr[mid]!.t <= t) lo = mid + 1;
+      if (samples[mid]!.t <= t) lo = mid + 1;
       else hi = mid;
     }
-    return lo ? [ptr[lo - 1]!.x, ptr[lo - 1]!.y] : null;
+    return lo ? [samples[lo - 1]!.x, samples[lo - 1]!.y] : null;
   };
 
   const regionCentroidNear = (t: number): [number, number] | null => {
@@ -107,6 +107,7 @@ export function actionsFromEvents(
     }
   }
   if (held.size > 0) heldIntervals.push([holdStart, Infinity]);
+  const visiblePtr = opts.endMs === undefined ? ptr : ptr.filter((sample) => sample.t <= opts.endMs!);
 
   // pass 2: pointer motions — dwell and travel (needs a pointer source)
   if (opts.pointer !== "none") {
@@ -158,15 +159,17 @@ export function actionsFromEvents(
         while (buttonIndex < buttonTimes.length && buttonTimes[buttonIndex]! < start.t) buttonIndex++;
         const hasClick = buttonIndex < buttonTimes.length && buttonTimes[buttonIndex]! <= end.t;
         if (!hasClick && !btnHeld(start.t, end.t)) {
-          const xs = ptr.slice(a, b).map((s) => s.x);
-          const ys = ptr.slice(a, b).map((s) => s.y);
+          const path = ptr.slice(a, b).filter((s) => opts.endMs === undefined || s.t <= opts.endMs);
+          const xs = path.map((s) => s.x);
+          const ys = path.map((s) => s.y);
+          const endPoint = path.at(-1) ?? start;
           acts.push({
             k: "travel",
             t0: start.t,
             t1: end.t,
             from: [start.x, start.y],
-            to: [end.x, end.y],
-            bbox: [Math.min(...xs), Math.min(...ys), Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys)],
+            to: [endPoint.x, endPoint.y],
+            bbox: [Math.min(start.x, ...xs), Math.min(start.y, ...ys), Math.max(start.x, ...xs) - Math.min(start.x, ...xs), Math.max(start.y, ...ys) - Math.min(start.y, ...ys)],
             window_cls: start.window_cls,
           });
           a = b - 1; // do not emit overlapping travels
@@ -190,7 +193,8 @@ export function actionsFromEvents(
       if (!p0) continue;
       if (!up) {
         // button never released: treat as drag end at the last pointer sample
-        const lastPtr = ptr.length > 0 ? ptr[ptr.length - 1]! : null;
+        const last = visiblePtr.at(-1);
+        const lastPtr = last && last.t >= e.t ? last : null;
         const p1: [number, number] = lastPtr ? [lastPtr.x, lastPtr.y] : p0;
         acts.push({
           k: "drag",
@@ -198,7 +202,7 @@ export function actionsFromEvents(
           t1: lastPtr?.t ?? e.t,
           from: p0,
           to: p1,
-          bbox: pathBBox(ptr, e.t, lastPtr?.t ?? e.t, p0, p1),
+          bbox: pathBBox(visiblePtr, e.t, lastPtr?.t ?? e.t, p0, p1),
           window_cls: atWin?.cls ?? "",
         });
         continue;
@@ -208,13 +212,14 @@ export function actionsFromEvents(
       const moved = Math.hypot(p1[0] - p0[0], p1[1] - p0[1]);
       const isClick = held <= CLICK_RELEASE_MAX_MS && moved <= CLICK_RELEASE_MAX_PX;
       if (!isClick) {
+        const endPoint = pointerAt(Math.min(up.t, opts.endMs ?? up.t), visiblePtr) ?? p0;
         acts.push({
           k: "drag",
           t0: e.t,
           t1: up.t,
           from: p0,
-          to: p1,
-          bbox: pathBBox(ptr, e.t, up.t, p0, p1),
+          to: endPoint,
+          bbox: pathBBox(visiblePtr, e.t, up.t, p0, endPoint),
           window_cls: atWin?.cls ?? "",
         });
       } else {

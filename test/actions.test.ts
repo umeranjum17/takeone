@@ -78,6 +78,24 @@ test("drag: moved more than 12 px even when brief", () => {
   assert.equal(acts.filter((a) => a.k === "click").length, 0);
 });
 
+test("drag and travel geometry excludes pointer movement after trim", () => {
+  const drag = actionsFromEvents([
+    win, ptr(10, 10, 100), btn(true, 200), ptr(50, 50, 500), ptr(200, 100, 900), btn(false, 1000),
+  ], frames(), { ...opts(), endMs: 600 }).find((a) => a.k === "drag");
+  assert.ok(drag);
+  assert.equal(drag.t1, 1000);
+  assert.deepEqual(drag.to, [50, 50]);
+  assert.deepEqual(drag.bbox, [10, 10, 40, 40]);
+
+  const travel = actionsFromEvents([
+    win, ptr(10, 10, 100), ptr(120, 10, 400), ptr(280, 90, 900),
+  ], frames(), { ...opts(), endMs: 600 }).find((a) => a.k === "travel");
+  assert.ok(travel);
+  assert.equal(travel.t1, 900);
+  assert.deepEqual(travel.to, [120, 10]);
+  assert.deepEqual(travel.bbox, [10, 10, 110, 0]);
+});
+
 test("scroll merges wheel events with gaps under 500 ms", () => {
   const wheel = (t: number): Event => ({ t, k: "wheel", dx: 0, dy: 1 });
   const acts = actionsFromEvents(

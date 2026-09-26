@@ -112,8 +112,9 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
     pointers,
     { w: dec.w, h: dec.h, streamW: take.stream.w, streamH: take.stream.h },
   );
-  const startMs = take.trim?.start ?? videoStartMs;
-  const endMs = take.trim?.end ?? videoStartMs + dec.frames.length * 100;
+  const videoEndMs = videoStartMs + dec.frames.length * 100;
+  const startMs = Math.max(videoStartMs, take.trim?.start ?? videoStartMs);
+  const endMs = Math.min(videoEndMs, take.trim?.end ?? videoEndMs);
   const takeMs = Math.max(0, endMs - startMs);
   const scopedFrames = frames.filter((f) => f.t >= startMs && f.t <= endMs);
   const winFor = (t: number): { cls: string; rect: BBox; title: string } | null => {
@@ -128,6 +129,7 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
   const actions = actionsFromEvents(events, scopedFrames, {
     stream: take.stream,
     pointer: take.pointer ?? "hyprland",
+    endMs,
   });
   actions.push(...frames.filter((f) => f.cut).map((f) => ({ k: "cut" as const, t: f.t, changed_frac: f.changed_frac, window_cls: winFor(f.t)?.cls ?? "" })));
   actions.sort((a, b) => ("t" in a ? a.t : a.t0) - ("t" in b ? b.t : b.t0));
