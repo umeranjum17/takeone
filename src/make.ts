@@ -127,7 +127,7 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
     for (const e of events) {
       if (e.k !== "win") continue;
       if (e.t > t) break;
-      found = { cls: e.cls, rect: e.rect, title: e.title };
+      found = e.rect === null ? null : { cls: e.cls, rect: e.rect, title: e.title };
     }
     return found;
   };

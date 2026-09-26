@@ -122,9 +122,8 @@ export async function runRecord(options: RecordOptions = {}): Promise<RecordResu
   });
   let stopRequested = false;
   const onStop = (): void => {
+    if (stopRequested) return;
     stopRequested = true;
-    process.off("SIGINT", onStop);
-    process.off("SIGTERM", onStop);
     resolveStopped(new Date());
   };
   process.on("SIGINT", onStop);
@@ -206,12 +205,15 @@ export async function runRecord(options: RecordOptions = {}): Promise<RecordResu
       (error.code === "consent-cancelled" || error.code === "consent-timeout")));
     throw error;
   } finally {
-    process.off("SIGINT", onStop);
-    process.off("SIGTERM", onStop);
-    await rm(join(stateDirPath, "recording.pid"), { force: true }).catch(() => undefined);
-    if (taps !== null) await taps.stop().catch(() => undefined);
-    if (capture !== null) await capture.stop().catch(() => undefined);
-    if (discardTake) await rm(takeDir, { recursive: true, force: true });
+    try {
+      await rm(join(stateDirPath, "recording.pid"), { force: true }).catch(() => undefined);
+      if (taps !== null) await taps.stop().catch(() => undefined);
+      if (capture !== null) await capture.stop().catch(() => undefined);
+      if (discardTake) await rm(takeDir, { recursive: true, force: true });
+    } finally {
+      process.off("SIGINT", onStop);
+      process.off("SIGTERM", onStop);
+    }
   }
 }
 
