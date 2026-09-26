@@ -83,8 +83,12 @@ export async function callJev(
       } catch {
         return { ok: false, error: "malformed response" };
       }
-      const usage = (json as { usage?: { input_tokens?: number } })["usage"];
-      return { ok: true, response: json, inputTokens: usage?.input_tokens };
+      const usage = (json as { usage?: { input_tokens?: unknown } } | null)?.usage;
+      const tokens = usage?.input_tokens;
+      if (tokens !== undefined && (!Number.isSafeInteger(tokens) || (tokens as number) < 0)) {
+        return { ok: false, error: "malformed usage" };
+      }
+      return { ok: true, response: json, inputTokens: tokens as number | undefined };
     } catch (e) {
       return { ok: false, error: e instanceof Error ? e.message : String(e) };
     } finally {

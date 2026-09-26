@@ -76,6 +76,14 @@ test("callJev: 5xx and malformed JSON fail", async () => {
   assert.equal(r2.ok, false);
 });
 
+test("malformed usage tokens cannot enter accounting", async () => {
+  for (const input_tokens of ["100", -1, 1.5]) {
+    const r = await callJev("{}", KEY, { fetchImpl: (async () => okResponse(JSON.stringify({ answers: {}, usage: { input_tokens } }))) as typeof fetch });
+    assert.equal(r.ok, false);
+    assert.equal(r.error, "malformed usage");
+  }
+});
+
 test("cache hit costs zero network calls", async () => {
   const dir = mkdtempSync(join(tmpdir(), "takeone-cache-"));
   try {

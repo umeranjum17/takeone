@@ -78,6 +78,7 @@ export function segmentBeats(
   // starts a cut beat; a gap >= IDLE_GAP_MS becomes an idle beat
   const raws: RawBeat[] = [];
   let cur: RawBeat | null = null;
+  let activeWindow = "";
   const ai = acts[Symbol.iterator]();
   let nextAct: IteratorResult<Action>;
   let nextCut = 0;
@@ -89,12 +90,13 @@ export function segmentBeats(
     if (useCut) {
       const c = cuts[nextCut++]!;
       cur = null; // a cut always starts a new beat
+      activeWindow = c.window_cls ?? activeWindow;
       raws.push({
         t0: c.t,
         t1: c.t,
         anchor_t: c.t,
         anchorPt: null,
-        window_cls: "",
+        window_cls: activeWindow,
         actions: [c],
       });
       continue;
@@ -103,10 +105,12 @@ export function segmentBeats(
     nextAct = ai.next();
     const t = actStart(a);
     const pt = actPoint(a);
+    const windowCls = a.k === "focus" ? a.cls : a.window_cls ?? activeWindow;
+    activeWindow = windowCls;
     const canExtend =
       cur !== null &&
       t - cur.t1 <= BEAT_GAP_MS &&
-      a.window_cls === cur.window_cls &&
+      windowCls === cur.window_cls &&
       (!pt ||
         !cur.anchorPt ||
         Math.hypot(pt[0] - cur.anchorPt[0], pt[1] - cur.anchorPt[1]) <=
@@ -130,7 +134,7 @@ export function segmentBeats(
         t1: Math.max(actEnd(a), t),
         anchor_t: t,
         anchorPt: pt,
-        window_cls: a.window_cls,
+        window_cls: windowCls,
         actions: [a],
       };
       raws.push(cur);

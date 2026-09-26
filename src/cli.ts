@@ -4,7 +4,7 @@
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { existsSync } from "node:fs";
-import { makeTake, PreflightRefusal } from "./make.ts";
+import { makeTake, PreflightRefusal, TakeInputError } from "./make.ts";
 
 export function takesDir(): string {
   return process.env["TAKEONE_DIR"] ?? join(homedir(), "Videos", "takeone");
@@ -76,7 +76,7 @@ export async function main(argv: string[]): Promise<number> {
     await makeTake(dir, a);
     return 0;
   } catch (e) {
-    if (e instanceof PreflightRefusal) {
+    if (e instanceof PreflightRefusal || e instanceof TakeInputError) {
       console.error(`takeone make: ${e.message}`);
       return 2;
     }

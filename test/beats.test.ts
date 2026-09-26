@@ -34,6 +34,18 @@ test("extends a beat while actions are close, same window, near the anchor", () 
   assert.equal(beats[2]!.kind, "click");
 });
 
+test("focus, dwell, travel and cuts retain their focused window", () => {
+  const actions: Action[] = [
+    win,
+    { k: "dwell", t0: 100, t1: 1100, x: 20, y: 20, window_cls: "chromium" },
+    { k: "travel", t0: 1200, t1: 1600, from: [20, 20], to: [80, 80], bbox: [20, 20, 60, 60], window_cls: "chromium" },
+    { k: "cut", t: 1800, changed_frac: 0.6, window_cls: "chromium" },
+  ];
+  const beats = segmentBeats(actions, [], opts());
+  assert.ok(beats.every((b) => b.window_cls === "chromium"));
+  assert.ok(beats.some((b) => b.kind === "cut"));
+});
+
 test("a gap of 2 s or more becomes an idle beat", () => {
   const beats = segmentBeats([win, click(500), click(5000)], noopFrames(60, 0, 100), opts());
   assert.equal(beats.length, 3);

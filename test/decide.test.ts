@@ -140,6 +140,12 @@ const goodAnswers: JevAnswers = {
   new_subject: { p: 0.9 },
 };
 
+test("initial full-screen viewport holds a fitting first zone", () => {
+  const beat = clickBeat([zone("z1", "act", [60, 32, 80, 56]), zone("z2", "all", [0, 0, 160, 120])]);
+  assert.equal(heuristicDecision(beat, { viewport: null }).p, 0);
+  assert.equal(heuristicDecision(beat, { viewport: { bbox: [0, 0, 40, 40] } }).p, 1);
+});
+
 test("typing keeps its text zone even with an attached result", () => {
   const beat = clickBeat([zone("z1", "txt", [10, 10, 40, 20]), zone("z2", "res", [100, 90, 40, 20])]);
   beat.kind = "type";

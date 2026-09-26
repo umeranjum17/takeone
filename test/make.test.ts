@@ -7,8 +7,9 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { makeTake, PreflightRefusal } from "../src/make.ts";
+import { makeTake, PreflightRefusal, TakeInputError } from "../src/make.ts";
 import { main } from "../src/cli.ts";
+import { frameRect } from "../src/decide/mapping.ts";
 import type { Beat, Decision, JevAnswers, TakeMeta } from "../src/types.ts";
 import { STREAM } from "./helpers.ts";
 
@@ -80,6 +81,31 @@ test("CLI rejects malformed --max-tokens values", async () => {
   }
 });
 
+test("incomplete takes report the missing file; video-only mode permits empty events", async () => {
+  const dir = newTake();
+  try {
+    for (const file of ["screen.webm", "frames.tsv", "events.jsonl"]) {
+      const path = join(dir, file);
+      const original = readFileSync(path);
+      rmSync(path);
+      await assert.rejects(makeTake(dir, { noJev: true, log: () => {}, warn: () => {} }), (e: unknown) => e instanceof TakeInputError && e.file === file);
+      writeFileSync(path, original);
+    }
+    const eventsPath = join(dir, "events.jsonl");
+    writeFileSync(eventsPath, "");
+    await assert.rejects(makeTake(dir, { noJev: true, log: () => {}, warn: () => {} }), (e: unknown) => e instanceof TakeInputError && e.file === "events.jsonl");
+    const take = JSON.parse(readFileSync(join(dir, "take.json"), "utf8"));
+    take.events = "none";
+    writeFileSync(join(dir, "take.json"), JSON.stringify(take));
+    const result = await makeTake(dir, { noJev: true, log: () => {}, warn: () => {} });
+    assert.equal(result.jev.input_tokens, 0);
+    rmSync(eventsPath);
+    await makeTake(dir, { noJev: true, log: () => {}, warn: () => {} });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("make --no-jev writes analysis files and heuristic decisions", async () => {
   const dir = newTake();
   try {
@@ -121,6 +147,10 @@ test("perceived cuts enter actions and start cut beats", async () => {
     const cuts = r.beats.filter((b) => b.kind === "cut");
     assert.ok(cuts.length > 0);
     assert.ok(cuts.some((b) => b.actions.some((a) => a.k === "cut")));
+    const clicks = r.beats.filter((b) => b.actions.some((a) => a.k === "click"));
+    assert.equal(clicks.length, 2);
+    assert.ok(clicks[0]!.t0 < cuts[0]!.t0 && cuts[0]!.t0 < clicks[1]!.t0);
+    assert.equal(cuts[0]!.window_cls, "chromium");
     const saved = JSON.parse(readFileSync(join(dir, "analysis", "actions.json"), "utf8"));
     assert.ok(saved.actions.some((a: { k: string }) => a.k === "cut"));
   } finally {
@@ -159,6 +189,31 @@ test("make with a key decides via Jev and accounts usage; cache hit costs zero c
   }
 });
 
+test("single-zone beats use the heuristic without Jev tokens", async () => {
+  const dir = newTake();
+  try {
+    const bodies: string[] = [];
+    const r = await makeTake(dir, { apiKey: KEY, log: () => {}, warn: () => {}, fetchImpl: (async (_url, init) => {
+      const body = String(init?.body);
+      bodies.push(body);
+      const names = Object.keys(JSON.parse(body).state.zones);
+      const probabilities = Object.fromEntries(names.map((name, i) => [name, i === 0 ? 1 : 0]));
+      const response = jevAnswers() as { answers: JevAnswers };
+      response.answers.focus_start = { choice: names[0], probabilities, confidence: 1 };
+      response.answers.focus_end = { choice: names[0], probabilities, confidence: 1 };
+      return new Response(JSON.stringify(response), { status: 200 });
+    }) as typeof fetch });
+    const single = r.beats.map((b, i) => ({ b, d: r.decisions[i]! })).filter(({ b }) => b.zones.length === 1);
+    assert.ok(single.length > 0);
+    assert.ok(single.every(({ d }) => d.decided_by === "heuristic" && d.input_tokens === undefined));
+    assert.ok(bodies.every((body) => Object.keys(JSON.parse(body).state.zones).length >= 2));
+    assert.equal(r.jev.input_tokens, bodies.length * 800);
+    assert.equal(r.jev.failed, 0);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("preflight reserves re-asks and current shots distinguish viewport positions", async () => {
   const dir = newTake();
   try {
@@ -177,6 +232,43 @@ test("preflight reserves re-asks and current shots distinguish viewport position
     const shots = bodies.map((body) => JSON.parse(body).state.current_shot);
     assert.ok(new Set(shots).size > 1);
     await assert.rejects(makeTake(dir, { apiKey: KEY, maxTokens: planned - 1, log: () => {}, warn: () => {}, fetchImpl: (async () => { throw new Error("called"); }) as typeof fetch }), PreflightRefusal);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("dependent re-asks use the preceding finalized shot", async () => {
+  const dir = newTake();
+  try {
+    const events = [
+      { t: 0, k: "win", cls: "chromium", title: "App", rect: [0, 0, 320, 180] },
+      ...[500, 2700, 4900].flatMap((t, i) => [
+        { t: t - 100, k: "ptr", x: 40 + i * 60, y: 80 },
+        { t, k: "btn", b: "left", down: true },
+        { t: t + 800, k: "ptr", x: 120 + i * 60, y: 100 },
+        { t: t + 900, k: "btn", b: "left", down: false },
+      ]),
+    ];
+    writeFileSync(join(dir, "events.jsonl"), events.map((e) => JSON.stringify(e)).join("\n") + "\n");
+    const requests: any[] = [];
+    const r = await makeTake(dir, { apiKey: KEY, log: () => {}, warn: () => {}, fetchImpl: (async (_url, init) => {
+      const request = JSON.parse(String(init?.body));
+      requests.push(request);
+      const names = Object.keys(request.state.zones);
+      const chosen = requests.length === 4 ? names[0]! : names[names.length - 1]!;
+      const probabilities = Object.fromEntries(names.map((name) => [name, name === chosen ? 1 : 0]));
+      const answer = jevAnswers() as { answers: JevAnswers };
+      answer.answers.focus_start = { choice: chosen, probabilities, confidence: 1 };
+      answer.answers.focus_end = { choice: chosen, probabilities, confidence: 1 };
+      return new Response(JSON.stringify(answer), { status: 200 });
+    }) as typeof fetch });
+    assert.ok(requests.length >= 5, JSON.stringify({ beats: r.beats.map((b) => [b.kind, b.zones.map((z) => z.kind)]), shots: requests.map((q) => q.state.current_shot) }));
+    const drags = r.beats.filter((b) => b.kind === "drag");
+    const second = drags[1]!;
+    const d = r.decisions.find((x) => x.beat === second.id)!;
+    const z = second.zones.find((x) => x.name === d.B)!;
+    const rect = frameRect(z, d.L, { stream: { w: 320, h: 180 }, winRect: [0, 0, 320, 180] });
+    assert.equal(requests[4]!.state.current_shot, `Framing ${z.desc.shows} at ${rect.join(",")}.`);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -205,12 +297,35 @@ test("every Jev failure mode falls back to the heuristic and counts as failed", 
     try {
       const r = await makeTake(dir, { apiKey: KEY, fetchImpl: (async () => m.impl()) as typeof fetch, log: () => {}, warn: () => {} });
       assert.equal(r.decisions.filter((d) => d.decided_by === "jev").length, 0, m.name);
-      assert.equal(r.jev.failed, r.beats.length, m.name);
+      assert.equal(r.jev.failed, r.beats.filter((b) => b.zones.length >= 2).length, m.name);
       // nothing ever waits on or fails because of Jev: the run still succeeded
       assert.ok(r.beats.length >= 2);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  }
+});
+
+test("oversize beat request falls back without aborting other beats", async () => {
+  const dir = newTake();
+  try {
+    const path = join(dir, "events.jsonl");
+    const events = readFileSync(path, "utf8").trim().split("\n").map((line) => JSON.parse(line));
+    events.find((e) => e.t === 4200).combo = "Ctrl+" + "X".repeat(6000);
+    events.find((e) => e.k === "win").rect = [0, 0, 280, 150];
+    writeFileSync(path, events.map((e) => JSON.stringify(e)).join("\n") + "\n");
+    let calls = 0;
+    const r = await makeTake(dir, { apiKey: KEY, maxTokens: 100000, log: () => {}, warn: () => {}, fetchImpl: (async () => {
+      calls++;
+      return new Response("boom", { status: 500 });
+    }) as typeof fetch });
+    const shortcut = r.beats.find((b) => b.actions.some((a) => a.k === "shortcut"))!;
+    assert.ok(shortcut);
+    assert.equal(r.decisions.find((d) => d.beat === shortcut.id)?.decided_by, "heuristic");
+    assert.ok(calls > 0);
+    assert.ok(r.jev.failed >= 1);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
   }
 });
 

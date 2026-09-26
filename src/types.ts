@@ -67,9 +67,9 @@ export type Action =
     }
   | { k: "shortcut"; t: number; combo: string; window_cls: string }
   | { k: "focus"; t: number; cls: string; rect: BBox }
-  | { k: "dwell"; t0: number; t1: number; x: number; y: number }
-  | { k: "travel"; t0: number; t1: number; from: [number, number]; to: [number, number]; bbox: BBox }
-  | { k: "cut"; t: number; changed_frac: number };
+  | { k: "dwell"; t0: number; t1: number; x: number; y: number; window_cls?: string }
+  | { k: "travel"; t0: number; t1: number; from: [number, number]; to: [number, number]; bbox: BBox; window_cls?: string }
+  | { k: "cut"; t: number; changed_frac: number; window_cls?: string };
 
 export type ActionKind = Action["k"];
 
@@ -154,6 +154,7 @@ export interface TakeMeta {
   offset_ms: number;
   /** "hyprland" | "none" */
   pointer: string;
+  events?: string;
   /** ms since take start; absent for an untrimmed take */
   trim?: { start: number; end: number };
   jev?: { input_tokens: number; usd: number; failed: number };

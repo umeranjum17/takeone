@@ -16,7 +16,7 @@ export function heuristicDecision(
   const B = heuristicB(beat, A);
   const L: Tightness = beat.kind === "idle" && beat.t1 - beat.t0 > 3000 ? 0 : heuristicL(beat.kind);
   const aZone = beat.zones.find((z) => z.name === A);
-  const p = aZone && ctx.viewport && bboxFitsViewport(aZone.bbox, ctx.viewport, 0.08) ? 0 : 1;
+  const p = !ctx.viewport || (aZone && bboxFitsViewport(aZone.bbox, ctx.viewport, 0.08)) ? 0 : 1;
   return {
     beat: beat.id,
     A,

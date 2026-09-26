@@ -20,6 +20,7 @@ interface PtrSample {
   t: number;
   x: number;
   y: number;
+  window_cls: string;
 }
 
 const TYPE_CLASSES = new Set(["char", "space", "backspace", "enter", "tab"]);
@@ -80,7 +81,7 @@ export function actionsFromEvents(
   const held = new Set<string>();
   let holdStart = 0;
   for (const [index, e] of events.entries()) {
-    if (e.k === "ptr") ptr.push({ t: e.t, x: e.x, y: e.y });
+    if (e.k === "ptr") ptr.push({ t: e.t, x: e.x, y: e.y, window_cls: win?.cls ?? "" });
     else if (e.k === "win") {
       if (!win || win.cls !== e.cls) {
         acts.push({ k: "focus", t: e.t, cls: e.cls, rect: e.rect });
@@ -126,13 +127,13 @@ export function actionsFromEvents(
         if (!btnHeld(ptr[k - 1]!.t, ptr[k]!.t)) continue;
         const last = ptr[k - 1]!;
         if (last.t - ptr[freeStart]!.t >= DWELL_MIN_MS) {
-          acts.push({ k: "dwell", t0: ptr[freeStart]!.t, t1: last.t, x: ptr[freeStart]!.x, y: ptr[freeStart]!.y });
+          acts.push({ k: "dwell", t0: ptr[freeStart]!.t, t1: last.t, x: ptr[freeStart]!.x, y: ptr[freeStart]!.y, window_cls: ptr[freeStart]!.window_cls });
         }
         freeStart = k;
       }
       const last = ptr[j - 1]!;
       if (last.t - ptr[freeStart]!.t >= DWELL_MIN_MS) {
-        acts.push({ k: "dwell", t0: ptr[freeStart]!.t, t1: last.t, x: ptr[freeStart]!.x, y: ptr[freeStart]!.y });
+        acts.push({ k: "dwell", t0: ptr[freeStart]!.t, t1: last.t, x: ptr[freeStart]!.x, y: ptr[freeStart]!.y, window_cls: ptr[freeStart]!.window_cls });
       }
       i = Math.max(j - 1, i + 1);
     }
@@ -160,6 +161,7 @@ export function actionsFromEvents(
             from: [start.x, start.y],
             to: [end.x, end.y],
             bbox: [Math.min(...xs), Math.min(...ys), Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys)],
+            window_cls: start.window_cls,
           });
           a = b - 1; // do not emit overlapping travels
         }

@@ -9,6 +9,8 @@ export const PRICE_PER_MTOK = 0.042;
 export const REQUEST_TOKEN_CAP = 1200;
 export const CHARS_PER_TOKEN = 3.5;
 
+export class RequestTooLarge extends Error {}
+
 export interface RequestCtx {
   /** optional demo topic from --about */
   about?: string;
@@ -171,7 +173,7 @@ export function buildRequest(beat: Beat, ctx: RequestCtx, askKeyMoment: boolean)
   };
   const body = truncateZonesToCap(state, askKeyMoment);
   const tokens = estimateTokens(body);
-  if (tokens > REQUEST_TOKEN_CAP) throw new Error(`request exceeds ${REQUEST_TOKEN_CAP} estimated tokens`);
+  if (tokens > REQUEST_TOKEN_CAP) throw new RequestTooLarge(`request exceeds ${REQUEST_TOKEN_CAP} estimated tokens`);
   return { body, tokens };
 }
 

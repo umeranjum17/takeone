@@ -174,6 +174,17 @@ test("dwell does not span a completed button hold", () => {
   assert.equal(acts.filter((a) => a.k === "dwell").length, 0);
 });
 
+test("dwell and travel retain their event-time window", () => {
+  const events: Event[] = [
+    win, ptr(50, 50, 0), ptr(50, 50, 1000),
+    { t: 2100, k: "win", cls: "terminal", title: "Shell", rect: [0, 0, 100, 100] },
+    ptr(10, 10, 2200), ptr(150, 110, 2500),
+  ];
+  const acts = actionsFromEvents(events, frames(), opts());
+  assert.equal(acts.find((a) => a.k === "dwell")?.window_cls, "chromium");
+  assert.equal(acts.find((a) => a.k === "travel" && a.t0 === 2200)?.window_cls, "terminal");
+});
+
 test("pointer none mode: click position falls back to the change region centroid", () => {
   const framesWithRegions: FrameRegions[] = [
     ...noopFrames(4, 0, 100),
