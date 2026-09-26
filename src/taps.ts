@@ -26,7 +26,6 @@ export interface TapOptions {
   pollHz?: number;
   evdevPollHz?: number;
   deviceDir?: string;
-  bufferUntilConsent?: boolean;
 }
 
 export interface TapSummary {
@@ -102,7 +101,7 @@ export async function startTaps(options: TapOptions): Promise<TapHandle> {
   let eventsMode: "on" | "none" = "on";
   let pointerMode: "mapped" | "none" = "none";
 
-  let out = options.bufferUntilConsent ? null : await fs.open(eventsPath, "a", 0o600);
+  let out: Awaited<ReturnType<typeof fs.open>> | null = null;
   const pending: string[] = [];
   let writes = Promise.resolve();
   let writeError: unknown = null;
@@ -156,13 +155,11 @@ export async function startTaps(options: TapOptions): Promise<TapHandle> {
         try {
           const pos = await getCursorPos(hypr.socket);
           if (pointerMode !== "mapped" || pointerTimer !== timer) return;
-          if (pos !== null) {
-            const key = `${pos.x},${pos.y}`;
-            if (key !== lastPos) {
-              lastPos = key;
-              const stream = mapLogicalToStream(pos.x, pos.y, monitor, scale);
-              emit({ t: nowMs(), k: "ptr", x: stream.x, y: stream.y });
-            }
+          const key = `${pos.x},${pos.y}`;
+          if (key !== lastPos) {
+            lastPos = key;
+            const stream = mapLogicalToStream(pos.x, pos.y, monitor, scale);
+            emit({ t: nowMs(), k: "ptr", x: stream.x, y: stream.y });
           }
           const win = await getActiveWindow(hypr.socket);
           if (pointerMode !== "mapped" || pointerTimer !== timer) return;

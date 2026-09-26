@@ -20,7 +20,7 @@ test("pre-consent input stays in memory until approval and is discarded on cance
   await writeFile(join(deviceDir, "fake-event-mouse"), "");
   const eventsPath = join(base, "events.jsonl");
   try {
-    const options = { eventsPath, t0ns: process.hrtime.bigint(), deviceDir, evdevPollHz: 200, bufferUntilConsent: true };
+    const options = { eventsPath, t0ns: process.hrtime.bigint(), deviceDir, evdevPollHz: 200 };
     const cancelled = await startTaps(options);
     await new Promise((resolve) => setTimeout(resolve, 40));
     assert.notEqual(cancelled.summary.firstInputMs, null);
@@ -56,12 +56,13 @@ test("input is captured before stream geometry is available", async () => {
     const taps = await startTaps({ eventsPath, t0ns: process.hrtime.bigint(), deviceDir, evdevPollHz: 200 });
     await new Promise((resolve) => setTimeout(resolve, 50));
     assert.equal(taps.pointerMode, "none");
+    taps.setMapping(null);
+    await taps.confirmConsent();
+    await taps.stop();
     const early = (await readFile(eventsPath, "utf8")).trim().split("\n").map((line) => JSON.parse(line));
     assert.equal(early.length, 1);
     assert.equal(early[0].k, "key");
     assert.ok(early[0].t >= 0);
-    taps.setMapping(null);
-    await taps.stop();
   } finally {
     await rm(base, { recursive: true, force: true });
   }
@@ -79,6 +80,7 @@ test("one unreadable evdev device disables all event taps and doctor readiness",
     const taps = await startTaps({ eventsPath, mapping: null, t0ns: process.hrtime.bigint(), deviceDir });
     assert.equal(taps.eventsMode, "none");
     assert.ok(taps.warnings.some((warning) => warning.includes("group 'input'")));
+    await taps.confirmConsent();
     await taps.stop();
     assert.equal(await readFile(eventsPath, "utf8"), "");
     assert.equal((await evdevProbe(deviceDir)).ok, false);
@@ -144,6 +146,7 @@ test("shortcuts retain modifiers across keyboards and both physical Ctrl keys", 
     const eventsPath = join(base, "events.jsonl");
     const taps = await startTaps({ eventsPath, t0ns: process.hrtime.bigint(), deviceDir, evdevPollHz: 200 });
     await new Promise((resolve) => setTimeout(resolve, 50));
+    await taps.confirmConsent();
     await taps.stop();
     const events = (await readFile(eventsPath, "utf8")).trim().split("\n").map((line) => JSON.parse(line));
     assert.deepEqual(events.filter((event) => event.combo).map((event) => event.combo), ["Ctrl+S", "Ctrl+S"]);
@@ -193,6 +196,7 @@ test("wheel reports prefer high-resolution values on both axes from the first re
     const eventsPath = join(base, "events.jsonl");
     const taps = await startTaps({ eventsPath, mapping: null, t0ns: process.hrtime.bigint(), deviceDir, evdevPollHz: 200 });
     await new Promise((resolve) => setTimeout(resolve, 50));
+    await taps.confirmConsent();
     await taps.stop();
     const wheels = (await readFile(eventsPath, "utf8")).trim().split("\n").map((line) => JSON.parse(line))
       .filter((event) => event.k === "wheel").map(({ dx, dy }) => [dx, dy]);
@@ -214,11 +218,14 @@ test("video-only tap never reads or writes Hyprland events; unmapped pointer is 
   await writeFile(join(readableDevices, "fake-event-kbd"), "");
   let requests = 0;
   let delayReply = false;
+  let emptyCursor = false;
+  let invalidWindow = false;
   let serverClosed = false;
   const server = createServer((conn) => {
     conn.on("data", (data) => {
       requests++;
-      const reply = data.toString().includes("cursorpos") ? '{"x":10,"y":10}' : JSON.stringify({
+      const cursor = data.toString().includes("cursorpos");
+      const reply = cursor ? (emptyCursor ? "" : '{"x":10,"y":10}') : invalidWindow ? "not-json" : JSON.stringify({
         class: "Private", title: "Secret", address: "0x1", at: [0, 0], size: [100, 100],
       });
       if (delayReply) setTimeout(() => conn.end(reply), 160);
@@ -235,6 +242,7 @@ test("video-only tap never reads or writes Hyprland events; unmapped pointer is 
     const mapping = { monitor: { name: "test", x: 0, y: 0, width: 100, height: 100, scale: 1 }, scale: 1 };
     const videoOnly = await startTaps({ eventsPath, mapping, t0ns: process.hrtime.bigint(), deviceDir: emptyDevices });
     await new Promise((resolve) => setTimeout(resolve, 60));
+    await videoOnly.confirmConsent();
     await videoOnly.stop();
     assert.equal(videoOnly.eventsMode, "none");
     assert.equal(videoOnly.pointerMode, "none");
@@ -253,10 +261,27 @@ test("video-only tap never reads or writes Hyprland events; unmapped pointer is 
     assert.ok(requests > beforeMapped);
     await new Promise((resolve) => setTimeout(resolve, 40));
     assert.equal(requests, beforeMapped + 1, "pointer polls must not overlap while IPC is pending");
+    await mapped.confirmConsent();
     await mapped.stop();
     assert.equal(await readFile(eventsPath, "utf8"), "");
 
     delayReply = false;
+    emptyCursor = true;
+    const cleanClose = await startTaps({ eventsPath, mapping, t0ns: process.hrtime.bigint(), deviceDir: readableDevices });
+    const cleanDeadline = Date.now() + 1000;
+    while (cleanClose.pointerMode === "mapped" && Date.now() < cleanDeadline) await new Promise((resolve) => setTimeout(resolve, 5));
+    assert.equal(cleanClose.pointerMode, "none");
+    await cleanClose.stop();
+
+    emptyCursor = false;
+    invalidWindow = true;
+    const malformed = await startTaps({ eventsPath, mapping, t0ns: process.hrtime.bigint(), deviceDir: readableDevices });
+    const malformedDeadline = Date.now() + 1000;
+    while (malformed.pointerMode === "mapped" && Date.now() < malformedDeadline) await new Promise((resolve) => setTimeout(resolve, 5));
+    assert.equal(malformed.pointerMode, "none");
+    await malformed.stop();
+
+    invalidWindow = false;
     const runtimeLoss = await startTaps({ eventsPath, mapping, t0ns: process.hrtime.bigint(), deviceDir: readableDevices });
     const before = requests;
     const activeDeadline = Date.now() + 1000;
