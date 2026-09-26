@@ -26,6 +26,7 @@ export interface TapOptions {
   pollHz?: number;
   evdevPollHz?: number;
   deviceDir?: string;
+  bufferUntilConsent?: boolean;
 }
 
 export interface TapSummary {
@@ -38,6 +39,7 @@ export interface TapHandle {
   pointerMode: "mapped" | "none";
   eventsMode: "on" | "none";
   setMapping(mapping: { monitor: MonitorInfo; scale: number } | null): void;
+  confirmConsent(): Promise<void>;
   warnings: string[];
   stop(): Promise<void>;
 }
@@ -100,15 +102,21 @@ export async function startTaps(options: TapOptions): Promise<TapHandle> {
   let eventsMode: "on" | "none" = "on";
   let pointerMode: "mapped" | "none" = "none";
 
-  const out = await fs.open(eventsPath, "a", 0o600);
+  let out = options.bufferUntilConsent ? null : await fs.open(eventsPath, "a", 0o600);
+  const pending: string[] = [];
   let writes = Promise.resolve();
   let writeError: unknown = null;
   let readError: Error | null = null;
-  const emit = (event: TapEvent): void => {
-    if (stopped) return;
-    writes = writes.then(() => out.write(`${JSON.stringify(event)}\n`)).then(() => undefined).catch((error: unknown) => {
+  const write = (line: string): void => {
+    writes = writes.then(() => out!.write(line)).then(() => undefined).catch((error: unknown) => {
       writeError ??= error;
     });
+  };
+  const emit = (event: TapEvent): void => {
+    if (stopped) return;
+    const line = `${JSON.stringify(event)}\n`;
+    if (out === null) pending.push(line);
+    else write(line);
   };
   const emitInput = (event: TapEvent): void => {
     if (summary.firstInputMs === null) summary.firstInputMs = event.t;
@@ -296,6 +304,13 @@ export async function startTaps(options: TapOptions): Promise<TapHandle> {
     eventsMode,
     warnings,
     setMapping,
+    async confirmConsent(): Promise<void> {
+      if (out !== null || stopped) return;
+      const opened = await fs.open(eventsPath, "a", 0o600);
+      if (stopped) { await opened.close(); return; }
+      out = opened;
+      for (const line of pending.splice(0)) write(line);
+    },
     async stop(): Promise<void> {
       if (stopped) return;
       stopped = true;
@@ -304,7 +319,8 @@ export async function startTaps(options: TapOptions): Promise<TapHandle> {
       for (const device of evdevHandles.splice(0)) closeSync(device.fd);
       await Promise.all(polls);
       await writes;
-      await out.close();
+      pending.length = 0;
+      if (out !== null) await out.close();
       if (writeError !== null) throw writeError;
       if (readError !== null) throw readError;
     },

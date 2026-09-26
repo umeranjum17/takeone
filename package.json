@@ -8,6 +8,7 @@
   "bin": { "takeone": "./bin/takeone.mjs" },
   "scripts": {
     "build": "tsc --project tsconfig.json",
+    "prepare": "npm run build",
     "test": "npm run build && node --test test/*.test.ts dist/test/*.test.js",
     "typecheck": "tsc --project tsconfig.json --noEmit"
   },
