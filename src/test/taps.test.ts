@@ -1,12 +1,45 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createServer } from "node:net";
-import { chmod, mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, mkdir, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { startTaps } from "../taps.js";
 import { evdevProbe } from "../doctor.js";
 import { EV_KEY, EV_REL, REL_WHEEL, REL_HWHEEL, REL_WHEEL_HI_RES, REL_HWHEEL_HI_RES } from "../evdev.js";
+
+test("pre-consent input stays in memory until approval and is discarded on cancellation", async () => {
+  const base = await mkdtemp(join(tmpdir(), "takeone-consent-taps-"));
+  const deviceDir = join(base, "devices");
+  await mkdir(deviceDir);
+  const key = Buffer.alloc(24);
+  key.writeUInt16LE(EV_KEY, 16);
+  key.writeUInt16LE(31, 18);
+  key.writeInt32LE(1, 20);
+  await writeFile(join(deviceDir, "fake-event-kbd"), key);
+  await writeFile(join(deviceDir, "fake-event-mouse"), "");
+  const eventsPath = join(base, "events.jsonl");
+  try {
+    const options = { eventsPath, t0ns: process.hrtime.bigint(), deviceDir, evdevPollHz: 200, bufferUntilConsent: true };
+    const cancelled = await startTaps(options);
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    assert.notEqual(cancelled.summary.firstInputMs, null);
+    await assert.rejects(stat(eventsPath));
+    await cancelled.stop();
+    await assert.rejects(stat(eventsPath));
+
+    const approved = await startTaps(options);
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    await assert.rejects(stat(eventsPath));
+    await approved.confirmConsent();
+    await approved.stop();
+    const events = (await readFile(eventsPath, "utf8")).trim().split("\n").map((line) => JSON.parse(line));
+    assert.equal(events[0].k, "key");
+    assert.ok(events[0].t >= 0);
+  } finally {
+    await rm(base, { recursive: true, force: true });
+  }
+});
 
 test("input is captured before stream geometry is available", async () => {
   const base = await mkdtemp(join(tmpdir(), "takeone-early-input-"));
