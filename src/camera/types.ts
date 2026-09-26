@@ -1,0 +1,78 @@
+// Shared plain-data types for the camera solver and render layer.
+// No Node imports here: the solver must stay a pure function over plain data.
+
+export type ZoneType = "act" | "res" | "txt" | "path" | "win" | "all";
+
+export interface Zone {
+  name: string;
+  type: ZoneType;
+  bbox: [number, number, number, number]; // x, y, w, h in stream pixels
+  /** Result zone: time the region first changed (event clock, s). */
+  t_change?: number;
+}
+
+export type BeatKind =
+  | "click"
+  | "type"
+  | "drag"
+  | "scroll"
+  | "travel"
+  | "dwell"
+  | "shortcut"
+  | "cut"
+  | "idle";
+
+export interface Beat {
+  id: string;
+  t0: number;
+  t1: number;
+  anchor_t: number;
+  window_cls?: string;
+  window_rect?: [number, number, number, number];
+  actions: unknown[];
+  zones: Zone[];
+  kind: BeatKind;
+  /** Cut beats: changed_frac per 50 ms window after the cut (event clock, s). */
+  changed_frac?: { t: number; f: number }[];
+}
+
+export interface Decision {
+  beat: string;
+  A: string; // zone name
+  B?: string; // zone name, optional
+  L: 0 | 1 | 2 | 3;
+  p: number; // probability the subject moved
+  K: 0 | 1 | 2;
+  conf: number;
+  decided_by: string;
+  model?: string;
+  input_tokens?: number;
+}
+
+export interface TakeMeta {
+  id?: string;
+  width: number;
+  height: number;
+  fps?: number;
+  monitor?: string;
+  scale?: number;
+  offset_ms?: number;
+  trim_start?: number;
+  trim_end?: number;
+  pointer?: string;
+  events?: string;
+}
+
+export interface CameraFrame {
+  t: number; // s, relative to trim start
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+export interface CameraState {
+  cx: number;
+  cy: number;
+  z: number;
+}
