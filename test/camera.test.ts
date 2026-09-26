@@ -64,7 +64,9 @@ test("framing expands to 16:9 and respects source and upscale clamps", () => {
 test("whole-screen non-16:9 frames cover the full source while 16:9 framing is unchanged", () => {
   for (const [width, height] of [[3440, 1440], [1440, 2560]]) {
     const whole = solveCamera([], [], { width, height, trim_start: 0, trim_end: 1 })[0];
-    assert.deepEqual([whole.x, whole.y, whole.w, whole.h], [0, 0, width, height]);
+    assert.ok(whole.x <= 0 && whole.y <= 0);
+    assert.ok(whole.x + whole.w >= width && whole.y + whole.h >= height);
+    assert.ok(Math.abs(whole.w / whole.h - 16 / 9) < 1e-9);
     assert.equal(DEFAULTS.out_w, 1920);
     assert.equal(DEFAULTS.out_h, 1080);
   }
@@ -86,8 +88,13 @@ test("non-16:9 padding eases through zoom and back without a crop jump", () => {
   const frames = solveCamera([zoom, all], [decision(zoom), { ...decision(all), L: 0 }], {
     width: 3440, height: 1440, trim_start: 0, trim_end: 8,
   });
-  assert.deepEqual([frames[0].x, frames[0].y, frames[0].w, frames[0].h], [0, 0, 3440, 1440]);
+  assert.ok(Math.abs(frames[0].w / frames[0].h - 16 / 9) < 1e-9);
+  assert.ok(frames[0].x <= 0 && frames[0].x + frames[0].w >= 3440);
   assert.ok(Math.min(...frames.map((f) => f.w)) < 1700);
+  const contained = frames.find((f) => f.w <= 3440 && f.h <= 1440)!;
+  assert.ok(contained.x >= 0 && contained.y >= 0);
+  assert.ok(contained.x + contained.w <= 3440 && contained.y + contained.h <= 1440);
+  assert.ok(Math.abs(contained.w / contained.h - 16 / 9) < 1e-9);
   assert.ok(frames.at(-1)!.w > 3400);
   assert.ok(frames.every((f, i) => !i || Math.abs(f.w - frames[i - 1].w) < 200));
 });
@@ -221,12 +228,10 @@ test("timestamped pointer actions follow interpolation, not the final position e
   assert.ok(at(moving, 4).x > at(stationary, 4).x + 100);
 });
 
-test("ultrawide crops fit both source dimensions", () => {
-  const frames = solveCamera([], [], { width: 3440, height: 1440, trim_end: 1 });
-  for (const f of frames) {
-    assert.ok(f.w <= 3440 && f.h <= 1440);
-    assert.ok(f.x >= 0 && f.y >= 0 && f.x + f.w <= 3440 && f.y + f.h <= 1440);
-  }
+test("ultrawide whole-screen viewport is 16:9 and covers every source pixel", () => {
+  const f = solveCamera([], [], { width: 3440, height: 1440, trim_end: 1 })[0];
+  assert.ok(Math.abs(f.w / f.h - 16 / 9) < 1e-9);
+  assert.ok(f.x <= 0 && f.y <= 0 && f.x + f.w >= 3440 && f.y + f.h >= 1440);
 });
 
 test("invalid planner references fail before rendering", () => {

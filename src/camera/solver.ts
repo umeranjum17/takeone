@@ -50,17 +50,18 @@ function toFrame(
 ): CameraFrame {
   const z = clamp(state.z, 1, zMax(width, d));
   const aspect = d.out_w / d.out_h;
-  const sourceAspect = width / height;
-  // Preserve the historical 16:9 path. For other ratios, ease the extra source
-  // area into the normal 16:9 crop over the first 0.25x of zoom.
-  const nonWide = Math.abs(sourceAspect - aspect) > 1e-9;
-  const ease = nonWide ? smooth(clamp((z - 1) / 0.25, 0, 1)) : 1;
-  const fitW = Math.min(width, height * aspect);
-  const fitH = fitW / aspect;
-  const w = lerp(width, fitW, ease) / (nonWide ? Math.max(1, z / 1.25) : z);
-  const h = lerp(height, fitH, ease) / (nonWide ? Math.max(1, z / 1.25) : z);
-  const x = clamp(state.cx - w / 2, 0, Math.max(0, width - w));
-  const y = clamp(state.cy - h / 2, 0, Math.max(0, height - h));
+  const nonWide = Math.abs(width / height - aspect) > 1e-9;
+  // The viewport always remains 16:9. Non-16:9 sources sit on a padded canvas,
+  // so its overscan shrinks continuously as the camera zooms in.
+  const baseW = nonWide ? Math.max(width, height * aspect) : width;
+  const w = nonWide ? baseW / z : Math.min(width / z, height * aspect);
+  const h = w / aspect;
+  const rawX = state.cx - w / 2;
+  const rawY = state.cy - h / 2;
+  const x = nonWide && (w > width || h > height)
+    ? rawX : clamp(rawX, 0, Math.max(0, width - w));
+  const y = nonWide && (w > width || h > height)
+    ? rawY : clamp(rawY, 0, Math.max(0, height - h));
   return { t: 0, x, y, w, h };
 }
 
