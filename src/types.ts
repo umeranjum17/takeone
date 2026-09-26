@@ -32,7 +32,7 @@ export type Event =
       down: boolean;
       combo?: string;
     }
-  | { t: number; k: "win"; cls: string; title: string; rect: BBox };
+  | { t: number; k: "win"; cls: string; title: string; rect: BBox | null };
 
 /** High-level actions derived from events, refined by change regions (analysis/actions.json). */
 export type Action =

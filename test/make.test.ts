@@ -85,6 +85,26 @@ test("make --no-jev renders the agreed beat/decision files into a 1920x1080 MP4"
   }
 });
 
+test("make handles an empty focused window without retaining the previous window", async () => {
+  const dir = newTake();
+  try {
+    const path = join(dir, "events.jsonl");
+    const events = readFileSync(path, "utf8").trim().split("\n").map(JSON.parse);
+    events.push({ t: 2000, k: "win", cls: "", title: "", rect: null });
+    events.sort((a, b) => a.t - b.t);
+    writeFileSync(path, events.map((e) => JSON.stringify(e)).join("\n") + "\n");
+    await makeTake(dir, { noJev: true, log: () => {}, warn: () => {} });
+    const actions = JSON.parse(readFileSync(join(dir, "analysis", "actions.json"), "utf8")).actions;
+    assert.ok(actions.some((a: { k: string; t: number; window_cls: string }) => a.k === "click" && a.t > 2000 && a.window_cls === ""));
+    const beats = JSON.parse(readFileSync(join(dir, "analysis", "beats.json"), "utf8"));
+    const after = beats.filter((b: { anchor_t: number }) => b.anchor_t > 2);
+    assert.ok(after.length > 0);
+    assert.ok(after.every((b: { window_rect?: number[] }) => b.window_rect === undefined));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("make renders partly and wholly off-screen windows", async () => {
   const dir = newTake();
   try {

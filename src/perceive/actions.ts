@@ -82,15 +82,15 @@ export function actionsFromEvents(
   for (const [index, e] of events.entries()) {
     if (e.k === "ptr") ptr.push({ t: e.t, x: e.x, y: e.y, window_cls: win?.cls ?? "" });
     else if (e.k === "win") {
-      if (!win || win.cls !== e.cls) {
-        acts.push({ k: "focus", t: e.t, cls: e.cls, rect: e.rect });
+      if (win?.cls !== (e.rect === null ? undefined : e.cls)) {
+        if (e.rect !== null) acts.push({ k: "focus", t: e.t, cls: e.cls, rect: e.rect });
         const last = ptr[ptr.length - 1];
         if (last) {
           if (last.t < e.t) ptr.push({ ...last, t: e.t });
-          ptr.push({ ...last, t: e.t, window_cls: e.cls });
+          ptr.push({ ...last, t: e.t, window_cls: e.rect === null ? "" : e.cls });
         }
       }
-      win = { cls: e.cls, rect: e.rect };
+      win = e.rect === null ? null : { cls: e.cls, rect: e.rect };
     } else if (e.k === "btn") {
       buttonTimes.push(e.t);
       if (e.down) {
@@ -181,7 +181,7 @@ export function actionsFromEvents(
   for (let i = 0; i < events.length; i++) {
     if (used.has(i)) continue;
     const e = events[i]!;
-    if (e.k === "win") atWin = { cls: e.cls, rect: e.rect };
+    if (e.k === "win") atWin = e.rect === null ? null : { cls: e.cls, rect: e.rect };
     if (e.k === "btn") {
       if (!e.down) continue;
       const upIndex = ups.get(i);
