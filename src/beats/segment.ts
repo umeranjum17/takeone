@@ -78,7 +78,6 @@ export function segmentBeats(
   // starts a cut beat; a gap >= IDLE_GAP_MS becomes an idle beat
   const raws: RawBeat[] = [];
   let cur: RawBeat | null = null;
-  let lastEnd = -Infinity;
   const ai = acts[Symbol.iterator]();
   let nextAct: IteratorResult<Action>;
   let nextCut = 0;
@@ -98,17 +97,14 @@ export function segmentBeats(
         window_cls: "",
         actions: [c],
       });
-      lastEnd = c.t;
       continue;
     }
     const a = nextAct.value;
     nextAct = ai.next();
     const t = actStart(a);
     const pt = actPoint(a);
-    const cutBetween = cuts.some((c) => c.t > (cur ? cur.t1 : lastEnd) && c.t < t);
     const canExtend =
       cur !== null &&
-      !cutBetween &&
       t - cur.t1 <= BEAT_GAP_MS &&
       a.window_cls === cur.window_cls &&
       (!pt ||
@@ -128,7 +124,6 @@ export function segmentBeats(
           window_cls: cur.window_cls,
           actions: [],
         });
-        lastEnd = t;
       }
       cur = {
         t0: t,
@@ -140,7 +135,6 @@ export function segmentBeats(
       };
       raws.push(cur);
     }
-    lastEnd = Math.max(lastEnd, actEnd(a));
   }
 
   // cut beats extend to the start of the next beat
@@ -201,8 +195,7 @@ export function segmentBeats(
       for (let i = 0; i + 1 < merged.length; i++) {
         const a = merged[i]!;
         const b = merged[i + 1]!;
-        if (isCutBeat(a) || isCutBeat(b)) continue;
-        if (sameWindowOnly && a.window_cls !== b.window_cls) continue;
+        if (sameWindowOnly && (isCutBeat(a) || isCutBeat(b) || a.window_cls !== b.window_cls)) continue;
         const d = b.t1 - a.t0;
         if (d < bd) {
           bd = d;
@@ -211,7 +204,6 @@ export function segmentBeats(
       }
       if (bi >= 0) break;
     }
-    if (bi < 0) break; // only cut beats left; leave them
     const a = merged[bi]!;
     const b = merged[bi + 1]!;
     a.actions.push(...b.actions);
@@ -227,14 +219,17 @@ export function segmentBeats(
     window_cls: r.window_cls,
     actions: r.actions,
     zones: [],
-    kind: r.actions.length === 0 ? "idle" : isCutBeat(r) ? "cut" : dominantKind(r.actions),
+    kind: r.actions.length === 0 ? "idle" : r.actions.some((a) => a.k === "cut") ? "cut" : dominantKind(r.actions),
   }));
 
   // result attachment: change regions of area_frac >= RESULT_MIN_AREA beginning
   // within RESULT_AFTER_MS after the beat's last action, even far away
-  for (const b of beats) {
+  for (let i = 0; i < beats.length; i++) {
+    const b = beats[i]!;
     if (b.kind === "idle" || b.kind === "cut") continue;
-    b.results = attachedResults(frames, actEnd(b.actions[b.actions.length - 1]!), b.t1 + RESULT_AFTER_MS);
+    const lastAction = actEnd(b.actions[b.actions.length - 1]!);
+    const nextAction = beats.slice(i + 1).flatMap((next) => next.actions).map(actStart).find((t) => t > lastAction);
+    b.results = attachedResults(frames, lastAction, Math.min(lastAction + RESULT_AFTER_MS, nextAction === undefined ? Infinity : nextAction - 1));
     if (b.results.length === 0) delete b.results;
   }
 
@@ -243,29 +238,24 @@ export function segmentBeats(
 
 /** Change regions beginning within [fromT, untilT], area >= RESULT_MIN_AREA, largest first. */
 export function attachedResults(frames: FrameRegions[], fromT: number, untilT: number): Region[] {
-  const out: { r: Region; t: number }[] = [];
+  const out: Region[] = [];
   for (const f of frames) {
     if (f.t < fromT || f.t > untilT) continue;
     for (const r of f.regions) {
-      if (r.area_frac >= RESULT_MIN_AREA) out.push({ r, t: f.t });
+      if (r.area_frac >= RESULT_MIN_AREA) out.push(r);
     }
   }
-  return out.sort((a, b) => b.r.area_frac - a.r.area_frac).map((x) => x.r);
+  return out.sort((a, b) => b.area_frac - a.area_frac);
 }
 
 /** The largest attached result region's bbox, or null. */
 export function resultBBox(beat: Beat): BBox | null {
-  return beat.results?.reduce<Region | null>((best, r) => !best || r.area_frac > best.area_frac ? r : best, null)?.bbox ?? null;
+  return beat.results?.[0]?.bbox ?? null;
 }
 
-/** The first-change time of the beat's attached results, or null. */
+/** The first-change time of the largest attached result region, or null. */
 export function resultTime(beat: Beat, frames: FrameRegions[]): number | null {
-  const rs = beat.results;
-  if (!rs || rs.length === 0) return null;
-  const lastEnd = beat.actions.length > 0 ? actEnd(beat.actions[beat.actions.length - 1]!) : beat.t1;
-  for (const f of frames) {
-    if (f.t < lastEnd || f.t > beat.t1 + RESULT_AFTER_MS) continue;
-    if (f.regions.some((r) => rs.includes(r))) return f.t;
-  }
-  return null;
+  const largest = beat.results?.[0];
+  if (!largest) return null;
+  return frames.find((f) => f.regions.includes(largest))?.t ?? null;
 }

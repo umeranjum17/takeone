@@ -102,6 +102,8 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
     stream: take.stream,
     pointer: take.pointer ?? "hyprland",
   });
+  actions.push(...frames.filter((f) => f.cut).map((f) => ({ k: "cut" as const, t: f.t, changed_frac: f.changed_frac })));
+  actions.sort((a, b) => ("t" in a ? a.t : a.t0) - ("t" in b ? b.t : b.t0));
 
   const analysisDir = join(dir, "analysis");
   mkdirSync(analysisDir, { recursive: true });
@@ -153,6 +155,9 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
   if (key) {
     const minutes = Math.max(takeMs / 60000, 1 / 60);
     const maxTokens = opts.maxTokens ?? Math.ceil(DEFAULT_TOKENS_PER_MIN * minutes);
+    if (!Number.isSafeInteger(maxTokens) || maxTokens <= 0) {
+      throw new PreflightRefusal("--max-tokens must be a positive integer");
+    }
     const ctxs = beats.map((b, i) => ({
       about: opts.about,
       currentShot: shotDescription(beats[i - 1] ?? null, heuristics[i - 1] ?? null, i > 0 ? winFor(beats[i - 1]!.anchor_t)?.rect ?? null : null, take.stream),
@@ -181,7 +186,9 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
     }));
     const outcomes: ({ response: unknown; inputTokens?: number } | "failed")[] = new Array(beats.length);
     await pooled(jobs, CONCURRENCY, async (j) => {
-      const r = await askBeat(j.body, key, cache, { fetchImpl: opts.fetchImpl });
+      const r = await askBeat(j.body, key, cache, { fetchImpl: opts.fetchImpl,
+        usable: (response) => mapJevResponse(beats[j.i]!, response, { viewport: null, winRect: winFor(beats[j.i]!.anchor_t)?.rect ?? null, stream: take.stream, about: opts.about }) !== null,
+      });
       if (r.decisionSource === "failed") {
         outcomes[j.i] = "failed";
       } else {
@@ -221,7 +228,9 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
     if (reask.length > 0) {
       const outcomes2: ({ response: unknown; inputTokens?: number } | "failed")[] = new Array(reask.length);
       await pooled(reask, CONCURRENCY, async (j) => {
-        const r = await askBeat(j.body, key, cache, { fetchImpl: opts.fetchImpl });
+        const r = await askBeat(j.body, key, cache, { fetchImpl: opts.fetchImpl,
+          usable: (response) => mapJevResponse(beats[j.i]!, response, { viewport: null, winRect: winFor(beats[j.i]!.anchor_t)?.rect ?? null, stream: take.stream, about: opts.about }) !== null,
+        });
         outcomes2[reask.indexOf(j)] = r.decisionSource === "failed" ? "failed" : { response: r.response, inputTokens: r.inputTokens };
       });
       for (let k = 0; k < reask.length; k++) {

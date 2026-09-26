@@ -95,6 +95,24 @@ test("hard cap: beats per minute never exceed 30", () => {
   assert.ok(beats.length <= MAX_BEATS_PER_MIN, `expected <= 30 beats/min, got ${beats.length}`);
 });
 
+test("hard cap merges cut-only takes while retaining cut kind", () => {
+  const cuts: Action[] = Array.from({ length: 35 }, (_, i) => ({ k: "cut", t: 500 + i * 1600, changed_frac: 0.6 }));
+  const beats = segmentBeats(cuts, [], opts());
+  assert.equal(beats.length, 30);
+  assert.ok(beats.every((b) => b.kind === "cut"));
+  assert.equal(beats.flatMap((b) => b.actions).filter((a) => a.k === "cut").length, 35);
+});
+
+test("a later action owns its result instead of the preceding beat", () => {
+  const region: Region = { bbox: [0, 0, 40, 40], area_frac: 0.08 };
+  const frames: FrameRegions[] = [{ t: 2400, cut: false, changed_frac: 0.08, regions: [region] }];
+  const beats = segmentBeats([typeAct(0, 1000), { k: "cut", t: 2200, changed_frac: 0.7 }, click(2300, 150, 100)], frames, opts());
+  const first = beats.find((b) => b.actions.some((a) => a.k === "type"))!;
+  const second = beats.find((b) => b.actions.some((a) => a.k === "click"))!;
+  assert.ok(!first.results?.includes(region));
+  assert.ok(second.results?.includes(region));
+});
+
 test("result attachment: region of area >= 0.005 within 1.5 s after the last action", () => {
   const frames = framesWith(1300, [0, 60, 60, 60]); // 3600/19200 = 0.1875 area
   const beats = segmentBeats([win, click(500, 20, 20), click(1200, 30, 30)], frames, opts());

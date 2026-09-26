@@ -42,23 +42,21 @@ export function actionsFromEvents(
   let win: { cls: string; rect: BBox } | null = null;
   let lastClick: { t: number; x: number; y: number; cls: string } | null = null;
   const used = new Set<number>();
-  const windowAt = (t: number): { cls: string; rect: BBox } | null => {
-    let found: { cls: string; rect: BBox } | null = null;
-    for (const e of events) {
-      if (e.t > t) break;
-      if (e.k === "win") found = { cls: e.cls, rect: e.rect };
-    }
-    return found;
-  };
+  const heldIntervals: [number, number][] = [];
+  const buttonTimes: number[] = [];
+  const ups = new Map<number, number>();
+  const pending = new Map<string, number>();
 
   const pointerAt = (t: number): [number, number] | null => {
     // last ptr sample at or before t
-    let best: PtrSample | null = null;
-    for (const s of ptr) {
-      if (s.t <= t) best = s;
-      else break;
+    let lo = 0;
+    let hi = ptr.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >>> 1;
+      if (ptr[mid]!.t <= t) lo = mid + 1;
+      else hi = mid;
     }
-    return best ? [best.x, best.y] : null;
+    return lo ? [ptr[lo - 1]!.x, ptr[lo - 1]!.y] : null;
   };
 
   const regionCentroidNear = (t: number): [number, number] | null => {
@@ -79,31 +77,40 @@ export function actionsFromEvents(
   const frameDiag = Math.hypot(opts.stream.w, opts.stream.h);
 
   // pass 1: window focus actions and pointer sample collection
-  for (const e of events) {
+  const held = new Set<string>();
+  let holdStart = 0;
+  for (const [index, e] of events.entries()) {
     if (e.k === "ptr") ptr.push({ t: e.t, x: e.x, y: e.y });
     else if (e.k === "win") {
       if (!win || win.cls !== e.cls) {
         acts.push({ k: "focus", t: e.t, cls: e.cls, rect: e.rect });
       }
       win = { cls: e.cls, rect: e.rect };
+    } else if (e.k === "btn") {
+      buttonTimes.push(e.t);
+      if (e.down) {
+        if (held.size === 0) holdStart = e.t;
+        held.add(e.b);
+        if (!pending.has(e.b)) pending.set(e.b, index);
+      } else if (held.has(e.b)) {
+        held.delete(e.b);
+        const down = pending.get(e.b);
+        if (down !== undefined) ups.set(down, index);
+        pending.delete(e.b);
+        if (held.size === 0) heldIntervals.push([holdStart, e.t]);
+      }
     }
   }
+  if (held.size > 0) heldIntervals.push([holdStart, Infinity]);
 
   // pass 2: pointer motions — dwell and travel (needs a pointer source)
   if (opts.pointer !== "none") {
     // dwell: consecutive samples within DWELL_MAX_PX of the anchor for >= DWELL_MIN_MS, no button held
     let i = 0;
-    // ponytail: O(ptr x events) rescan per dwell candidate; fine for minutes-long takes
+    let intervalIndex = 0;
     const btnHeld = (t0: number, t1: number): boolean => {
-      const held = new Set<string>();
-      for (const e of events) {
-        if (e.k !== "btn") continue;
-        if (e.t > t1) break;
-        if (e.t >= t0 && (held.size > 0 || e.down)) return true;
-        if (e.down) held.add(e.b);
-        else held.delete(e.b);
-      }
-      return held.size > 0;
+      while (intervalIndex < heldIntervals.length && heldIntervals[intervalIndex]![1] < t0) intervalIndex++;
+      return intervalIndex < heldIntervals.length && heldIntervals[intervalIndex]![0] <= t1;
     };
     while (i < ptr.length) {
       const anchor = ptr[i]!;
@@ -121,6 +128,7 @@ export function actionsFromEvents(
       i = Math.max(j - 1, i + 1);
     }
     // travel: cumulative path over a 1 s window > 25% of the diagonal, no click inside
+    let buttonIndex = 0;
     for (let a = 0; a < ptr.length; a++) {
       const start = ptr[a]!;
       let len = 0;
@@ -131,9 +139,8 @@ export function actionsFromEvents(
       }
       if (len > frameDiag * TRAVEL_FRAC && b - a >= 2) {
         const end = ptr[b - 1]!;
-        const hasClick = events.some(
-          (e) => e.k === "btn" && e.t >= start.t && e.t <= end.t,
-        );
+        while (buttonIndex < buttonTimes.length && buttonTimes[buttonIndex]! < start.t) buttonIndex++;
+        const hasClick = buttonIndex < buttonTimes.length && buttonTimes[buttonIndex]! <= end.t;
         if (!hasClick) {
           const xs = ptr.slice(a, b).map((s) => s.x);
           const ys = ptr.slice(a, b).map((s) => s.y);
@@ -152,22 +159,16 @@ export function actionsFromEvents(
   }
 
   // pass 3: buttons -> click/drag, wheel -> scroll, keys -> type/shortcut
+  let atWin: { cls: string; rect: BBox } | null = null;
   for (let i = 0; i < events.length; i++) {
     if (used.has(i)) continue;
     const e = events[i]!;
-    const atWin = windowAt(e.t);
+    if (e.k === "win") atWin = { cls: e.cls, rect: e.rect };
     if (e.k === "btn") {
       if (!e.down) continue;
-      // find the matching up
-      let up: { t: number } | null = null;
-      for (let j = i + 1; j < events.length; j++) {
-        const u = events[j]!;
-        if (u.k === "btn" && u.b === e.b && !u.down) {
-          up = { t: u.t };
-          used.add(j);
-          break;
-        }
-      }
+      const upIndex = ups.get(i);
+      const up = upIndex === undefined ? null : { t: events[upIndex]!.t };
+      if (upIndex !== undefined) used.add(upIndex);
       const p0 = pointerAt(e.t) ?? (opts.pointer === "none" ? regionCentroidNear(e.t) : null);
       if (!p0) continue;
       if (!up) {
@@ -225,8 +226,8 @@ export function actionsFromEvents(
       while (j < events.length) {
         const w2 = events[j]!;
         if (w2.k === "win" && w2.cls !== atWin?.cls) break;
+        if (j > i && w2.t - lastT >= SCROLL_GAP_MS) break;
         if (w2.k === "wheel") {
-          if (j > i && w2.t - lastT >= SCROLL_GAP_MS) break;
           dx += w2.dx;
           dy += w2.dy;
           detents++;
@@ -259,9 +260,9 @@ export function actionsFromEvents(
       while (j < events.length) {
         const nx = events[j]!;
         if (nx.k === "win" && nx.cls !== atWin?.cls) break;
+        if (nx.t - lastT >= TYPE_GAP_MS) break;
         if (nx.k === "key" && nx.down && (nx.combo || !TYPE_CLASSES.has(nx.cls))) break;
         if (nx.k === "key" && nx.down && TYPE_CLASSES.has(nx.cls)) {
-          if (nx.t - lastT >= TYPE_GAP_MS) break;
           lastT = nx.t;
           used.add(j);
         }

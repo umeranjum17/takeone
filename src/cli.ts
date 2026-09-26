@@ -59,6 +59,10 @@ export async function main(argv: string[]): Promise<number> {
     return 2;
   }
   const a = parseArgs(rest);
+  if (a.maxTokens !== undefined && (!Number.isSafeInteger(a.maxTokens) || a.maxTokens <= 0)) {
+    console.error("takeone make: --max-tokens must be a positive integer");
+    return 2;
+  }
   if (!a.id) {
     console.error("takeone make: missing take id");
     usage(2);

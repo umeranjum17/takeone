@@ -53,7 +53,7 @@ function heuristicA(beat: Beat): string {
 
 function heuristicB(beat: Beat, A: string): string {
   const res = beat.zones.find((x) => x.kind === "res");
-  if (res && (beat.kind === "click" || beat.kind === "dwell" || beat.kind === "shortcut" || beat.kind === "type")) {
+  if (res && (beat.kind === "click" || beat.kind === "dwell" || beat.kind === "shortcut")) {
     return res.name;
   }
   return A;

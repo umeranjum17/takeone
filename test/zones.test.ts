@@ -69,6 +69,18 @@ test("result zone uses only the largest attached region", () => {
   assert.deepEqual(zones.find((z) => z.kind === "res")?.bbox, [0, 90, 40, 20]);
 });
 
+test("result activity time belongs to its largest region", () => {
+  const small: Region = { bbox: [140, 0, 20, 20], area_frac: 0.01 };
+  const large: Region = { bbox: [0, 90, 40, 20], area_frac: 0.1 };
+  const b = beatOf([{ k: "click", t: 500, x: 90, y: 40, window_cls: "chromium" }], [large, small]);
+  const changed: FrameRegions[] = [
+    { t: 600, changed_frac: 0.01, cut: false, regions: [small] },
+    { t: 1300, changed_frac: 0.1, cut: false, regions: [large] },
+  ];
+  const res = zonesForBeat(b, { ...base, frames: changed, winRect: null }).find((z) => z.kind === "res");
+  assert.equal(res?.t, 1300);
+});
+
 test("win zone is skipped when the window covers more than 90% of the screen", () => {
   const b = beatOf([{ k: "click", t: 500, x: 80, y: 60, window_cls: "chromium" }]);
   const zones = zonesForBeat(b, { ...base, winRect: [0, 0, STREAM.w, STREAM.h] });

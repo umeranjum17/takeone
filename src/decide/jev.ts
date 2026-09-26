@@ -140,16 +140,18 @@ export async function askBeat(
   body: string,
   key: string | null,
   cache: DecisionCache,
-  o: { fetchImpl?: typeof fetch } = {},
+  o: { fetchImpl?: typeof fetch; usable?: (response: unknown) => boolean } = {},
 ): Promise<AskOutcome> {
   const hit = cache.get(body);
-  if (hit) return { decisionSource: "cache", response: hit.response };
+  if (hit && (!o.usable || o.usable(hit.response))) return { decisionSource: "cache", response: hit.response };
   if (!key) return { decisionSource: "failed" };
   const r = await callJev(body, key, o);
   if (!r.ok || r.response === undefined) return { decisionSource: "failed" };
-  try {
-    cache.put(body, r.response);
-  } catch {}
+  if (!o.usable || o.usable(r.response)) {
+    try {
+      cache.put(body, r.response);
+    } catch {}
+  }
   return { decisionSource: "api", response: r.response, inputTokens: r.inputTokens };
 }
 

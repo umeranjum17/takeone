@@ -8,6 +8,7 @@ import { mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync } from "no
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { makeTake, PreflightRefusal } from "../src/make.ts";
+import { main } from "../src/cli.ts";
 import type { Beat, Decision, JevAnswers, TakeMeta } from "../src/types.ts";
 import { STREAM } from "./helpers.ts";
 
@@ -65,6 +66,20 @@ function jevAnswers(): unknown {
   return { answers, usage: { input_tokens: 800 } };
 }
 
+test("CLI rejects malformed --max-tokens values", async () => {
+  const error = console.error;
+  const messages: string[] = [];
+  console.error = (s: string) => { messages.push(s); };
+  try {
+    for (const value of ["banana", "Infinity", "0"]) {
+      assert.equal(await main(["make", "missing", "--max-tokens", value]), 2);
+      assert.match(messages.at(-1)!, /positive integer/);
+    }
+  } finally {
+    console.error = error;
+  }
+});
+
 test("make --no-jev writes analysis files and heuristic decisions", async () => {
   const dir = newTake();
   try {
@@ -94,13 +109,37 @@ test("make --no-jev writes analysis files and heuristic decisions", async () => 
   }
 });
 
+test("perceived cuts enter actions and start cut beats", async () => {
+  const dir = newTake();
+  try {
+    execFileSync("ffmpeg", [
+      "-nostdin", "-f", "lavfi", "-i", "color=c=black:s=320x180:d=5:r=30",
+      "-f", "lavfi", "-i", "color=c=white:s=320x180:d=5:r=30",
+      "-filter_complex", "[0:v][1:v]concat=n=2:v=1:a=0", "-c:v", "libvpx-vp9", "-y", join(dir, "screen.webm"),
+    ], { stdio: "ignore" });
+    const r = await makeTake(dir, { noJev: true, log: () => {}, warn: () => {} });
+    const cuts = r.beats.filter((b) => b.kind === "cut");
+    assert.ok(cuts.length > 0);
+    assert.ok(cuts.some((b) => b.actions.some((a) => a.k === "cut")));
+    const saved = JSON.parse(readFileSync(join(dir, "analysis", "actions.json"), "utf8"));
+    assert.ok(saved.actions.some((a: { k: string }) => a.k === "cut"));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("make with a key decides via Jev and accounts usage; cache hit costs zero calls", async () => {
   const dir = newTake();
   try {
     let calls = 0;
-    const fake = (async () => {
+    const fake = (async (_url: string | URL | Request, init?: RequestInit) => {
       calls++;
-      return new Response(JSON.stringify(jevAnswers()), { status: 200 });
+      const names = Object.keys(JSON.parse(String(init?.body)).state.zones);
+      const probabilities = Object.fromEntries(names.map((name, i) => [name, i === 0 ? 1 : 0]));
+      const answer = jevAnswers() as { answers: JevAnswers; usage: { input_tokens: number } };
+      answer.answers.focus_start = { choice: names[0], probabilities, confidence: 1 };
+      answer.answers.focus_end = { choice: names[0], probabilities, confidence: 1 };
+      return new Response(JSON.stringify(answer), { status: 200 });
     }) as typeof fetch;
     const r1 = await makeTake(dir, { apiKey: KEY, fetchImpl: fake, log: () => {}, warn: () => {} });
     assert.ok(calls >= 2, `expected jev calls, got ${calls}`);
@@ -172,6 +211,37 @@ test("every Jev failure mode falls back to the heuristic and counts as failed", 
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  }
+});
+
+test("malformed Jev answers are not cached across runs", async () => {
+  const dir = newTake();
+  try {
+    let calls = 0;
+    const fake = (async () => {
+      calls++;
+      return new Response(JSON.stringify(calls <= 10 ? { answers: { focus_start: { choice: "bad" } } } : jevAnswers()), { status: 200 });
+    }) as typeof fetch;
+    const first = await makeTake(dir, { apiKey: KEY, fetchImpl: fake, log: () => {}, warn: () => {} });
+    assert.ok(first.decisions.every((d) => d.decided_by === "heuristic"));
+    const before = calls;
+    await makeTake(dir, { apiKey: KEY, fetchImpl: fake, log: () => {}, warn: () => {} });
+    assert.ok(calls > before);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("invalid caps refuse before any Jev call", async () => {
+  const dir = newTake();
+  try {
+    let calls = 0;
+    for (const maxTokens of [NaN, Infinity, 0, -1]) {
+      await assert.rejects(makeTake(dir, { apiKey: KEY, maxTokens, fetchImpl: (async () => { calls++; throw new Error("unexpected"); }) as typeof fetch, log: () => {}, warn: () => {} }), PreflightRefusal);
+    }
+    assert.equal(calls, 0);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
   }
 });
 

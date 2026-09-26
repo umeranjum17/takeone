@@ -104,9 +104,10 @@ test("heuristic policy per beat kind", () => {
   for (const [action, a, b, l] of kindA) {
     const beat = clickBeat(zones);
     beat.actions = [action];
+    beat.kind = action.k;
     const d = heuristicDecision(beat, { viewport: null });
     assert.equal(d.A, a);
-    assert.equal(d.B, b);
+    assert.equal(d.B, action.k === "type" ? d.A : b);
     assert.equal(d.L, l);
     assert.equal(d.decided_by, "heuristic");
     assert.equal(d.K, 1);
@@ -138,6 +139,15 @@ const goodAnswers: JevAnswers = {
   tightness: { probabilities: [0.1, 0.1, 0.7, 0.1], confidence: 0.9 },
   new_subject: { p: 0.9 },
 };
+
+test("typing keeps its text zone even with an attached result", () => {
+  const beat = clickBeat([zone("z1", "txt", [10, 10, 40, 20]), zone("z2", "res", [100, 90, 40, 20])]);
+  beat.kind = "type";
+  beat.actions = [{ k: "type", t0: 500, t1: 1400, window_cls: "chromium", region: [10, 10, 40, 20] }];
+  const d = heuristicDecision(beat, { viewport: null });
+  assert.equal(d.A, "z1");
+  assert.equal(d.B, "z1");
+});
 
 test("mapAnswers maps focus_start/end to A/B and tightness argmax to L", () => {
   const zones = [zone("z1", "act", [60, 32, 80, 56]), zone("z2", "res", [0, 90, 100, 30], "a region that changed after the action")];
