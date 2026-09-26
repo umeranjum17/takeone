@@ -206,11 +206,11 @@ export async function runRecord(options: RecordOptions = {}): Promise<RecordResu
     throw error;
   } finally {
     try {
-      await rm(join(stateDirPath, "recording.pid"), { force: true }).catch(() => undefined);
       if (taps !== null) await taps.stop().catch(() => undefined);
       if (capture !== null) await capture.stop().catch(() => undefined);
       if (discardTake) await rm(takeDir, { recursive: true, force: true });
     } finally {
+      await rm(join(stateDirPath, "recording.pid"), { force: true }).catch(() => undefined);
       process.off("SIGINT", onStop);
       process.off("SIGTERM", onStop);
     }
