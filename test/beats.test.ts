@@ -90,6 +90,30 @@ test("cut settling follows quiet frames rather than a fixed tail", () => {
   assert.deepEqual(beats.map((b) => [b.kind, b.t0, b.t1]), [["cut", 1000, 2000], ["idle", 2000, 10000], ["click", 10000, 10000]]);
 });
 
+test("cuts close every spanning action before results can cross the boundary", () => {
+  const region: Region = { bbox: [10, 10, 60, 50], area_frac: 0.1 };
+  const frames: FrameRegions[] = [
+    { t: 2000, changed_frac: 0.6, cut: true, regions: [] },
+    { t: 2100, changed_frac: 0.01, cut: false, regions: [region] },
+    ...[2200, 2300, 2400].map((t) => ({ t, changed_frac: 0.01, cut: false, regions: [] })),
+  ];
+  const spanning: Action[] = [
+    typeAct(0, 4000),
+    { k: "dwell", t0: 0, t1: 4000, x: 20, y: 20, window_cls: "chromium" },
+    { k: "scroll", t0: 0, t1: 4000, x: 20, y: 20, dx: 0, dy: 2, detents: 2, window_cls: "chromium" },
+    { k: "drag", t0: 0, t1: 4000, from: [10, 10], to: [80, 80], bbox: [10, 10, 70, 70], window_cls: "chromium" },
+    { k: "travel", t0: 0, t1: 4000, from: [10, 10], to: [80, 80], bbox: [10, 10, 70, 70], window_cls: "chromium" },
+  ];
+  for (const action of spanning) {
+    const beats = segmentBeats([action, { k: "cut", t: 2000, changed_frac: 0.6 }], frames, opts());
+    assert.equal(beats[0]!.t1, 2000, action.k);
+    assert.equal("t1" in beats[0]!.actions[0]! ? beats[0]!.actions[0]!.t1 : undefined, 2000, action.k);
+    assert.equal(beats[1]!.kind, "cut", action.k);
+    assert.ok(!beats[0]!.results?.includes(region), action.k);
+    assert.equal("t1" in action ? action.t1 : undefined, 4000, action.k);
+  }
+});
+
 test("trim boundaries and an all-idle take produce idle beats", () => {
   const bounds = { ...opts(), startMs: 2000, endMs: 10000 };
   assert.deepEqual(segmentBeats([], [], bounds).map((b) => [b.kind, b.t0, b.t1]), [["idle", 2000, 10000]]);

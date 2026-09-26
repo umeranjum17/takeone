@@ -108,6 +108,11 @@ export function segmentBeats(
       (nextAct.done || cuts[nextCut]!.t <= actStart(nextAct.value));
     if (useCut) {
       const c = cuts[nextCut++]!;
+      for (const r of raws) {
+        if (r.t0 >= c.t || r.t1 <= c.t) continue;
+        r.t1 = c.t;
+        r.actions = r.actions.map((a) => "t1" in a && a.t1 > c.t ? { ...a, t1: c.t } : a);
+      }
       appendIdle(c.t);
       activeWindow = c.window_cls ?? activeWindow;
       cur = {
@@ -242,7 +247,7 @@ export function segmentBeats(
     const b = beats[i]!;
     if (b.kind === "idle" || b.kind === "cut") continue;
     const lastAction = actEnd(b.actions[b.actions.length - 1]!);
-    const nextAction = beats.slice(i + 1).flatMap((next) => next.actions).map(actStart).find((t) => t > lastAction);
+    const nextAction = beats.slice(i + 1).flatMap((next) => next.actions).map(actStart).find((t) => t >= lastAction);
     b.results = attachedResults(frames, lastAction, Math.min(lastAction + RESULT_AFTER_MS, nextAction === undefined ? Infinity : nextAction - 1));
     if (b.results.length === 0) delete b.results;
   }

@@ -90,9 +90,16 @@ export function redactWords(tsv: string): string | null {
       const previous = words[j - 1]!;
       const next = words[j]!;
       const gap = next.left - previous.right;
-      if (next.line !== previous.line || previous.right <= previous.left || next.right <= next.left || previous.height <= 0 || next.height <= 0 || !Number.isFinite(gap) || gap < -2 || gap > Math.max(2, Math.min(previous.height, next.height) / 8) || !/^[A-Za-z0-9]+$/.test(next.text) || (!/\d/.test(combined) && !/\d/.test(next.text)) || (j > i + 1 && !/\d/.test(next.text))) break;
+      if (next.line !== previous.line || previous.right <= previous.left || next.right <= next.left || previous.height <= 0 || next.height <= 0 || !Number.isFinite(gap) || gap < -2 || gap > Math.max(2, Math.min(previous.height, next.height) / 8) || !/^[A-Za-z0-9]+$/.test(next.text)) break;
       combined += next.text;
-      if (/^\d{6,}$/.test(combined) || (combined.length >= 20 && /[A-Za-z]/.test(combined) && /\d/.test(combined))) {
+      const parts = words.slice(i, j + 1).map((word) => word.text);
+      const numeric = /^\d{6,}$/.test(combined);
+      const mixed = combined.length >= 20 && /[A-Za-z]/.test(combined) && /\d/.test(combined) && (
+        parts.every((part) => /\d/.test(part)) ||
+        (parts.length === 2 && parts.some((part) => /\d/.test(part)) && parts.every((part) => /\d/.test(part) || /^[A-Za-z]{8,}$/.test(part))) ||
+        (parts.filter((part) => /^\d{5,}$/.test(part)).length === 1 && parts.every((part) => /^\d{5,}$/.test(part) || /^[A-Za-z]{8,}$/.test(part)))
+      );
+      if (numeric || mixed) {
         words.splice(i, j - i + 1, { ...words[i]!, text: "[redacted]" });
         break;
       }
