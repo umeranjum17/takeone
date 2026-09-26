@@ -275,6 +275,27 @@ test("trimmed beats and targets cannot steer visible frames", () => {
     solveCamera([withoutIdleTarget], [decision(idle)], { ...take, trim_end: 11 }));
 });
 
+test("FOLLOW ignores a drag whose shot arrives after trim", () => {
+  const take = { width: 3840, height: 2160, trim_start: 10, trim_end: 11 };
+  const first = beat("first", 10.2, 300);
+  first.t0 = 9.7;
+  first.t1 = 11;
+  const late = beat("late-drag", 11.4, 300, "drag");
+  late.t0 = 10.5;
+  late.t1 = 12.4;
+  late.actions = [{ k: "ptr", t: 10500, x: 3840, y: 1080 }];
+  assert.deepEqual(solveCamera([first, late], [decision(first), decision(late)], take),
+    solveCamera([first], [decision(first)], take));
+
+  const active = beat("active-drag", 10.4, 300, "drag");
+  active.t0 = 10.2;
+  active.t1 = 11;
+  active.actions = [{ k: "ptr", t: 10200, x: 3840, y: 1080 }];
+  const withoutPointer = { ...active, actions: [] };
+  assert.notDeepEqual(solveCamera([active], [decision(active)], take),
+    solveCamera([withoutPointer], [decision(withoutPointer)], take));
+});
+
 test("frame samples have smooth log zoom and fixed aspect", () => {
   const first = beat("first", 1, 2800);
   const second = beat("second", 3, 500, "type");

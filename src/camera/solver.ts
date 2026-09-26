@@ -490,7 +490,7 @@ export function solveCamera(
   const visibleBeats = beats.filter((beat) => beat.t1 > start && beat.t0 < end);
   const shots = buildShots(beats, decisions, start, d)
     .filter((shot) => visibleBeats.includes(shot.beat));
-  const quietShots = applyDwellAndShotLength(shots, d);
+  const quietShots = applyDwellAndShotLength(shots, d).filter((shot) => shot.arrival < end);
   const targets = applyMoveRateLimit(buildTargets(quietShots, visibleBeats, width, height, start, end, d), width, height, d);
-  return sampleCamera(targets, visibleBeats, decisionMap, width, height, start, end, d);
+  return sampleCamera(targets, quietShots.map((shot) => shot.beat), decisionMap, width, height, start, end, d);
 }
