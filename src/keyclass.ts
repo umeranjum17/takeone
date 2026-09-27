@@ -98,9 +98,9 @@ export function keyInfoFor(code: number): KeyInfo {
   if (code >= 2 && code <= 11) return { cls: "char", name: String(code === 11 ? 0 : code - 1) };
   const punct = PUNCT_NAMES[code];
   if (punct !== undefined) return { cls: "char", name: punct };
-  // Anything else (international, media, keyboard-attach): content-bearing
-  // keys classify as char; the class carries no character itself.
-  return { cls: "char", name: `Key${code}` };
+  if ((code >= 2 && code <= 111) || [117, 118, 121, 124, 179, 180].includes(code))
+    return { cls: "char", name: `Key${code}` };
+  return { cls: "fn" };
 }
 
 /** Modifiers that make a key press a shortcut (Shift alone does not). */
