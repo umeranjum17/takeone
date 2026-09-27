@@ -270,7 +270,7 @@ export async function startTaps(options: TapOptions): Promise<TapHandle> {
         } else if (record.type === EV_KEY && (record.value === 1 || record.value === 0)) {
           const down = record.value === 1;
           const t = nowMs();
-          if (record.code >= 0x100) {
+          if (record.code >= 0x100 && record.code < 0x160) {
             const name = BUTTON_NAMES[record.code] ?? `btn${record.code}`;
             emitInput({ t, k: "btn", b: name, down });
           } else {

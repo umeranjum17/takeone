@@ -156,6 +156,33 @@ test("shortcuts retain modifiers across keyboards and both physical Ctrl keys", 
   }
 });
 
+test("media keys stay key events, not clicks or typing", async () => {
+  const base = await mkdtemp(join(tmpdir(), "takeone-media-"));
+  const deviceDir = join(base, "devices");
+  await mkdir(deviceDir);
+  const key = (code: number): Buffer => {
+    const record = Buffer.alloc(24);
+    record.writeUInt16LE(EV_KEY, 16);
+    record.writeUInt16LE(code, 18);
+    record.writeInt32LE(1, 20);
+    return record;
+  };
+  await writeFile(join(deviceDir, "fake-event-kbd"), Buffer.concat([key(115), key(164), key(0x164), key(31)]));
+  await writeFile(join(deviceDir, "fake-event-mouse"), key(0x110));
+  try {
+    const eventsPath = join(base, "events.jsonl");
+    const taps = await startTaps({ eventsPath, t0ns: process.hrtime.bigint(), deviceDir, evdevPollHz: 200 });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    await taps.confirmConsent();
+    await taps.stop();
+    const events = (await readFile(eventsPath, "utf8")).trim().split("\n").map((line) => JSON.parse(line));
+    assert.deepEqual(events.filter((event) => event.k === "key").map((event) => event.cls).sort(), ["char", "fn", "fn", "fn"]);
+    assert.deepEqual(events.filter((event) => event.k === "btn").map((event) => event.b), ["left"]);
+  } finally {
+    await rm(base, { recursive: true, force: true });
+  }
+});
+
 test("an evdev device lost mid-recording fails completion", async () => {
   const base = await mkdtemp(join(tmpdir(), "takeone-device-loss-"));
   const deviceDir = join(base, "devices");

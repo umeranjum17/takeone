@@ -76,6 +76,18 @@ test("nav, space, enter, tab, esc, backspace and fn classes are stable", () => {
   }
 });
 
+test("media keys never become text or shortcuts, including with Ctrl held", () => {
+  for (const code of [113, 114, 115, 163, 164, 165, 224, 225, 0x164, 0x1b7]) {
+    for (const held of [NO_MODS, CTRL]) {
+      const { record } = classifyKeyEvent(code, true, held);
+      assert.equal(record.cls, "fn", `code ${code}`);
+      assert.equal(record.combo, undefined, `code ${code}`);
+    }
+  }
+  assert.equal(classifyKeyEvent(117, true, NO_MODS).record.cls, "char");
+  assert.equal(classifyKeyEvent(86, true, NO_MODS).record.cls, "char");
+});
+
 test("key up events never carry a combo", () => {
   const { record } = classifyKeyEvent(31, false, CTRL);
   assert.equal(record.combo, undefined);
