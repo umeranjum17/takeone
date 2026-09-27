@@ -16,9 +16,12 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
+import { installChildProcessCleanup } from "./child-process-cleanup.js";
 import { startCapture, RecordError } from "../session.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
+
+installChildProcessCleanup();
 
 const ENGINE = {
   command: process.execPath,
