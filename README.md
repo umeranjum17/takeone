@@ -41,7 +41,9 @@ Input sources are read passively, never grabbed. If evdev mouse or keyboard devi
 - clicks, wheel and key *classes* from `/dev/input/by-id/*-event-{mouse,kbd}`,
   opened non-blocking and polled. Key records are classes only
   (`char|space|enter|backspace|tab|esc|nav|mod|fn`) plus a shortcut name like
-  `Ctrl+S` when a non-Shift modifier is held. **Characters are never recorded.**
+  `Ctrl+S` when a non-Shift modifier is held. F13–F24 retain named shortcuts;
+  media keys are classified as `fn` without shortcut names, so they do not
+  create typing actions. **Typed characters are never recorded.**
 
 ## Commands
 
