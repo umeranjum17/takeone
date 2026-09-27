@@ -69,7 +69,9 @@ const fnName = (code: number): string | undefined =>
       ? "F11"
       : code === 88
         ? "F12"
-        : undefined;
+        : code >= 183 && code <= 194
+          ? `F${code - 170}`
+          : undefined;
 
 export interface KeyInfo {
   cls: KeyClass;

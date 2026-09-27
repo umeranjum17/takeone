@@ -18,6 +18,17 @@ function btn(down: boolean, t: number): Event {
   return { t, k: "btn", b: "left", down };
 }
 
+test("extended function keys create named shortcuts, not typing beats", () => {
+  const held = { has: (name: string): boolean => name === "Ctrl" };
+  const events: Event[] = [183, 194].map((code, index) => ({
+    t: index * 100,
+    ...classifyKeyEvent(code, true, held).record,
+  }));
+  assert.deepEqual(actionsFromEvents(events, [], opts()).map((action) => [action.k, action.combo]), [
+    ["shortcut", "Ctrl+F13"], ["shortcut", "Ctrl+F24"],
+  ]);
+});
+
 test("media keys do not create typing or shortcut beats", () => {
   const held = { has: (name: string): boolean => name === "Ctrl" };
   const events: Event[] = [115, 164, 0x164].map((code, index) => ({
