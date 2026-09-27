@@ -13,6 +13,9 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
+import { installChildProcessCleanup } from "./child-process-cleanup.js";
+
+installChildProcessCleanup();
 
 const here = dirname(fileURLToPath(import.meta.url));
 

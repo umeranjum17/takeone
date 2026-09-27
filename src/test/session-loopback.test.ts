@@ -11,10 +11,13 @@ import { dirname, join } from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
+import { installChildProcessCleanup } from "./child-process-cleanup.js";
 import { startCapture } from "../session.js";
 import { MediaRecorder } from "werift/nonstandard";
 
 const here = dirname(fileURLToPath(import.meta.url));
+
+installChildProcessCleanup();
 
 async function tempDirs(): Promise<{ takeDir: string; stateDir: string }> {
   const base = join(tmpdir(), `takeone-loopback-${process.pid}-${Math.random().toString(36).slice(2)}`);
