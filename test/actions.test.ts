@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { actionsFromEvents } from "../src/perceive/actions.ts";
+import { classifyKeyEvent } from "../src/keyclass.ts";
 import { segmentBeats } from "../src/beats/segment.ts";
 import type { Action, Event, FrameRegions } from "../src/types.ts";
 import { STREAM, noopFrames } from "./helpers.ts";
@@ -16,6 +17,15 @@ function ptr(x: number, y: number, t: number): Event {
 function btn(down: boolean, t: number): Event {
   return { t, k: "btn", b: "left", down };
 }
+
+test("media keys do not create typing or shortcut beats", () => {
+  const held = { has: (name: string): boolean => name === "Ctrl" };
+  const events: Event[] = [115, 164, 0x164].map((code, index) => ({
+    t: index * 100,
+    ...classifyKeyEvent(code, true, held).record,
+  }));
+  assert.deepEqual(actionsFromEvents(events, [], opts()), []);
+});
 
 test("no focused window clears focus and later actions have no stale class", () => {
   const acts = actionsFromEvents([
