@@ -88,6 +88,15 @@ test("media keys never become text or shortcuts, including with Ctrl held", () =
   assert.equal(classifyKeyEvent(86, true, NO_MODS).record.cls, "char");
 });
 
+test("F13 through F24 retain named shortcuts without becoming text", () => {
+  for (let code = 183; code <= 194; code++) {
+    const name = `F${code - 170}`;
+    assert.deepEqual(classifyKeyEvent(code, true, NO_MODS).record, { k: "key", cls: "fn", down: true });
+    assert.deepEqual(classifyKeyEvent(code, true, CTRL).record, { k: "key", cls: "fn", down: true, combo: `Ctrl+${name}` });
+    assert.equal(classifyKeyEvent(code, false, CTRL).record.combo, undefined);
+  }
+});
+
 test("key up events never carry a combo", () => {
   const { record } = classifyKeyEvent(31, false, CTRL);
   assert.equal(record.combo, undefined);
