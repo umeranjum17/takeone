@@ -191,6 +191,14 @@ test("beats shorter than 0.8 s merge into the next beat when the window differs"
   assert.equal(alBeats[0]!.t0, 2000);
 });
 
+test("a point-less opener does not disable the spread rule for the whole beat", () => {
+  const drag: Action = { k: "drag", t0: 2600, t1: 3600, from: [20, 20], to: [150, 110], bbox: [20, 20, 130, 90], window_cls: "chromium" };
+  const beats = segmentBeats([typeAct(0, 1000), click(1800, 20, 20), drag], noopFrames(40, 0, 100), opts());
+  // the type opens the beat with no anchor point; the click becomes the anchor
+  // and the drag lands beyond the 0.35-diagonal spread, so it must split off
+  assert.deepEqual(beats.map((b) => b.actions.map((a) => a.k)), [["type", "click"], ["drag"]]);
+});
+
 test("hard cap: beats per minute never exceed 30", () => {
   // 45 rapid clicks at 1.1 s spacing, each beyond the 1.2 s extension? No:
   // 1.1 s spacing is within 1.2 s, so use 1.3 s spacing and spread the anchors

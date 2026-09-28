@@ -369,7 +369,8 @@ function extractAnswers(response: unknown): JevAnswers | null {
       if (entries.length === 0) return undefined;
       const arr: number[] = [];
       for (const [k, n] of entries) arr[Number(k)] = n as number;
-      return arr.length > 0 && arr.every((_, i) => typeof arr[i] === "number") ? arr : undefined;
+      // dense iff length matches: a skipped level leaves a hole and length > count
+      return arr.length === entries.length ? arr : undefined;
     }
     return undefined;
   };

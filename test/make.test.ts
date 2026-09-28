@@ -313,6 +313,32 @@ test("live API shape: object-keyed score probabilities and noul still decide via
   }
 });
 
+test("sparse object-keyed score probabilities fall back to the heuristic", async () => {
+  const dir = newTake();
+  try {
+    const fake = (async (_url: string | URL | Request, init?: RequestInit) => {
+      const names = Object.keys(JSON.parse(String(init?.body)).state.zones);
+      const choiceProbs = Object.fromEntries(names.map((name, i) => [name, i === 0 ? 0.95 : 0.05 / (names.length - 1 || 1)]));
+      const answer = {
+        answers: {
+          focus_start: { choice: names[0], confidence: 0.93, probabilities: choiceProbs },
+          focus_end: { choice: names[0], confidence: 0.93, probabilities: choiceProbs },
+          // level 0 omitted: a sparse score must not silently decide as L=0
+          tightness: { confidence: 0.9, probabilities: { 1: 0.1, 2: 0.2, 3: 0.7 } },
+          new_subject: { noul: 0.27 },
+        },
+        usage: { input_tokens: 500 },
+      };
+      return new Response(JSON.stringify(answer), { status: 200 });
+    }) as typeof fetch;
+    const r = await makeTake(dir, { apiKey: KEY, fetchImpl: fake, log: () => {}, warn: () => {} });
+    assert.ok(r.decisions.every((d) => d.decided_by === "heuristic"));
+    assert.ok(r.jev.failed >= 1);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("single-zone beats use the heuristic without Jev tokens", async () => {
   const dir = newTake();
   try {

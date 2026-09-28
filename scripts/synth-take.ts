@@ -263,7 +263,7 @@ function measureText(s: string): number {
 }
 
 function searchDraws(): Draw[] {
-  const d: Draw[] = [text("Search reports", 424, 138, 26, "0x9aa0a6", { enable: between(SCENE_B, TYPE_T0 - 0.05) })];
+  const d: Draw[] = [text("Search reports", TYPE_X, 138, 26, "0x9aa0a6", { enable: between(SCENE_B, TYPE_T0 - 0.05) })];
   let x = TYPE_X;
   TYPE_TEXT.split("").forEach((ch, k) => {
     d.push(text(ch, Math.round(x), 138, 26, "0x202124", { enable: between(TYPE_T0 + k * TYPE_STEP, DUR) }));
@@ -332,8 +332,10 @@ function renderLayer(draws: Draw[], out: string, size = `${W}x${H}`): void {
 function pathExpr(axis: 1 | 2): string {
   // if(lt(t,t1), lerp(seg0), if(lt(t,t2), lerp(seg1), ... lastValue))
   const lerp = (i: number): string => {
-    const [t0, , a] = PATH[i]!;
-    const [t1, , b] = PATH[i + 1]!;
+    const t0 = PATH[i]![0];
+    const t1 = PATH[i + 1]![0];
+    const a = PATH[i]![axis];
+    const b = PATH[i + 1]![axis];
     return `${a}+${b - a}*clip((t-${t0})/${t1 - t0},0,1)`;
   };
   let expr = String(PATH[PATH.length - 1]![axis]);
