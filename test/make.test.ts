@@ -76,7 +76,7 @@ test("make --no-jev renders the agreed beat/decision files into a 1920x1080 MP4"
     const probe = JSON.parse(execFileSync("ffprobe", ["-v", "error", "-select_streams", "v:0", "-count_frames", "-show_entries", "stream=width,height,nb_read_frames", "-of", "json", output], { encoding: "utf8" }));
     assert.deepEqual([probe.streams[0].width, probe.streams[0].height, Number(probe.streams[0].nb_read_frames)], [1920, 1080, 300]);
     const beats = JSON.parse(readFileSync(join(dir, "analysis", "beats.json"), "utf8"));
-    const decisions = readFileSync(join(dir, "analysis", "decisions.jsonl"), "utf8").trim().split("\n").map(JSON.parse);
+    const decisions = readFileSync(join(dir, "analysis", "decisions.jsonl"), "utf8").trim().split("\n").map((line) => JSON.parse(line));
     assert.ok(Array.isArray(beats));
     assert.equal(beats.length, decisions.length);
     assert.ok(beats.every((b: { t0: number; t1: number; zones: { type: string; t_change?: number }[] }) => b.t0 >= 0 && b.t1 <= 10 && b.zones.every((z) => Boolean(z.type) && (z.t_change === undefined || z.t_change >= b.t0 && z.t_change <= b.t1))));
@@ -89,7 +89,7 @@ test("make renders partly and wholly off-screen windows", async () => {
   const dir = newTake();
   try {
     const eventsPath = join(dir, "events.jsonl");
-    const events = readFileSync(eventsPath, "utf8").trim().split("\n").map(JSON.parse);
+    const events = readFileSync(eventsPath, "utf8").trim().split("\n").map((line) => JSON.parse(line));
     events[0].rect = [-10, 0, 200, 100];
     events.push({ t: 6000, k: "win", cls: "chromium", title: "Outside", rect: [400, 0, 100, 100] });
     events.sort((a, b) => a.t - b.t);
@@ -280,6 +280,34 @@ test("make with a key decides via Jev and accounts usage; cache hit costs zero c
     assert.equal(calls, callsAfterFirst);
     assert.equal(r2.jev.input_tokens, 0);
     assert.deepEqual(r2.decisions.map((d) => d.decided_by), r1.decisions.map((d) => d.decided_by));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("live API shape: object-keyed score probabilities and noul still decide via Jev", async () => {
+  const dir = newTake();
+  try {
+    const fake = (async (_url: string | URL | Request, init?: RequestInit) => {
+      const names = Object.keys(JSON.parse(String(init?.body)).state.zones);
+      const choiceProbs = Object.fromEntries(names.map((name, i) => [name, i === 0 ? 0.95 : 0.05 / (names.length - 1 || 1)]));
+      const answer = {
+        model: "jev-1.13.0",
+        answers: {
+          focus_start: { type: "choice", choice: names[0], confidence: 0.93, probabilities: choiceProbs },
+          focus_end: { type: "choice", choice: names[0], confidence: 0.65, probabilities: choiceProbs },
+          tightness: { type: "score", score: 1.02, confidence: 0, probabilities: { 0: 0.61, 1: 0.01, 2: 0.13, 3: 0.25 } },
+          new_subject: { type: "noul", noul: 0.27 },
+          key_moment: { type: "score", score: 0.01, confidence: 0.99, probabilities: { 0: 1, 1: 0, 2: 0 } },
+        },
+        usage: { input_tokens: 874, output_tokens: 131 },
+      };
+      return new Response(JSON.stringify(answer), { status: 200 });
+    }) as typeof fetch;
+    const r = await makeTake(dir, { apiKey: KEY, fetchImpl: fake, log: () => {}, warn: () => {} });
+    const jevDecisions = r.decisions.filter((d) => d.decided_by === "jev");
+    assert.ok(jevDecisions.length >= 2, `expected jev decisions from the live response shape, got ${jevDecisions.length}`);
+    assert.ok(jevDecisions.every((d) => d.input_tokens === 874));
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

@@ -145,7 +145,7 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
     b.zones = zonesForBeat(b, {
       winRect: win?.rect ?? null,
       stream: take.stream,
-      scale: take.scale,
+      scale: take.scale ?? 1,
       frames: scopedFrames,
     });
     if (opts.screenText) await addScreenText(b, win, webm, videoStartMs);
@@ -359,10 +359,24 @@ function extractAnswers(response: unknown): JevAnswers | null {
           confidence: typeof v["confidence"] === "number" ? (v["confidence"] as number) : undefined,
         }
       : undefined;
+  /** Score probabilities arrive as arrays or as objects keyed by level ("0".."3"). */
+  const asProbs = (v: unknown): number[] | undefined => {
+    if (Array.isArray(v)) return v.every((n) => typeof n === "number") ? (v as number[]) : undefined;
+    if (v && typeof v === "object") {
+      const entries = Object.entries(v as Record<string, unknown>).filter(
+        ([k, n]) => /^\d+$/.test(k) && typeof n === "number",
+      );
+      if (entries.length === 0) return undefined;
+      const arr: number[] = [];
+      for (const [k, n] of entries) arr[Number(k)] = n as number;
+      return arr.length > 0 && arr.every((_, i) => typeof arr[i] === "number") ? arr : undefined;
+    }
+    return undefined;
+  };
   const asScore = (v: Record<string, unknown> | undefined) =>
     v
       ? {
-          probabilities: Array.isArray(v["probabilities"]) ? (v["probabilities"] as number[]) : undefined,
+          probabilities: asProbs(v["probabilities"]),
           confidence: typeof v["confidence"] === "number" ? (v["confidence"] as number) : undefined,
         }
       : undefined;
@@ -376,7 +390,9 @@ function extractAnswers(response: unknown): JevAnswers | null {
         ? { p: ns["p"] as number }
         : ns && ns["probabilities"] !== undefined
           ? { p: noulP(ns) }
-          : undefined,
+          : ns && typeof ns["noul"] === "number"
+            ? { p: ns["noul"] as number }
+            : undefined,
     key_moment: asScore(pick("key_moment")),
   };
 }
@@ -387,6 +403,7 @@ function noulP(v: Record<string, unknown>): number | undefined {
     return probs[1];
   }
   if (typeof v["p"] === "number") return v["p"] as number;
+  if (typeof v["noul"] === "number") return v["noul"] as number;
   return undefined;
 }
 

@@ -29,7 +29,7 @@ function beat(id: string, anchor: number, x: number, kind: Beat["kind"] = "click
 function decision(b: Beat, importance: 0 | 1 | 2 = 1): Decision {
   return {
     beat: b.id,
-    A: b.zones[0].name,
+    A: b.zones[0]!.name,
     L: 3,
     p: 0,
     K: importance,
@@ -48,7 +48,7 @@ function camera(beats: Beat[], decisions: Decision[], end = 8) {
 }
 
 function at(frames: ReturnType<typeof camera>, seconds: number) {
-  return frames[Math.round(seconds * 30)];
+  return frames[Math.round(seconds * 30)]!;
 }
 
 test("framing expands to 16:9 and respects source and upscale clamps", () => {
@@ -62,21 +62,21 @@ test("framing expands to 16:9 and respects source and upscale clamps", () => {
 });
 
 test("whole-screen non-16:9 frames cover the full source while 16:9 framing is unchanged", () => {
-  for (const [width, height] of [[3440, 1440], [1440, 2560]]) {
-    const whole = solveCamera([], [], { width, height, trim_start: 0, trim_end: 1 })[0];
+  for (const [width, height] of [[3440, 1440], [1440, 2560]] as const) {
+    const whole = solveCamera([], [], { width, height, trim_start: 0, trim_end: 1 })[0]!;
     assert.ok(whole.x <= 0 && whole.y <= 0);
     assert.ok(whole.x + whole.w >= width && whole.y + whole.h >= height);
     assert.ok(Math.abs(whole.w / whole.h - 16 / 9) < 1e-9);
     assert.equal(DEFAULTS.out_w, 1920);
     assert.equal(DEFAULTS.out_h, 1080);
   }
-  const wide = solveCamera([], [], { width: 3840, height: 2160, trim_start: 0, trim_end: 1 })[0];
+  const wide = solveCamera([], [], { width: 3840, height: 2160, trim_start: 0, trim_end: 1 })[0]!;
   assert.deepEqual(wide, { t: 0, x: 0, y: 0, w: 3840, h: 2160 });
   const zoomBeat = beat("wide-zoom", 2, 2500);
   const zoomed = solveCamera([zoomBeat], [decision(zoomBeat)], {
     width: 3840, height: 2160, trim_start: 0, trim_end: 4,
   });
-  assert.deepEqual(zoomed[60], {
+  assert.deepEqual(zoomed[60]!, {
     t: 2, x: 1318.7876879530677, y: 412.2611934930576,
     w: 2091.19186034831, h: 1176.2954214459244,
   });
@@ -88,15 +88,15 @@ test("non-16:9 padding eases through zoom and back without a crop jump", () => {
   const frames = solveCamera([zoom, all], [decision(zoom), { ...decision(all), L: 0 }], {
     width: 3440, height: 1440, trim_start: 0, trim_end: 8,
   });
-  assert.ok(Math.abs(frames[0].w / frames[0].h - 16 / 9) < 1e-9);
-  assert.ok(frames[0].x <= 0 && frames[0].x + frames[0].w >= 3440);
+  assert.ok(Math.abs(frames[0]!.w / frames[0]!.h - 16 / 9) < 1e-9);
+  assert.ok(frames[0]!.x <= 0 && frames[0]!.x + frames[0]!.w >= 3440);
   assert.ok(Math.min(...frames.map((f) => f.w)) < 1700);
   const contained = frames.find((f) => f.w <= 3440 && f.h <= 1440)!;
   assert.ok(contained.x >= 0 && contained.y >= 0);
   assert.ok(contained.x + contained.w <= 3440 && contained.y + contained.h <= 1440);
   assert.ok(Math.abs(contained.w / contained.h - 16 / 9) < 1e-9);
   assert.ok(frames.at(-1)!.w > 3400);
-  assert.ok(frames.every((f, i) => !i || Math.abs(f.w - frames[i - 1].w) < 200));
+  assert.ok(frames.every((f, i) => !i || Math.abs(f.w - frames[i - 1]!.w) < 200));
 });
 
 test("move duration clamps and sendcmd emits one crop update per frame", () => {
@@ -110,7 +110,7 @@ test("move duration clamps and sendcmd emits one crop update per frame", () => {
 
 test("deadzone skips framing that already fits with the configured margin", () => {
   const b = beat("wide", 2, 300);
-  b.zones[0].bbox = [200, 500, 3200, 1100];
+  b.zones[0]!.bbox = [200, 500, 3200, 1100];
   const result = camera([b], [decision(b)], 4);
   assert.equal(at(result, 3).w, 3840);
 });
@@ -169,7 +169,7 @@ test("later targets wait until the action shot is visible", () => {
   const idle = beat("idle-widen", 0.5, 2500, "idle");
   idle.t0 = 0;
   idle.t1 = 5;
-  idle.zones[0].bbox = [2100, 600, 1400, 900];
+  idle.zones[0]!.bbox = [2100, 600, 1400, 900];
   assert.deepEqual(at(camera([action, idle], [decision(action), decision(idle)], 5), 1.5),
     at(camera([idle], [decision(idle)], 5), 1.5));
 });
@@ -220,7 +220,7 @@ test("timestamped pointer actions follow interpolation, not the final position e
   const drag = beat("drag", 2, 1900, "drag");
   drag.t0 = 1;
   drag.t1 = 5;
-  drag.zones[0] = zone("drag", [1700, 900, 400, 200]);
+  drag.zones[0]! = zone("drag", [1700, 900, 400, 200]);
   drag.actions = [{ t: 1000, x: 0, y: 1080 }, { t: 5000, x: 3840, y: 1080 }];
   const moving = camera([drag], [decision(drag)], 5);
   const stationary = camera([{ ...drag, actions: [{ t: 1000, x: 0, y: 1080 }, { t: 5000, x: 0, y: 1080 }] }], [decision(drag)], 5);
@@ -229,7 +229,7 @@ test("timestamped pointer actions follow interpolation, not the final position e
 });
 
 test("ultrawide whole-screen viewport is 16:9 and covers every source pixel", () => {
-  const f = solveCamera([], [], { width: 3440, height: 1440, trim_end: 1 })[0];
+  const f = solveCamera([], [], { width: 3440, height: 1440, trim_end: 1 })[0]!;
   assert.ok(Math.abs(f.w / f.h - 16 / 9) < 1e-9);
   assert.ok(f.x <= 0 && f.y <= 0 && f.x + f.w >= 3440 && f.y + f.h >= 1440);
 });
@@ -248,7 +248,7 @@ test("camera rejects unusable take, planner, and event inputs", () => {
   const valid = () => {
     const b = beat("validated", 2, 300, "cut");
     b.window_rect = [0, 0, 3840, 2160];
-    b.zones[0].t_change = 2;
+    b.zones[0]!.t_change = 2;
     b.changed_frac = [{ t: 2, f: 0.1 }];
     b.actions = [{ k: "ptr", t: 2000, x: 350, y: 950 }];
     return b;
@@ -264,10 +264,10 @@ test("camera rejects unusable take, planner, and event inputs", () => {
     (item: Beat) => { item.anchor_t = NaN; },
     (item: Beat) => { item.t0 = Infinity; },
     (item: Beat) => { item.t1 = -1; },
-    (item: Beat) => { item.zones[0].bbox = [300, 900, 0, 120]; },
-    (item: Beat) => { item.zones[0].bbox = [3800, 900, 180, 120]; },
+    (item: Beat) => { item.zones[0]!.bbox = [300, 900, 0, 120]; },
+    (item: Beat) => { item.zones[0]!.bbox = [3800, 900, 180, 120]; },
     (item: Beat) => { item.window_rect = [0, 0, 4000, 2160]; },
-    (item: Beat) => { item.zones[0].t_change = NaN; },
+    (item: Beat) => { item.zones[0]!.t_change = NaN; },
     (item: Beat) => { item.changed_frac = [{ t: NaN, f: 0.1 }]; },
     (item: Beat) => { item.changed_frac = [{ t: 2, f: 2 }]; },
     (item: Beat) => { item.actions = [{ k: "ptr", t: NaN, x: 350, y: 950 }]; },
@@ -287,9 +287,9 @@ test("camera rejects ambiguous identities and times outside beats", () => {
   const d = decision(b);
   assert.ok(camera([b], [d], 4).length > 0);
   assert.throws(() => camera([{ ...b, anchor_t: 20 }], [d], 4), /invalid/);
-  assert.throws(() => camera([{ ...b, zones: [{ ...b.zones[0], t_change: 20 }] }], [d], 4), /invalid/);
+  assert.throws(() => camera([{ ...b, zones: [{ ...b.zones[0]!, t_change: 20 }] }], [d], 4), /invalid/);
   assert.throws(() => camera([b, { ...b }], [d], 4), /invalid/);
-  assert.throws(() => camera([{ ...b, zones: [b.zones[0], { ...b.zones[0] }] }], [d], 4), /invalid/);
+  assert.throws(() => camera([{ ...b, zones: [b.zones[0]!, { ...b.zones[0]! }] }], [d], 4), /invalid/);
   assert.throws(() => camera([b], [d, { ...d }], 4), /invalid/);
   assert.throws(() => camera([b], [d, { ...d, beat: "unknown" }], 4), /invalid/);
 });
@@ -359,8 +359,8 @@ test("frame samples have smooth log zoom and fixed aspect", () => {
   const result = camera([first, second], [decision(first), decision(second)], 5);
   assert.equal(result.length, 151);
   for (let index = 1; index < result.length; index++) {
-    const current = result[index];
-    const previous = result[index - 1];
+    const current = result[index]!
+    const previous = result[index - 1]!;
     assert.ok(Math.abs(current.w / current.h - 16 / 9) < 1e-9);
     assert.ok(Math.abs(Math.log(current.w / previous.w)) < 0.5);
   }
@@ -378,7 +378,7 @@ test("render CLI rejects unknown and malformed override arguments", () => {
 
 test("--set overrides validate values", () => {
   assert.equal(applyOverrides({ fps: 24 }).fps, 24);
-  assert.throws(() => applyOverrides({ unknown: 1 }));
+  assert.throws(() => applyOverrides({ unknown: 1 } as never));
   for (const overrides of [
     { fps: 0 }, { out_w: 0 }, { out_h: -2 }, { max_upscale: 0 },
     { rate_max: 0 }, { rate_window: 0 }, { move_t_min: -1 },
