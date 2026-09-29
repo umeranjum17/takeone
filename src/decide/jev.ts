@@ -4,7 +4,7 @@
 // as a header, and never logged.
 
 import { createHash } from "node:crypto";
-import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { homedir } from "node:os";
 import { JEV_ENDPOINT, JEV_MODEL } from "./request.ts";
@@ -111,15 +111,25 @@ export class DecisionCache {
     this.omitRequestBody = o.omitRequestBody ?? false;
     this.path = path;
     if (existsSync(path)) {
+      let dirty = false;
       for (const line of readFileSync(path, "utf8").split("\n")) {
         const s = line.trim();
         if (!s) continue;
         try {
           const c = JSON.parse(s) as CacheLine;
+          if (this.omitRequestBody && typeof c.request === "string" && c.request !== "") {
+            c.request = "";
+            dirty = true;
+          }
           this.map.set(c.key, c);
         } catch {
           // skip malformed cache lines
         }
+      }
+      if (dirty) {
+        try {
+          writeFileSync(path, [...this.map.values()].map((c) => JSON.stringify(c)).join("\n") + "\n");
+        } catch {}
       }
     }
   }
