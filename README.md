@@ -33,7 +33,7 @@ Measured on a real 62.7 s desktop take recorded on Hyprland at 3840×2160 (`scri
 | Jev cost | $0.000618 | ~$0.00059 |
 | Largest request | 1,099 tokens | — |
 | Failed calls | 0 | 0 |
-| `make` wall clock (plan + render, machine at load ~100) | 28–50 s | ~27–48 s |
+| `make` wall clock (plan + render, machine at load ~100) | 28–111 s | ~27–106 s |
 
 Three clean live runs of the same take, from successive code states, landed between 14.7k and 15.8k input tokens. The preflight planned 22,000 tokens for this take against its 41.8k cap, so it held. Idle and cut beats are decided locally and cost nothing. Jev's `usage.input_tokens` is summed into `take.json` (`jev.input_tokens`, `jev.usd`).
 
