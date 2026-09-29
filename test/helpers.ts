@@ -2,6 +2,22 @@
 // code; the only external binary used is ffmpeg, for one tiny webm.
 
 import type { Event, FrameRegions, Region } from "../src/types.ts";
+import { execFileSync } from "node:child_process";
+
+let ffmpegCache: boolean | undefined;
+/** True when system ffmpeg+ffprobe are on PATH; video tests skip explicitly otherwise. */
+export function hasFfmpeg(): boolean {
+  ffmpegCache ??= ((): boolean => {
+    try {
+      execFileSync("ffmpeg", ["-version"], { stdio: "ignore" });
+      execFileSync("ffprobe", ["-version"], { stdio: "ignore" });
+      return true;
+    } catch {
+      return false;
+    }
+  })();
+  return ffmpegCache;
+}
 
 export const STREAM = { w: 160, h: 120 };
 

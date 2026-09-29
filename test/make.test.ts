@@ -11,11 +11,18 @@ import { makeTake, PreflightRefusal, TakeInputError } from "../src/make.ts";
 import { main } from "../src/cli.ts";
 import { frameRect } from "../src/decide/mapping.ts";
 import type { Beat, Decision, JevAnswers, TakeMeta } from "../src/types.ts";
-import { STREAM } from "./helpers.ts";
+import { STREAM, hasFfmpeg } from "./helpers.ts";
 
 const STREAM_W = 320;
 const STREAM_H = 180;
 const KEY = "test-key-000";
+
+// Every test in this file renders real video via system ffmpeg/ffprobe except
+// the --max-tokens refusal check (it exits before touching video), so they
+// skip explicitly where those binaries are absent instead of failing with
+// ENOENT. CI installs ffmpeg (see .github/workflows/ci.yml) so coverage stays
+// real there; the string below is the recorded skip reason.
+const needsFfmpeg = hasFfmpeg() ? undefined : "requires system ffmpeg and ffprobe on PATH";
 
 function buildTake(dir: string): string {
   const webm = join(dir, "screen.webm");
@@ -67,7 +74,7 @@ function jevAnswers(): unknown {
   return { answers, usage: { input_tokens: 800 } };
 }
 
-test("make --no-jev renders the agreed beat/decision files into a 1920x1080 MP4", async () => {
+test("make --no-jev renders the agreed beat/decision files into a 1920x1080 MP4", { skip: needsFfmpeg }, async () => {
   const dir = newTake();
   try {
     assert.equal(await main(["make", dir, "--no-jev"]), 0);
@@ -85,7 +92,7 @@ test("make --no-jev renders the agreed beat/decision files into a 1920x1080 MP4"
   }
 });
 
-test("make renders partly and wholly off-screen windows", async () => {
+test("make renders partly and wholly off-screen windows", { skip: needsFfmpeg }, async () => {
   const dir = newTake();
   try {
     const eventsPath = join(dir, "events.jsonl");
@@ -119,7 +126,7 @@ test("CLI rejects malformed --max-tokens values", async () => {
   }
 });
 
-test("incomplete takes report the missing file; video-only mode permits empty events", async () => {
+test("incomplete takes report the missing file; video-only mode permits empty events", { skip: needsFfmpeg }, async () => {
   const dir = newTake();
   try {
     for (const file of ["screen.webm", "frames.tsv", "events.jsonl"]) {
@@ -147,7 +154,7 @@ test("incomplete takes report the missing file; video-only mode permits empty ev
   }
 });
 
-test("make intersects trim with available video before rendering", async () => {
+test("make intersects trim with available video before rendering", { skip: needsFfmpeg }, async () => {
   const dir = newTake();
   try {
     const framesPath = join(dir, "frames.tsv");
@@ -169,7 +176,7 @@ test("make intersects trim with available video before rendering", async () => {
   }
 });
 
-test("make rejects trims with no video overlap before writing analysis", async () => {
+test("make rejects trims with no video overlap before writing analysis", { skip: needsFfmpeg }, async () => {
   const dir = newTake();
   try {
     const framesPath = join(dir, "frames.tsv");
@@ -190,7 +197,7 @@ test("make rejects trims with no video overlap before writing analysis", async (
   }
 });
 
-test("invalid first frame clocks report frames.tsv before planning", async () => {
+test("invalid first frame clocks report frames.tsv before planning", { skip: needsFfmpeg }, async () => {
   const dir = newTake();
   try {
     for (const contents of ["", "oops\t0\n", "0\tbad\n"]) {
@@ -202,7 +209,7 @@ test("invalid first frame clocks report frames.tsv before planning", async () =>
   }
 });
 
-test("make --no-jev writes analysis files and heuristic decisions", async () => {
+test("make --no-jev writes analysis files and heuristic decisions", { skip: needsFfmpeg }, async () => {
   const dir = newTake();
   try {
     const r = await makeTake(dir, { noJev: true, log: () => {}, warn: () => {} });
@@ -231,7 +238,7 @@ test("make --no-jev writes analysis files and heuristic decisions", async () => 
   }
 });
 
-test("perceived cuts enter actions and start cut beats", async () => {
+test("perceived cuts enter actions and start cut beats", { skip: needsFfmpeg }, async () => {
   const dir = newTake();
   try {
     execFileSync("ffmpeg", [
@@ -254,7 +261,7 @@ test("perceived cuts enter actions and start cut beats", async () => {
   }
 });
 
-test("make with a key decides via Jev and accounts usage; cache hit costs zero calls", async () => {
+test("make with a key decides via Jev and accounts usage; cache hit costs zero calls", { skip: needsFfmpeg }, async () => {
   const dir = newTake();
   try {
     let calls = 0;
@@ -285,7 +292,7 @@ test("make with a key decides via Jev and accounts usage; cache hit costs zero c
   }
 });
 
-test("live API shape: object-keyed score probabilities and noul still decide via Jev", async () => {
+test("live API shape: object-keyed score probabilities and noul still decide via Jev", { skip: needsFfmpeg }, async () => {
   const dir = newTake();
   try {
     const fake = (async (_url: string | URL | Request, init?: RequestInit) => {
@@ -313,7 +320,7 @@ test("live API shape: object-keyed score probabilities and noul still decide via
   }
 });
 
-test("sparse object-keyed score probabilities fall back to the heuristic", async () => {
+test("sparse object-keyed score probabilities fall back to the heuristic", { skip: needsFfmpeg }, async () => {
   const dir = newTake();
   try {
     const fake = (async (_url: string | URL | Request, init?: RequestInit) => {
@@ -339,7 +346,7 @@ test("sparse object-keyed score probabilities fall back to the heuristic", async
   }
 });
 
-test("single-zone beats use the heuristic without Jev tokens", async () => {
+test("single-zone beats use the heuristic without Jev tokens", { skip: needsFfmpeg }, async () => {
   const dir = newTake();
   try {
     const bodies: string[] = [];
@@ -364,7 +371,7 @@ test("single-zone beats use the heuristic without Jev tokens", async () => {
   }
 });
 
-test("preflight reserves re-asks and current shots distinguish viewport positions", async () => {
+test("preflight reserves re-asks and current shots distinguish viewport positions", { skip: needsFfmpeg }, async () => {
   const dir = newTake();
   try {
     const path = join(dir, "events.jsonl");
@@ -387,7 +394,7 @@ test("preflight reserves re-asks and current shots distinguish viewport position
   }
 });
 
-test("dependent re-asks use the preceding finalized shot", async () => {
+test("dependent re-asks use the preceding finalized shot", { skip: needsFfmpeg }, async () => {
   const dir = newTake();
   try {
     const events = [
@@ -424,7 +431,7 @@ test("dependent re-asks use the preceding finalized shot", async () => {
   }
 });
 
-test("every Jev failure mode falls back to the heuristic and counts as failed", async () => {
+test("every Jev failure mode falls back to the heuristic and counts as failed", { skip: needsFfmpeg }, async () => {
   const modes: Array<{ name: string; impl: () => Response }> = [
     { name: "500", impl: () => new Response("boom", { status: 500 }) },
     { name: "malformed", impl: () => new Response("not json", { status: 200 }) },
@@ -456,7 +463,7 @@ test("every Jev failure mode falls back to the heuristic and counts as failed", 
   }
 });
 
-test("oversize beat request falls back without aborting other beats", async () => {
+test("oversize beat request falls back without aborting other beats", { skip: needsFfmpeg }, async () => {
   const dir = newTake();
   try {
     const path = join(dir, "events.jsonl");
@@ -479,7 +486,7 @@ test("oversize beat request falls back without aborting other beats", async () =
   }
 });
 
-test("malformed Jev answers are not cached across runs", async () => {
+test("malformed Jev answers are not cached across runs", { skip: needsFfmpeg }, async () => {
   const dir = newTake();
   try {
     let calls = 0;
@@ -497,7 +504,7 @@ test("malformed Jev answers are not cached across runs", async () => {
   }
 });
 
-test("invalid caps refuse before any Jev call", async () => {
+test("invalid caps refuse before any Jev call", { skip: needsFfmpeg }, async () => {
   const dir = newTake();
   try {
     let calls = 0;
@@ -510,7 +517,7 @@ test("invalid caps refuse before any Jev call", async () => {
   }
 });
 
-test("preflight refuses above --max-tokens before any call", async () => {
+test("preflight refuses above --max-tokens before any call", { skip: needsFfmpeg }, async () => {
   const dir = newTake();
   try {
     let calls = 0;
@@ -528,7 +535,7 @@ test("preflight refuses above --max-tokens before any call", async () => {
   }
 });
 
-test("raw window identity requires screen-text opt-in and titles are redacted", async () => {
+test("raw window identity requires screen-text opt-in and titles are redacted", { skip: needsFfmpeg }, async () => {
   const dir = newTake();
   try {
     const path = join(dir, "events.jsonl");
@@ -549,7 +556,7 @@ test("raw window identity requires screen-text opt-in and titles are redacted", 
   }
 });
 
-test("zones never leak window titles without --screen-text; beats carry word-only descriptions", async () => {
+test("zones never leak window titles without --screen-text; beats carry word-only descriptions", { skip: needsFfmpeg }, async () => {
   const dir = newTake();
   try {
     const r = await makeTake(dir, { noJev: true, log: () => {}, warn: () => {} });

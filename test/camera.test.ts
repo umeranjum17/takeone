@@ -7,6 +7,12 @@ import { applyOverrides, DEFAULTS } from "../src/camera/defaults.ts";
 import { frame, moveDuration, solveCamera, zMax } from "../src/camera/solver.ts";
 import type { Beat, Decision, Zone } from "../src/camera/types.ts";
 import { renderTake, sendcmd } from "../src/render/render.ts";
+import { hasFfmpeg } from "./helpers.ts";
+
+// The two render tests below shell out to system ffmpeg/ffprobe, so they skip
+// explicitly where those binaries are absent instead of failing with ENOENT.
+// CI installs ffmpeg (see .github/workflows/ci.yml) so coverage stays real there.
+const needsFfmpeg = hasFfmpeg() ? undefined : "requires system ffmpeg and ffprobe on PATH";
 
 const zone = (name: string, bbox: [number, number, number, number]): Zone => ({
   name,
@@ -387,7 +393,7 @@ test("--set overrides validate values", () => {
   ]) assert.throws(() => applyOverrides(overrides), /invalid|must be at least/);
 });
 
-test("render without trim_end uses the latest beat end", { timeout: 120_000 }, async () => {
+test("render without trim_end uses the latest beat end", { timeout: 120_000, skip: needsFfmpeg }, async () => {
   const dir = await mkdtemp(join(process.cwd(), "takeone:duration-"));
   try {
     await mkdir(join(dir, "analysis"));
@@ -417,7 +423,7 @@ test("render without trim_end uses the latest beat end", { timeout: 120_000 }, a
 });
 
 test("synthetic 4K source renders silent H.264 at 1920x1080 and 30fps", {
-  timeout: 120_000,
+  timeout: 120_000, skip: needsFfmpeg,
 }, async () => {
   const dir = await mkdtemp(join(process.cwd(), "takeone:render-"));
   try {
