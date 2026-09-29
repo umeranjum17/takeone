@@ -10,6 +10,7 @@ import {
   REL_WHEEL_HI_RES,
   BTN_LEFT,
   BUTTON_NAMES,
+  parseInputDevices,
 } from "../evdev.js";
 
 function recordBytes(sec: number, usec: number, type: number, code: number, value: number): Buffer {
@@ -71,4 +72,32 @@ test("carries partial bytes over to the next chunk", () => {
 test("wheel and button codes carry the names the events file uses", () => {
   assert.equal(BUTTON_NAMES[BTN_LEFT], "left");
   assert.equal(REL_WHEEL, 8);
+});
+
+test("input devices come from the kernel list, including virtual and combo devices", () => {
+  const text = [
+    "I: Bus=0019 Vendor=0000 Product=0001 Version=0000",
+    'N: Name="Power Button"',
+    "H: Handlers=kbd event0 ",
+    "",
+    'N: Name="Logitech USB Receiver"',
+    "H: Handlers=sysrq kbd leds event3 ",
+    "",
+    'N: Name="Some Mouse"',
+    "H: Handlers=event4 mouse0 ",
+    "",
+    "I: Bus=0006 Vendor=0000 Product=0000 Version=0000",
+    'N: Name="virtual combo"',
+    "H: Handlers=sysrq kbd event21 mouse3 ",
+    "",
+    'N: Name="HD-Audio Generic HDMI"',
+    "H: Handlers=event9 ",
+    "",
+  ].join("\n");
+  assert.deepEqual(parseInputDevices(text), [
+    { path: "/dev/input/event0", mouse: false, kbd: true },
+    { path: "/dev/input/event3", mouse: false, kbd: true },
+    { path: "/dev/input/event4", mouse: true, kbd: false },
+    { path: "/dev/input/event21", mouse: true, kbd: true },
+  ]);
 });

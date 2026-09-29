@@ -85,7 +85,8 @@ Input sources are read passively, never grabbed. If evdev mouse or keyboard devi
 - pointer position and focused window from the Hyprland IPC sockets, mapped into
   stream pixels (with a self-check that falls back to no-pointer mode when no
   monitor matches the stream size within 2 px)
-- clicks, wheel and key *classes* from `/dev/input/by-id/*-event-{mouse,kbd}`,
+- clicks, wheel and key *classes* from every mouse and keyboard in `/proc/bus/input/devices`
+  (USB, Bluetooth, touchpads and virtual devices alike),
   opened non-blocking and polled. Key records are classes only
   (`char|space|enter|backspace|tab|esc|nav|mod|fn`) plus a shortcut name like
   `Ctrl+S` when a non-Shift modifier is held. F13–F24 retain named shortcuts;

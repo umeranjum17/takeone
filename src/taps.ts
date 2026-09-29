@@ -6,7 +6,7 @@
  */
 
 import { promises as fs, constants as fsConstants, openSync, readSync, closeSync, fstatSync } from "node:fs";
-import { extractRecords, EV_SYN, EV_KEY, EV_REL, REL_WHEEL, REL_HWHEEL, REL_WHEEL_HI_RES, REL_HWHEEL_HI_RES, HI_RES_PER_DETENT, BUTTON_NAMES } from "./evdev.js";
+import { listInputCandidates, extractRecords, EV_SYN, EV_KEY, EV_REL, REL_WHEEL, REL_HWHEEL, REL_WHEEL_HI_RES, REL_HWHEEL_HI_RES, HI_RES_PER_DETENT, BUTTON_NAMES } from "./evdev.js";
 import { classifyKeyEvent } from "./keyclass.js";
 import { mapLogicalToStream, mapRectToStream, type MonitorInfo } from "./mapping.js";
 import { getActiveWindow, getCursorPos, hyprlandSockets, type HyprlandSockets } from "./hyprland.js";
@@ -43,8 +43,6 @@ export interface TapHandle {
   stop(): Promise<void>;
 }
 
-const DEVICE_DIR = "/dev/input/by-id";
-
 interface EvdevDevice {
   path: string;
   fd: number;
@@ -57,22 +55,18 @@ interface EvdevDevice {
  * which starves every other fs operation in the process, so takeone polls
  * non-blocking fds instead.
  */
-async function evdevDevices(dir: string): Promise<{ devices: EvdevDevice[]; missingGroup: boolean }> {
-  let names: string[] = [];
+async function evdevDevices(dir: string | undefined): Promise<{ devices: EvdevDevice[]; missingGroup: boolean }> {
+  let candidates: Awaited<ReturnType<typeof listInputCandidates>>;
   try {
-    names = await fs.readdir(dir);
+    candidates = await listInputCandidates(dir);
   } catch (error) {
     return { devices: [], missingGroup: (error as NodeJS.ErrnoException).code === "EACCES" };
   }
-  const candidates = names
-    .filter((n) => n.endsWith("-event-mouse") || n.endsWith("-event-kbd"))
-    .sort()
-    .map((n) => `${dir}/${n}`);
-  const complete = candidates.some((path) => path.endsWith("-event-mouse")) && candidates.some((path) => path.endsWith("-event-kbd"));
+  const complete = candidates.some((c) => c.mouse) && candidates.some((c) => c.kbd);
   const devices: EvdevDevice[] = [];
   let eacces = false;
   let unreadable = false;
-  for (const path of candidates) {
+  for (const { path } of candidates) {
     let fd: number | null = null;
     try {
       fd = openSync(path, fsConstants.O_RDONLY | fsConstants.O_NONBLOCK);
@@ -127,7 +121,7 @@ export async function startTaps(options: TapOptions): Promise<TapHandle> {
   const evdevHandles: EvdevDevice[] = [];
   const polls = new Set<Promise<void>>();
   let stopped = false;
-  const { devices, missingGroup } = await evdevDevices(options.deviceDir ?? DEVICE_DIR);
+  const { devices, missingGroup } = await evdevDevices(options.deviceDir);
   const hypr: HyprlandSockets | null = hyprlandSockets();
   let pointerTimer: NodeJS.Timeout | null = null;
   const setMapping = (mapping: { monitor: MonitorInfo; scale: number } | null): void => {
