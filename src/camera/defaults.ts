@@ -133,6 +133,9 @@ export function applyOverrides(overrides: Overrides): CameraDefaults {
       out.caption_font = v;
       continue;
     }
+    if (COLOURS.includes(k) || k === "caption_font") {
+      throw new Error(`unknown or invalid --set ${k}=${v}`);
+    }
     const positive = ["out_w", "out_h", "fps", "max_upscale", "rate_window", "rate_max", "move_t_min", "move_t_max", "hop_zoom", "hop_zoom_div", "hop_t_scale", "follow_omega", "lowpass_omega", "l1_pad", "l2_pad", "l3_pad", "frame_max", "caption_size"];
     const integers = ["out_w", "out_h", "fps", "rate_max"];
     if (!(key in out) || typeof v !== "number" || !Number.isFinite(v)

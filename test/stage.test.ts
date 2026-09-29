@@ -34,7 +34,7 @@ test("captions are sanitised, clamped and keep their on-screen duration", () => 
 
 test("look overrides validate colours, fonts and ranges", () => {
   assert.equal(applyOverrides({ accent: "#ff0000", caption_font: "Noto Sans" }).accent, "#ff0000");
-  for (const bad of [{ accent: "red" }, { caption_font: "x}{\\" }, { idle_speed: 0.5 }, { shadow: 2 }, { stage_margin: 0.3 }]) {
+  for (const bad of [{ accent: "red" }, { accent: 123456 }, { background: 123456 }, { caption_font: "x}{\\" }, { caption_font: 123 }, { idle_speed: 0.5 }, { shadow: 2 }, { stage_margin: 0.3 }]) {
     assert.throws(() => applyOverrides(bad), /invalid --set/);
   }
 });
