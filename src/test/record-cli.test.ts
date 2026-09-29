@@ -106,11 +106,10 @@ test("record writes a complete take (pid file, events, take.json) and stops on S
   assert.match(rivalError, /already-recording/);
   assert.equal(JSON.parse(await readFile(pidFile, "utf8")).pid, child.pid);
 
-  // Stop the way `takeone stop` does.
+  // Stop the way `takeone stop` does: one SIGINT, then await the graceful
+  // exit. No follow-up signal: once shutdown finishes the handlers are
+  // removed, so a second signal then would kill instead of stopping.
   child.kill("SIGINT");
-  await new Promise((resolve) => setTimeout(resolve, 20));
-  assert.equal(child.exitCode, null);
-  child.kill("SIGTERM");
   const code = await new Promise<number | null>((resolveP) => child.on("exit", (exitCode) => resolveP(exitCode)));
   assert.equal(code, 0, `record exited ${code}; stderr: ${stderr.join("")}`);
 
