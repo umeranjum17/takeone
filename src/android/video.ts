@@ -331,6 +331,17 @@ export async function captureAndroidVideo(
     let startWall = 0;
     let deadline = 0;
     let stopping = false;
+    const ffmpegDead: Promise<never> = ffmpegDone.then(
+      () => {
+        throw new Error("ffmpeg exited before the capture finished");
+      },
+      (error: unknown) => {
+        throw error;
+      },
+    );
+    ffmpegDead.catch(() => {
+      stopping = true;
+    });
 
     const writeUnit = async (unit: Buffer): Promise<void> => {
       const stdin = ffmpeg?.stdin;
@@ -391,7 +402,7 @@ export async function captureAndroidVideo(
     for (let waited = 0; pts0 === undefined; waited += 100) {
       if (pipelineError !== undefined) throw pipelineError;
       if (waited > 15_000) throw withLog(new Error("no video frames arrived in 15 s"));
-      await Promise.race([sleep(100), socketClosed.then(() => { throw new Error("video socket closed before first frame"); })]);
+      await Promise.race([sleep(100), socketClosed.then(() => { throw new Error("video socket closed before first frame"); }), ffmpegDead]);
     }
     if (pipelineError !== undefined) throw pipelineError;
     const socketClosedEarly = await Promise.race([
@@ -400,6 +411,7 @@ export async function captureAndroidVideo(
         return false;
       })(),
       socketClosed.then(() => Date.now() < deadline),
+      ffmpegDead,
     ]);
     stopping = true;
     socket?.destroy();
