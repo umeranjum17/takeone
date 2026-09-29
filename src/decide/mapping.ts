@@ -3,12 +3,14 @@
 
 import type { Beat, BBox, Decision, JevAnswers, Tightness, Zone } from "../types.ts";
 import { bboxArea } from "../types.ts";
+import { WIN_MAX_COVER } from "../beats/zones.ts";
 
 export const LOW_CONF = 0.5;
 export const HOLD_P = 0.35;
 export const MOVE_P = 0.65;
 export const FIT_MARGIN = 0.08;
 export const WIDE_UNION_FRAC = 0.7; // union of top two over this -> all
+export const NEAR_UNION_FRAC = 0.2; // union up to a panel: keep the top choice when no zone contains it
 export const KEY_MOMENT_TIGHTEN = 1;
 export const CONF_SUM_TOL = 0.01;
 
@@ -26,7 +28,8 @@ export function frameRect(
   if (L === 0 || !zone || zone.kind === "all") return [0, 0, w, h];
   let r: BBox;
   if (L === 1) {
-    const win = o.winRect;
+    // A fullscreen window is no context frame; pad the zone instead (camera frame()).
+    const win = o.winRect && bboxArea(o.winRect) <= WIN_MAX_COVER * w * h ? o.winRect : null;
     if (
       win &&
       zone.bbox[0] >= win[0] &&
@@ -124,6 +127,9 @@ export function mapAnswers(
 
   let A = resolveChoice(zA, confA, fs.probabilities, beat);
   let B = resolveChoice(zB, confB, fe.probabilities, beat);
+  // An uncertain start that widened to the whole screen defers to a confident
+  // end: that zone is the beat's subject, and B = A below would discard it.
+  if (byName(A)?.kind === "all" && byName(B)?.kind !== "all" && confB >= LOW_CONF) A = B;
 
   // tightness: argmax level, one level wider when confidence is low
   if (answers.tightness?.probabilities?.length !== 4) return null;
@@ -170,7 +176,9 @@ export function mapAnswers(
 /**
  * A choice with confidence < 0.5 widens: the smallest zone containing the top
  * two options' bboxes; `all` when that zone covers over 70% of the screen or no
- * zone contains both.
+ * zone contains both. Exception: when the union is no bigger than a panel
+ * (20%), keep the top choice; a near-tie between two nearby subjects is no
+ * reason to show the whole screen.
  */
 function resolveChoice(
   top: Zone,
@@ -203,7 +211,9 @@ function resolveChoice(
     }
   }
   const allName = beat.zones.find((z) => z.kind === "all")?.name ?? top.name;
-  if (!best || best.kind === "all" || bboxArea(best.bbox) / screenArea > WIDE_UNION_FRAC) return allName;
+  const small = bboxArea(union) / screenArea <= NEAR_UNION_FRAC;
+  if (!best || best.kind === "all") return small ? top.name : allName;
+  if (bboxArea(best.bbox) / screenArea > WIDE_UNION_FRAC) return allName;
   return best.name;
 }
 
