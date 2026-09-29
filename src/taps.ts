@@ -30,6 +30,8 @@ export interface TapOptions {
 
 export interface TapSummary {
   firstInputMs: number | null;
+  /** Every click, wheel and key time, for auto-trim. */
+  inputMs: number[];
   lastEventMs: number | null;
 }
 
@@ -86,10 +88,10 @@ async function evdevDevices(dir: string | undefined): Promise<{ devices: EvdevDe
 export async function startTaps(options: TapOptions): Promise<TapHandle> {
   const { eventsPath, t0ns } = options;
   const warnings: string[] = [];
-  const summary: TapSummary = { firstInputMs: null, lastEventMs: null };
+  const summary: TapSummary = { firstInputMs: null, inputMs: [], lastEventMs: null };
   const nowMs = (): number => {
     const delta = process.hrtime.bigint() - t0ns;
-    return Math.round(Number(delta) / 100) / 10; // 0.1 ms resolution
+    return Math.round(Number(delta) / 1e5) / 10; // 0.1 ms resolution
   };
 
   let eventsMode: "on" | "none" = "on";
@@ -113,6 +115,7 @@ export async function startTaps(options: TapOptions): Promise<TapHandle> {
   };
   const emitInput = (event: TapEvent): void => {
     if (summary.firstInputMs === null) summary.firstInputMs = event.t;
+    summary.inputMs.push(event.t);
     summary.lastEventMs = event.t;
     emit(event);
   };

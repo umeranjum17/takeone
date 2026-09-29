@@ -6,7 +6,7 @@ import { mkdir, writeFile, rm } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { resolveEngine } from "@desklink/host";
-import { alignClock, SPREAD_WARN_MS, type ClockAlign } from "./clock.js";
+import { alignClock, clockWarning, type ClockAlign } from "./clock.js";
 import { pickMonitor, type MonitorInfo } from "./mapping.js";
 import { getMonitors, hyprlandSockets } from "./hyprland.js";
 import { startCapture, DEFAULT_BITRATE_KBPS, DEFAULT_FPS, RecordError } from "./session.js";
@@ -173,12 +173,13 @@ export async function runRecord(options: RecordOptions = {}): Promise<RecordResu
     if (taps !== null) await taps.stop();
     const finalMetrics = await capture.stop();
 
-    const clock = alignClock(capture.frames().map((frame) => ({ ...frame, recvMs: frame.recvMs - Number(t0ns) / 1e6 })));
+    const frames = capture.frames();
+    const clock = alignClock(frames.map((frame) => ({ ...frame, recvMs: frame.recvMs - Number(t0ns) / 1e6 })));
+    const firstFrameMs = clock === null || frames[0] === undefined ? 0 : frames[0].rtpTs / 90 + clock.offsetMs;
     const durationMs = Math.max(0, Number(stoppedAt.monoNs - t0ns) / 1e6);
     const warnings = [...taps.warnings];
-    if (clock !== null && clock.spreadMs > SPREAD_WARN_MS) {
-      warnings.push(`clock offset spread ${clock.spreadMs.toFixed(1)} ms exceeds ${SPREAD_WARN_MS} ms`);
-    }
+    const clockWarn = clockWarning(clock);
+    if (clockWarn !== null) warnings.push(clockWarn);
 
     const takeJson: TakeJson = {
       id: takeDir.slice(root.length + 1),
@@ -195,7 +196,7 @@ export async function runRecord(options: RecordOptions = {}): Promise<RecordResu
       events: taps.eventsMode,
       warnings,
       clock,
-      trim: computeTrim(taps.summary, durationMs),
+      trim: computeTrim(taps.summary, durationMs, firstFrameMs),
       metrics: finalMetrics,
       versions: {
         takeone: VERSION,
@@ -226,15 +227,15 @@ export async function runRecord(options: RecordOptions = {}): Promise<RecordResu
 /**
  * Auto-trim bounds (design section 5 step 6). The start is the first input
  * event (click/key/wheel; pointer moves are not actions) that lands more than
- * 1 s into the take, minus 0.5 s.
+ * 1 s after the first video frame, minus 0.5 s. Consent clicks happen before
+ * any frame, so they never anchor the trim; the terminal that started the
+ * recording is cut instead.
  */
 export function computeTrim(
-  summary: { firstInputMs: number | null },
+  summary: { inputMs: number[] },
   durationMs: number,
+  firstFrameMs = 0,
 ): { start: number; end: number } {
-  let start = 0;
-  if (summary.firstInputMs !== null && summary.firstInputMs > 1000) {
-    start = Math.max(0, summary.firstInputMs - 500);
-  }
-  return { start, end: durationMs };
+  const first = summary.inputMs.find((t) => t > firstFrameMs + 1000);
+  return { start: first === undefined ? 0 : Math.max(0, first - 500), end: durationMs };
 }

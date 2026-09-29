@@ -31,7 +31,8 @@ export function hyprRequest(socket: string, command: string, timeoutMs = 1000): 
     conn.setTimeout(timeoutMs, () => fail(new Error(`hyprland ipc timeout: ${command}`)));
     conn.on("error", fail);
     conn.on("connect", () => {
-      conn.write(command.endsWith("\n") ? command : `${command}\n`);
+      // Hyprland 0.56 answers "unknown request" to a newline-terminated command.
+      conn.write(command.trimEnd());
     });
     conn.on("data", (chunk: Buffer) => {
       data += chunk.toString("utf8");
