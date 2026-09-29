@@ -183,7 +183,7 @@ export async function runRecord(options: RecordOptions = {}): Promise<RecordResu
     const takeJson: TakeJson = {
       id: takeDir.slice(root.length + 1),
       stream: { w: capture.geometry.encoded.width, h: capture.geometry.encoded.height },
-      scale: mapping?.scale ?? 1,
+      scale: (mapping as { monitor: MonitorInfo; scale: number } | null)?.scale ?? 1,
       offset_ms: clock?.offsetMs ?? 0,
       started_at: tapStartedAt.toISOString(),
       stopped_at: stoppedAt.date.toISOString(),

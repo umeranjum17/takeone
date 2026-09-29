@@ -208,7 +208,7 @@ async function record(args: string[]): Promise<void> {
         takeJson.clock?.frames ?? 0,
         takeJson.clock === null ? null : takeJson.clock.offsetMs.toFixed(1),
         takeJson.clock === null ? null : takeJson.clock.spreadMs.toFixed(1),
-        `${takeJson.trim.start}-${takeJson.trim.end}`,
+        `${takeJson.trim!.start}-${takeJson.trim!.end}`,
       ],
     ]));
   } catch (error) {
