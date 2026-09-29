@@ -403,9 +403,11 @@ test("render without trim_end uses the latest beat end", { timeout: 120_000, ski
   const dir = await mkdtemp(join(process.cwd(), "takeone:duration-"));
   try {
     await mkdir(join(dir, "analysis"));
+    // mpeg4, not VP9: software VP9 stalls weak CI runners; input codec is
+    // incidental here (see buildTake in make.test.ts for the full rationale).
     execFileSync("ffmpeg", [
       "-v", "error", "-f", "lavfi", "-i", "color=c=blue:s=320x180:r=30:d=2",
-      "-c:v", "libvpx-vp9", "-deadline", "realtime", "-cpu-used", "8",
+      "-c:v", "mpeg4", "-q:v", "2", "-f", "matroska",
       "-y", join(dir, "screen.webm"),
     ]);
     const later = { ...beat("later", 0.8, 20), t0: 0.2, t1: 1.8,

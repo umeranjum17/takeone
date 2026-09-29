@@ -35,9 +35,13 @@ function fastTake(dir: string, opts: MakeOptions = {}): Promise<MakeResult> {
 function buildTake(dir: string): string {
   const webm = join(dir, "screen.webm");
   // 10 s solid grey at 30 fps: no change regions, deterministic beats from events
+  // mpeg4, not VP9: software VP9 stalls weak CI runners (a 4 s 4K encode blocked
+  // one for 25+ min). The input codec is incidental - only the rendered MP4,
+  // beats and decisions are asserted. Matroska muxer because stock webm allows
+  // only VP8/VP9/AV1; the pipeline probes content, so the .webm name is cosmetic.
   execFileSync("ffmpeg", [
     "-nostdin", "-f", "lavfi", "-i", "color=c=gray:s=320x180:d=10:r=30",
-    "-c:v", "libvpx-vp9", "-frames:v", "300", "-y", webm,
+    "-c:v", "mpeg4", "-q:v", "2", "-f", "matroska", "-frames:v", "300", "-y", webm,
   ], { stdio: "ignore" });
   const lines: string[] = [];
   for (let i = 0; i < 300; i++) lines.push(`${i * 3000}\t${i * 33333333}`);
