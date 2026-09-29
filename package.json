@@ -2,7 +2,6 @@
   "name": "takeone",
   "version": "0.1.0",
   "private": true,
-  "license": "MIT",
   "description": "Turn a raw screen recording into a polished demo.",
   "type": "module",
   "engines": { "node": ">=22" },
