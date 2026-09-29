@@ -9,8 +9,9 @@ import type { Beat, Decision, Zone } from "../src/camera/types.ts";
 import { renderTake, sendcmd } from "../src/render/render.ts";
 import { hasFfmpeg } from "./helpers.ts";
 
-// Only tests pass a fast preset: shipped output stays on the slow default.
-const FAST = { ...DEFAULTS, preset: "veryfast" };
+// Only tests pass a fast preset and tiny output: shipped output stays
+// 1920x1080 slow (see DEFAULTS). Small frames keep CI software encodes fast.
+const FAST = { ...DEFAULTS, preset: "veryfast", out_w: 320, out_h: 180 };
 
 // The two render tests below shell out to system ffmpeg/ffprobe, so they skip
 // explicitly where those binaries are absent instead of failing with ENOENT.
@@ -430,36 +431,39 @@ test("render without trim_end uses the latest beat end", { timeout: 120_000, ski
   }
 });
 
-test("synthetic 4K source renders silent H.264 at 1920x1080 and 30fps", {
+test("synthetic source renders silent H.264 at the configured size and 30fps", {
   timeout: 120_000, skip: needsFfmpeg,
 }, async () => {
   const dir = await mkdtemp(join(process.cwd(), "takeone:render-"));
   try {
     await mkdir(join(dir, "analysis"));
-    // mpeg4, not VP9: a software 4K VP9 encode blocked a CI runner for 25+ min
-    // inside execFileSync (event loop blocked, so the test timeout could not
-    // fire). The input codec is incidental here - only the rendered MP4 is
-    // asserted - and mpeg4 encodes 4K in under a second. Matroska muxer because
-    // stock webm allows only VP8/VP9/AV1; the pipeline probes content, so the
-    // .webm name is cosmetic.
+    // Tiny fixtures: a 4K source stalled a weak CI runner past the test
+    // timeout (software scale + x264). Resolution is incidental here - only
+    // the rendered MP4 codec, size and frame count are asserted - and the
+    // shipped 1920x1080 default is untouched (see DEFAULTS). Matroska muxer
+    // because stock webm allows only VP8/VP9/AV1; the pipeline probes
+    // content, so the .webm name is cosmetic.
     execFileSync("ffmpeg", [
-      "-v", "error", "-f", "lavfi", "-i", "color=c=blue:s=3840x2160:r=30:d=2",
+      "-v", "error", "-f", "lavfi", "-i", "color=c=blue:s=320x180:r=30:d=2",
       "-c:v", "mpeg4", "-q:v", "2", "-f", "matroska",
       "-y", join(dir, "screen.webm"),
     ]);
     await writeFile(join(dir, "take.json"), JSON.stringify({
-      id: "fixture", width: 3840, height: 2160, trim_start: 0, trim_end: 2,
+      id: "fixture", width: 320, height: 180, trim_start: 0, trim_end: 2,
     }));
     const fixtureBeat = beat("fixture", 0.6, 2600);
+    // Small-frame zone: the default helper zone sits in 4K coordinates and
+    // would fail input validation before the take-id check below runs.
+    fixtureBeat.zones = [zone("fixture", [20, 20, 40, 30])];
     await writeFile(join(dir, "analysis/beats.json"), JSON.stringify([fixtureBeat]));
     await writeFile(join(dir, "analysis/decisions.jsonl"), `${JSON.stringify(decision(fixtureBeat))}\n`);
 
     await writeFile(join(dir, "take.json"), JSON.stringify({
-      id: "../../other", width: 3840, height: 2160, trim_start: 0, trim_end: 2,
+      id: "../../other", width: 320, height: 180, trim_start: 0, trim_end: 2,
     }));
     await assert.rejects(renderTake(dir), /invalid take id/);
     await writeFile(join(dir, "take.json"), JSON.stringify({
-      id: "fixture", width: 3840, height: 2160, trim_start: 0, trim_end: 2,
+      id: "fixture", width: 320, height: 180, trim_start: 0, trim_end: 2,
     }));
     const output = await renderTake(dir, FAST);
     const probe = execFileSync("ffprobe", [
@@ -467,7 +471,7 @@ test("synthetic 4K source renders silent H.264 at 1920x1080 and 30fps", {
       "stream=width,height,nb_frames,codec_name", "-of", "csv=p=0", output,
     ], { encoding: "utf8" });
     assert.match(probe, /h264/);
-    assert.match(probe, /1920,1080,60/);
+    assert.match(probe, /320,180,60/);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
