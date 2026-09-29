@@ -7,13 +7,14 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, rm, stat } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import {
   isMacOS,
+  moveRawIntoTake,
   offsetMsFromStartLine,
   parseBootedDevices,
   probeVideoSize,
@@ -52,6 +53,61 @@ test("booted devices parse from simctl JSON, empty when none is booted", () => {
   assert.deepEqual(parseBootedDevices(json), ["BBB"]);
   assert.deepEqual(parseBootedDevices(JSON.stringify({ devices: {} })), []);
   assert.deepEqual(parseBootedDevices("not json"), []);
+});
+
+test("non-array device groups are skipped instead of throwing", () => {
+  const json = JSON.stringify({
+    devices: {
+      "com.apple.CoreSimulator.SimRuntime.iOS-18-6": { udid: "AAA", state: "Booted" },
+      "com.apple.CoreSimulator.SimRuntime.iOS-26-3": "odd-string-group",
+      "com.apple.CoreSimulator.SimRuntime.iOS-17-5": [
+        { udid: "BBB", state: "Booted" },
+        null,
+        "junk",
+        { udid: "CCC", state: "Shutdown" },
+      ],
+    },
+  });
+  assert.deepEqual(parseBootedDevices(json), ["BBB"]);
+  assert.deepEqual(parseBootedDevices(JSON.stringify({ devices: { bogus: 42 } })), []);
+});
+
+test("moveRawIntoTake falls back to copy+unlink on EXDEV", async () => {
+  const base = await mkdtemp(join(tmpdir(), "takeone-ios-move-"));
+  try {
+    const exdev: NodeJS.ErrnoException = Object.assign(new Error("cross-device link"), { code: "EXDEV" });
+    const raw = join(base, "raw.mov");
+    const dest = join(base, "take", "screen.webm");
+    await mkdir(join(base, "take"));
+    await writeFile(raw, "video-bytes");
+    await moveRawIntoTake(raw, dest, () => Promise.reject(exdev));
+    assert.equal(await readFile(dest, "utf8"), "video-bytes");
+    await assert.rejects(stat(raw));
+  } finally {
+    await rm(base, { recursive: true, force: true });
+  }
+});
+
+test("moveRawIntoTake removes the temp file and reports the real error", async () => {
+  const base = await mkdtemp(join(tmpdir(), "takeone-ios-move-"));
+  try {
+    // Missing source: simctl wrote nothing.
+    const missing = join(base, "never-wrote.mov");
+    await assert.rejects(moveRawIntoTake(missing, join(base, "screen.webm")), /simctl wrote no video file/);
+    await assert.rejects(stat(missing));
+
+    // Any other rename failure surfaces its own message, not the no-file one.
+    const raw = join(base, "raw.mov");
+    await writeFile(raw, "video-bytes");
+    const boom: NodeJS.ErrnoException = Object.assign(new Error("disk on fire"), { code: "EIO" });
+    await assert.rejects(
+      moveRawIntoTake(raw, join(base, "screen.webm"), () => Promise.reject(boom)),
+      /disk on fire/,
+    );
+    await assert.rejects(stat(raw));
+  } finally {
+    await rm(base, { recursive: true, force: true });
+  }
 });
 
 test("offset_ms measures spawn to the recorder start line, else zero", () => {
