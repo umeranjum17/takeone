@@ -1,7 +1,7 @@
 // `takeone capture ...`: recorder protocol v1 surface. `hello` now;
 // record/stop/make land in later lanes and currently fall through to the
 // capture-scoped invalid-arguments envelope below.
-import { readFileSync } from "node:fs";
+import { readFileSync, writeSync } from "node:fs";
 import { loadApiKey } from "./decide/jev.ts";
 
 export interface CaptureError {
@@ -12,7 +12,7 @@ export interface CaptureError {
 
 /** Capture-scoped failure: envelope on stdout; usage errors exit 2, rest exit 1. */
 export function captureFail(error: CaptureError): never {
-  console.log(JSON.stringify({ error }));
+  writeSync(1, JSON.stringify({ error }) + "\n");
   process.exit(error.code === "invalid-arguments" ? 2 : 1);
 }
 
@@ -43,6 +43,13 @@ export function runCapture(argv: string[]): number {
       }),
     );
     return 0;
+  }
+  if (verb === "hello" && rest.length > 0) {
+    captureFail({
+      code: "invalid-arguments",
+      message: "capture hello takes no arguments",
+      hint: "run `takeone capture hello`",
+    });
   }
   captureFail({
     code: "invalid-arguments",
