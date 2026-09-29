@@ -94,7 +94,7 @@ test("no-track watchdog starts after answer acceptance", { timeout: 30_000 }, as
   process.env.FAKE_DELAY_ANSWER_MS = "10500";
   try {
     const capture = await startCapture({
-      engine: { command: process.execPath, args: [join(here, "fake-engine.js")], origin: "test" } as Parameters<typeof startCapture>[0]["engine"],
+      engine: { command: process.execPath, args: [join(here, "fake-engine.js")], origin: "configured" },
       takeDir, stateDir, fps: 30, bitrateKbps: 40_000, savedToken: null,
     });
     assert.ok(capture.frames().length > 0);
@@ -112,7 +112,7 @@ test("a failed replacement-token write fails capture completion", { timeout: 30_
   await writeFile(invalidStateDir, "");
   try {
     const capture = await startCapture({
-      engine: { command: process.execPath, args: [join(here, "fake-engine.js")], origin: "test" } as Parameters<typeof startCapture>[0]["engine"],
+      engine: { command: process.execPath, args: [join(here, "fake-engine.js")], origin: "configured" },
       takeDir, stateDir: invalidStateDir, fps: 30, bitrateKbps: 40_000, savedToken: null,
     });
     await assert.rejects(capture.stop(), (error: unknown) =>
@@ -130,7 +130,7 @@ test("stop before first packet aborts negotiation without a completed capture", 
   const interrupted = new Promise<void>((resolve) => { stop = resolve; });
   try {
     const capture = startCapture({
-      engine: { command: process.execPath, args: [join(here, "fake-engine.js")], origin: "test" } as Parameters<typeof startCapture>[0]["engine"],
+      engine: { command: process.execPath, args: [join(here, "fake-engine.js")], origin: "configured" },
       takeDir, stateDir, fps: 30, bitrateKbps: 40_000, savedToken: null, interrupted,
     });
     setTimeout(stop, 1000);
@@ -152,7 +152,7 @@ test("unfinished WebM cannot finish a take successfully", { timeout: 30_000 }, a
   };
   try {
     const capture = await startCapture({
-      engine: { command: process.execPath, args: [join(here, "fake-engine.js")], origin: "test" } as Parameters<typeof startCapture>[0]["engine"],
+      engine: { command: process.execPath, args: [join(here, "fake-engine.js")], origin: "configured" },
       takeDir, stateDir, fps: 30, bitrateKbps: 40_000, savedToken: null,
     });
     await assert.rejects(capture.stop(), (error: unknown) =>
@@ -168,7 +168,7 @@ test("frames.tsv write failure cannot finish a take successfully", { timeout: 30
   await mkdir(join(takeDir, "frames.tsv"));
   try {
     const capture = await startCapture({
-      engine: { command: process.execPath, args: [join(here, "fake-engine.js")], origin: "test" } as Parameters<typeof startCapture>[0]["engine"],
+      engine: { command: process.execPath, args: [join(here, "fake-engine.js")], origin: "configured" },
       takeDir, stateDir, fps: 30, bitrateKbps: 40_000, savedToken: null,
     });
     await assert.rejects(capture.stop(), (error: unknown) =>
