@@ -11,7 +11,7 @@
 import { spawn } from "node:child_process";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { basename, join, resolve } from "node:path";
 import { processStartTicks } from "../takes.ts";
 import { touchEvents } from "./touch.ts";
 import { captureAndroidVideo } from "./video.ts";
@@ -84,9 +84,10 @@ export function parseTouchDevices(lp: string): TouchAxes | null {
   };
 }
 
-/** `Physical size: 1080x2400` → { w, h }. */
+/** Effective size: `Override size` wins over `Physical size`. */
 export function parseWmSize(out: string): { w: number; h: number } | null {
-  const m = out.match(/(\d+)x(\d+)/);
+  const over = out.match(/Override size:\s*(\d+)x(\d+)/);
+  const m = over ?? out.match(/(\d+)x(\d+)/);
   if (!m) return null;
   const w = Number(m[1]);
   const h = Number(m[2]);
@@ -278,7 +279,12 @@ export async function runAndroidRecord(options: AndroidRecordOptions): Promise<A
       } catch (error) {
         stopResolve();
         await capture.catch(() => undefined);
-        throw error;
+        if (error instanceof AndroidRecordError) throw error;
+        throw new AndroidRecordError(
+          "adb-failed",
+          `android capture failed: ${(error as Error).message}`,
+          `check that device ${serial} is attached (adb devices)`,
+        );
       } finally {
         getevent.kill("SIGKILL");
       }
@@ -295,7 +301,7 @@ export async function runAndroidRecord(options: AndroidRecordOptions): Promise<A
         .map((e) => ({ ...e, t: Math.max(0, Math.round(e.t + shift)) }))
         .sort((a, b) => a.t - b.t);
       const takeJson: AndroidTakeJson = {
-        id,
+        id: basename(takeDir),
         stream: { w: summary.width, h: summary.height },
         scale: androidScale(density, display.w, summary.width),
         offset_ms: Math.round((firstFrameWall - t0 + summary.spreadMs.min) * 10) / 10,
