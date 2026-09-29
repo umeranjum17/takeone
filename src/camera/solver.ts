@@ -22,6 +22,8 @@ interface Target {
   state: CameraState;
   importance: number;
   startAfter?: number;
+  /** A long-idle widen: quiet by definition, so exempt from the rate cap. */
+  breathe?: boolean;
 }
 
 interface Move {
@@ -216,8 +218,10 @@ function applyMoveRateLimit(targets: Target[], width: number, height: number, d:
     state = target.state;
   }
   let kept = moving;
+  // Dropping a breathe would strand the camera on a close shot through a long
+  // idle, so the cap counts and drops only action targets.
   for (const anchor of moving) {
-    const window = kept.filter((target) => target.t >= anchor.t
+    const window = kept.filter((target) => !target.breathe && target.t >= anchor.t
       && target.t < anchor.t + d.rate_window);
     if (window.length <= d.rate_max) continue;
     const winners = new Set([...window]
@@ -288,6 +292,7 @@ function buildTargets(
       t: beat.t0 + d.breathe_s,
       state: frame(zone, 1, width, height, beat.window_rect, d),
       importance: 0,
+      breathe: true,
     });
   }
   // OUTRO rule: settle back to the whole stage for the closing seconds.

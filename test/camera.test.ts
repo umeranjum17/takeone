@@ -573,3 +573,14 @@ test("a typing beat does not chase its earlier click points off the result shot"
   const last = frames.at(-1)!;
   assert.ok(last.y <= 1500 && last.y + last.h >= 1700, `menu cropped: y=${last.y} h=${last.h}`);
 });
+
+test("the move cap never drops the breathe out of a long closing idle", () => {
+  const busy = [1, 2.5, 4, 5.5].map((time, index) => beat(`busy${index}`, time, index % 2 ? 3300 : 300));
+  const idle: Beat = {
+    id: "closing", t0: 6.5, t1: 14, anchor_t: 6.5, actions: [], kind: "idle",
+    zones: [{ name: "all", type: "all", bbox: [0, 0, 3840, 2160] }],
+  };
+  const result = camera([...busy, idle], [...busy.map((b) => decision(b, 2)), decision(idle)], 14);
+  assert.ok(at(result, 5.6).w < 3000);
+  assert.ok(at(result, 12).w > 3700, `still close at the end: w=${at(result, 12).w}`);
+});
