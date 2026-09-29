@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { homedir } from "node:os";
 import { existsSync, readFileSync, unlinkSync } from "node:fs";
 import { pathToFileURL } from "node:url";
+import { runCapture } from "./capture.ts";
 import { makeTake, PreflightRefusal, TakeInputError } from "./make.ts";
 import { renderTake } from "./render/render.ts";
 import { applyOverrides, type CameraDefaults, type Overrides } from "./camera/defaults.ts";
@@ -90,6 +91,7 @@ takeone [list|record|stop|doctor]
 
 export async function main(argv: string[]): Promise<number> {
   const [cmd, ...rest] = argv;
+  if (cmd === "capture") return runCapture(rest);
   if (!cmd || cmd === "list" || cmd === "record" || cmd === "stop" || cmd === "doctor") {
     return runRecorderCommand(cmd ?? "list", rest);
   }
