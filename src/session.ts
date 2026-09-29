@@ -21,6 +21,7 @@ import {
   type OpenedSession,
   type ResolvedEngine,
   type SessionMetrics,
+  type SourceRequest,
 } from "@desklink/host";
 import { saveToken } from "./token.js";
 import type { FrameSample } from "./clock.js";
@@ -71,6 +72,8 @@ export interface CaptureOptions {
   stateDir: string;
   fps: number;
   bitrateKbps: number;
+  /** Portal consent dialog by default; x11 captures a display with no prompt. */
+  source?: SourceRequest;
   savedToken: string | null | (() => Promise<string | null>);
   onConsent?: () => Promise<void>;
   onGeometry?: (geometry: SurfaceGeometry) => Promise<void>;
@@ -142,7 +145,7 @@ export async function startCapture(options: CaptureOptions): Promise<Capture> {
     const token = typeof savedToken === "function" ? await savedToken() : savedToken;
     const openPromise = client.openSession(
       {
-        source: { kind: "portal" },
+        source: options.source ?? { kind: "portal" },
         permissions: ["view"], // takeone never asks for input authority
         maxFps: fps,
         maxWidth: 7680,
