@@ -74,6 +74,22 @@ test("framing expands to 16:9 and respects source and upscale clamps", () => {
   }
 });
 
+test("FIT holds a whole opened panel at a real zoom instead of padding out to the whole screen", () => {
+  const panel = zone("panel", [84, 224, 972, 692]);
+  for (let level = 2; level <= 3; level++) {
+    const s = frame(panel, level, 1920, 1080);
+    const w = 1920 / s.z;
+    const h = w * 9 / 16;
+    // The heading at the panel's top edge and every other edge stay in frame.
+    assert.ok(s.cx - w / 2 <= 84 && s.cx + w / 2 >= 84 + 972, `level ${level} x`);
+    assert.ok(s.cy - h / 2 <= 224 && s.cy + h / 2 >= 224 + 692, `level ${level} y`);
+    assert.ok(s.z > 1.2, `level ${level} zoomed ${s.z}`);
+  }
+  // Small zones keep their full per-level padding.
+  assert.deepEqual(frame(zone("button", [900, 500, 60, 30]), 1, 1920, 1080),
+    frame(zone("button", [900, 500, 60, 30]), 1, 1920, 1080, undefined, { ...DEFAULTS, frame_max: 1 }));
+});
+
 test("whole-screen non-16:9 frames cover the full source while 16:9 framing is unchanged", () => {
   for (const [width, height] of [[3440, 1440], [1440, 2560]] as const) {
     const whole = solveCamera([], [], { width, height, trim_start: 0, trim_end: 1 })[0]!;

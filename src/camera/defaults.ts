@@ -36,6 +36,8 @@ export interface CameraDefaults {
   l2_pad: number;
   l3_pad: number;
   preset: string; // x264 encode preset; slower = smaller file, same pixels
+  frame_max: number; // padding never widens a shot past this fraction of the screen width
+  hold_pad: number; // ... but the zone itself always keeps at least this padding
   establish_s: number; // hold the whole stage this long before the first shot arrives
   outro_s: number; // return to the whole stage for the final seconds; 0 keeps the last shot
   idle_speed: number; // play idle gaps this many times faster; 1 turns it off
@@ -88,6 +90,8 @@ export const DEFAULTS: CameraDefaults = {
   l2_pad: 1.8,
   l3_pad: 1.35,
   preset: "slow",
+  frame_max: 0.8,
+  hold_pad: 1.08,
   establish_s: 1.6,
   outro_s: 1.6,
   idle_speed: 4,
@@ -129,13 +133,14 @@ export function applyOverrides(overrides: Overrides): CameraDefaults {
       out.caption_font = v;
       continue;
     }
-    const positive = ["out_w", "out_h", "fps", "max_upscale", "rate_window", "rate_max", "move_t_min", "move_t_max", "hop_zoom", "hop_zoom_div", "hop_t_scale", "follow_omega", "lowpass_omega", "l1_pad", "l2_pad", "l3_pad", "caption_size"];
+    const positive = ["out_w", "out_h", "fps", "max_upscale", "rate_window", "rate_max", "move_t_min", "move_t_max", "hop_zoom", "hop_zoom_div", "hop_t_scale", "follow_omega", "lowpass_omega", "l1_pad", "l2_pad", "l3_pad", "frame_max", "caption_size"];
     const integers = ["out_w", "out_h", "fps", "rate_max"];
     if (!(key in out) || typeof v !== "number" || !Number.isFinite(v)
       || (positive.includes(k) ? v <= 0 : v < 0)
       || (integers.includes(k) && !Number.isInteger(v))
       || (["out_w", "out_h"].includes(k) && v % 2 !== 0)
-      || (["max_upscale", "deadzone_zoom", "l1_pad", "l2_pad", "l3_pad", "idle_speed"].includes(k) && v < 1)
+      || (["max_upscale", "deadzone_zoom", "l1_pad", "l2_pad", "l3_pad", "hold_pad", "idle_speed"].includes(k) && v < 1)
+      || (k === "frame_max" && v > 1)
       || (k === "deadzone_margin" && v >= 0.5)
       || (k === "stage_margin" && v > 0.25)
       || (k === "shadow" && v > 1)

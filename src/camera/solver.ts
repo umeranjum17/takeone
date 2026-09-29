@@ -105,6 +105,16 @@ export function frame(
     ry -= (expandedH - rh) / 2;
     rh = expandedH;
   }
+  if (rect !== windowRect) {
+    // FIT rule: a large zone (an opened panel) is held whole at a real zoom instead of
+    // its padding pushing the shot out to the whole screen.
+    const holdW = Math.max(zoneW, zoneH * aspect) * d.hold_pad;
+    const fitW = Math.max(holdW, Math.min(rw, width * d.frame_max));
+    rx += (rw - fitW) / 2;
+    ry += (rh - fitW / aspect) / 2;
+    rw = fitW;
+    rh = fitW / aspect;
+  }
 
   return {
     cx: rx + rw / 2,
