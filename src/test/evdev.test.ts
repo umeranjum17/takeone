@@ -79,9 +79,11 @@ test("input devices come from the kernel list, including virtual and combo devic
     "I: Bus=0019 Vendor=0000 Product=0001 Version=0000",
     'N: Name="Power Button"',
     "H: Handlers=kbd event0 ",
+    "B: KEY=10000000000000 0",
     "",
     'N: Name="Logitech USB Receiver"',
     "H: Handlers=sysrq kbd leds event3 ",
+    "B: KEY=0 40000000",
     "",
     'N: Name="Some Mouse"',
     "H: Handlers=event4 mouse0 ",
@@ -89,15 +91,30 @@ test("input devices come from the kernel list, including virtual and combo devic
     "I: Bus=0006 Vendor=0000 Product=0000 Version=0000",
     'N: Name="virtual combo"',
     "H: Handlers=sysrq kbd event21 mouse3 ",
+    "B: KEY=0 40000000",
     "",
     'N: Name="HD-Audio Generic HDMI"',
     "H: Handlers=event9 ",
     "",
   ].join("\n");
   assert.deepEqual(parseInputDevices(text), [
-    { path: "/dev/input/event0", mouse: false, kbd: true },
     { path: "/dev/input/event3", mouse: false, kbd: true },
     { path: "/dev/input/event4", mouse: true, kbd: false },
     { path: "/dev/input/event21", mouse: true, kbd: true },
   ]);
+});
+
+test("pseudo-buttons without letter keys are not keyboards", () => {
+  const text = [
+    "I: Bus=0019 Vendor=0000 Product=0001 Version=0000",
+    'N: Name="Power Button"',
+    "H: Handlers=kbd event0 ",
+    "B: KEY=10000000000000 0",
+    "",
+    'N: Name="AT Translated Set 2 keyboard"',
+    "H: Handlers=sysrq kbd event3 ",
+    "B: KEY=402000000 3803078f800d001 feffffdfffefffff fffffffffffffffe",
+    "",
+  ].join("\n");
+  assert.deepEqual(parseInputDevices(text), [{ path: "/dev/input/event3", mouse: false, kbd: true }]);
 });

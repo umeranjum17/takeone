@@ -81,13 +81,27 @@ export interface InputCandidate {
  */
 export function parseInputDevices(text: string): InputCandidate[] {
   const candidates: InputCandidate[] = [];
-  for (const line of text.split("\n")) {
-    if (!line.startsWith("H: Handlers=")) continue;
-    const handlers = line.slice("H: Handlers=".length).trim().split(/\s+/);
+  for (const block of text.split(/^\s*$/m)) {
+    let handlers: string[] | null = null;
+    let keyValue: string | null = null;
+    for (const line of block.split("\n")) {
+      if (line.startsWith("H: Handlers=")) handlers = line.slice("H: Handlers=".length).trim().split(/\s+/);
+      else if (line.startsWith("B: KEY=")) keyValue = line.slice("B: KEY=".length).trim();
+    }
+    if (handlers === null) continue;
     const event = handlers.find((h) => /^event\d+$/.test(h));
+    if (event === undefined) continue;
     const mouse = handlers.some((h) => /^mouse\d+$/.test(h));
-    const kbd = handlers.includes("kbd");
-    if (event !== undefined && (mouse || kbd)) candidates.push({ path: `/dev/input/${event}`, mouse, kbd });
+    let kbd = false;
+    if (handlers.includes("kbd") && keyValue !== null && keyValue.length > 0) {
+      const low = keyValue.split(/\s+/).at(-1) as string;
+      try {
+        kbd = ((BigInt(`0x${low}`) >> 30n) & 1n) === 1n;
+      } catch {
+        kbd = false;
+      }
+    }
+    if (mouse || kbd) candidates.push({ path: `/dev/input/${event}`, mouse, kbd });
   }
   return candidates;
 }
