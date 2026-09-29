@@ -25,7 +25,7 @@ export function sendcmd(frames: CameraFrame[], offsetX = 0, offsetY = 0): string
 /** Run ffmpeg, resolve with its stderr, and include its final 20 stderr lines on failure. */
 function runFfmpeg(args: string[]): Promise<string> {
   return new Promise((resolve, reject) => {
-    const process = spawn("ffmpeg", args, { stdio: ["ignore", "ignore", "pipe"] });
+    const process = spawn("ffmpeg", ["-nostdin", ...args], { stdio: ["ignore", "ignore", "pipe"] });
     let stderr = "";
     process.stderr.setEncoding("utf8").on("data", (chunk: string) => {
       stderr = (stderr + chunk).slice(-100_000);
@@ -98,7 +98,7 @@ export async function renderTake(dir: string, d: CameraDefaults = DEFAULTS): Pro
     `[0:v]setpts='${setptsExpr(squeezes, d.idle_speed)}',ass=${filterPath(clicksFile)},format=yuv420p[screen]`,
     cardFilter(meta.width, meta.height, stage, d, still),
     `[c4]sendcmd=f=${filterPath(commandFile)},crop@a=w=iw:h=ih:x=0:y=0:exact=1,`
-      + `scale=${d.out_w}:${d.out_h}:flags=lanczos,ass=${filterPath(captionsFile)}`
+      + `setsar=1,scale=${d.out_w}:${d.out_h}:flags=lanczos,setsar=1,ass=${filterPath(captionsFile)}`
       + (fade > 0 ? `,fade=t=in:st=0:d=${fade}:color=${background},fade=t=out:st=${duration - fade}:d=${fade}:color=${background}` : "")
       + `,format=yuv420p`,
   ].join(";");

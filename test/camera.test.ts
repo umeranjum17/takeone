@@ -460,6 +460,12 @@ test("render without trim_end uses the latest beat end", { timeout: 120_000, ski
       "-show_entries", "stream=nb_frames", "-of", "default=noprint_wrappers=1:nokey=1", output],
     { encoding: "utf8" });
     assert.equal(Number(count.trim()), 54);
+    // Square pixels must survive per-frame crop-size changes (ffmpeg 6.1
+    // stalls on per-frame SAR changes; see setsar=1 each side of scale).
+    const sar = execFileSync("ffprobe", ["-v", "error", "-select_streams", "v:0",
+      "-show_entries", "stream=sample_aspect_ratio", "-of", "default=noprint_wrappers=1:nokey=1", output],
+    { encoding: "utf8" });
+    assert.equal(sar.trim(), "1:1");
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
