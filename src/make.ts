@@ -31,6 +31,8 @@ import { clampBBox, type BBox } from "./types.ts";
 export const DEFAULT_TOKENS_PER_MIN = 40000;
 
 export interface MakeOptions {
+  /** Capture privacy: drop window titles, cache hashes only, no coords in current_shot. */
+  capture?: boolean;
   noJev?: boolean;
   about?: string;
   screenText?: boolean;
@@ -83,6 +85,27 @@ export function readTakeMeta(dir: string): TakeMeta {
   return JSON.parse(readFileSync(join(dir, "take.json"), "utf8")) as TakeMeta;
 }
 
+/** Blank window titles in events.jsonl, keeping every other line byte-identical. */
+function scrubEventTitles(eventsPath: string): void {
+  const raw = readFileSync(eventsPath, "utf8").split("\n");
+  let changed = false;
+  const out = raw.map((line) => {
+    if (!line.trim()) return line;
+    let e: { k?: unknown; title?: unknown };
+    try {
+      e = JSON.parse(line);
+    } catch {
+      return line;
+    }
+    if (e && typeof e === "object" && e.k === "win" && typeof e.title === "string" && e.title !== "") {
+      changed = true;
+      return JSON.stringify({ ...e, title: "" });
+    }
+    return line;
+  });
+  if (changed) writeFileSync(eventsPath, out.join("\n"));
+}
+
 export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<MakeResult> {
   const log = opts.log ?? ((s: string) => console.log(s));
   const warn = opts.warn ?? ((s: string) => console.error(s));
@@ -95,6 +118,7 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
   const eventsPath = join(dir, "events.jsonl");
   const hasEvents = existsSync(eventsPath);
   if (!hasEvents && take.events !== "none") throw new TakeInputError("events.jsonl", "missing");
+  if (opts.capture && hasEvents) scrubEventTitles(eventsPath);
   const events = hasEvents ? await readEvents(eventsPath) : [];
   if (hasEvents && events.length === 0 && statSync(eventsPath).size > 0 && take.events !== "none") {
     throw new TakeInputError("events.jsonl", "invalid event data");
@@ -167,7 +191,7 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
       scale: take.scale ?? 1,
       frames: scopedFrames,
     });
-    if (opts.screenText) await addScreenText(b, win, webm, videoStartMs);
+    if (opts.screenText) await addScreenText(b, opts.capture ? null : win, webm, videoStartMs);
   }
   const seconds = (ms: number) => (ms - videoStartMs) / 1000;
   const renderBeats: RenderBeat[] = beats.map((b) => {
@@ -213,7 +237,7 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
     }
     const ctxs = beats.map((b, i) => ({
       about: opts.about,
-      currentShot: shotDescription(beats[i - 1] ?? null, heuristics[i - 1] ?? null, i > 0 ? winFor(beats[i - 1]!.anchor_t)?.rect ?? null : null, take.stream),
+      currentShot: shotDescription(beats[i - 1] ?? null, heuristics[i - 1] ?? null, i > 0 ? winFor(beats[i - 1]!.anchor_t)?.rect ?? null : null, take.stream, opts.capture),
       nextBeat: beats[i + 1],
     }));
     interface Job {
@@ -256,7 +280,7 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
       return { take, beats, decisions, jev: { input_tokens: 0, usd: 0, failed }, planned, out: null, seconds: 0 };
     }
 
-    const cache = new DecisionCache(join(analysisDir, "jev-cache.jsonl"));
+    const cache = new DecisionCache(join(analysisDir, "jev-cache.jsonl"), { omitRequestBody: opts.capture });
     const outcomes: ({ response: unknown; inputTokens?: number } | "failed")[] = new Array(beats.length);
     await pooled(jobs, CONCURRENCY, async (j) => {
       const r = await askBeat(j.body, key, cache, { fetchImpl: opts.fetchImpl,
@@ -293,7 +317,7 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
 
     for (let i = 1; i < beats.length; i++) {
       if (skipped.has(i)) continue;
-      const actual = shotDescription(beats[i - 1]!, decisions[i - 1]!, winFor(beats[i - 1]!.anchor_t)?.rect ?? null, take.stream);
+      const actual = shotDescription(beats[i - 1]!, decisions[i - 1]!, winFor(beats[i - 1]!.anchor_t)?.rect ?? null, take.stream, opts.capture);
       if (actual === ctxs[i]!.currentShot) continue;
       let body: string;
       try {
@@ -455,11 +479,14 @@ function finalFrame(
 }
 
 /** Words for the shot on screen at the start of a beat. */
-function shotDescription(prevBeat: Beat | null, prevDecision: Decision | null, winRect: BBox | null, stream: { w: number; h: number }): string {
+function shotDescription(prevBeat: Beat | null, prevDecision: Decision | null, winRect: BBox | null, stream: { w: number; h: number }, capture = false): string {
   if (!prevBeat || !prevDecision) return "Framing the entire screen.";
   const z = prevBeat.zones.find((zone) => zone.name === prevDecision.B);
+  const shows = z?.desc.shows ?? "the screen";
+  // Capture privacy: a coarse zone reference, never rect coordinates.
+  if (capture) return `Framing ${shows} in zone ${z?.name ?? "full screen"}.`;
   const rect = finalFrame(prevBeat, prevDecision, winRect, stream);
-  return `Framing ${z?.desc.shows ?? "the screen"} at ${rect.join(",")}.`;
+  return `Framing ${shows} at ${rect.join(",")}.`;
 }
 
 async function addScreenText(

@@ -4,7 +4,7 @@
 // as a header, and never logged.
 
 import { createHash } from "node:crypto";
-import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { homedir } from "node:os";
 import { JEV_ENDPOINT, JEV_MODEL } from "./request.ts";
@@ -106,18 +106,30 @@ export async function callJev(
 export class DecisionCache {
   private map = new Map<string, CacheLine>();
   readonly path: string;
-  constructor(path: string) {
+  private readonly omitRequestBody: boolean;
+  constructor(path: string, o: { omitRequestBody?: boolean } = {}) {
+    this.omitRequestBody = o.omitRequestBody ?? false;
     this.path = path;
     if (existsSync(path)) {
+      let dirty = false;
       for (const line of readFileSync(path, "utf8").split("\n")) {
         const s = line.trim();
         if (!s) continue;
         try {
           const c = JSON.parse(s) as CacheLine;
+          if (this.omitRequestBody && typeof c.request === "string" && c.request !== "") {
+            c.request = "";
+            dirty = true;
+          }
           this.map.set(c.key, c);
         } catch {
           // skip malformed cache lines
         }
+      }
+      if (dirty) {
+        try {
+          writeFileSync(path, [...this.map.values()].map((c) => JSON.stringify(c)).join("\n") + "\n");
+        } catch {}
       }
     }
   }
@@ -127,7 +139,8 @@ export class DecisionCache {
   }
 
   put(body: string, response: unknown): void {
-    const line: CacheLine = { key: sha256(body), request: body, response, t: new Date().toISOString() };
+    // Capture privacy: the hash keys the hit; the body itself is never stored.
+    const line: CacheLine = { key: sha256(body), request: this.omitRequestBody ? "" : body, response, t: new Date().toISOString() };
     this.map.set(line.key, line);
     mkdirSync(dirname(this.path), { recursive: true });
     appendFileSync(this.path, JSON.stringify(line) + "\n");
