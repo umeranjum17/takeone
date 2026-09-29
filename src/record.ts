@@ -5,7 +5,7 @@
 import { mkdir, writeFile, rm } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
-import { resolveEngine } from "@desklink/host";
+import { resolveEngine, type SourceRequest } from "@desklink/host";
 import { alignClock, clockWarning, type ClockAlign } from "./clock.js";
 import { pickMonitor, type MonitorInfo } from "./mapping.js";
 import { getMonitors, hyprlandSockets } from "./hyprland.js";
@@ -22,6 +22,14 @@ export interface RecordOptions {
   bitrateKbps?: number;
   takesRoot?: string;
   stateDirPath?: string;
+  /** Portal (default) or an explicit X display; x11 skips the consent dialog. */
+  source?: SourceRequest;
+  /** "own" keeps today's taps; "none" never opens evdev or Hyprland. */
+  events?: "own" | "none";
+  /** Hard stop: seconds of recording before an automatic stop. */
+  maxSeconds?: number;
+  /** Fired once capture is established and frames are flowing. */
+  onRecording?: (takeDir: string) => void;
 }
 
 export interface RecordResult {
@@ -82,6 +90,10 @@ export async function runRecord(options: RecordOptions = {}): Promise<RecordResu
   const root = options.takesRoot !== undefined ? resolve(options.takesRoot) : defaultTakesRoot();
   const stateDirPath =
     options.stateDirPath !== undefined ? resolve(options.stateDirPath) : defaultStateDir();
+  const tapsEnabled = (options.events ?? "own") !== "none";
+  if (options.maxSeconds !== undefined && (!Number.isFinite(options.maxSeconds) || options.maxSeconds <= 0)) {
+    throw new RecordError("invalid-arguments", "--max-seconds must be a positive number of seconds", "pass e.g. --max-seconds 60");
+  }
 
   const engine = resolveEngine();
   if (engine === null) {
@@ -114,6 +126,7 @@ export async function runRecord(options: RecordOptions = {}): Promise<RecordResu
     resolveStopped = resolveP;
   });
   let stopRequested = false;
+  let maxTimer: NodeJS.Timeout | undefined;
   const onStop = (): void => {
     if (stopRequested) return;
     stopRequested = true;
@@ -134,7 +147,14 @@ export async function runRecord(options: RecordOptions = {}): Promise<RecordResu
     if (stopRequested) throw new RecordError("capture-stopped", "recording stopped during setup", "run `takeone record` again");
     const tapStartedAt = new Date();
     const t0ns = process.hrtime.bigint();
-    taps = await startTaps({ eventsPath: join(takeDir, "events.jsonl"), t0ns });
+    // Armed at take start so the finished take is never longer than asked.
+    if (options.maxSeconds !== undefined) {
+      maxTimer = setTimeout(onStop, options.maxSeconds * 1000);
+      maxTimer.unref?.();
+    }
+    if (tapsEnabled) {
+      taps = await startTaps({ eventsPath: join(takeDir, "events.jsonl"), t0ns });
+    }
     if (stopRequested) throw new RecordError("capture-stopped", "recording stopped during setup", "run `takeone record` again");
     let mapping: { monitor: MonitorInfo; scale: number } | null = null;
     let monitorRecord: unknown = null;
@@ -144,6 +164,7 @@ export async function runRecord(options: RecordOptions = {}): Promise<RecordResu
       stateDir: stateDirPath,
       fps,
       bitrateKbps,
+      source: options.source ?? { kind: "portal" },
       savedToken: async () => {
         if (stopRequested) throw new RecordError("capture-stopped", "recording stopped during setup", "run `takeone record` again");
         const token = await consumeToken(stateDirPath, () => stopRequested);
@@ -151,24 +172,34 @@ export async function runRecord(options: RecordOptions = {}): Promise<RecordResu
         return token;
       },
       interrupted: stopped,
-      onConsent: () => {
+      onConsent: async () => {
         consentGranted = true;
-        return taps!.confirmConsent();
+        // `none` still leaves an (empty) events file so takes keep one shape.
+        if (taps !== null) await taps.confirmConsent();
+        else await writeFile(join(takeDir, "events.jsonl"), "", { mode: 0o600 });
       },
-      onGeometry: async (geometry) => {
-        const hypr = hyprlandSockets();
-        if (hypr !== null) {
-          try {
-            mapping = pickMonitor(await getMonitors(hypr.socket), geometry);
-            monitorRecord = mapping?.monitor ?? null;
-          } catch {}
-        }
-        taps!.setMapping(mapping);
-      },
+      // `none` never touches Hyprland at all: no mapping, no pointer polls.
+      onGeometry: tapsEnabled
+        ? async (geometry) => {
+            const hypr = hyprlandSockets();
+            if (hypr !== null) {
+              try {
+                mapping = pickMonitor(await getMonitors(hypr.socket), geometry);
+                monitorRecord = mapping?.monitor ?? null;
+              } catch {}
+            }
+            taps!.setMapping(mapping);
+          }
+        : undefined,
     });
     if (stopRequested) throw new RecordError("capture-stopped", "recording stopped during setup", "run `takeone record` again");
-
+    try {
+      options.onRecording?.(takeDir);
+    } catch {
+      // a reporting hook must never fail the take
+    }
     const stoppedAt = await stopped;
+    clearTimeout(maxTimer);
 
     if (taps !== null) await taps.stop();
     const finalMetrics = await capture.stop();
@@ -177,7 +208,7 @@ export async function runRecord(options: RecordOptions = {}): Promise<RecordResu
     const clock = alignClock(frames.map((frame) => ({ ...frame, recvMs: frame.recvMs - Number(t0ns) / 1e6 })));
     const firstFrameMs = clock === null || frames[0] === undefined ? 0 : frames[0].rtpTs / 90 + clock.offsetMs;
     const durationMs = Math.max(0, Number(stoppedAt.monoNs - t0ns) / 1e6);
-    const warnings = [...taps.warnings];
+    const warnings = [...(taps?.warnings ?? [])];
     const clockWarn = clockWarning(clock);
     if (clockWarn !== null) warnings.push(clockWarn);
 
@@ -192,11 +223,11 @@ export async function runRecord(options: RecordOptions = {}): Promise<RecordResu
       bitrate_kbps: bitrateKbps,
       geometry: capture.geometry,
       monitor: monitorRecord,
-      pointer: taps.pointerMode,
-      events: taps.eventsMode,
+      pointer: taps?.pointerMode ?? "none",
+      events: taps?.eventsMode ?? "none",
       warnings,
       clock,
-      trim: computeTrim(taps.summary, durationMs, firstFrameMs),
+      trim: computeTrim(taps === null ? { inputMs: [] } : taps.summary, durationMs, firstFrameMs),
       metrics: finalMetrics,
       versions: {
         takeone: VERSION,
@@ -213,6 +244,7 @@ export async function runRecord(options: RecordOptions = {}): Promise<RecordResu
     throw error;
   } finally {
     try {
+      clearTimeout(maxTimer);
       if (taps !== null) await taps.stop().catch(() => undefined);
       if (capture !== null) await capture.stop().catch(() => undefined);
       if (discardTake) await rm(takeDir, { recursive: true, force: true });
