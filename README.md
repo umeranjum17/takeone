@@ -120,5 +120,3 @@ alignment, token persistence, take listing, CLI shapes — plus a loopback
 integration test in which a fake `desklink-host` process (a real werift VP9
 sender speaking the same stdio protocol) records a take through the full
 `takeone record` path, stopped by SIGINT exactly as `takeone stop` does.
-
-License: MIT, see LICENSE.
