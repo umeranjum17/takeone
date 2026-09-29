@@ -34,13 +34,16 @@ test("listing reports complete takes with take.json and skips foreign entries", 
     await mkdir(join(root, "20260101-000001"));
     await writeFile(join(root, "20260101-000001", "take.json"), TAKE_JSON);
     await mkdir(join(root, "20260101-000001-1"));
-    await writeFile(join(root, "20260101-000001-1", "take.json"), TAKE_JSON);
+    await writeFile(join(root, "20260101-000001-1", "take.json"), JSON.stringify({
+      started_at: "2026-01-01T00:00:00.000Z",
+      stopped_at: "2026-01-01T00:01:00.000Z",
+    }));
     await mkdir(join(root, "random-dir"));
     await writeFile(join(root, "notes.txt"), "hello");
 
     const takes = await listTakes(root, null);
     assert.equal(takes.length, 2);
-    assert.ok(takes.some((entry) => entry.id === "20260101-000001-1" && entry.status === "complete"));
+    assert.ok(takes.some((entry) => entry.id === "20260101-000001-1" && entry.status === "complete" && entry.durationMs === 60_000));
     const take = takes.find((entry) => entry.id === "20260101-000001")!;
     assert.equal(take.id, "20260101-000001");
     assert.equal(take.status, "complete");
