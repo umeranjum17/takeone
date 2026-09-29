@@ -8,7 +8,8 @@
  */
 
 import { spawn, spawnSync } from "node:child_process";
-import { mkdir, rename, rm, writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { copyFile, mkdir, rename, rm, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { basename, join, resolve } from "node:path";
 import { processStartTicks } from "../takes.ts";
@@ -74,7 +75,9 @@ export function parseBootedDevices(json: string): string[] {
   }
   const out: string[] = [];
   for (const group of Object.values(parsed.devices ?? {})) {
-    for (const d of group ?? []) {
+    if (!Array.isArray(group)) continue;
+    for (const d of group) {
+      if (typeof d !== "object" || d === null) continue;
       if (typeof d.udid === "string" && d.state === "Booted") out.push(d.udid);
     }
   }
@@ -185,6 +188,52 @@ function runXcrun(args: string[]): Promise<string> {
   });
 }
 
+/**
+ * Move the temp simctl recording into the take. Rename is atomic on one
+ * volume; across volumes (EXDEV) fall back to copy+unlink. The temp file
+ * is always removed on failure; only a missing source means simctl wrote
+ * nothing, every other failure reports the real error.
+ */
+export async function moveRawIntoTake(
+  raw: string,
+  dest: string,
+  renameFn: (src: string, dst: string) => Promise<void> = rename,
+): Promise<void> {
+  try {
+    await renameFn(raw, dest);
+    return;
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "EXDEV") {
+      try {
+        await copyFile(raw, dest);
+      } catch (copyError) {
+        await rm(raw, { force: true });
+        throw new IosRecordError(
+          "unreadable-video",
+          `could not move recording into take: ${(copyError as Error).message}`,
+          "check disk space and permissions on the takes directory",
+        );
+      }
+      await rm(raw, { force: true });
+      return;
+    }
+    await rm(raw, { force: true });
+    if (code === "ENOENT") {
+      throw new IosRecordError(
+        "unreadable-video",
+        "simctl wrote no video file",
+        "record for at least a few seconds before stopping",
+      );
+    }
+    throw new IosRecordError(
+      "unreadable-video",
+      `could not move recording into take: ${(error as Error).message}`,
+      "check disk space and permissions on the takes directory",
+    );
+  }
+}
+
 /** 12 h: the stop signal, not the deadline, ends an interactive recording. */
 const MAX_SECONDS = 12 * 3600;
 
@@ -223,7 +272,7 @@ export async function runIosSimRecord(options: IosSimRecordOptions = {}): Promis
     // Record to a temp .mov (simctl picks the container from the extension),
     // then rename to screen.webm: the core sniffs the codec, not the name,
     // and an H.264 MP4 under that name decodes fine.
-    const raw = join(tmpdir(), `takeone-ios-${id}.mov`);
+    const raw = join(tmpdir(), `takeone-ios-${id}-${randomUUID().slice(0, 8)}.mov`);
     const t0 = Date.now();
     let startLineWall: number | null = null;
     let stopResolve!: () => void;
@@ -287,15 +336,7 @@ export async function runIosSimRecord(options: IosSimRecordOptions = {}): Promis
         clearTimeout(deadline);
       }
       const offsetMs = offsetMsFromStartLine(t0, startLineWall);
-      await rename(raw, join(takeDir, "screen.webm")).catch(async () => {
-        // SIGINT arrived before simctl wrote anything: fail loudly instead
-        // of shipping an empty take.
-        throw new IosRecordError(
-          "unreadable-video",
-          "simctl wrote no video file",
-          "record for at least a few seconds before stopping",
-        );
-      });
+      await moveRawIntoTake(raw, join(takeDir, "screen.webm"));
       const { takeJson, frames } = await writeIosTake(takeDir, join(takeDir, "screen.webm"), offsetMs);
       wroteFiles = true;
       return { takeDir, takeJson, frames };
