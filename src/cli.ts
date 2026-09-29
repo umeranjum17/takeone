@@ -24,7 +24,7 @@ interface Args {
 
 /** Parse `--set key=value` pairs; numeric values stay numbers so that
  * string-valued keys like preset and background pass through intact. */
-function parseSet(pairs: string[]): Overrides {
+export function parseSet(pairs: string[]): Overrides {
   const overrides: Record<string, number | string> = {};
   for (const pair of pairs) {
     const match = /^([^=]+)=([^=]+)$/.exec(pair ?? "");
@@ -34,6 +34,18 @@ function parseSet(pairs: string[]): Overrides {
     overrides[k!] = k === "background" || !Number.isFinite(n) ? v! : n;
   }
   return overrides as Overrides;
+}
+
+/** Camera overrides for a take dir from `--set` pairs; undefined without pairs.
+ * Throws on malformed pairs. Portrait takes default to portrait output. */
+export function resolveCamera(dir: string, pairs: string[]): CameraDefaults | undefined {
+  if (pairs.length === 0) return undefined;
+  const raw = parseSet(pairs);
+  if (!("out_w" in raw) && !("out_h" in raw) && isPortraitTake(dir)) {
+    raw.out_w = 1080;
+    raw.out_h = 1920;
+  }
+  return applyOverrides(raw);
 }
 
 /** True when the take's stream is portrait (taller than wide). */
@@ -110,7 +122,7 @@ export async function main(argv: string[]): Promise<number> {
         raw.out_w = 1080;
         raw.out_h = 1920;
       }
-      console.log(await renderTake(dir, applyOverrides(raw)));
+      console.log((await renderTake(dir, applyOverrides(raw))).out);
       return 0;
     } catch (e) {
       console.error(e instanceof Error ? e.message : e);
@@ -135,18 +147,11 @@ export async function main(argv: string[]): Promise<number> {
     console.error(`takeone make: no take at ${dir} (take.json missing)`);
     return 2;
   }
-  if (a.set.length) {
-    try {
-      const raw = parseSet(a.set);
-      if (!("out_w" in raw) && !("out_h" in raw) && isPortraitTake(dir)) {
-        raw.out_w = 1080;
-        raw.out_h = 1920;
-      }
-      a.camera = applyOverrides(raw);
-    } catch (e) {
-      console.error(`takeone make: ${e instanceof Error ? e.message : e}`);
-      return 2;
-    }
+  try {
+    a.camera = resolveCamera(dir, a.set);
+  } catch (e) {
+    console.error(`takeone make: ${e instanceof Error ? e.message : e}`);
+    return 2;
   }
   try {
     await makeTake(dir, a);

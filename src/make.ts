@@ -41,14 +41,20 @@ export interface MakeOptions {
   fetchImpl?: typeof fetch;
   /** camera defaults override for the render; tests pass a fast preset */
   camera?: CameraDefaults;
+  /** stop after the preflight: no planner calls, no render; returns planned tokens */
+  planOnly?: boolean;
   log?: (line: string) => void;
   warn?: (line: string) => void;
 }
 
 export class PreflightRefusal extends Error {
-  constructor(message: string) {
+  readonly plannedTokens?: number;
+  readonly cap?: number;
+  constructor(message: string, o: { plannedTokens?: number; cap?: number } = {}) {
     super(message);
     this.name = "PreflightRefusal";
+    this.plannedTokens = o.plannedTokens;
+    this.cap = o.cap;
   }
 }
 
@@ -66,6 +72,11 @@ export interface MakeResult {
   beats: Beat[];
   decisions: Decision[];
   jev: { input_tokens: number; usd: number; failed: number };
+  /** reserved preflight tokens and their planned cost; zeros without a planner key */
+  planned: { planned_tokens: number; usd: number };
+  /** render output path and output seconds; null/0 when planOnly skips the render */
+  out: string | null;
+  seconds: number;
 }
 
 export function readTakeMeta(dir: string): TakeMeta {
@@ -192,6 +203,7 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
   let inputTokens = 0;
   let failed = 0;
   let usd = 0;
+  let planned = { planned_tokens: 0, usd: 0 };
 
   if (key) {
     const minutes = Math.max(takeMs / 60000, 1 / 60);
@@ -227,15 +239,22 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
       }
     }
     const reservedTokens = plannedTokens + jobs.filter((j) => j.i > 0).length * REQUEST_TOKEN_CAP;
+    planned = { planned_tokens: reservedTokens, usd: (reservedTokens * PRICE_PER_MTOK) / 1e6 };
     if (reservedTokens > maxTokens) {
       throw new PreflightRefusal(
         `planned ${reservedTokens} tokens exceeds the cap of ${maxTokens} (--max-tokens); ` +
           `use --no-jev or raise the cap`,
+        { plannedTokens: reservedTokens, cap: maxTokens },
       );
     }
     log(
-      `preflight: ${beats.length} beats, ${reservedTokens} planned tokens, $${(reservedTokens * PRICE_PER_MTOK / 1e6).toFixed(6)} planned`,
+      `preflight: ${beats.length} beats, ${reservedTokens} planned tokens, $${planned.usd.toFixed(6)} planned`,
     );
+    // --plan-only stops here: the plan is priced but no planner call is made
+    // and nothing is rendered.
+    if (opts.planOnly) {
+      return { take, beats, decisions, jev: { input_tokens: 0, usd: 0, failed }, planned, out: null, seconds: 0 };
+    }
 
     const cache = new DecisionCache(join(analysisDir, "jev-cache.jsonl"));
     const outcomes: ({ response: unknown; inputTokens?: number } | "failed")[] = new Array(beats.length);
@@ -313,6 +332,11 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
     }
   }
 
+  // --plan-only without a planner key: nothing planned, nothing rendered.
+  if (opts.planOnly) {
+    return { take, beats, decisions, jev: { input_tokens: 0, usd: 0, failed: 0 }, planned, out: null, seconds: 0 };
+  }
+
   const renderDecisions: RenderDecision[] = decisions.map((d) => ({
     ...d, conf: Math.max(0, Math.min(1, d.conf.A ?? d.conf.B ?? d.conf.L ?? 0)),
   }));
@@ -328,12 +352,12 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
   // caller overrode the output size; desktop behaviour is unchanged.
   const camera = opts.camera
     ?? (take.stream.h > take.stream.w ? { ...DEFAULTS, out_w: 1080, out_h: 1920 } : undefined);
-  await renderTake(dir, camera);
+  const { out, seconds: renderSeconds } = await renderTake(dir, camera);
 
   const byJev = decisions.filter((d) => d.decided_by === "jev").length;
   log(`make: ${beats.length} beats; ${byJev} by jev, ${decisions.length - byJev} by heuristic` +
     (key ? `; ${inputTokens} input tokens, $${usd.toFixed(6)}, ${failed} failed` : ""));
-  return { take, beats, decisions, jev };
+  return { take, beats, decisions, jev, planned, out, seconds: renderSeconds };
 }
 
 function mapJevResponse(

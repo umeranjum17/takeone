@@ -43,7 +43,7 @@ function runFfmpeg(args: string[]): Promise<string> {
 }
 
 /** Read the take's durable inputs, write its camera path and render the silent MP4. */
-export async function renderTake(dir: string, d: CameraDefaults = DEFAULTS): Promise<string> {
+export async function renderTake(dir: string, d: CameraDefaults = DEFAULTS): Promise<{ out: string; seconds: number }> {
   const meta = JSON.parse(await readFile(join(dir, "take.json"), "utf8")) as TakeMeta;
   const beats = JSON.parse(await readFile(join(dir, "analysis/beats.json"), "utf8")) as Beat[];
   // The planner stores seconds; the existing FOLLOW solver consumes action timestamps in ms.
@@ -114,7 +114,7 @@ export async function renderTake(dir: string, d: CameraDefaults = DEFAULTS): Pro
     "-r", String(d.fps), "-an", "-c:v", "libx264", "-crf", "18",
     "-preset", d.preset, "-movflags", "+faststart", output,
   ]);
-  return output;
+  return { out: output, seconds: duration };
 }
 
 /** Escape a path for an option value inside an ffmpeg filter graph. */
