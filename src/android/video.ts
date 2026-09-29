@@ -235,6 +235,7 @@ export async function captureAndroidVideo(
   seconds: number,
   outPath: string,
 ): Promise<CaptureSummary> {
+  if (!Number.isFinite(seconds) || seconds <= 0) throw new RangeError(`seconds must be positive, got ${seconds}`);
   const jar = resolveJar();
   await runAdb(serial, ["push", jar, DEVICE_PATH]);
   const port = await freePort();
@@ -373,8 +374,10 @@ export async function captureAndroidVideo(
     };
     const queue = Promise.resolve();
     let pending = queue;
+    let pipelineError: unknown;
     socket.on("data", (chunk: Buffer) => {
-      pending = pending.then(() => onData(chunk)).catch(() => {
+      pending = pending.then(() => onData(chunk)).catch((error: unknown) => {
+        pipelineError = error;
         stopping = true;
       });
     });
@@ -386,9 +389,11 @@ export async function captureAndroidVideo(
     // Wait for the first frame (proves video flows), then run to deadline.
     // Every wait below is bounded: the capture always ends on its own.
     for (let waited = 0; pts0 === undefined; waited += 100) {
+      if (pipelineError !== undefined) throw pipelineError;
       if (waited > 15_000) throw withLog(new Error("no video frames arrived in 15 s"));
       await Promise.race([sleep(100), socketClosed.then(() => { throw new Error("video socket closed before first frame"); })]);
     }
+    if (pipelineError !== undefined) throw pipelineError;
     await Promise.race([
       (async () => {
         while (!stopping && Date.now() < deadline) await sleep(100);
@@ -398,13 +403,20 @@ export async function captureAndroidVideo(
     stopping = true;
     socket?.destroy();
     await Promise.race([pending, sleep(5_000)]);
+    if (pipelineError !== undefined) throw pipelineError;
     try {
       ffmpeg?.stdin?.end();
     } catch {
       /* already gone */
     }
-    await Promise.race([ffmpegDone, sleep(10_000)]);
+    const ffmpegFinished = await Promise.race([
+      ffmpegDone.then(() => true),
+      sleep(10_000).then(() => false),
+    ]);
     ffmpeg?.kill("SIGKILL");
+    if (!ffmpegFinished) {
+      throw new Error(`ffmpeg timed out: ${ffmpegErr.trim().slice(0, 300) || "(nothing)"}`);
+    }
 
     if (log.length === 0) throw new Error("captured no frames");
     const offsetsMs = log.map(([recvMs, pts]) => recvMs - (startWall + Number(pts - pts0!) / 1000));
