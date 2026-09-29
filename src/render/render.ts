@@ -85,20 +85,26 @@ export async function renderTake(dir: string, d: CameraDefaults = DEFAULTS): Pro
     "-map", "[stage]", "-frames:v", "1", "-update", "1", stageFile,
     "-map", "[holes]", "-frames:v", "1", "-update", "1", holesFile]);
   const clicksFile = join(dir, "clicks.ass");
-  await writeFile(clicksFile, clickAss(beatClicks(outBeats), meta.width, meta.height, trimStart, stage, d));
+  const clicksAss = clickAss(beatClicks(outBeats), meta.width, meta.height, trimStart, stage, d);
+  await writeFile(clicksFile, clicksAss);
   const captions = takeCaptions(meta, outTime, duration);
   const captionsFile = join(dir, "captions.ass");
-  await writeFile(captionsFile, captionAss(captions, await measureCaptions(dir, captions, d), d));
+  const captionsAss = captionAss(captions, await measureCaptions(dir, captions, d), d);
+  await writeFile(captionsFile, captionsAss);
 
   const fade = Math.min(d.fade_s, duration / 4);
   const background = `0x${d.background_to.slice(1)}`;
   // Planar YUV throughout; the stills are decoded once and looped in-graph.
   const still = `loop=-1:1:0,trim=end=${duration}`;
+  // An .ass with no Dialogue lines renders nothing, so skip its overlay:
+  // stock ffmpeg builds without libass (e.g. Homebrew) have no ass filter.
+  const clicksOverlay = hasDialogue(clicksAss) ? `,ass=${filterPath(clicksFile)}` : "";
+  const captionsOverlay = hasDialogue(captionsAss) ? `,ass=${filterPath(captionsFile)}` : "";
   const filter = [
-    `[0:v]setpts='${setptsExpr(squeezes, d.idle_speed)}',ass=${filterPath(clicksFile)},format=yuv420p[screen]`,
+    `[0:v]setpts='${setptsExpr(squeezes, d.idle_speed)}'${clicksOverlay},format=yuv420p[screen]`,
     cardFilter(meta.width, meta.height, stage, d, still),
     `[c4]sendcmd=f=${filterPath(commandFile)},crop@a=w=iw:h=ih:x=0:y=0:exact=1,`
-      + `setsar=1,scale=${d.out_w}:${d.out_h}:flags=lanczos,setsar=1,ass=${filterPath(captionsFile)}`
+      + `setsar=1,scale=${d.out_w}:${d.out_h}:flags=lanczos,setsar=1${captionsOverlay}`
       + (fade > 0 ? `,fade=t=in:st=0:d=${fade}:color=${background},fade=t=out:st=${duration - fade}:d=${fade}:color=${background}` : "")
       + `,format=yuv420p`,
   ].join(";");
@@ -115,6 +121,11 @@ export async function renderTake(dir: string, d: CameraDefaults = DEFAULTS): Pro
     "-preset", d.preset, "-movflags", "+faststart", output,
   ]);
   return { out: output, seconds: duration };
+}
+
+/** True when rendered .ass text carries at least one Dialogue event. */
+function hasDialogue(assText: string): boolean {
+  return assText.split("\n").some((line) => line.startsWith("Dialogue:"));
 }
 
 /** Escape a path for an option value inside an ffmpeg filter graph. */

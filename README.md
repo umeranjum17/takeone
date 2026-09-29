@@ -75,7 +75,7 @@ Add a `title` and timed `captions` to `take.json` and they render as rounded pil
 
 ## How it works
 
-1. **Record.** `takeone record` captures the desktop through desklink's view-only portal session and, when evdev is readable, the pointer, clicks, wheel, key classes and focused window. Typed characters are never recorded. `takeone record --android <serial>` records a phone or emulator into the same take format instead (see [Recording](#recording)).
+1. **Record.** `takeone record` captures the desktop through desklink's view-only portal session and, when evdev is readable, the pointer, clicks, wheel, key classes and focused window. Typed characters are never recorded. `takeone record --android <serial>` records a phone or emulator into the same take format instead, and `takeone record --ios-sim` records the booted iOS Simulator on macOS, video-only with no touch events (see [Recording](#recording)).
 2. **Make.** `takeone make` segments the take into beats (at most 30 per minute), finds the regions that changed, and decides each beat's shot. Jev decides the beats that need judgement, from zone descriptions and an optional `--about` topic; idle and cut beats are decided locally. A token preflight refuses the whole run before any call if the plan would exceed its cap, and `--no-jev` keeps every decision local.
 3. **Render.** The camera path is solved on the output clock, eased through a spring and rendered with ffmpeg and libass into a silent H.264 MP4 (1920×1080, or 1080×1920 when the take stream is portrait and no `out_w`/`out_h` override is passed): stage, click rings, idle speed-up, titles and captions. Rerendering with new `--set` values never calls the planner.
 
@@ -83,7 +83,7 @@ Add a `title` and timed `captions` to `take.json` and they render as rounded pil
 
 No packaged release exists yet — there is nothing to download. Watch the [releases page](https://github.com/umeranjum17/takeone/releases) (latest: https://github.com/umeranjum17/takeone/releases/latest) for future packaged builds. Until then, install from source:
 
-Requires Node.js 22+ and `ffmpeg` on PATH. Optional: `tesseract` for `--screen-text` OCR. Recording the desktop additionally needs Linux on Wayland with Hyprland (see [Recording](#recording)); recording a phone needs `adb` on PATH and an attached device with USB debugging; planning and rendering an existing take do not.
+Requires Node.js 22+ and `ffmpeg` on PATH. Optional: `tesseract` for `--screen-text` OCR. Recording the desktop additionally needs Linux on Wayland with Hyprland (see [Recording](#recording)); recording a phone needs `adb` on PATH and an attached device with USB debugging; recording the iOS Simulator needs macOS with Xcode (`xcrun simctl`), `ffprobe` on PATH, and a booted simulator; planning and rendering an existing take do not.
 
 ```sh
 git clone https://github.com/umeranjum17/takeone
@@ -142,6 +142,17 @@ node bin/takeone.mjs make /tmp/p --no-jev
 
 The polished video lands at `/tmp/p/out/p.mp4` (`ffprobe` reports
 `1080,1920`) and `analysis/actions.json` holds 3 `click` and 1 `scroll`.
+
+**3c. Record the iOS Simulator instead** (macOS, Xcode with the Simulator):
+
+```sh
+takeone record --ios-sim   # needs a booted simulator; macOS only
+# ...drive the app in the Simulator by hand...
+takeone stop
+takeone make <id> --about "Onboarding and first export in the app"
+```
+
+Video-only: no `events.jsonl` is written, so the camera plans from screen changes alone.
 
 **4. Tweak the look and rerender** without planning again:
 
@@ -255,6 +266,8 @@ Input sources are read passively, never grabbed. If evdev mouse or keyboard devi
 
 `takeone record --android <serial>` records a phone or emulator into the same take directory format: H.264 video via the vendored scrcpy-server and touch input via `getevent`, hand-driven on the phone. `--touch-offset-ms N` calibrates touch timing; `--fps` and `--bitrate` are desktop-only. Requires `adb` on PATH and a device with USB debugging enabled.
 
+`takeone record --ios-sim` records the booted iOS Simulator into the same take directory format, video-only: H.264 via `xcrun simctl io booted recordVideo`, hand-driven in the Simulator. There is no touch API, so no `events.jsonl` is written (`take.json` carries `"events": "none"` and `"pointer": "none"`) and the camera plans from screen changes alone. macOS only; requires Xcode with the iOS Simulator and `ffprobe` on PATH, plus a booted simulator.
+
 ### Commands
 
 ```
@@ -265,6 +278,8 @@ takeone record          record the desktop until `takeone stop` (Linux/Wayland/H
   [--state-dir DIR]     state dir (default ~/.local/state/takeone, env TAKEONE_STATE_DIR)
 takeone record --android <serial>   record a phone or emulator until `takeone stop`
   [--touch-offset-ms N] calibration added to every touch timestamp (ms)
+  [--root DIR] [--state-dir DIR] as above
+takeone record --ios-sim   record the booted iOS Simulator until `takeone stop` (macOS only)
   [--root DIR] [--state-dir DIR] as above
 takeone stop            stop the active recording (SIGINT to the pid file)
 takeone doctor          report what the recorder needs on this machine
@@ -278,14 +293,14 @@ Recorder command output is TOON. Recorder errors are structured JSON on stderr:
 
 ### Files of a take
 
-Recording creates a take directory with `take.json`, `screen.webm`, `frames.tsv` and `events.jsonl`:
+Recording creates a take directory with `take.json`, `screen.webm`, `frames.tsv` and `events.jsonl` (`--ios-sim` takes omit `events.jsonl`):
 
 ```
 ~/Videos/takeone/<YYYYMMDD-HHMMSS>/
-  screen.webm     VP9 from desklink, not re-encoded (H.264 from scrcpy-server for --android takes)
-  frames.tsv      one `rtp_ts<TAB>recv_mono_ns` line per frame (marker-bit packets)
-  events.jsonl    pointer/clicks/wheel/key-classes/window events, ms since take start (may be empty)
-  take.json       geometry, monitor, clock offset, auto-trim, engine metrics, versions
+  screen.webm     VP9 from desklink, not re-encoded (H.264 from scrcpy-server for --android takes; H.264 from simctl, renamed from .mov, for --ios-sim takes)
+  frames.tsv      one `rtp_ts<TAB>recv_mono_ns` line per frame (marker-bit packets); a single `0<TAB>0` line for --ios-sim takes
+  events.jsonl    pointer/clicks/wheel/key-classes/window events, ms since take start (may be empty; omitted for --ios-sim takes)
+  take.json       stream geometry plus recorder-specific metadata
 ```
 
 The portal restore token is persisted atomically at
