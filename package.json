@@ -10,7 +10,7 @@
     "build": "tsc --project tsconfig.json",
     "prepare": "npm run build",
     "test": "npm run build && node --test test/*.test.ts dist/test/*.test.js",
-    "typecheck": "tsc --project tsconfig.json --noEmit"
+    "typecheck": "tsc --project tsconfig.check.json"
   },
   "dependencies": {
     "@desklink/host": "0.1.0",
