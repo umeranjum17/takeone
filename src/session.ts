@@ -83,7 +83,6 @@ export interface CaptureOptions {
 export interface Capture {
   geometry: SurfaceGeometry;
   sessionId: string;
-  /** The engine session, for take.json's session record. */
   opened: OpenedSession;
   /** From the handshake capabilities, e.g. "desklink-host/0.1.0". */
   engineVersion: string;
@@ -306,7 +305,7 @@ export async function startCapture(options: CaptureOptions): Promise<Capture> {
   await whileActive(trackReady.promise);
   } catch (error) {
     clearTimeout(watchdog);
-    if (recorder !== null) await recorder.stop().catch(() => undefined);
+    if (recorder !== null) await (recorder as MediaRecorder).stop().catch(() => undefined);
     await chmod(`${takeDir}/screen.webm`, 0o600).catch(() => undefined);
     await pc.close().catch(() => undefined);
     await client.closeSession(opened.sessionId).catch(() => undefined);

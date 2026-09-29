@@ -86,6 +86,8 @@ takeone stop            stop the active recording (SIGINT to the pid file)
 takeone doctor          report what the recorder needs on this machine
 ```
 
+If recording with `--state-dir DIR`, set `TAKEONE_STATE_DIR=DIR` for `takeone stop` (and bare `takeone`); those commands read the state directory from the environment, not the record option.
+
 Recorder command output is TOON. Recorder errors are structured JSON on stderr:
 `{"error":{"code","message","hint"}}`. A cancelled consent dialog is a
 `consent-cancelled` error and is never retried or bypassed.
