@@ -12,12 +12,13 @@ import { decodeAnalysisFrames, firstFrameTimeMs, readEvents } from "./perceive/d
 import { segmentBeats } from "./beats/segment.ts";
 import { zonesForBeat, OCR_MAX_AREA } from "./beats/zones.ts";
 import { buildRequest, PRICE_PER_MTOK, REQUEST_TOKEN_CAP, RequestTooLarge } from "./decide/request.ts";
+import type { Question } from "@byokit/decide";
 import { heuristicDecision } from "./decide/heuristics.ts";
 import { mapAnswers, frameRect, sumsTo1 } from "./decide/mapping.ts";
 import {
   askBeat,
   CONCURRENCY,
-  DecisionCache,
+  JevFileCache,
   loadApiKey,
   pooled,
 } from "./decide/jev.ts";
@@ -248,7 +249,8 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
     }));
     interface Job {
       i: number;
-      body: string;
+      state: unknown;
+      questions: Record<string, Question>;
     }
     const jobs: Job[] = [];
     const skipped = new Set<number>();
@@ -260,7 +262,7 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
       }
       try {
         const request = buildRequest(beats[i]!, ctxs[i]!, Boolean(opts.about));
-        jobs.push({ i, body: request.body });
+        jobs.push({ i, state: request.state, questions: request.questions });
         plannedTokens += request.tokens;
       } catch (e) {
         if (!(e instanceof RequestTooLarge)) throw e;
@@ -286,10 +288,10 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
       return { take, beats, decisions, jev: { input_tokens: 0, usd: 0, failed }, planned, out: null, seconds: 0 };
     }
 
-    const cache = new DecisionCache(join(analysisDir, "jev-cache.jsonl"), { omitRequestBody: opts.capture });
+    const cache = new JevFileCache(join(analysisDir, "jev-cache.jsonl"), { omitRequestBody: opts.capture });
     const outcomes: ({ response: unknown; inputTokens?: number } | "failed")[] = new Array(beats.length);
     await pooled(jobs, CONCURRENCY, async (j) => {
-      const r = await askBeat(j.body, key, cache, { fetchImpl: opts.fetchImpl,
+      const r = await askBeat(j.state, j.questions, key, cache, { fetchImpl: opts.fetchImpl,
         usable: (response) => mapJevResponse(beats[j.i]!, response, { viewport: null, winRect: winFor(beats[j.i]!.anchor_t)?.rect ?? null, stream: take.stream, aspect, about: opts.about }) !== null,
       });
       if (r.decisionSource === "failed") {
@@ -326,16 +328,19 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
       if (skipped.has(i)) continue;
       const actual = shotDescription(beats[i - 1]!, decisions[i - 1]!, winFor(beats[i - 1]!.anchor_t)?.rect ?? null, take.stream, aspect, opts.capture);
       if (actual === ctxs[i]!.currentShot) continue;
-      let body: string;
+      let state: unknown;
+      let questions: Record<string, Question>;
       try {
-        body = buildRequest(beats[i]!, { ...ctxs[i]!, currentShot: actual }, Boolean(opts.about)).body;
+        const request = buildRequest(beats[i]!, { ...ctxs[i]!, currentShot: actual }, Boolean(opts.about));
+        state = request.state;
+        questions = request.questions;
       } catch (e) {
         if (!(e instanceof RequestTooLarge)) throw e;
         decisions[i] = heuristics[i]!;
         failed++;
         continue;
       }
-      const r = await askBeat(body, key, cache, { fetchImpl: opts.fetchImpl,
+      const r = await askBeat(state, questions, key, cache, { fetchImpl: opts.fetchImpl,
         usable: (response) => mapJevResponse(beats[i]!, response, { viewport: null, winRect: winFor(beats[i]!.anchor_t)?.rect ?? null, stream: take.stream, aspect, about: opts.about }) !== null,
       });
       if (r.decisionSource === "failed") {
