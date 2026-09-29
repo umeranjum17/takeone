@@ -77,7 +77,7 @@ Add a `title` and timed `captions` to `take.json` and they render as rounded pil
 
 1. **Record.** `takeone record` captures the desktop through desklink's view-only portal session and, when evdev is readable, the pointer, clicks, wheel, key classes and focused window. Typed characters are never recorded.
 2. **Make.** `takeone make` segments the take into beats (at most 30 per minute), finds the regions that changed, and decides each beat's shot. Jev decides the beats that need judgement, from zone descriptions and an optional `--about` topic; idle and cut beats are decided locally. A token preflight refuses the whole run before any call if the plan would exceed its cap, and `--no-jev` keeps every decision local.
-3. **Render.** The camera path is solved on the output clock, eased through a spring and rendered with ffmpeg and libass into a silent 1920×1080 H.264 MP4: stage, click rings, idle speed-up, titles and captions. Rerendering with new `--set` values never calls the planner.
+3. **Render.** The camera path is solved on the output clock, eased through a spring and rendered with ffmpeg and libass into a silent H.264 MP4 (1920×1080, or 1080×1920 when the take stream is portrait and no `out_w`/`out_h` override is passed): stage, click rings, idle speed-up, titles and captions. Rerendering with new `--set` values never calls the planner.
 
 ## Download / Install
 
@@ -139,7 +139,7 @@ With `TYPESAFE_API_KEY` (or a key in `~/.config/takeone/env`), Jev receives zone
 
 For an existing planned take, render reads `screen.webm`, `take.json` (at least `width` and `height` in source pixels), `analysis/beats.json` as a beat array, and `analysis/decisions.jsonl` as one decision per line. Each beat needs a matching decision whose A (and optional B) names refer to that beat's zones. For an existing take, `events.jsonl` may be omitted only when `take.json` has `"events": "none"`; an empty event file is also valid.
 
-`--set key=value` overrides camera settings defined in `src/camera/defaults.ts`; rerendering does not call the planner. Render writes `camera.json`, `camera.cmd`, and a silent H.264 MP4 at `out/<id>.mp4` inside the take directory (default 1920×1080 at 30 fps). Whole-screen shots of non-16:9 sources are centred on the stage background rather than cropped; zooming can crop the screen. If `take.json` omits `id`, the directory name is used; if it omits `trim_end`, the latest beat end is used.
+`--set key=value` overrides camera settings defined in `src/camera/defaults.ts`; rerendering does not call the planner. Render writes `camera.json`, `camera.cmd`, and a silent H.264 MP4 at `out/<id>.mp4` inside the take directory (default 1920×1080 at 30 fps, or 1080×1920 at 30 fps when the take stream is portrait and no `out_w`/`out_h` override is passed). Whole-screen shots of non-16:9 sources are centred on the stage background rather than cropped; zooming can crop the screen. If `take.json` omits `id`, the directory name is used; if it omits `trim_end`, the latest beat end is used.
 
 ## Cost per minute of video (measured)
 
