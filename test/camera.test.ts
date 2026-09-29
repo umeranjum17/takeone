@@ -10,8 +10,10 @@ import { renderTake, sendcmd } from "../src/render/render.ts";
 import { hasFfmpeg } from "./helpers.ts";
 
 // Only tests pass a fast preset and tiny output: shipped output stays
-// 1920x1080 slow (see DEFAULTS). Small frames keep CI software encodes fast.
-const FAST = { ...DEFAULTS, preset: "veryfast", out_w: 320, out_h: 180 };
+// 1920x1080 slow (see DEFAULTS). Small frames keep CI software encodes fast;
+// ripple and fade add per-frame stage work, so tests turn them off (both are
+// already no-ops at 0 in the render path, and the shipped defaults are untouched).
+const FAST = { ...DEFAULTS, preset: "veryfast", out_w: 320, out_h: 180, ripple_ms: 0, fade_s: 0 };
 
 // The two render tests below shell out to system ffmpeg/ffprobe, so they skip
 // explicitly where those binaries are absent instead of failing with ENOENT.
