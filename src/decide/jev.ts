@@ -133,7 +133,7 @@ export async function askBeat(
     if (!key) return { decisionSource: "failed" };
     const answers = await decide(state, questions, {
       privacy: "may-leave",
-      backends: [jev({ key, fetch: o.fetchImpl, maxRetries: 2, retryBaseMs: 1000, retryMaxMs: 3000 })],
+      backends: [jev({ key, fetch: o.fetchImpl, maxRetries: 1, retryBaseMs: 1000, retryMaxMs: 3000 })],
       timeoutMs: o.timeoutMs ?? DECIDE_TIMEOUT_MS,
     });
     const raw = firstRaw(answers);
