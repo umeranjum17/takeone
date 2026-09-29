@@ -23,6 +23,7 @@ export interface FrameRegions {
 /** Input event classes written by the recorder (events.jsonl). */
 export type Event =
   | { t: number; k: "ptr"; x: number; y: number }
+  | { t: number; k: "ptr-lost" }
   | { t: number; k: "btn"; b: "left" | "right" | "middle"; down: boolean }
   | { t: number; k: "wheel"; dx: number; dy: number }
   | {
@@ -32,7 +33,7 @@ export type Event =
       down: boolean;
       combo?: string;
     }
-  | { t: number; k: "win"; cls: string; title: string; rect: BBox };
+  | { t: number; k: "win"; cls: string; title: string; rect: BBox | null };
 
 /** High-level actions derived from events, refined by change regions (analysis/actions.json). */
 export type Action =

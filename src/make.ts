@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdirSync, existsSync, statSync } from "node:fs";
 import { join } from "node:path";
 import type {
   Beat,
@@ -68,18 +68,26 @@ export interface MakeResult {
   jev: { input_tokens: number; usd: number; failed: number };
 }
 
+export function readTakeMeta(dir: string): TakeMeta {
+  return JSON.parse(readFileSync(join(dir, "take.json"), "utf8")) as TakeMeta;
+}
+
 export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<MakeResult> {
   const log = opts.log ?? ((s: string) => console.log(s));
   const warn = opts.warn ?? ((s: string) => console.error(s));
-  const take = JSON.parse(readFileSync(join(dir, "take.json"), "utf8")) as TakeMeta;
+  const take = readTakeMeta(dir);
   const framesTsv = join(dir, "frames.tsv");
   const webm = join(dir, "screen.webm");
   for (const [file, path] of [["screen.webm", webm], ["frames.tsv", framesTsv]] as const) {
     if (!existsSync(path)) throw new TakeInputError(file, "missing");
   }
   const eventsPath = join(dir, "events.jsonl");
-  const events = existsSync(eventsPath) ? await readEvents(eventsPath) : [];
-  if (events.length === 0 && take.events !== "none") throw new TakeInputError("events.jsonl", "missing or empty; take.json events must be none for video-only mode");
+  const hasEvents = existsSync(eventsPath);
+  if (!hasEvents && take.events !== "none") throw new TakeInputError("events.jsonl", "missing");
+  const events = hasEvents ? await readEvents(eventsPath) : [];
+  if (hasEvents && events.length === 0 && statSync(eventsPath).size > 0 && take.events !== "none") {
+    throw new TakeInputError("events.jsonl", "invalid event data");
+  }
 
   // 1 perceive ------------------------------------------------------------
   let videoStartMs: number;
@@ -99,12 +107,9 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
   const pointers = dec.frames.map((f) => {
     while (pi < events.length) {
       const e = events[pi]!;
-      if (e.k !== "ptr") {
-        pi++;
-        continue;
-      }
       if (e.t > f.t) break;
-      last = e;
+      if (e.k === "ptr") last = e;
+      else if (e.k === "ptr-lost") last = null;
       pi++;
     }
     if (!last) return null;
@@ -123,7 +128,7 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
     for (const e of events) {
       if (e.k !== "win") continue;
       if (e.t > t) break;
-      found = { cls: e.cls, rect: e.rect, title: e.title };
+      found = e.rect === null ? null : { cls: e.cls, rect: e.rect, title: e.title };
     }
     return found;
   };

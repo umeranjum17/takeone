@@ -5,10 +5,16 @@
   "description": "Turn a raw screen recording into a polished demo.",
   "type": "module",
   "engines": { "node": ">=22" },
-  "bin": { "takeone": "./bin/takeone.ts" },
+  "bin": { "takeone": "./bin/takeone.mjs" },
   "scripts": {
-    "test": "node --test",
-    "typecheck": "tsc --noEmit"
+    "build": "tsc --project tsconfig.json",
+    "prepare": "npm run build",
+    "test": "npm run build && node --test test/*.test.ts dist/test/*.test.js",
+    "typecheck": "tsc --project tsconfig.check.json"
+  },
+  "dependencies": {
+    "@desklink/host": "0.1.0",
+    "werift": "0.24.4"
   },
   "devDependencies": {
     "@types/node": "^26.6.3",

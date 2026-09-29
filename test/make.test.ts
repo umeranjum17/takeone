@@ -109,6 +109,26 @@ test("make --no-jev renders the agreed beat/decision files into a tiny test MP4"
   }
 });
 
+test("make handles an empty focused window without retaining the previous window", { skip: needsFfmpeg }, async () => {
+  const dir = newTake();
+  try {
+    const path = join(dir, "events.jsonl");
+    const events = readFileSync(path, "utf8").trim().split("\n").map((line) => JSON.parse(line));
+    events.push({ t: 2000, k: "win", cls: "", title: "", rect: null });
+    events.sort((a, b) => a.t - b.t);
+    writeFileSync(path, events.map((e) => JSON.stringify(e)).join("\n") + "\n");
+    await fastTake(dir, { noJev: true });
+    const actions = JSON.parse(readFileSync(join(dir, "analysis", "actions.json"), "utf8")).actions;
+    assert.ok(actions.some((a: { k: string; t: number; window_cls: string }) => a.k === "click" && a.t > 2000 && a.window_cls === ""));
+    const beats = JSON.parse(readFileSync(join(dir, "analysis", "beats.json"), "utf8"));
+    const after = beats.filter((b: { anchor_t: number }) => b.anchor_t > 2);
+    assert.ok(after.length > 0);
+    assert.ok(after.every((b: { window_rect?: number[] }) => b.window_rect === undefined));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("make renders partly and wholly off-screen windows", { skip: needsFfmpeg }, async () => {
   const dir = newTake();
   try {
@@ -143,7 +163,7 @@ test("CLI rejects malformed --max-tokens values", async () => {
   }
 });
 
-test("incomplete takes report the missing file; video-only mode permits empty events", { skip: needsFfmpeg }, async () => {
+test("make accepts video-only missing events and silent recorded streams", { skip: needsFfmpeg }, async () => {
   const dir = newTake();
   try {
     for (const file of ["screen.webm", "frames.tsv", "events.jsonl"]) {
@@ -154,9 +174,14 @@ test("incomplete takes report the missing file; video-only mode permits empty ev
       writeFileSync(path, original);
     }
     const eventsPath = join(dir, "events.jsonl");
-    writeFileSync(eventsPath, "");
-    await assert.rejects(fastTake(dir, { noJev: true, log: () => {}, warn: () => {} }), (e: unknown) => e instanceof TakeInputError && e.file === "events.jsonl");
     const take = JSON.parse(readFileSync(join(dir, "take.json"), "utf8"));
+    take.events = "on";
+    writeFileSync(join(dir, "take.json"), JSON.stringify(take));
+    writeFileSync(eventsPath, "not-json\n");
+    await assert.rejects(makeTake(dir, { noJev: true, log: () => {}, warn: () => {} }), (e: unknown) => e instanceof TakeInputError && e.file === "events.jsonl");
+    writeFileSync(eventsPath, "");
+    const silent = await makeTake(dir, { noJev: true, log: () => {}, warn: () => {} });
+    assert.ok(silent.beats.length > 0);
     take.events = "none";
     take.trim = { start: 1000, end: 9000 };
     writeFileSync(join(dir, "take.json"), JSON.stringify(take));
@@ -165,7 +190,9 @@ test("incomplete takes report the missing file; video-only mode permits empty ev
     assert.deepEqual(result.beats.map((b) => [b.kind, b.t0, b.t1]), [["idle", 1000, 9000]]);
     assert.equal(result.decisions[0]?.decided_by, "heuristic");
     rmSync(eventsPath);
-    await fastTake(dir, { noJev: true, log: () => {}, warn: () => {} });
+    const missing = await makeTake(dir, { noJev: true, log: () => {}, warn: () => {} });
+    assert.deepEqual(missing.beats, result.beats);
+    assert.deepEqual(missing.decisions, result.decisions);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

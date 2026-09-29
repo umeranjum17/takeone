@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { actionsFromEvents } from "../src/perceive/actions.ts";
+import { classifyKeyEvent } from "../src/keyclass.ts";
 import { segmentBeats } from "../src/beats/segment.ts";
 import type { Action, Event, FrameRegions } from "../src/types.ts";
 import { STREAM, noopFrames } from "./helpers.ts";
@@ -16,6 +17,38 @@ function ptr(x: number, y: number, t: number): Event {
 function btn(down: boolean, t: number): Event {
   return { t, k: "btn", b: "left", down };
 }
+
+test("extended function keys create named shortcuts, not typing beats", () => {
+  const held = { has: (name: string): boolean => name === "Ctrl" };
+  const events: Event[] = [183, 194].map((code, index) => ({
+    t: index * 100,
+    ...classifyKeyEvent(code, true, held).record,
+  }));
+  assert.deepEqual(actionsFromEvents(events, [], opts()).map((action) => [action.k, action.k === "shortcut" ? action.combo : undefined]), [
+    ["shortcut", "Ctrl+F13"], ["shortcut", "Ctrl+F24"],
+  ]);
+});
+
+test("media keys do not create typing or shortcut beats", () => {
+  const held = { has: (name: string): boolean => name === "Ctrl" };
+  const events: Event[] = [115, 164, 0x164].map((code, index) => ({
+    t: index * 100,
+    ...classifyKeyEvent(code, true, held).record,
+  }));
+  assert.deepEqual(actionsFromEvents(events, [], opts()), []);
+});
+
+test("no focused window clears focus and later actions have no stale class", () => {
+  const acts = actionsFromEvents([
+    win, ptr(10, 10, 100),
+    { t: 200, k: "win", cls: "", title: "", rect: null },
+    btn(true, 300), btn(false, 350),
+    { t: 400, k: "win", cls: "editor", title: "Edit", rect: [0, 0, 100, 100] },
+    btn(true, 500), btn(false, 550),
+  ], frames(), opts());
+  assert.deepEqual(acts.filter((a) => a.k === "focus").map((a) => a.cls), ["chromium", "editor"]);
+  assert.deepEqual(acts.filter((a) => a.k === "click").map((a) => a.window_cls), ["", "editor"]);
+});
 
 test("click: down/up within 300 ms and 6 px", () => {
   const acts = actionsFromEvents([win, ptr(10, 10, 400), btn(true, 500), btn(false, 560), ptr(12, 12, 560)], frames(), opts());
@@ -143,16 +176,30 @@ test("scroll payload excludes wheel events after trim", () => {
   ];
   const full = actionsFromEvents(events, frames(), opts()).find((a) => a.k === "scroll");
   assert.ok(full);
-  assert.deepEqual([full.t1, full.dx, full.dy, full.detents], [900, 5, 10, 2]);
+  assert.deepEqual([full.t1, full.dx, full.dy, full.detents], [900, 5, 10, 15]);
 
   const scoped = actionsFromEvents(events, frames(), { ...opts(), endMs: 600 });
   const scroll = scoped.find((a) => a.k === "scroll");
   assert.ok(scroll);
-  assert.deepEqual([scroll.t0, scroll.t1, scroll.dx, scroll.dy, scroll.detents], [500, 500, 2, 1, 1]);
+  assert.deepEqual([scroll.t0, scroll.t1, scroll.dx, scroll.dy, scroll.detents], [500, 500, 2, 1, 3]);
   const beats = segmentBeats(scoped, frames(), { stream: STREAM, takeMs: 600, startMs: 0, endMs: 600 });
   const retained = beats.flatMap((b) => b.actions).find((a) => a.k === "scroll");
   assert.ok(retained);
-  assert.deepEqual([retained.t1, retained.dx, retained.dy, retained.detents], [500, 2, 1, 1]);
+  assert.deepEqual([retained.t1, retained.dx, retained.dy, retained.detents], [500, 2, 1, 3]);
+});
+
+test("fractional wheel reports count motion, not records", () => {
+  const acts = actionsFromEvents([
+    win, ptr(50, 50, 100),
+    { t: 500, k: "wheel", dx: 0, dy: 0.5 },
+    { t: 700, k: "wheel", dx: 0, dy: 0.5 },
+    { t: 1400, k: "wheel", dx: -0.25, dy: 0 },
+    { t: 1600, k: "wheel", dx: -0.75, dy: 0 },
+    { t: 2300, k: "wheel", dx: 0, dy: -0.5 },
+  ], frames(), opts());
+  assert.deepEqual(acts.filter((a) => a.k === "scroll").map((a) => [a.dx, a.dy, a.detents]), [
+    [0, 1, 1], [-1, 0, 1], [0, -0.5, 0.5],
+  ]);
 });
 
 test("type merges key downs with gaps under 1.2 s", () => {
@@ -289,6 +336,29 @@ test("pointer dwell and travel stop at a window transition without another point
   assert.equal(stationary.filter((a) => a.k === "dwell").length, 0);
   const moving = actionsFromEvents([win, ptr(10, 10, 0), ptr(20, 10, 400), next, ptr(80, 10, 800), ptr(140, 10, 1000)], frames(), opts());
   assert.ok(moving.filter((a) => a.k === "travel").every((a) => a.t1 <= 500 || a.t0 >= 500));
+});
+
+test("pointer loss keeps earlier clicks but never reuses stale coordinates", () => {
+  const changed: FrameRegions[] = [
+    { t: 500, changed_frac: 0.05, cut: false, regions: [{ bbox: [80, 40, 40, 40], area_frac: 0.06 }] },
+  ];
+  const acts = actionsFromEvents([
+    win, ptr(20, 30, 100), btn(true, 200), btn(false, 250),
+    { t: 300, k: "ptr-lost" }, { t: 300, k: "win", cls: "", title: "", rect: null },
+    btn(true, 500), btn(false, 550), { t: 600, k: "wheel", dx: 0, dy: 1 },
+  ], changed, { stream: STREAM, pointer: "none" });
+  const clicks = acts.filter((a) => a.k === "click");
+  assert.deepEqual(clicks.map((click) => [click.x, click.y]), [[20, 30], [100, 60]]);
+  assert.deepEqual(acts.filter((a) => a.k === "scroll").map((scroll) => [scroll.x, scroll.y]), [[0, 0]]);
+});
+
+test("a drag crossing pointer loss has no fabricated end position", () => {
+  const acts = actionsFromEvents([
+    win, ptr(20, 30, 100), btn(true, 200),
+    { t: 300, k: "ptr-lost" }, { t: 300, k: "win", cls: "", title: "", rect: null },
+    btn(false, 900),
+  ], frames(), { stream: STREAM, pointer: "none" });
+  assert.equal(acts.some((action) => action.k === "drag" || action.k === "click"), false);
 });
 
 test("pointer none mode: click position falls back to the change region centroid", () => {
