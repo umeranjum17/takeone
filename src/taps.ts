@@ -19,6 +19,8 @@ export interface TapEvent {
 
 export interface TapOptions {
   eventsPath: string;
+  /** Capture privacy: window titles are dropped from events.jsonl. */
+  capture?: boolean;
   /** Stream-pixel mapping; null runs in no-pointer mode. */
   mapping?: { monitor: MonitorInfo; scale: number } | null;
   /** Monotonic take-start time from process.hrtime.bigint(). */
@@ -172,7 +174,7 @@ export async function startTaps(options: TapOptions): Promise<TapHandle> {
               t: nowMs(),
               k: "win",
               cls: win?.cls ?? "",
-              title: win?.title ?? "",
+              title: options.capture ? "" : (win?.title ?? ""),
               rect: win === null ? null : mapRectToStream(win.rect, monitor, scale),
             });
           }

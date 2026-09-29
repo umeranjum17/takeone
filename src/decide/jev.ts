@@ -106,7 +106,9 @@ export async function callJev(
 export class DecisionCache {
   private map = new Map<string, CacheLine>();
   readonly path: string;
-  constructor(path: string) {
+  private readonly omitRequestBody: boolean;
+  constructor(path: string, o: { omitRequestBody?: boolean } = {}) {
+    this.omitRequestBody = o.omitRequestBody ?? false;
     this.path = path;
     if (existsSync(path)) {
       for (const line of readFileSync(path, "utf8").split("\n")) {
@@ -127,7 +129,8 @@ export class DecisionCache {
   }
 
   put(body: string, response: unknown): void {
-    const line: CacheLine = { key: sha256(body), request: body, response, t: new Date().toISOString() };
+    // Capture privacy: the hash keys the hit; the body itself is never stored.
+    const line: CacheLine = { key: sha256(body), request: this.omitRequestBody ? "" : body, response, t: new Date().toISOString() };
     this.map.set(line.key, line);
     mkdirSync(dirname(this.path), { recursive: true });
     appendFileSync(this.path, JSON.stringify(line) + "\n");

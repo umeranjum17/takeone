@@ -227,6 +227,7 @@ async function runCaptureMake(argv: string[]): Promise<number> {
   if (key === null) warnings.push("no planner key; using heuristic policy for all beats");
   try {
     const r = await makeTake(dir, {
+      capture: true,
       ...(key === null ? { noJev: true } : { apiKey: key }),
       ...(a.maxTokens === undefined ? {} : { maxTokens: a.maxTokens }),
       ...(camera === undefined ? {} : { camera }),
