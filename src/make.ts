@@ -24,7 +24,7 @@ import {
 import { ocrZone } from "./decide/ocr.ts";
 import { redactText } from "./decide/redact.ts";
 import { renderTake } from "./render/render.ts";
-import type { CameraDefaults } from "./camera/defaults.ts";
+import { DEFAULTS, type CameraDefaults } from "./camera/defaults.ts";
 import type { Beat as RenderBeat, Decision as RenderDecision, TakeMeta as RenderMeta } from "./camera/types.ts";
 import { clampBBox, type BBox } from "./types.ts";
 
@@ -324,7 +324,11 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
     trim_start: seconds(startMs), trim_end: seconds(endMs),
   };
   writeFileSync(join(dir, "take.json"), JSON.stringify({ ...take, ...renderMeta }, null, 1) + "\n");
-  await renderTake(dir, opts.camera);
+  // Portrait takes (phone footage) default to a portrait output unless the
+  // caller overrode the output size; desktop behaviour is unchanged.
+  const camera = opts.camera
+    ?? (take.stream.h > take.stream.w ? { ...DEFAULTS, out_w: 1080, out_h: 1920 } : undefined);
+  await renderTake(dir, camera);
 
   const byJev = decisions.filter((d) => d.decided_by === "jev").length;
   log(`make: ${beats.length} beats; ${byJev} by jev, ${decisions.length - byJev} by heuristic` +

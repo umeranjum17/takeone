@@ -35,6 +35,18 @@ function parseSet(pairs: string[]): Overrides {
   return overrides as Overrides;
 }
 
+/** True when the take's stream is portrait (taller than wide). */
+function isPortraitTake(dir: string): boolean {
+  try {
+    const m = JSON.parse(readFileSync(join(dir, "take.json"), "utf8")) as {
+      stream?: { w: number; h: number };
+    };
+    return !!m.stream && m.stream.h > m.stream.w;
+  } catch {
+    return false;
+  }
+}
+
 function parseArgs(argv: string[]): Args {
   const a: Args = { noJev: false, screenText: false, set: [] };
   for (let i = 0; i < argv.length; i++) {
@@ -91,7 +103,12 @@ export async function main(argv: string[]): Promise<number> {
         if (args[i] !== "--set") throw Error(`unknown option ${args[i]}`);
         pairs.push(args[++i]!);
       }
-      console.log(await renderTake(dir, applyOverrides(parseSet(pairs))));
+      const raw = parseSet(pairs);
+      if (!("out_w" in raw) && !("out_h" in raw) && isPortraitTake(dir)) {
+        raw.out_w = 1080;
+        raw.out_h = 1920;
+      }
+      console.log(await renderTake(dir, applyOverrides(raw)));
       return 0;
     } catch (e) {
       console.error(e instanceof Error ? e.message : e);
@@ -111,18 +128,23 @@ export async function main(argv: string[]): Promise<number> {
     console.error("takeone make: missing take id");
     usage(2);
   }
-  if (a.set.length) {
-    try {
-      a.camera = applyOverrides(parseSet(a.set));
-    } catch (e) {
-      console.error(`takeone make: ${e instanceof Error ? e.message : e}`);
-      return 2;
-    }
-  }
   const dir = /^\//.test(a.id) ? a.id : join(takesDir(), a.id);
   if (!existsSync(join(dir, "take.json"))) {
     console.error(`takeone make: no take at ${dir} (take.json missing)`);
     return 2;
+  }
+  if (a.set.length) {
+    try {
+      const raw = parseSet(a.set);
+      if (!("out_w" in raw) && !("out_h" in raw) && isPortraitTake(dir)) {
+        raw.out_w = 1080;
+        raw.out_h = 1920;
+      }
+      a.camera = applyOverrides(raw);
+    } catch (e) {
+      console.error(`takeone make: ${e instanceof Error ? e.message : e}`);
+      return 2;
+    }
   }
   try {
     await makeTake(dir, a);
