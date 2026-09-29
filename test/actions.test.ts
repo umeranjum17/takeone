@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { actionsFromEvents } from "../src/perceive/actions.ts";
 import { segmentBeats } from "../src/beats/segment.ts";
-import type { Event, FrameRegions } from "../src/types.ts";
+import type { Action, Event, FrameRegions } from "../src/types.ts";
 import { STREAM, noopFrames } from "./helpers.ts";
 
 const frames = () => noopFrames(60, 0, 100);
@@ -277,8 +277,10 @@ test("dwell and travel retain their event-time window", () => {
     ptr(10, 10, 2200), ptr(150, 110, 2500),
   ];
   const acts = actionsFromEvents(events, frames(), opts());
-  assert.equal(acts.find((a) => a.k === "dwell")?.window_cls, "chromium");
-  assert.equal(acts.find((a) => a.k === "travel" && a.t0 >= 2100)?.window_cls, "terminal");
+  const dwell = acts.find((a): a is Extract<Action, { k: "dwell" }> => a.k === "dwell");
+  const travel = acts.find((a): a is Extract<Action, { k: "travel" }> => a.k === "travel" && a.t0 >= 2100);
+  assert.equal(dwell?.window_cls, "chromium");
+  assert.equal(travel?.window_cls, "terminal");
 });
 
 test("pointer dwell and travel stop at a window transition without another pointer sample", () => {

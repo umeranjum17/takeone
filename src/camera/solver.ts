@@ -397,7 +397,7 @@ function sampleCamera(
     // Start each move early enough to arrive at its intended shot time.
     while (targetIndex < targets.length) {
       if (move && previousTime < move.end) break;
-      const target = targets[targetIndex];
+      const target = targets[targetIndex]!;
       const candidateMove = createMove(state, target.state, target.t, width, d,
         Math.max(target.startAfter ?? 0, move?.end ?? 0, previousTime));
       if (candidateMove.start > time) break;
@@ -437,9 +437,9 @@ function validateCameraInputs(beats: Beat[], decisions: Decision[], take: TakeMe
   const finite = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value);
   const time = (value: unknown) => finite(value) && value >= 0;
   const rect = (value: unknown, width: number, height: number) => Array.isArray(value) && value.length === 4
-    && value.every(finite) && value[0] >= 0 && value[1] >= 0
-    && value[2] > 0 && value[3] > 0
-    && value[0] + value[2] <= width && value[1] + value[3] <= height;
+    && value.every(finite) && value[0]! >= 0 && value[1]! >= 0
+    && value[2]! > 0 && value[3]! > 0
+    && value[0]! + value[2]! <= width && value[1]! + value[3]! <= height;
   if (!Array.isArray(beats) || !Array.isArray(decisions) || !take
     || !Number.isInteger(take.width) || take.width <= 0
     || !Number.isInteger(take.height) || take.height <= 0

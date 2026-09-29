@@ -156,6 +156,7 @@ export function segmentBeats(
     if (canExtend) {
       cur!.actions.push(a);
       cur!.t1 = Math.max(cur!.t1, timeEnd(a));
+      cur!.anchorPt ??= pt; // a point-less opener must not disable the spread rule forever
     } else {
       appendIdle(t);
       cur = {

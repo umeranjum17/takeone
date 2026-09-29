@@ -96,7 +96,7 @@ export function applyOverrides(overrides: Overrides): CameraDefaults {
       || (k === "cut_max" && v > 1)) {
       throw new Error(`unknown or invalid --set ${k}=${v}`);
     }
-    out[key] = v;
+    (out as unknown as Record<string, unknown>)[key] = v;
   }
   if (out.move_t_max < out.move_t_min) throw new Error("move_t_max must be at least move_t_min");
   return out;

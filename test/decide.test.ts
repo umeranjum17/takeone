@@ -96,7 +96,7 @@ test("heuristic policy per beat kind", () => {
   for (const [action, a, b, l] of kindA) {
     const beat = clickBeat(zones);
     beat.actions = [action];
-    beat.kind = action.k;
+    beat.kind = action.k === "focus" ? "click" : action.k; // segment.ts maps lone focus changes to click beats
     const d = heuristicDecision(beat, { viewport: null });
     assert.equal(d.A, a);
     assert.equal(d.B, action.k === "type" ? d.A : b);
