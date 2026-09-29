@@ -6,6 +6,7 @@ import { bboxIoU, unionBBox } from "../types.ts";
 export const BEAT_GAP_MS = 1200; // next action must start within this of last activity
 export const BEAT_SPREAD_FRAC = 0.35; // ... and within this x diagonal of the first action point
 export const RESULT_MIN_AREA = 0.005;
+export const RESULT_PART_AREA = 0.001; // smaller changes that land with a result belong to it
 export const RESULT_AFTER_MS = 1500;
 export const IDLE_GAP_MS = 2000;
 export const MERGE_SHORT_MS = 800;
@@ -261,8 +262,10 @@ export function segmentBeats(
     if (b.kind === "idle" || b.kind === "cut") continue;
     const lastAction = timeEnd(b.actions[b.actions.length - 1]!);
     const nextAction = beats.slice(i + 1).flatMap((next) => next.actions).map(timeStart).find((t) => t >= lastAction);
-    b.results = attachedResults(scopedFrames, lastAction, Math.min(lastAction + RESULT_AFTER_MS, nextAction === undefined ? end : nextAction - 1));
+    const until = Math.min(lastAction + RESULT_AFTER_MS, nextAction === undefined ? end : nextAction - 1);
+    b.results = attachedResults(scopedFrames, lastAction, until);
     if (b.results.length === 0) delete b.results;
+    else b.results.push(...resultParts(scopedFrames, lastAction, until));
   }
 
   return beats;
@@ -280,9 +283,22 @@ export function attachedResults(frames: FrameRegions[], fromT: number, untilT: n
   return out.sort((a, b) => b.area_frac - a.area_frac);
 }
 
-/** The largest attached result region's bbox, or null. */
+/**
+ * Changes under RESULT_MIN_AREA but over RESULT_PART_AREA in a result window:
+ * the new card beside a "Task created" toast, the cards an archive clears.
+ */
+export function resultParts(frames: FrameRegions[], fromT: number, untilT: number): Region[] {
+  return frames.filter((f) => f.t >= fromT && f.t <= untilT)
+    .flatMap((f) => f.regions.filter((r) => r.area_frac >= RESULT_PART_AREA && r.area_frac < RESULT_MIN_AREA));
+}
+
+/**
+ * Everything that changed as the result: the union of the attached regions, so
+ * a result shot shows the change itself, not only the toast announcing it.
+ */
 export function resultBBox(beat: Beat): BBox | null {
-  return beat.results?.[0]?.bbox ?? null;
+  const results = beat.results ?? [];
+  return results.length === 0 ? null : results.map((r) => r.bbox).reduce(unionBBox);
 }
 
 /** The first-change time of the largest attached result region, or null. */

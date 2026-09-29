@@ -28,14 +28,14 @@ Measured on a real 62.7 s desktop take recorded on Hyprland at 3840×2160 (`scri
 | Metric | Measured | Per minute of video |
 |---|---|---|
 | Beats (Jev / local) | 20 (12 / 8) | 19 |
-| Jev requests | 16 | 15 |
-| Jev input tokens | 15,770 | ~15,100 |
-| Jev cost | $0.000662 | ~$0.00063 |
-| Largest request | 1,100 tokens | — |
+| Jev requests | 15 | 14 |
+| Jev input tokens | 14,715 | ~14,100 |
+| Jev cost | $0.000618 | ~$0.00059 |
+| Largest request | 1,099 tokens | — |
 | Failed calls | 0 | 0 |
-| `make` wall clock (plan + render) | 30.6 s | ~29 s |
+| `make` wall clock (plan + render, machine at load ~100) | 28–50 s | ~27–48 s |
 
-The preflight planned 22,017 tokens for this take against its 41.8k cap, so it held. Idle and cut beats are decided locally and cost nothing. Jev's `usage.input_tokens` is summed into `take.json` (`jev.input_tokens`, `jev.usd`).
+Three clean live runs of the same take, from successive code states, landed between 14.7k and 15.8k input tokens. The preflight planned 22,000 tokens for this take against its 41.8k cap, so it held. Idle and cut beats are decided locally and cost nothing. Jev's `usage.input_tokens` is summed into `take.json` (`jev.input_tokens`, `jev.usd`).
 
 With `--no-jev` the cost is exactly zero tokens. Responses are cached per request hash (`analysis/jev-cache.jsonl`), so replanning an unchanged take costs nothing.
 
@@ -44,7 +44,7 @@ The cost is bounded by design, not by luck:
 - **Beat cap**: at most 30 beats per minute (`MAX_BEATS_PER_MIN` in `src/beats/segment.ts`), so the number of Jev calls never grows with how busy the recording is.
 - **Token preflight**: `make` estimates every planned request up front and refuses the whole run (`PreflightRefusal`) when the reserved total exceeds `--max-tokens`, default 40,000 input tokens per take minute (`DEFAULT_TOKENS_PER_MIN` in `src/make.ts`). Each single request is also hard-capped at `REQUEST_TOKEN_CAP` (1,200 estimated tokens) in `src/decide/request.ts`.
 
-Worst case at the defaults: 30 calls/minute × 1,200 tokens ≈ 36,000 tokens ≈ $0.0015 per minute of video at the listed price — under the 40k/minute cap. The measured take above used 42% of that at 19 beats/minute. Rendering costs no tokens at any setting.
+Worst case at the defaults: 30 calls/minute × 1,200 tokens ≈ 36,000 tokens ≈ $0.0015 per minute of video at the listed price — under the 40k/minute cap. The measured take above used 39% of that at 19 beats/minute. Rendering costs no tokens at any setting.
 
 ## End-to-end take with a staged scene
 
