@@ -173,6 +173,8 @@ interface Flags {
   bitrateKbps?: number;
   root?: string;
   state?: string;
+  android?: string;
+  touchOffsetMs?: number;
 }
 
 function parseFlags(args: string[]): Flags {
@@ -181,7 +183,7 @@ function parseFlags(args: string[]): Flags {
   for (let i = 0; i < args.length; i += 2) {
     const name = args[i]!;
     const value = args[i + 1];
-    if (!["--fps", "--bitrate", "--root", "--state-dir"].includes(name) || value === undefined || value === "" || value.startsWith("--") || seen.has(name)) {
+    if (!["--fps", "--bitrate", "--root", "--state-dir", "--android", "--touch-offset-ms"].includes(name) || value === undefined || value === "" || value.startsWith("--") || seen.has(name)) {
       fail({ code: "invalid-arguments", message: `invalid record option: ${name}`, hint: "run `takeone --help`" });
     }
     seen.add(name);
@@ -190,8 +192,19 @@ function parseFlags(args: string[]): Flags {
       if (!Number.isSafeInteger(number) || number <= 0) fail({ code: "invalid-arguments", message: `${name} must be a positive integer`, hint: "run `takeone --help`" });
       if (name === "--fps") flags.fps = number;
       else flags.bitrateKbps = number;
+    } else if (name === "--android") flags.android = value;
+    else if (name === "--touch-offset-ms") {
+      const number = Number(value);
+      if (!Number.isSafeInteger(number)) fail({ code: "invalid-arguments", message: `${name} must be an integer`, hint: "run `takeone --help`" });
+      flags.touchOffsetMs = number;
     } else if (name === "--root") flags.root = value;
     else flags.state = value;
+  }
+  if (flags.android === undefined && flags.touchOffsetMs !== undefined) {
+    fail({ code: "invalid-arguments", message: "--touch-offset-ms needs --android", hint: "run `takeone --help`" });
+  }
+  if (flags.android !== undefined && (flags.fps !== undefined || flags.bitrateKbps !== undefined)) {
+    fail({ code: "invalid-arguments", message: "--fps and --bitrate are desktop-only", hint: "run `takeone --help`" });
   }
   return flags;
 }
@@ -241,9 +254,13 @@ async function readRecording(stateDirPath: string) {
 }
 
 async function record(args: string[]): Promise<void> {
-  const { runRecord } = await import("./record.js");
   const { toonTable } = await import("./toon.js");
   const flags = parseFlags(args);
+  if (flags.android !== undefined) {
+    await recordAndroid(flags);
+    return;
+  }
+  const { runRecord } = await import("./record.js");
   try {
     const result = await runRecord({
       ...(flags.fps === undefined ? {} : { fps: flags.fps }),
@@ -260,6 +277,36 @@ async function record(args: string[]): Promise<void> {
         takeJson.clock === null ? null : takeJson.clock.offsetMs.toFixed(1),
         takeJson.clock === null ? null : takeJson.clock.spreadMs.toFixed(1),
         `${takeJson.trim!.start}-${takeJson.trim!.end}`,
+      ],
+    ]));
+  } catch (error) {
+    const rec = error as { code?: unknown; message?: unknown; hint?: unknown };
+    if (typeof rec.code === "string" && typeof rec.message === "string" && typeof rec.hint === "string") {
+      fail({ code: rec.code, message: rec.message, hint: rec.hint });
+    }
+    internal(error);
+  }
+}
+
+async function recordAndroid(flags: Flags): Promise<void> {
+  const { runAndroidRecord } = await import("./android/record.js");
+  const { toonTable } = await import("./toon.js");
+  try {
+    const result = await runAndroidRecord({
+      serial: flags.android!,
+      ...(flags.touchOffsetMs === undefined ? {} : { touchOffsetMs: flags.touchOffsetMs }),
+      ...(flags.root === undefined ? {} : { takesRoot: flags.root }),
+      ...(flags.state === undefined ? {} : { stateDirPath: flags.state }),
+    });
+    const { takeJson } = result;
+    console.log(toonTable("record", ["id", "take_path", "frames", "events", "offset_ms", "scale"], [
+      [
+        takeJson.id,
+        result.takeDir,
+        result.frames,
+        result.events,
+        takeJson.offset_ms,
+        takeJson.scale,
       ],
     ]));
   } catch (error) {
@@ -321,6 +368,7 @@ async function runRecorderCommand(command: string, args: string[]): Promise<numb
 USAGE:
   takeone                 list takes
   takeone record [--fps 30] [--bitrate 40000]   record the desktop (asks screen-share consent)
+  takeone record --android <serial> [--touch-offset-ms 0]   record a phone or emulator into a take
   takeone stop            stop the active recording
   takeone doctor          check what the recorder needs on this machine`);
     return 0;
