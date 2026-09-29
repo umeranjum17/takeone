@@ -44,8 +44,8 @@ export function stageGeometry(width: number, height: number, d: CameraDefaults):
  * Map solver viewports (source px) onto the stage. At rest the whole stage shows;
  * zooming eases the margin away so the deepest zoom still fills the frame with screen.
  */
-export function stageFrames(frames: CameraFrame[], width: number, st: Stage, d: CameraDefaults): CameraFrame[] {
-  const top = zMax(width, d);
+export function stageFrames(frames: CameraFrame[], width: number, height: number, st: Stage, d: CameraDefaults): CameraFrame[] {
+  const top = zMax(width, height, d);
   const aspect = d.out_w / d.out_h;
   return frames.map((f) => {
     const zoom = st.baseW / f.w;
@@ -86,7 +86,7 @@ export function stageImageFilter(width: number, height: number, st: Stage, d: Ca
     `[m1]pad=${st.w}:${st.h}:${st.screenX}:${st.screenY + shadowY}:black,gblur=sigma=${blur},lutyuv=y=val*${d.shadow}[sa]`,
     `color=black:s=${st.w}x${st.h}:d=1,format=rgba[sb]`,
     `[sb][sa]alphamerge[shadow]`,
-    `gradients=s=${st.w}x${st.h}:d=1:c0=${hex(d.background)}:c1=${hex(d.background_to)}:x0=0:y0=0:x1=${st.w}:y1=${st.h}:nb_colors=2[bg]`,
+    `gradients=s=${st.w}x${st.h}:d=1:c0=${hex(d.background)}:c1=${hex(d.background_to)}:x0=0:y0=0:x1=${st.w}:y1=${st.h}:nb_colors=2:seed=0[bg]`,
     `[bg][shadow]overlay=format=auto,format=rgb24,split[stage][cut]`,
     `[m2]negate,pad=${st.w}:${st.h}:${st.screenX}:${st.screenY}:white[hole]`,
     `[cut][hole]alphamerge[holes]`,

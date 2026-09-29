@@ -110,6 +110,12 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
   const log = opts.log ?? ((s: string) => console.log(s));
   const warn = opts.warn ?? ((s: string) => console.error(s));
   const take = readTakeMeta(dir);
+  // Portrait takes (phone footage) default to a portrait output unless the
+  // caller overrode the output size; desktop behaviour is unchanged.
+  const camera = opts.camera
+    ?? (take.stream.h > take.stream.w ? { ...DEFAULTS, out_w: 1080, out_h: 1920 } : undefined);
+  const { out_w, out_h } = camera ?? DEFAULTS;
+  const aspect = out_w / out_h; // the decide-side frame estimate shares the render's aspect
   const framesTsv = join(dir, "frames.tsv");
   const webm = join(dir, "screen.webm");
   for (const [file, path] of [["screen.webm", webm], ["frames.tsv", framesTsv]] as const) {
@@ -220,7 +226,7 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
   for (const b of beats) {
     const d = heuristicDecision(b, { viewport: viewport ? { bbox: viewport } : null });
     heuristics.push(d);
-    viewport = finalFrame(b, d, winFor(b.anchor_t)?.rect ?? null, take.stream);
+    viewport = finalFrame(b, d, winFor(b.anchor_t)?.rect ?? null, take.stream, aspect);
   }
 
   const decisions: Decision[] = [...heuristics];
@@ -237,7 +243,7 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
     }
     const ctxs = beats.map((b, i) => ({
       about: opts.about,
-      currentShot: shotDescription(beats[i - 1] ?? null, heuristics[i - 1] ?? null, i > 0 ? winFor(beats[i - 1]!.anchor_t)?.rect ?? null : null, take.stream, opts.capture),
+      currentShot: shotDescription(beats[i - 1] ?? null, heuristics[i - 1] ?? null, i > 0 ? winFor(beats[i - 1]!.anchor_t)?.rect ?? null : null, take.stream, aspect, opts.capture),
       nextBeat: beats[i + 1],
     }));
     interface Job {
@@ -284,7 +290,7 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
     const outcomes: ({ response: unknown; inputTokens?: number } | "failed")[] = new Array(beats.length);
     await pooled(jobs, CONCURRENCY, async (j) => {
       const r = await askBeat(j.body, key, cache, { fetchImpl: opts.fetchImpl,
-        usable: (response) => mapJevResponse(beats[j.i]!, response, { viewport: null, winRect: winFor(beats[j.i]!.anchor_t)?.rect ?? null, stream: take.stream, about: opts.about }) !== null,
+        usable: (response) => mapJevResponse(beats[j.i]!, response, { viewport: null, winRect: winFor(beats[j.i]!.anchor_t)?.rect ?? null, stream: take.stream, aspect, about: opts.about }) !== null,
       });
       if (r.decisionSource === "failed") {
         outcomes[j.i] = "failed";
@@ -304,9 +310,10 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
         usd += (o.inputTokens * PRICE_PER_MTOK) / 1e6;
       }
       const d = mapJevResponse(beats[i]!, o.response, {
-        viewport: i === 0 ? null : finalFrame(beats[i - 1]!, decisions[i - 1]!, winFor(beats[i]!.anchor_t - 1)?.rect ?? null, take.stream),
+        viewport: i === 0 ? null : finalFrame(beats[i - 1]!, decisions[i - 1]!, winFor(beats[i]!.anchor_t - 1)?.rect ?? null, take.stream, aspect),
         winRect: winFor(beats[i]!.anchor_t)?.rect ?? null,
         stream: take.stream,
+        aspect,
         about: opts.about,
       });
       if (d) {
@@ -317,7 +324,7 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
 
     for (let i = 1; i < beats.length; i++) {
       if (skipped.has(i)) continue;
-      const actual = shotDescription(beats[i - 1]!, decisions[i - 1]!, winFor(beats[i - 1]!.anchor_t)?.rect ?? null, take.stream, opts.capture);
+      const actual = shotDescription(beats[i - 1]!, decisions[i - 1]!, winFor(beats[i - 1]!.anchor_t)?.rect ?? null, take.stream, aspect, opts.capture);
       if (actual === ctxs[i]!.currentShot) continue;
       let body: string;
       try {
@@ -329,7 +336,7 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
         continue;
       }
       const r = await askBeat(body, key, cache, { fetchImpl: opts.fetchImpl,
-        usable: (response) => mapJevResponse(beats[i]!, response, { viewport: null, winRect: winFor(beats[i]!.anchor_t)?.rect ?? null, stream: take.stream, about: opts.about }) !== null,
+        usable: (response) => mapJevResponse(beats[i]!, response, { viewport: null, winRect: winFor(beats[i]!.anchor_t)?.rect ?? null, stream: take.stream, aspect, about: opts.about }) !== null,
       });
       if (r.decisionSource === "failed") {
         decisions[i] = heuristics[i]!;
@@ -341,9 +348,10 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
         usd += (r.inputTokens * PRICE_PER_MTOK) / 1e6;
       }
       const d = mapJevResponse(beats[i]!, r.response, {
-        viewport: finalFrame(beats[i - 1]!, decisions[i - 1]!, winFor(beats[i]!.anchor_t - 1)?.rect ?? null, take.stream),
+        viewport: finalFrame(beats[i - 1]!, decisions[i - 1]!, winFor(beats[i]!.anchor_t - 1)?.rect ?? null, take.stream, aspect),
         winRect: winFor(beats[i]!.anchor_t)?.rect ?? null,
         stream: take.stream,
+        aspect,
         about: opts.about,
       });
       if (d) {
@@ -372,10 +380,6 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
     trim_start: seconds(startMs), trim_end: seconds(endMs),
   };
   writeFileSync(join(dir, "take.json"), JSON.stringify({ ...take, ...renderMeta }, null, 1) + "\n");
-  // Portrait takes (phone footage) default to a portrait output unless the
-  // caller overrode the output size; desktop behaviour is unchanged.
-  const camera = opts.camera
-    ?? (take.stream.h > take.stream.w ? { ...DEFAULTS, out_w: 1080, out_h: 1920 } : undefined);
   const { out, seconds: renderSeconds } = await renderTake(dir, camera);
 
   const byJev = decisions.filter((d) => d.decided_by === "jev").length;
@@ -387,7 +391,7 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
 function mapJevResponse(
   beat: Beat,
   response: unknown,
-  ctx: { viewport: BBox | null; winRect: BBox | null; stream: { w: number; h: number }; about?: string },
+  ctx: { viewport: BBox | null; winRect: BBox | null; stream: { w: number; h: number }; about?: string; aspect?: number },
 ): Decision | null {
   const answers = extractAnswers(response);
   if (!answers) return null;
@@ -473,19 +477,20 @@ function finalFrame(
   d: Decision,
   winRect: BBox | null,
   stream: { w: number; h: number },
+  aspect: number,
 ): BBox {
   const zone = beat.zones.find((z) => z.name === d.B) ?? null;
-  return frameRect(zone, d.L, { stream, winRect });
+  return frameRect(zone, d.L, { stream, winRect, aspect });
 }
 
 /** Words for the shot on screen at the start of a beat. */
-function shotDescription(prevBeat: Beat | null, prevDecision: Decision | null, winRect: BBox | null, stream: { w: number; h: number }, capture = false): string {
+function shotDescription(prevBeat: Beat | null, prevDecision: Decision | null, winRect: BBox | null, stream: { w: number; h: number }, aspect: number, capture = false): string {
   if (!prevBeat || !prevDecision) return "Framing the entire screen.";
   const z = prevBeat.zones.find((zone) => zone.name === prevDecision.B);
   const shows = z?.desc.shows ?? "the screen";
   // Capture privacy: a coarse zone reference, never rect coordinates.
   if (capture) return `Framing ${shows} in zone ${z?.name ?? "full screen"}.`;
-  const rect = finalFrame(prevBeat, prevDecision, winRect, stream);
+  const rect = finalFrame(prevBeat, prevDecision, winRect, stream, aspect);
   return `Framing ${shows} at ${rect.join(",")}.`;
 }
 

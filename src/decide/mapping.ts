@@ -22,7 +22,7 @@ export const CONF_SUM_TOL = 0.01;
 export function frameRect(
   zone: Zone | null,
   L: Tightness,
-  o: { stream: { w: number; h: number }; winRect: BBox | null },
+  o: { stream: { w: number; h: number }; winRect: BBox | null; aspect?: number },
 ): BBox {
   const { w, h } = o.stream;
   if (L === 0 || !zone || zone.kind === "all") return [0, 0, w, h];
@@ -46,8 +46,8 @@ export function frameRect(
   } else {
     r = pad(zone.bbox, 1.35);
   }
-  // expand the short side to 16:9
-  const ar = 16 / 9;
+  // expand the short side to the output aspect
+  const ar = o.aspect ?? 16 / 9;
   if (r[2] / r[3] < ar) {
     const nw = r[3] * ar;
     r = [r[0] - (nw - r[2]) / 2, r[1], nw, r[3]];
@@ -105,7 +105,7 @@ export function argmaxLevel(probs: number[] | undefined): number | null {
 export function mapAnswers(
   beat: Beat,
   answers: JevAnswers,
-  ctx: { viewport: BBox | null; winRect: BBox | null; stream: { w: number; h: number }; about?: string },
+  ctx: { viewport: BBox | null; winRect: BBox | null; stream: { w: number; h: number }; about?: string; aspect?: number },
 ): Decision | null {
   const fs = answers.focus_start;
   const fe = answers.focus_end;
@@ -157,7 +157,7 @@ export function mapAnswers(
   }
 
   // B = A when B fits the frame chosen for A with 8% margin
-  const frameA = frameRect(byName(A) ?? null, L, { stream: ctx.stream, winRect: ctx.winRect });
+  const frameA = frameRect(byName(A) ?? null, L, { stream: ctx.stream, winRect: ctx.winRect, aspect: ctx.aspect });
   if (fitsInside(byName(B)!.bbox, frameA, FIT_MARGIN)) B = A;
 
   return {
