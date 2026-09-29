@@ -214,6 +214,14 @@ async function connectVideo(port: number, timeoutMs: number): Promise<Socket> {
   }
 }
 
+/** Optional controls for an open-ended capture (e.g. `takeone record --android`).
+ * `stop` ends the capture at the next 100 ms tick like the deadline does;
+ * `onFirstFrame` reports the host wall time (ms) of the first video frame. */
+export interface CaptureControls {
+  stop?: Promise<void>;
+  onFirstFrame?: (wallMs: number) => void;
+}
+
 export interface CaptureSummary {
   frames: number;
   width: number;
@@ -234,6 +242,7 @@ export async function captureAndroidVideo(
   serial: string,
   seconds: number,
   outPath: string,
+  controls: CaptureControls = {},
 ): Promise<CaptureSummary> {
   if (!Number.isFinite(seconds) || seconds <= 0) throw new RangeError(`seconds must be positive, got ${seconds}`);
   const jar = resolveJar();
@@ -397,27 +406,37 @@ export async function captureAndroidVideo(
       socket?.once("error", res);
     });
 
+    let stopFired = false;
+    controls.stop?.then(
+      () => { stopFired = true; },
+      () => { stopFired = true; },
+    );
     // Wait for the first frame (proves video flows), then run to deadline.
     // Every wait below is bounded: the capture always ends on its own.
     for (let waited = 0; pts0 === undefined; waited += 100) {
       if (pipelineError !== undefined) throw pipelineError;
+      if (stopFired) throw new Error("stopped before any video arrived");
       if (waited > 15_000) throw withLog(new Error("no video frames arrived in 15 s"));
       await Promise.race([sleep(100), socketClosed.then(() => { throw new Error("video socket closed before first frame"); }), ffmpegDead]);
     }
     if (pipelineError !== undefined) throw pipelineError;
-    const socketClosedEarly = await Promise.race([
-      (async () => {
-        while (!stopping && Date.now() < deadline) await sleep(100);
-        return false;
+    controls.onFirstFrame?.(startWall);
+    const runEnd = await Promise.race([
+      (async (): Promise<"done" | "stopped"> => {
+        while (!stopping && Date.now() < deadline) {
+          if (stopFired) return "stopped";
+          await sleep(100);
+        }
+        return "done";
       })(),
-      socketClosed.then(() => Date.now() < deadline),
+      socketClosed.then(() => (Date.now() < deadline ? (true as const) : ("done" as const))),
       ffmpegDead,
     ]);
     stopping = true;
     socket?.destroy();
     await Promise.race([pending, sleep(5_000)]);
     if (pipelineError !== undefined) throw pipelineError;
-    if (socketClosedEarly) throw withLog(new Error("video socket closed mid-capture"));
+    if (runEnd === true) throw withLog(new Error("video socket closed mid-capture"));
     try {
       ffmpeg?.stdin?.end();
     } catch {
