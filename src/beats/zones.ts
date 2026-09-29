@@ -11,6 +11,7 @@ export const DEDUPE_IOU = 0.6;
 export const RES_IOU_MAX = 0.3; // res exists only when IoU against act is below this
 export const SMALL_REGION_AREA = 0.03; // change regions under 3% unite into act
 export const ACT_REGION_MS = 500; // ... and begin within 0.5 s of the action
+export const PANEL_MAX_AREA = 0.5; // a larger region holding a click is the panel it opened, up to half the screen
 export const WIN_MAX_COVER = 0.9; // window zone skipped when it covers more of the screen
 export const OCR_MAX_AREA = 0.25; // screen text only read for zones under 25%
 
@@ -104,17 +105,23 @@ function actZone(
   for (const [x, y] of pts) {
     u = u ? unionBBox(u, [x - px, y - py, px * 2, py * 2]) : [x - px, y - py, px * 2, py * 2];
   }
-  // unite small change regions at the action points within 0.5 s: a button's
-  // pressed state, an opening menu
+  // unite change regions at the action points within 0.5 s: small ones are a
+  // button's pressed state or an opening menu; a larger one holding a click is
+  // the panel or dialog that click opened, so the shot keeps all of it
   for (const a of beat.actions) {
     const pt = actPointOf(a);
     const at = actStart(a);
     if (!pt) continue;
     for (const f of o.frames) {
-      if (f.t < beat.t0 || f.t > beat.t1 || f.t < at - 100 || f.t > at + ACT_REGION_MS) continue;
+      if (f.cut || f.t < beat.t0 || f.t > beat.t1 || f.t < at - 100 || f.t > at + ACT_REGION_MS) continue;
       for (const r of f.regions) {
-        if (r.area_frac >= SMALL_REGION_AREA) continue;
         const [rx, ry, rw, rh] = r.bbox;
+        if (r.area_frac >= SMALL_REGION_AREA) {
+          const panel = a.k === "click" && bboxArea(r.bbox) / screen <= PANEL_MAX_AREA
+            && pt[0] >= rx && pt[0] <= rx + rw && pt[1] >= ry && pt[1] <= ry + rh;
+          if (panel) u = unionBBox(u!, r.bbox);
+          continue;
+        }
         if (
           pt[0] >= rx - px && pt[0] <= rx + rw + px &&
           pt[1] >= ry - py && pt[1] <= ry + rh + py

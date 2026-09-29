@@ -105,6 +105,16 @@ export function frame(
     ry -= (expandedH - rh) / 2;
     rh = expandedH;
   }
+  if (rect !== windowRect) {
+    // FIT rule: a large zone (an opened panel) is held whole at a real zoom instead of
+    // its padding pushing the shot out to the whole screen.
+    const holdW = Math.max(zoneW, zoneH * aspect) * d.hold_pad;
+    const fitW = Math.max(holdW, Math.min(rw, width * d.frame_max));
+    rx += (rw - fitW) / 2;
+    ry += (rh - fitW / aspect) / 2;
+    rw = fitW;
+    rh = fitW / aspect;
+  }
 
   return {
     cx: rx + rw / 2,
@@ -139,7 +149,7 @@ function buildShots(
       decision,
       zoneA,
       zoneB,
-      arrival: Math.max(start, beat.anchor_t - d.anchor_early),
+      arrival: Math.max(start + d.establish_s, beat.anchor_t - d.anchor_early),
     };
   }).sort((a, b) => a.arrival - b.arrival);
 }
@@ -271,6 +281,10 @@ function buildTargets(
       importance: 0,
     });
   }
+  // OUTRO rule: settle back to the whole stage for the closing seconds.
+  if (d.outro_s > 0 && end - d.outro_s > start + d.establish_s) {
+    targets.push({ t: end - d.outro_s, state: { cx: width / 2, cy: height / 2, z: 1 }, importance: 0 });
+  }
   return targets.filter((target) => target.t >= start && target.t < end
     && (target.startAfter ?? start) < end).sort((a, b) => a.t - b.t);
 }
@@ -315,11 +329,18 @@ function interpolateMove(move: Move, time: number): CameraState {
   };
 }
 
-/** Critically damp the final state to remove small camera-path discontinuities. */
-function lowpass(previous: number, target: number, dt: number, omega: number): number {
+/**
+ * One step of a critically damped spring toward `target`. Keeping velocity makes this
+ * a true second-order filter: about 2/omega of lag, no overshoot, no long tail.
+ */
+function spring(value: number, velocity: number, target: number, dt: number, omega: number): [number, number] {
   const elapsed = Math.max(0, dt);
   const decay = Math.exp(-omega * elapsed);
-  return target + (previous - target) * (1 + omega * elapsed) * decay;
+  const offset = value - target;
+  return [
+    target + (offset + (velocity + omega * offset) * elapsed) * decay,
+    (velocity - omega * (velocity + omega * offset) * elapsed) * decay,
+  ];
 }
 
 function followPointer(
@@ -390,6 +411,7 @@ function sampleCamera(
   let move: Move | undefined;
   let targetIndex = 0;
   const velocity = { x: 0, y: 0 };
+  const filterVelocity = { cx: 0, cy: 0, lz: 0 };
   const frames: CameraFrame[] = [];
 
   for (let index = 0; index <= Math.floor((end - start) * d.fps); index++) {
@@ -421,11 +443,11 @@ function sampleCamera(
     }
 
     const dt = time - previousTime;
-    state = {
-      cx: lowpass(previousFiltered.cx, state.cx, dt, d.lowpass_omega),
-      cy: lowpass(previousFiltered.cy, state.cy, dt, d.lowpass_omega),
-      z: Math.exp(lowpass(Math.log(previousFiltered.z), Math.log(state.z), dt, d.lowpass_omega)),
-    };
+    const [cx, vx] = spring(previousFiltered.cx, filterVelocity.cx, state.cx, dt, d.lowpass_omega);
+    const [cy, vy] = spring(previousFiltered.cy, filterVelocity.cy, state.cy, dt, d.lowpass_omega);
+    const [lz, vz] = spring(Math.log(previousFiltered.z), filterVelocity.lz, Math.log(state.z), dt, d.lowpass_omega);
+    Object.assign(filterVelocity, { cx: vx, cy: vy, lz: vz });
+    state = { cx, cy, z: Math.exp(lz) };
     previousFiltered = state;
     previousTime = time;
     frames.push({ ...toFrame(state, width, height, d), t: time - start });

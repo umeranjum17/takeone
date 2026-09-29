@@ -28,9 +28,10 @@ const needsFfmpeg = hasFfmpeg() ? undefined : "requires system ffmpeg and ffprob
 // Only tests render fast: the shipped default preset stays slow (see
 // camera.test.ts), so production output is byte-identical to before.
 // Tiny test renders: 320x180 output with the veryfast preset keeps CI encodes to
-// seconds. Shipped output stays 1920x1080 slow (see DEFAULTS); only tests
+// seconds, and ripple/fade stay off to skip their per-frame stage work.
+// Shipped output stays 1920x1080 slow (see DEFAULTS); only tests
 // override the size.
-const FAST = { ...DEFAULTS, preset: "veryfast", out_w: 320, out_h: 180 };
+const FAST = { ...DEFAULTS, preset: "veryfast", out_w: 320, out_h: 180, ripple_ms: 0, fade_s: 0 };
 function fastTake(dir: string, opts: MakeOptions = {}): Promise<MakeResult> {
   return makeTake(dir, { camera: FAST, log: () => {}, warn: () => {}, ...opts });
 }
@@ -94,11 +95,16 @@ test("make --no-jev renders the agreed beat/decision files into a tiny test MP4"
   try {
     // --set is test-only plumbing: full-size slow output stays the default.
     assert.equal(await main(["make", dir, "--no-jev",
-      "--set", "preset=veryfast", "--set", "out_w=320", "--set", "out_h=180"]), 0);
+      "--set", "preset=veryfast", "--set", "out_w=320", "--set", "out_h=180",
+      "--set", "ripple_ms=0", "--set", "fade_s=0"]), 0);
     const output = join(dir, "out", "t1.mp4");
     assert.ok(existsSync(output));
     const probe = JSON.parse(execFileSync("ffprobe", ["-v", "error", "-select_streams", "v:0", "-count_frames", "-show_entries", "stream=width,height,nb_read_frames", "-of", "json", output], { encoding: "utf8" }));
-    assert.deepEqual([probe.streams[0].width, probe.streams[0].height, Number(probe.streams[0].nb_read_frames)], [320, 180, 300]);
+    assert.deepEqual([probe.streams[0].width, probe.streams[0].height], [320, 180]);
+    // Idle squeezing shortens the 10 s take; the video still matches the solved camera path.
+    const cameraFrames = JSON.parse(readFileSync(join(dir, "camera.json"), "utf8")).length;
+    const frames = Number(probe.streams[0].nb_read_frames);
+    assert.ok(frames < 300 && Math.abs(frames - cameraFrames) <= 1, `${frames} frames vs ${cameraFrames} camera samples`);
     const beats = JSON.parse(readFileSync(join(dir, "analysis", "beats.json"), "utf8"));
     const decisions = readFileSync(join(dir, "analysis", "decisions.jsonl"), "utf8").trim().split("\n").map((line) => JSON.parse(line));
     assert.ok(Array.isArray(beats));
@@ -285,10 +291,14 @@ test("make --no-jev writes analysis files and heuristic decisions", { skip: need
 test("perceived cuts enter actions and start cut beats", { skip: needsFfmpeg }, async () => {
   const dir = newTake();
   try {
+    // mpeg4, not VP9: software VP9 stalls weak CI runners (see buildTake).
+    // Only the cut beats and click actions are asserted, so the input codec
+    // is incidental. Matroska muxer because stock webm allows only VP8/VP9/AV1.
     execFileSync("ffmpeg", [
       "-nostdin", "-f", "lavfi", "-i", "color=c=black:s=320x180:d=5:r=30",
       "-f", "lavfi", "-i", "color=c=white:s=320x180:d=5:r=30",
-      "-filter_complex", "[0:v][1:v]concat=n=2:v=1:a=0", "-c:v", "libvpx-vp9", "-y", join(dir, "screen.webm"),
+      "-filter_complex", "[0:v][1:v]concat=n=2:v=1:a=0", "-c:v", "mpeg4", "-q:v", "2",
+      "-f", "matroska", "-y", join(dir, "screen.webm"),
     ], { stdio: "ignore" });
     const r = await fastTake(dir, { noJev: true, log: () => {}, warn: () => {} });
     const cuts = r.beats.filter((b) => b.kind === "cut");

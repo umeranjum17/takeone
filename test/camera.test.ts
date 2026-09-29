@@ -10,8 +10,10 @@ import { renderTake, sendcmd } from "../src/render/render.ts";
 import { hasFfmpeg } from "./helpers.ts";
 
 // Only tests pass a fast preset and tiny output: shipped output stays
-// 1920x1080 slow (see DEFAULTS). Small frames keep CI software encodes fast.
-const FAST = { ...DEFAULTS, preset: "veryfast", out_w: 320, out_h: 180 };
+// 1920x1080 slow (see DEFAULTS). Small frames keep CI software encodes fast;
+// ripple and fade add per-frame stage work, so tests turn them off (both are
+// already no-ops at 0 in the render path, and the shipped defaults are untouched).
+const FAST = { ...DEFAULTS, preset: "veryfast", out_w: 320, out_h: 180, ripple_ms: 0, fade_s: 0 };
 
 // The two render tests below shell out to system ffmpeg/ffprobe, so they skip
 // explicitly where those binaries are absent instead of failing with ENOENT.
@@ -48,13 +50,16 @@ function decision(b: Beat, importance: 0 | 1 | 2 = 1): Decision {
   };
 }
 
+const noBookends = { ...DEFAULTS, establish_s: 0, outro_s: 0 };
+
+// Mechanics tests opt out of the opening hold and closing wide shot.
 function camera(beats: Beat[], decisions: Decision[], end = 8) {
   return solveCamera(beats, decisions, {
     width: 3840,
     height: 2160,
     trim_start: 0,
     trim_end: end,
-  });
+  }, noBookends);
 }
 
 function at(frames: ReturnType<typeof camera>, seconds: number) {
@@ -62,13 +67,29 @@ function at(frames: ReturnType<typeof camera>, seconds: number) {
 }
 
 test("framing expands to 16:9 and respects source and upscale clamps", () => {
-  assert.equal(zMax(3840), 2.5);
+  assert.equal(zMax(3840), 3);
   for (let level = 0; level <= 3; level++) {
     const result = frame(zone("edge", [3600, 1900, 100, 100]), level, 3840, 2160);
-    assert.ok(result.z >= 1 && result.z <= 2.5);
+    assert.ok(result.z >= 1 && result.z <= 3);
     assert.ok(result.cx >= 0 && result.cx <= 3840);
     assert.ok(result.cy >= 0 && result.cy <= 2160);
   }
+});
+
+test("FIT holds a whole opened panel at a real zoom instead of padding out to the whole screen", () => {
+  const panel = zone("panel", [84, 224, 972, 692]);
+  for (let level = 2; level <= 3; level++) {
+    const s = frame(panel, level, 1920, 1080);
+    const w = 1920 / s.z;
+    const h = w * 9 / 16;
+    // The heading at the panel's top edge and every other edge stay in frame.
+    assert.ok(s.cx - w / 2 <= 84 && s.cx + w / 2 >= 84 + 972, `level ${level} x`);
+    assert.ok(s.cy - h / 2 <= 224 && s.cy + h / 2 >= 224 + 692, `level ${level} y`);
+    assert.ok(s.z > 1.2, `level ${level} zoomed ${s.z}`);
+  }
+  // Small zones keep their full per-level padding.
+  assert.deepEqual(frame(zone("button", [900, 500, 60, 30]), 1, 1920, 1080),
+    frame(zone("button", [900, 500, 60, 30]), 1, 1920, 1080, undefined, { ...DEFAULTS, frame_max: 1 }));
 });
 
 test("whole-screen non-16:9 frames cover the full source while 16:9 framing is unchanged", () => {
@@ -85,10 +106,10 @@ test("whole-screen non-16:9 frames cover the full source while 16:9 framing is u
   const zoomBeat = beat("wide-zoom", 2, 2500);
   const zoomed = solveCamera([zoomBeat], [decision(zoomBeat)], {
     width: 3840, height: 2160, trim_start: 0, trim_end: 4,
-  });
+  }, noBookends);
   assert.deepEqual(zoomed[60]!, {
-    t: 2, x: 1318.7876879530677, y: 412.2611934930576,
-    w: 2091.19186034831, h: 1176.2954214459244,
+    t: 2, x: 1917.6833193611185, y: 593.4389427400281,
+    w: 1313.3037888436606, h: 738.7333812245591,
   });
 });
 
@@ -358,8 +379,21 @@ test("FOLLOW ignores a drag whose shot arrives after trim", () => {
   active.t1 = 11;
   active.actions = [{ k: "ptr", t: 10200, x: 3840, y: 1080 }];
   const withoutPointer = { ...active, actions: [] };
-  assert.notDeepEqual(solveCamera([active], [decision(active)], take),
-    solveCamera([withoutPointer], [decision(withoutPointer)], take));
+  assert.notDeepEqual(solveCamera([active], [decision(active)], take, noBookends),
+    solveCamera([withoutPointer], [decision(withoutPointer)], take, noBookends));
+});
+
+test("the first shot waits for the establishing hold and the take ends wide", () => {
+  const early = { ...beat("early", 0.3, 2600), t0: 0 };
+  const result = solveCamera([early], [decision(early)],
+    { width: 3840, height: 2160, trim_start: 0, trim_end: 8 });
+  // Still wide until the move toward the establish-delayed arrival starts.
+  assert.deepEqual(result[10], { t: 10 / 30, x: 0, y: 0, w: 3840, h: 2160 });
+  assert.ok(result[Math.round(DEFAULTS.establish_s * 30) + 3]!.w < 3000);
+  assert.ok(result.at(-1)!.w > 3839);
+  const kept = solveCamera([early], [decision(early)],
+    { width: 3840, height: 2160, trim_start: 0, trim_end: 8 }, noBookends);
+  assert.ok(kept[10]!.w < 3840 && kept.at(-1)!.w < 3000);
 });
 
 test("frame samples have smooth log zoom and fixed aspect", () => {
@@ -426,6 +460,12 @@ test("render without trim_end uses the latest beat end", { timeout: 120_000, ski
       "-show_entries", "stream=nb_frames", "-of", "default=noprint_wrappers=1:nokey=1", output],
     { encoding: "utf8" });
     assert.equal(Number(count.trim()), 54);
+    // Square pixels must survive per-frame crop-size changes (ffmpeg 6.1
+    // stalls on per-frame SAR changes; see setsar=1 each side of scale).
+    const sar = execFileSync("ffprobe", ["-v", "error", "-select_streams", "v:0",
+      "-show_entries", "stream=sample_aspect_ratio", "-of", "default=noprint_wrappers=1:nokey=1", output],
+    { encoding: "utf8" });
+    assert.equal(sar.trim(), "1:1");
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

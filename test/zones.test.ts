@@ -37,6 +37,22 @@ test("act zone pads the click point by 40x28 x scale and unites small regions", 
   assert.deepEqual([act.bbox[2], act.bbox[3]], [80, 56]);
 });
 
+test("act zone holds the panel a click opened, but not a large change elsewhere", () => {
+  // Scaled from the synthetic take: the row click at (430,690) opens a 972x692 panel.
+  const b = beatOf([{ k: "click", t: 500, x: 36, y: 77, window_cls: "chromium" }]);
+  const withRegion = (bbox: [number, number, number, number]): FrameRegions[] => [
+    ...frames.slice(0, 5),
+    { t: 600, changed_frac: 0.19, cut: false, regions: [{ bbox, area_frac: 0.19 }] },
+    ...frames.slice(6),
+  ];
+  const act = (bbox: [number, number, number, number]) =>
+    zonesForBeat(b, { ...base, frames: withRegion(bbox), winRect: null }).find((z) => z.kind === "act")!.bbox;
+  // The panel unites with the padded click point (clamped to the screen).
+  assert.deepEqual(act([7, 25, 81, 77]), [0, 25, 88, 80]);
+  // A region not holding the click (a far-away result) stays out of the act zone.
+  assert.deepEqual(act([90, 10, 60, 60]), [0, 49, 76, 56]);
+});
+
 test("zones: dedupe IoU > 0.6 keeps the smaller, names are z1..zN smallest to largest", () => {
   const b = beatOf([{ k: "click", t: 500, x: 80, y: 60, window_cls: "chromium" }]);
   // act and a small window overlap but stay distinct (IoU < 0.6); zones are act + win + all
