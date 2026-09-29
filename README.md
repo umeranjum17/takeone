@@ -12,7 +12,7 @@
 </p>
 
 <p align="center">
-  <picture><source srcset="docs/assets/readme/hero.webp" type="image/webp"><img src="docs/assets/readme/hero.jpg" alt="A takeone render of a project board: the camera holds the New task dialog while High is picked from the Priority dropdown, pulls back to the whole board as the Task created toast appears, then pushes in on the new card as it is dragged, with a blue ring marking each click" width="960" /></picture>
+  <picture><source srcset="docs/assets/readme/hero.webp" type="image/webp"><img src="docs/assets/readme/hero.jpg" alt="A takeone render of a project board: the camera holds the New task dialog while High is picked from the Priority dropdown, pulls back to the whole board as the Task created toast appears, then pushes in on the new card as it is dragged into In progress, with a blue ring marking each click" width="960" /></picture>
 </p>
 
 ## Why takeone exists
