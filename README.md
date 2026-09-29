@@ -118,6 +118,31 @@ takeone                       # list takes, newest first
 takeone make <id> --about "Creating a task and moving it across a project board"
 ```
 
+**3b. Record a phone instead** (Android, hand-driven on the device):
+
+```sh
+takeone record --android <serial>   # USB phone or emulator; needs adb on PATH with USB debugging enabled
+# ...demonstrate the app with fingers on the phone (or the emulator-window mouse)...
+takeone stop
+takeone make <id> --about "Searching and checking out in the app"
+```
+
+No phone app and no new core: the phone take is the same take directory
+(`take.json`, `screen.webm`, `frames.tsv`, `events.jsonl`), rendered portrait
+1080×1920 by default, and `--touch-offset-ms N` calibrates touch timing.
+Try it with no phone attached — the synthetic portrait take renders offline:
+
+```sh
+node scripts/synth-portrait.ts /tmp/p
+# encoding screen.webm ...
+# portrait take written to /tmp/p
+node bin/takeone.mjs make /tmp/p --no-jev
+# make: 5 beats; 0 by jev, 5 by heuristic
+```
+
+The polished video lands at `/tmp/p/out/p.mp4` (`ffprobe` reports
+`1080,1920`) and `analysis/actions.json` holds 3 `click` and 1 `scroll`.
+
 **4. Tweak the look and rerender** without planning again:
 
 ```sh
@@ -143,7 +168,7 @@ For an existing planned take, render reads `screen.webm`, `take.json` (at least 
 
 ## Cost per minute of video (measured)
 
-About **14–15k Jev input tokens, roughly $0.0006, per minute of video**, with a hard ceiling of 36k tokens (about $0.0015) per minute at the defaults.
+About **14–15k Jev input tokens, roughly $0.0006, per minute of video**, hard-bounded by the preflight in `src/make.ts` (~line 198-235): it refuses any take whose reserved total — planned request tokens plus a 1,200-token re-ask reserve per Jev job after the first — exceeds 40,000 estimated tokens per take minute (`DEFAULT_TOKENS_PER_MIN`), about $0.0017/min at the $0.042/Mtok estimate and about $0.0023/min worst billed given the measured ~1.34× estimate-to-billed gap.
 
 Measured on a real 62.7 s desktop take recorded on Hyprland at 3840×2160 (`scripts/e2e`, below). The run used a live Jev key, `--about` set, and no cache:
 
@@ -166,7 +191,7 @@ The cost is bounded by design, not by luck:
 - **Beat cap**: at most 30 beats per minute (`MAX_BEATS_PER_MIN` in `src/beats/segment.ts`), so the number of Jev calls never grows with how busy the recording is.
 - **Token preflight**: `make` estimates every planned request up front and refuses the whole run (`PreflightRefusal`) when the reserved total exceeds `--max-tokens`, default 40,000 input tokens per take minute (`DEFAULT_TOKENS_PER_MIN` in `src/make.ts`). Each single request is also hard-capped at `REQUEST_TOKEN_CAP` (1,200 estimated tokens) in `src/decide/request.ts`.
 
-Worst case at the defaults: 30 calls/minute × 1,200 tokens ≈ 36,000 tokens ≈ $0.0015 per minute of video at the listed price — under the 40k/minute cap. The measured take above used 39% of that at 19 beats/minute. Rendering costs no tokens at any setting.
+Worst case at the defaults: the reserved total (planned tokens plus the 1,200-token re-ask reserve per Jev job after the first) is capped at 40,000 estimated tokens per take minute ≈ $0.0017/min at the listed price, ≈ $0.0023/min worst billed. The measured take above used about half of that. Rendering costs no tokens at any setting.
 
 ## Look and pacing
 
