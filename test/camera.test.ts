@@ -454,7 +454,7 @@ test("render without trim_end uses the latest beat end", { timeout: 120_000, ski
     await writeFile(join(dir, "analysis/beats.json"), JSON.stringify([later, earlier]));
     await writeFile(join(dir, "analysis/decisions.jsonl"),
       [decision(later), decision(earlier)].map((d) => JSON.stringify(d)).join("\n") + "\n");
-    const output = await renderTake(dir, FAST);
+    const output = (await renderTake(dir, FAST)).out;
     const frames = JSON.parse(await readFile(join(dir, "camera.json"), "utf8"));
     assert.equal(frames.at(-1).t, 1.8);
     const count = execFileSync("ffprobe", ["-v", "error", "-select_streams", "v:0",
@@ -506,7 +506,7 @@ test("synthetic source renders silent H.264 at the configured size and 30fps", {
     await writeFile(join(dir, "take.json"), JSON.stringify({
       id: "fixture", width: 320, height: 180, trim_start: 0, trim_end: 2,
     }));
-    const output = await renderTake(dir, FAST);
+    const output = (await renderTake(dir, FAST)).out;
     const probe = execFileSync("ffprobe", [
       "-v", "error", "-select_streams", "v:0", "-show_entries",
       "stream=width,height,nb_frames,codec_name", "-of", "csv=p=0", output,
