@@ -81,7 +81,7 @@ export async function renderTake(dir: string, d: CameraDefaults = DEFAULTS): Pro
     "-i", join(dir, "screen.webm"),
     "-vf", filter,
     "-r", String(d.fps), "-an", "-c:v", "libx264", "-crf", "18",
-    "-preset", "slow", "-movflags", "+faststart", output,
+    "-preset", d.preset, "-movflags", "+faststart", output,
   ]);
   return output;
 }

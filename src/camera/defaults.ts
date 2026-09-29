@@ -35,6 +35,7 @@ export interface CameraDefaults {
   l1_pad: number;
   l2_pad: number;
   l3_pad: number;
+  preset: string; // x264 encode preset; slower = smaller file, same pixels
 }
 
 export const DEFAULTS: CameraDefaults = {
@@ -71,6 +72,7 @@ export const DEFAULTS: CameraDefaults = {
   l1_pad: 2.2,
   l2_pad: 1.8,
   l3_pad: 1.35,
+  preset: "slow",
 };
 
 export type Overrides = Partial<Omit<CameraDefaults, "background">> & { background?: string };
@@ -78,8 +80,15 @@ export type Overrides = Partial<Omit<CameraDefaults, "background">> & { backgrou
 /** Apply `--set key=value` overrides onto a copy of DEFAULTS. */
 export function applyOverrides(overrides: Overrides): CameraDefaults {
   const out: CameraDefaults = { ...DEFAULTS };
+  const PRESETS = ["ultrafast", "superfast", "veryfast", "faster", "fast",
+    "medium", "slow", "slower", "veryslow", "placebo"];
   for (const [k, v] of Object.entries(overrides)) {
     const key = k as keyof CameraDefaults;
+    if (key === "preset") {
+      if (typeof v !== "string" || !PRESETS.includes(v)) throw new Error(`unknown or invalid --set ${k}=${v}`);
+      out.preset = v;
+      continue;
+    }
     if (key === "background" && typeof v === "string" && /^#[0-9a-f]{6}$/i.test(v)) {
       (out as unknown as Record<string, unknown>)[key] = v;
       continue;

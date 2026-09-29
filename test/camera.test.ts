@@ -9,6 +9,9 @@ import type { Beat, Decision, Zone } from "../src/camera/types.ts";
 import { renderTake, sendcmd } from "../src/render/render.ts";
 import { hasFfmpeg } from "./helpers.ts";
 
+// Only tests pass a fast preset: shipped output stays on the slow default.
+const FAST = { ...DEFAULTS, preset: "veryfast" };
+
 // The two render tests below shell out to system ffmpeg/ffprobe, so they skip
 // explicitly where those binaries are absent instead of failing with ENOENT.
 // CI installs ffmpeg (see .github/workflows/ci.yml) so coverage stays real there.
@@ -384,6 +387,9 @@ test("render CLI rejects unknown and malformed override arguments", () => {
 
 test("--set overrides validate values", () => {
   assert.equal(applyOverrides({ fps: 24 }).fps, 24);
+  assert.equal(applyOverrides({}).preset, "slow"); // shipped default unchanged
+  assert.equal(applyOverrides({ preset: "veryfast" }).preset, "veryfast");
+  assert.throws(() => applyOverrides({ preset: "ludicrous" }));
   assert.throws(() => applyOverrides({ unknown: 1 } as never));
   for (const overrides of [
     { fps: 0 }, { out_w: 0 }, { out_h: -2 }, { max_upscale: 0 },
@@ -410,7 +416,7 @@ test("render without trim_end uses the latest beat end", { timeout: 120_000, ski
     await writeFile(join(dir, "analysis/beats.json"), JSON.stringify([later, earlier]));
     await writeFile(join(dir, "analysis/decisions.jsonl"),
       [decision(later), decision(earlier)].map((d) => JSON.stringify(d)).join("\n") + "\n");
-    const output = await renderTake(dir);
+    const output = await renderTake(dir, FAST);
     const frames = JSON.parse(await readFile(join(dir, "camera.json"), "utf8"));
     assert.equal(frames.at(-1).t, 1.8);
     const count = execFileSync("ffprobe", ["-v", "error", "-select_streams", "v:0",
@@ -453,7 +459,7 @@ test("synthetic 4K source renders silent H.264 at 1920x1080 and 30fps", {
     await writeFile(join(dir, "take.json"), JSON.stringify({
       id: "fixture", width: 3840, height: 2160, trim_start: 0, trim_end: 2,
     }));
-    const output = await renderTake(dir);
+    const output = await renderTake(dir, FAST);
     const probe = execFileSync("ffprobe", [
       "-v", "error", "-select_streams", "v:0", "-show_entries",
       "stream=width,height,nb_frames,codec_name", "-of", "csv=p=0", output,
