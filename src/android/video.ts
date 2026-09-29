@@ -394,16 +394,18 @@ export async function captureAndroidVideo(
       await Promise.race([sleep(100), socketClosed.then(() => { throw new Error("video socket closed before first frame"); })]);
     }
     if (pipelineError !== undefined) throw pipelineError;
-    await Promise.race([
+    const socketClosedEarly = await Promise.race([
       (async () => {
         while (!stopping && Date.now() < deadline) await sleep(100);
+        return false;
       })(),
-      socketClosed.then(() => undefined),
+      socketClosed.then(() => Date.now() < deadline),
     ]);
     stopping = true;
     socket?.destroy();
     await Promise.race([pending, sleep(5_000)]);
     if (pipelineError !== undefined) throw pipelineError;
+    if (socketClosedEarly) throw withLog(new Error("video socket closed mid-capture"));
     try {
       ffmpeg?.stdin?.end();
     } catch {
