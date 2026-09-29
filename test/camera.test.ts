@@ -7,6 +7,16 @@ import { applyOverrides, DEFAULTS } from "../src/camera/defaults.ts";
 import { frame, moveDuration, solveCamera, zMax } from "../src/camera/solver.ts";
 import type { Beat, Decision, Zone } from "../src/camera/types.ts";
 import { renderTake, sendcmd } from "../src/render/render.ts";
+import { hasFfmpeg } from "./helpers.ts";
+
+// Only tests pass a fast preset and tiny output: shipped output stays
+// 1920x1080 slow (see DEFAULTS). Small frames keep CI software encodes fast.
+const FAST = { ...DEFAULTS, preset: "veryfast", out_w: 320, out_h: 180 };
+
+// The two render tests below shell out to system ffmpeg/ffprobe, so they skip
+// explicitly where those binaries are absent instead of failing with ENOENT.
+// CI installs ffmpeg (see .github/workflows/ci.yml) so coverage stays real there.
+const needsFfmpeg = hasFfmpeg() ? undefined : "requires system ffmpeg and ffprobe on PATH";
 
 const zone = (name: string, bbox: [number, number, number, number]): Zone => ({
   name,
@@ -378,6 +388,9 @@ test("render CLI rejects unknown and malformed override arguments", () => {
 
 test("--set overrides validate values", () => {
   assert.equal(applyOverrides({ fps: 24 }).fps, 24);
+  assert.equal(applyOverrides({}).preset, "slow"); // shipped default unchanged
+  assert.equal(applyOverrides({ preset: "veryfast" }).preset, "veryfast");
+  assert.throws(() => applyOverrides({ preset: "ludicrous" }));
   assert.throws(() => applyOverrides({ unknown: 1 } as never));
   for (const overrides of [
     { fps: 0 }, { out_w: 0 }, { out_h: -2 }, { max_upscale: 0 },
@@ -387,13 +400,15 @@ test("--set overrides validate values", () => {
   ]) assert.throws(() => applyOverrides(overrides), /invalid|must be at least/);
 });
 
-test("render without trim_end uses the latest beat end", { timeout: 120_000 }, async () => {
+test("render without trim_end uses the latest beat end", { timeout: 120_000, skip: needsFfmpeg }, async () => {
   const dir = await mkdtemp(join(process.cwd(), "takeone:duration-"));
   try {
     await mkdir(join(dir, "analysis"));
+    // mpeg4, not VP9: software VP9 stalls weak CI runners; input codec is
+    // incidental here (see buildTake in make.test.ts for the full rationale).
     execFileSync("ffmpeg", [
       "-v", "error", "-f", "lavfi", "-i", "color=c=blue:s=320x180:r=30:d=2",
-      "-c:v", "libvpx-vp9", "-deadline", "realtime", "-cpu-used", "8",
+      "-c:v", "mpeg4", "-q:v", "2", "-f", "matroska",
       "-y", join(dir, "screen.webm"),
     ]);
     const later = { ...beat("later", 0.8, 20), t0: 0.2, t1: 1.8,
@@ -404,7 +419,7 @@ test("render without trim_end uses the latest beat end", { timeout: 120_000 }, a
     await writeFile(join(dir, "analysis/beats.json"), JSON.stringify([later, earlier]));
     await writeFile(join(dir, "analysis/decisions.jsonl"),
       [decision(later), decision(earlier)].map((d) => JSON.stringify(d)).join("\n") + "\n");
-    const output = await renderTake(dir);
+    const output = await renderTake(dir, FAST);
     const frames = JSON.parse(await readFile(join(dir, "camera.json"), "utf8"));
     assert.equal(frames.at(-1).t, 1.8);
     const count = execFileSync("ffprobe", ["-v", "error", "-select_streams", "v:0",
@@ -416,38 +431,47 @@ test("render without trim_end uses the latest beat end", { timeout: 120_000 }, a
   }
 });
 
-test("synthetic 4K source renders silent H.264 at 1920x1080 and 30fps", {
-  timeout: 120_000,
+test("synthetic source renders silent H.264 at the configured size and 30fps", {
+  timeout: 120_000, skip: needsFfmpeg,
 }, async () => {
   const dir = await mkdtemp(join(process.cwd(), "takeone:render-"));
   try {
     await mkdir(join(dir, "analysis"));
+    // Tiny fixtures: a 4K source stalled a weak CI runner past the test
+    // timeout (software scale + x264). Resolution is incidental here - only
+    // the rendered MP4 codec, size and frame count are asserted - and the
+    // shipped 1920x1080 default is untouched (see DEFAULTS). Matroska muxer
+    // because stock webm allows only VP8/VP9/AV1; the pipeline probes
+    // content, so the .webm name is cosmetic.
     execFileSync("ffmpeg", [
-      "-v", "error", "-f", "lavfi", "-i", "color=c=blue:s=3840x2160:r=30:d=2",
-      "-c:v", "libvpx-vp9", "-deadline", "realtime", "-cpu-used", "8",
+      "-v", "error", "-f", "lavfi", "-i", "color=c=blue:s=320x180:r=30:d=2",
+      "-c:v", "mpeg4", "-q:v", "2", "-f", "matroska",
       "-y", join(dir, "screen.webm"),
     ]);
     await writeFile(join(dir, "take.json"), JSON.stringify({
-      id: "fixture", width: 3840, height: 2160, trim_start: 0, trim_end: 2,
+      id: "fixture", width: 320, height: 180, trim_start: 0, trim_end: 2,
     }));
     const fixtureBeat = beat("fixture", 0.6, 2600);
+    // Small-frame zone: the default helper zone sits in 4K coordinates and
+    // would fail input validation before the take-id check below runs.
+    fixtureBeat.zones = [zone("fixture", [20, 20, 40, 30])];
     await writeFile(join(dir, "analysis/beats.json"), JSON.stringify([fixtureBeat]));
     await writeFile(join(dir, "analysis/decisions.jsonl"), `${JSON.stringify(decision(fixtureBeat))}\n`);
 
     await writeFile(join(dir, "take.json"), JSON.stringify({
-      id: "../../other", width: 3840, height: 2160, trim_start: 0, trim_end: 2,
+      id: "../../other", width: 320, height: 180, trim_start: 0, trim_end: 2,
     }));
     await assert.rejects(renderTake(dir), /invalid take id/);
     await writeFile(join(dir, "take.json"), JSON.stringify({
-      id: "fixture", width: 3840, height: 2160, trim_start: 0, trim_end: 2,
+      id: "fixture", width: 320, height: 180, trim_start: 0, trim_end: 2,
     }));
-    const output = await renderTake(dir);
+    const output = await renderTake(dir, FAST);
     const probe = execFileSync("ffprobe", [
       "-v", "error", "-select_streams", "v:0", "-show_entries",
       "stream=width,height,nb_frames,codec_name", "-of", "csv=p=0", output,
     ], { encoding: "utf8" });
     assert.match(probe, /h264/);
-    assert.match(probe, /1920,1080,60/);
+    assert.match(probe, /320,180,60/);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
