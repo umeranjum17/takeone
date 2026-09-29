@@ -1,5 +1,6 @@
 /** Listing of takes under the takes root. */
 
+import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
@@ -32,7 +33,17 @@ export function processStartTicks(pid: number): string | null {
     const ticks = stat.slice(end + 2).split(" ")[19];
     return ticks !== undefined && /^\d+$/.test(ticks) ? ticks : null;
   } catch {
-    return null;
+    // No /proc (macOS): identify the process by its start time instead so
+    // the pid file still guards concurrent recordings and survives pid reuse.
+    if (process.platform !== "darwin") return null;
+    try {
+      const started = execFileSync("ps", ["-o", "lstart=", "-p", String(pid)], {
+        encoding: "utf8",
+      }).trim();
+      return started === "" ? null : started;
+    } catch {
+      return null;
+    }
   }
 }
 
