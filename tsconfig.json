@@ -5,10 +5,9 @@
     "moduleResolution": "nodenext",
     "lib": ["es2024"],
     "outDir": "dist",
-    "rootDir": "src",
+    "rootDir": ".",
     "rewriteRelativeImportExtensions": true,
     "strict": true,
-    "noCheck": true,
     "noUncheckedIndexedAccess": true,
     "noImplicitOverride": true,
     "verbatimModuleSyntax": true,
@@ -18,5 +17,5 @@
     "forceConsistentCasingInFileNames": true,
     "types": ["node"]
   },
-  "include": ["src/**/*.ts"]
+  "include": ["src/**/*.ts", "scripts/**/*.ts", "test/**/*.ts"]
 }

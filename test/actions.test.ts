@@ -24,7 +24,7 @@ test("extended function keys create named shortcuts, not typing beats", () => {
     t: index * 100,
     ...classifyKeyEvent(code, true, held).record,
   }));
-  assert.deepEqual(actionsFromEvents(events, [], opts()).map((action) => [action.k, action.combo]), [
+  assert.deepEqual(actionsFromEvents(events, [], opts()).map((action) => [action.k, action.k === "shortcut" ? action.combo : undefined]), [
     ["shortcut", "Ctrl+F13"], ["shortcut", "Ctrl+F24"],
   ]);
 });
