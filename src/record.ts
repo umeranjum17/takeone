@@ -109,15 +109,16 @@ export async function runRecord(options: RecordOptions = {}): Promise<RecordResu
   let discardTake = false;
   // The stop handlers are registered before the consent dialog can appear, so
   // `takeone stop` always works - including while waiting on the prompt.
-  let resolveStopped!: (at: Date) => void;
-  const stopped = new Promise<Date>((resolveP) => {
+  let resolveStopped!: (at: { date: Date; monoNs: bigint }) => void;
+  const stopped = new Promise<{ date: Date; monoNs: bigint }>((resolveP) => {
     resolveStopped = resolveP;
   });
   let stopRequested = false;
   const onStop = (): void => {
     if (stopRequested) return;
     stopRequested = true;
-    resolveStopped(new Date());
+    const monoNs = process.hrtime.bigint();
+    resolveStopped({ date: new Date(), monoNs });
   };
   process.on("SIGINT", onStop);
   process.on("SIGTERM", onStop);
@@ -173,7 +174,7 @@ export async function runRecord(options: RecordOptions = {}): Promise<RecordResu
     const finalMetrics = await capture.stop();
 
     const clock = alignClock(capture.frames().map((frame) => ({ ...frame, recvMs: frame.recvMs - Number(t0ns) / 1e6 })));
-    const durationMs = Math.max(0, stoppedAt.getTime() - tapStartedAt.getTime());
+    const durationMs = Math.max(0, Number(stoppedAt.monoNs - t0ns) / 1e6);
     const warnings = [...taps.warnings];
     if (clock !== null && clock.spreadMs > SPREAD_WARN_MS) {
       warnings.push(`clock offset spread ${clock.spreadMs.toFixed(1)} ms exceeds ${SPREAD_WARN_MS} ms`);
@@ -185,7 +186,7 @@ export async function runRecord(options: RecordOptions = {}): Promise<RecordResu
       scale: mapping?.scale ?? 1,
       offset_ms: clock?.offsetMs ?? 0,
       started_at: tapStartedAt.toISOString(),
-      stopped_at: stoppedAt.toISOString(),
+      stopped_at: stoppedAt.date.toISOString(),
       fps,
       bitrate_kbps: bitrateKbps,
       geometry: capture.geometry,

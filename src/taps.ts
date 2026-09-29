@@ -270,10 +270,9 @@ export async function startTaps(options: TapOptions): Promise<TapHandle> {
         } else if (record.type === EV_KEY && (record.value === 1 || record.value === 0)) {
           const down = record.value === 1;
           const t = nowMs();
-          if (record.code >= 0x100 && record.code < 0x160) {
-            const name = BUTTON_NAMES[record.code] ?? `btn${record.code}`;
-            emitInput({ t, k: "btn", b: name, down });
-          } else {
+          if (Object.hasOwn(BUTTON_NAMES, record.code)) {
+            emitInput({ t, k: "btn", b: BUTTON_NAMES[record.code], down });
+          } else if (record.code < 0x100 || record.code >= 0x160) {
             const { record: keyRecord, modifier } = classifyKeyEvent(record.code, down, held);
             if (modifier !== null) {
               const key = `${state.device.path}:${record.code}`;

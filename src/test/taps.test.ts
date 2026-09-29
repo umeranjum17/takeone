@@ -156,7 +156,7 @@ test("shortcuts retain modifiers across keyboards and both physical Ctrl keys", 
   }
 });
 
-test("media keys stay key events, not clicks or typing", async () => {
+test("media keys stay non-typing and touch contacts do not become clicks", async () => {
   const base = await mkdtemp(join(tmpdir(), "takeone-media-"));
   const deviceDir = join(base, "devices");
   await mkdir(deviceDir);
@@ -167,8 +167,8 @@ test("media keys stay key events, not clicks or typing", async () => {
     record.writeInt32LE(1, 20);
     return record;
   };
-  await writeFile(join(deviceDir, "fake-event-kbd"), Buffer.concat([key(115), key(164), key(0x164), key(31)]));
-  await writeFile(join(deviceDir, "fake-event-mouse"), key(0x110));
+  await writeFile(join(deviceDir, "fake-event-kbd"), Buffer.concat([key(115), key(164), key(0x164), key(31), key(0x14a)]));
+  await writeFile(join(deviceDir, "fake-event-mouse"), Buffer.concat([key(0x14a), key(0x110)]));
   try {
     const eventsPath = join(base, "events.jsonl");
     const taps = await startTaps({ eventsPath, t0ns: process.hrtime.bigint(), deviceDir, evdevPollHz: 200 });
