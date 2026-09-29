@@ -227,10 +227,18 @@ function describeZone(
   return { shows, size, where, activity };
 }
 
+/**
+ * The action the act zone is built around (actZone): a beat that opens with
+ * pointer travel and then rests is described as pointing, not clicking.
+ */
+function actAnchor(beat: Beat): Action | undefined {
+  return beat.actions.find((a) => a.k === "click" || a.k === "dwell" || a.k === "drag" || a.k === "shortcut");
+}
+
 function showsWords(kind: ZoneKind, beat: Beat, stream: { w: number; h: number }): string {
   switch (kind) {
     case "act": {
-      const a = beat.actions[0];
+      const a = actAnchor(beat);
       if (a?.k === "drag") return "the control the user dragged";
       if (a?.k === "dwell") return "the control the user pointed at";
       if (a?.k === "shortcut") return "the area affected by the shortcut";
@@ -255,7 +263,7 @@ function showsWords(kind: ZoneKind, beat: Beat, stream: { w: number; h: number }
 function activityWords(kind: ZoneKind, beat: Beat, t: number | undefined): string {
   switch (kind) {
     case "act": {
-      const a = beat.actions[0];
+      const a = actAnchor(beat);
       if (a?.k === "drag") return "dragged at the start of the beat";
       if (a?.k === "dwell") return "the pointer rested here";
       if (a?.k === "shortcut") return "the shortcut was pressed at the start of the beat";

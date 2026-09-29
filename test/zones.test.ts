@@ -196,3 +196,13 @@ test("OCR eligibility: zones under a quarter of the screen", () => {
     if (z.kind === "act") assert.ok(eligible);
   }
 });
+
+test("act zone is described by its anchoring action, not by pointer travel before it", () => {
+  const b = beatOf([
+    { k: "travel", t0: 0, t1: 400, from: [10, 10], to: [100, 60], bbox: [10, 10, 90, 50] },
+    { k: "dwell", t0: 500, t1: 3000, x: 100, y: 60 },
+  ]);
+  const act = zonesForBeat(b, { ...base, winRect: null }).find((z) => z.kind === "act")!;
+  assert.equal(act.desc.shows, "the control the user pointed at");
+  assert.equal(act.desc.activity, "the pointer rested here");
+});
