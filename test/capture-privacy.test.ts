@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { makeTake, type MakeOptions, type MakeResult } from "../src/make.ts";
 import { main } from "../src/cli.ts";
-import { DecisionCache } from "../src/decide/jev.ts";
+import { JevFileCache, askBeat } from "../src/decide/jev.ts";
 import { DEFAULTS } from "../src/camera/defaults.ts";
 import type { JevAnswers, TakeMeta } from "../src/types.ts";
 import { hasFfmpeg } from "./helpers.ts";
@@ -78,26 +78,34 @@ function stubPlanner(bodies: string[]): typeof fetch {
   }) as typeof fetch;
 }
 
-test("DecisionCache omitRequestBody stores hash and response only, hits still work", async () => {
+test("JevFileCache stores hash and answers only, never request bodies; hits still work", async () => {
   const dir = mkdtempSync(join(tmpdir(), "takeone-capcache-"));
   try {
     const path = join(dir, "jev-cache.jsonl");
-    const cache = new DecisionCache(path, { omitRequestBody: true });
-    const body = JSON.stringify({ secret: "request-body-marker" });
-    cache.put(body, { ok: true });
+    const questions = { focus: { kind: "choice", options: { a: "Zone A" } } } as const;
+    const state = { secret: "request-body-marker" };
+    let calls = 0;
+    const fake = (async () => {
+      calls++;
+      return new Response(JSON.stringify({
+        answers: { focus: { choice: "a", probabilities: { a: 1 }, confidence: 1 } },
+        usage: { input_tokens: 5 },
+      }), { status: 200 });
+    }) as typeof fetch;
+    const r1 = await askBeat(state, questions, KEY, new JevFileCache(path, { omitRequestBody: true }), { fetchImpl: fake });
+    assert.equal(r1.decisionSource, "api");
     const raw = readFileSync(path, "utf8");
     assert.ok(!raw.includes("request-body-marker"), "no request body on disk");
     const line = JSON.parse(raw.trim());
     assert.equal(typeof line.key, "string");
     assert.equal(line.key.length, 64);
-    assert.deepEqual(line.response, { ok: true });
-    assert.ok(cache.get(body), "in-memory hit");
-    assert.deepEqual(new DecisionCache(path).get(body)?.response, { ok: true }, "reloaded hit");
-
-    const plain = new DecisionCache(join(dir, "plain.jsonl"));
-    plain.put(body, { ok: true });
-    assert.ok(readFileSync(join(dir, "plain.jsonl"), "utf8").includes("request-body-marker"),
-      "standalone cache keeps the body");
+    assert.ok(line.answers !== undefined, "answers stored");
+    // a reloaded cache hits without a network call and records zero tokens
+    const r2 = await askBeat(state, questions, KEY, new JevFileCache(path, { omitRequestBody: true }), { fetchImpl: fake });
+    assert.equal(r2.decisionSource, "cache");
+    assert.equal(r2.inputTokens, undefined);
+    assert.deepEqual(r2.response, r1.response);
+    assert.equal(calls, 1);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -122,9 +130,9 @@ test("capture make drops titles, coords and cache bodies; standalone keeps them"
     assert.ok(!raw.includes("Framing"), "no request prompt text in the cache file");
     for (const line of raw.trim().split("\n")) {
       const e = JSON.parse(line);
-      assert.equal(e.request, "");
       assert.equal(typeof e.key, "string");
-      assert.ok(e.response !== undefined);
+      assert.ok(e.answers !== undefined, "answers stored");
+      assert.ok(!("request" in e), "no request body stored");
     }
     assert.ok(r.decisions.some((d) => d.decided_by === "jev"));
 
@@ -137,7 +145,7 @@ test("capture make drops titles, coords and cache bodies; standalone keeps them"
   }
 });
 
-test("standalone make keeps coords, cache bodies and titles", { skip: needsFfmpeg }, async () => {
+test("standalone make keeps coords and titles; cache holds key and answers only", { skip: needsFfmpeg }, async () => {
   const dir = buildTake();
   try {
     const bodies: string[] = [];
@@ -146,9 +154,11 @@ test("standalone make keeps coords, cache bodies and titles", { skip: needsFfmpe
     assert.ok(bodies.map((b) => JSON.parse(b).state.current_shot as string).join(" ").match(/\d,\d/),
       "standalone current_shot keeps coordinates");
     assert.ok(readFileSync(join(dir, "events.jsonl"), "utf8").includes(TITLE), "standalone keeps titles");
-    const line = JSON.parse(readFileSync(join(dir, "analysis", "jev-cache.jsonl"), "utf8").trim().split("\n")[0]!);
-    assert.ok(typeof line.request === "string" && line.request.includes("current_shot"),
-      "standalone cache keeps the request body");
+    const cacheRaw = readFileSync(join(dir, "analysis", "jev-cache.jsonl"), "utf8");
+    assert.ok(!cacheRaw.includes("current_shot"), "no request body in the cache file");
+    const line = JSON.parse(cacheRaw.trim().split("\n")[0]!);
+    assert.equal(typeof line.key, "string");
+    assert.ok(line.answers !== undefined, "answers stored");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

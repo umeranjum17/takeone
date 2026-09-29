@@ -4,8 +4,12 @@
   "private": true,
   "description": "Turn a raw screen recording into a polished demo.",
   "type": "module",
-  "engines": { "node": ">=22" },
-  "bin": { "takeone": "./bin/takeone.mjs" },
+  "engines": {
+    "node": ">=22"
+  },
+  "bin": {
+    "takeone": "./bin/takeone.mjs"
+  },
   "scripts": {
     "build": "tsc --project tsconfig.json",
     "prepare": "npm run build",
@@ -13,6 +17,7 @@
     "typecheck": "tsc --project tsconfig.check.json"
   },
   "dependencies": {
+    "@byokit/decide": "0.3.0",
     "@desklink/host": "0.1.0",
     "werift": "0.24.4"
   },
