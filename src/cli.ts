@@ -179,15 +179,24 @@ interface Flags {
   root?: string;
   state?: string;
   android?: string;
+  iosSim?: boolean;
   touchOffsetMs?: number;
 }
 
 function parseFlags(args: string[]): Flags {
   const flags: Flags = {};
   const seen = new Set<string>();
-  for (let i = 0; i < args.length; i += 2) {
-    const name = args[i]!;
-    const value = args[i + 1];
+  const rest: string[] = [];
+  for (const arg of args) {
+    if (arg === "--ios-sim") {
+      if (seen.has(arg)) fail({ code: "invalid-arguments", message: "invalid record option: --ios-sim", hint: "run `takeone --help`" });
+      seen.add(arg);
+      flags.iosSim = true;
+    } else rest.push(arg);
+  }
+  for (let i = 0; i < rest.length; i += 2) {
+    const name = rest[i]!;
+    const value = rest[i + 1];
     if (!["--fps", "--bitrate", "--root", "--state-dir", "--android", "--touch-offset-ms"].includes(name) || value === undefined || value === "" || value.startsWith("--") || seen.has(name)) {
       fail({ code: "invalid-arguments", message: `invalid record option: ${name}`, hint: "run `takeone --help`" });
     }
@@ -210,6 +219,12 @@ function parseFlags(args: string[]): Flags {
   }
   if (flags.android !== undefined && (flags.fps !== undefined || flags.bitrateKbps !== undefined)) {
     fail({ code: "invalid-arguments", message: "--fps and --bitrate are desktop-only", hint: "run `takeone --help`" });
+  }
+  if (flags.iosSim && flags.android !== undefined) {
+    fail({ code: "invalid-arguments", message: "--ios-sim and --android cannot be combined", hint: "run `takeone --help`" });
+  }
+  if (flags.iosSim && (flags.fps !== undefined || flags.bitrateKbps !== undefined || flags.touchOffsetMs !== undefined)) {
+    fail({ code: "invalid-arguments", message: "--fps, --bitrate and --touch-offset-ms are not iOS Simulator options", hint: "run `takeone --help`" });
   }
   return flags;
 }
@@ -265,6 +280,10 @@ async function record(args: string[]): Promise<void> {
     await recordAndroid(flags);
     return;
   }
+  if (flags.iosSim) {
+    await recordIosSim(flags);
+    return;
+  }
   const { runRecord } = await import("./record.js");
   try {
     const result = await runRecord({
@@ -310,6 +329,33 @@ async function recordAndroid(flags: Flags): Promise<void> {
         result.takeDir,
         result.frames,
         result.events,
+        takeJson.offset_ms,
+        takeJson.scale,
+      ],
+    ]));
+  } catch (error) {
+    const rec = error as { code?: unknown; message?: unknown; hint?: unknown };
+    if (typeof rec.code === "string" && typeof rec.message === "string" && typeof rec.hint === "string") {
+      fail({ code: rec.code, message: rec.message, hint: rec.hint });
+    }
+    internal(error);
+  }
+}
+
+async function recordIosSim(flags: Flags): Promise<void> {
+  const { runIosSimRecord } = await import("./ios/record.js");
+  const { toonTable } = await import("./toon.js");
+  try {
+    const result = await runIosSimRecord({
+      ...(flags.root === undefined ? {} : { takesRoot: flags.root }),
+      ...(flags.state === undefined ? {} : { stateDirPath: flags.state }),
+    });
+    const { takeJson } = result;
+    console.log(toonTable("record", ["id", "take_path", "frames", "offset_ms", "scale"], [
+      [
+        takeJson.id,
+        result.takeDir,
+        result.frames,
         takeJson.offset_ms,
         takeJson.scale,
       ],
@@ -374,6 +420,7 @@ USAGE:
   takeone                 list takes
   takeone record [--fps 30] [--bitrate 40000]   record the desktop (asks screen-share consent)
   takeone record --android <serial> [--touch-offset-ms 0]   record a phone or emulator into a take
+  takeone record --ios-sim   record the booted iOS Simulator into a take (macOS only)
   takeone stop            stop the active recording
   takeone doctor          check what the recorder needs on this machine`);
     return 0;
