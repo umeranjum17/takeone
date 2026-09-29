@@ -186,8 +186,15 @@ function isDeadzone(state: CameraState, target: CameraState, width: number, d: C
  */
 function applyDwellAndShotLength(shots: Shot[], d: CameraDefaults): Shot[] {
   const accepted: Shot[] = [];
+  const wholeStage = (shot: Shot): boolean => shot.decision.L === 0
+    || (shot.zoneA.type === "all" && (shot.zoneB === shot.zoneA || shot.zoneB.type === "all"));
+  // A whole-stage shot while the camera already shows the whole stage (the
+  // opening establish, or an earlier wide shot) is a no-op; accepting it would
+  // let the minimum shot length drop the next real shot right behind it.
+  let wide = true;
   for (const shot of shots) {
     if (shot.beat.kind === "scroll" || shot.beat.kind === "idle") continue;
+    if (wide && wholeStage(shot)) continue;
     const previous = accepted.at(-1);
     if (previous) {
       const dwell = shot.decision.K === 2 ? d.dwell_k2 : d.dwell;
@@ -201,6 +208,7 @@ function applyDwellAndShotLength(shots: Shot[], d: CameraDefaults): Shot[] {
       if (shot.arrival - previous.arrival < d.min_shot) continue;
     }
     accepted.push(shot);
+    wide = wholeStage(shot);
   }
   return accepted;
 }

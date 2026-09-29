@@ -584,3 +584,11 @@ test("the move cap never drops the breathe out of a long closing idle", () => {
   assert.ok(at(result, 5.6).w < 3000);
   assert.ok(at(result, 12).w > 3700, `still close at the end: w=${at(result, 12).w}`);
 });
+
+test("a whole-stage shot during the establish hold does not crowd out the shot behind it", () => {
+  const click = beat("click", 0.6, 3300);
+  const typing = beat("typing", 1.7, 1500, "type");
+  const frames = solveCamera([click, typing], [{ ...decision(click), L: 0 }, decision(typing)],
+    { width: 3840, height: 2160, trim_start: 0, trim_end: 6 });
+  assert.ok(at(frames, 3.5).w < 3000, `typing never framed: w=${at(frames, 3.5).w}`); // before the outro
+});
