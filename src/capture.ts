@@ -249,7 +249,7 @@ async function runCaptureMake(argv: string[]): Promise<number> {
                 planned_tokens: r.planned.planned_tokens,
                 input_tokens: 0,
                 usd: r.planned.usd,
-                failed: r.jev.failed,
+                failed: r.jev.failed > 0,
               },
               warnings,
             }
@@ -261,7 +261,7 @@ async function runCaptureMake(argv: string[]): Promise<number> {
                 planned_tokens: r.planned.planned_tokens,
                 input_tokens: r.jev.input_tokens,
                 usd: r.jev.usd,
-                failed: r.jev.failed,
+                failed: r.jev.failed > 0,
               },
               warnings,
             },
@@ -270,18 +270,14 @@ async function runCaptureMake(argv: string[]): Promise<number> {
     return 0;
   } catch (e) {
     if (e instanceof PreflightRefusal) {
-      const error: CaptureError = {
+      // 6.7: extra fields sit inside `error` so the kit's parser finds them.
+      const error: CaptureError & { planned?: number; cap?: number } = {
         code: "preflight-refused",
         message: e.message,
         hint: "raise --max-tokens or pass --no-planner",
+        ...(e.plannedTokens === undefined ? {} : { planned: e.plannedTokens, cap: e.cap }),
       };
-      writeSync(
-        1,
-        JSON.stringify({
-          error,
-          ...(e.plannedTokens === undefined ? {} : { planned: e.plannedTokens, cap: e.cap }),
-        }) + "\n",
-      );
+      writeSync(1, JSON.stringify({ error }) + "\n");
       process.exit(1);
     }
     if (e instanceof TakeInputError) {
@@ -308,6 +304,7 @@ export async function runCapture(argv: string[]): Promise<number> {
         recorder: { name: "takeone", version: recorderVersion() },
         sources: ["screen", "x11"],
         android: false,
+        events: ["own", "none"],
         // presence only; the key itself is never printed
         planner: { available: loadApiKey() !== null, needsKey: true },
       }),

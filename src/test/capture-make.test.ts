@@ -101,7 +101,7 @@ test("capture make --no-planner renders and prints one JSON object", { skip: nee
     assert.equal(out.out, join(dir, "out", "t1.mp4"));
     assert.ok(out.seconds > 0);
     assert.ok(out.beats > 0);
-    assert.deepEqual(out.planner, { planned_tokens: 0, input_tokens: 0, usd: 0, failed: 0 });
+    assert.deepEqual(out.planner, { planned_tokens: 0, input_tokens: 0, usd: 0, failed: false });
     assert.ok(Array.isArray(out.warnings));
     assert.ok(existsSync(join(dir, "out", "t1.mp4")));
   } finally {
@@ -146,7 +146,7 @@ test("capture make never reads the planner key from the environment", { skip: ne
     });
     assert.equal(r.status, 0, r.stderr);
     assert.deepEqual(JSON.parse(r.stdout).planner,
-      { planned_tokens: 0, input_tokens: 0, usd: 0, failed: 0 });
+      { planned_tokens: 0, input_tokens: 0, usd: 0, failed: false });
   } finally {
     rmSync(dir, { recursive: true, force: true });
     cleanup();
@@ -189,7 +189,7 @@ test("capture make refusal carries planned and cap with exit 1", { skip: needsFf
     assert.equal(r.status, 1, r.stderr);
     const out = JSON.parse(r.stdout);
     assert.equal(out.error.code, "preflight-refused");
-    assert.ok(out.planned > 0 && out.cap === 1);
+    assert.ok(out.error.planned > 0 && out.error.cap === 1);
   } finally {
     rmSync(dir, { recursive: true, force: true });
     cleanup();

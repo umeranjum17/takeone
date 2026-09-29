@@ -41,6 +41,7 @@ test("capture hello prints the protocol v1 shape and exits 0", async () => {
       recorder: { name: "takeone", version: repoVersion() },
       sources: ["screen", "x11"],
       android: false,
+      events: ["own", "none"],
       planner: { available: true, needsKey: true },
     });
   } finally {

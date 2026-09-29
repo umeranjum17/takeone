@@ -1,0 +1,115 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "recorder protocol v1",
+  "description": "Open recorder protocol v1 (docs/capability-kits.md section 6): every stdout line a recorder prints for capture hello, record, stop and make, plus the error envelope. Uses only type, required, properties, enum, pattern, items, oneOf and const so the in-test validator in test/schema.test.ts covers the whole file.",
+  "oneOf": [
+    {
+      "description": "capture hello (6.3)",
+      "type": "object",
+      "required": ["protocol", "recorder", "sources", "android", "events", "planner"],
+      "properties": {
+        "protocol": { "type": "integer" },
+        "recorder": {
+          "type": "object",
+          "required": ["name", "version"],
+          "properties": {
+            "name": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$" },
+            "version": { "type": "string", "pattern": "^.{1,64}$" }
+          }
+        },
+        "sources": {
+          "type": "array",
+          "items": { "type": "string", "enum": ["screen", "x11", "android"] }
+        },
+        "android": { "type": "boolean" },
+        "events": {
+          "type": "array",
+          "items": { "type": "string", "enum": ["own", "none"] }
+        },
+        "planner": {
+          "type": "object",
+          "required": ["available", "needsKey"],
+          "properties": {
+            "available": { "type": "boolean" },
+            "needsKey": { "type": "boolean" }
+          }
+        }
+      }
+    },
+    {
+      "description": "record consent-pending event (6.4)",
+      "type": "object",
+      "required": ["event"],
+      "properties": {
+        "event": { "const": "consent-pending" }
+      }
+    },
+    {
+      "description": "record recording event (6.4)",
+      "type": "object",
+      "required": ["event", "take"],
+      "properties": {
+        "event": { "const": "recording" },
+        "take": { "type": "string", "pattern": "^/.+" }
+      }
+    },
+    {
+      "description": "record done event (6.4)",
+      "type": "object",
+      "required": ["event", "take", "seconds", "warnings"],
+      "properties": {
+        "event": { "const": "done" },
+        "take": { "type": "string", "pattern": "^/.+" },
+        "seconds": { "type": "number" },
+        "warnings": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    {
+      "description": "stop stopping answer (6.5)",
+      "type": "object",
+      "required": ["stopping"],
+      "properties": {
+        "stopping": { "type": "boolean", "const": true }
+      }
+    },
+    {
+      "description": "make answer (6.6)",
+      "type": "object",
+      "required": ["out", "seconds", "beats", "planner", "warnings"],
+      "properties": {
+        "out": {
+          "oneOf": [{ "const": null }, { "type": "string", "pattern": "^/.+" }]
+        },
+        "seconds": { "type": "number" },
+        "beats": { "type": "integer" },
+        "planner": {
+          "type": "object",
+          "required": ["planned_tokens", "input_tokens", "usd", "failed"],
+          "properties": {
+            "planned_tokens": { "type": "integer" },
+            "input_tokens": { "type": "integer" },
+            "usd": { "type": "number" },
+            "failed": { "type": "boolean" }
+          }
+        },
+        "warnings": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    {
+      "description": "error envelope (6.7)",
+      "type": "object",
+      "required": ["error"],
+      "properties": {
+        "error": {
+          "type": "object",
+          "required": ["code", "message"],
+          "properties": {
+            "code": { "type": "string" },
+            "message": { "type": "string" },
+            "hint": { "type": "string" }
+          }
+        }
+      }
+    }
+  ]
+}
