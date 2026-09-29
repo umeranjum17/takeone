@@ -190,7 +190,12 @@ function baseDraws(): Draw[] {
   // scene B: search + header live in a sticky top layer (rows scroll under it)
   // (search box drawn in chromeBDraws; placeholder + typed text in searchDraws)
 
-  // slider: static stepped frames in the base (handle advances 150 ms per step)
+  return d;
+}
+
+/** Slider fill and handle, stepped every 150 ms; drawn above the detail card. */
+function sliderDraws(): Draw[] {
+  const d: Draw[] = [];
   const steps = 20;
   const drawHandle = (hx: number, enable: string) => {
     d.push(box(160, 816, hx - 160, 8, "0x1a73e8", enable));
@@ -303,9 +308,36 @@ function toastLayerDraws(): Draw[] {
   ];
 }
 
-/** 24x24 transparent cursor sprite. */
-function cursorDraws(): Draw[] {
-  return [box(0, 0, 22, 22, "0x202124"), box(6, 6, 10, 10, "0xffffff")];
+/**
+ * 24x32 arrow cursor with its hotspot at (2, 2), drawn with libass: a colour pass
+ * (white arrow, dark outline) and a white mask pass give the PNG real alpha.
+ */
+function renderCursor(out: string): void {
+  const ass = (fill: string, edge: string) => `[Script Info]
+ScriptType: v4.00+
+PlayResX: 24
+PlayResY: 32
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Default,Sans,20,${fill},${fill},${edge},&H00000000,0,0,0,0,100,100,0,0,1,1.3,0,7,0,0,0,1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+Dialogue: 0,0:00:00.00,0:00:01.00,Default,,0,0,0,,{\\an7\\pos(0,0)\\p1}m 2 2 l 2 23 l 7 18.5 l 10.5 26.5 l 14 25 l 10.5 17.5 l 17 17.5
+`;
+  const colour = join(tmpdir(), `synth-cursor-${process.pid}-c.ass`);
+  const mask = join(tmpdir(), `synth-cursor-${process.pid}-m.ass`);
+  writeFileSync(colour, ass("&H00FFFFFF", "&H00241F1C"));
+  writeFileSync(mask, ass("&H00FFFFFF", "&H00FFFFFF"));
+  execFileSync("ffmpeg", [
+    "-y", "-v", "error",
+    "-f", "lavfi", "-i", "color=c=black:s=24x32",
+    "-filter_complex", `[0:v]split[a][b];[a]ass=${colour},format=rgb24[c];[b]ass=${mask},format=gray[m];[c][m]alphamerge[out]`,
+    "-map", "[out]", "-frames:v", "1", out,
+  ], { stdio: ["ignore", "ignore", "inherit"] });
+  rmSync(colour);
+  rmSync(mask);
 }
 
 /** Render a layer spec to a PNG with real alpha via one ffmpeg call.
@@ -366,6 +398,13 @@ writeFileSync(join(dir, "take.json"), JSON.stringify({
   pointer: "hyprland",
   scale: 1,
   offset_ms: 0,
+  title: "Find any report in seconds",
+  captions: [
+    { t: 8.4, text: "Search filters as you type" },
+    { t: 19.2, text: "Open a report for details" },
+    { t: 22.6, d: 3.6, text: "Drag to adjust retention" },
+    { t: 33.2, text: "Export in one click" },
+  ],
 }, null, 1) + "\n");
 writeFileSync(join(dir, "frames.tsv"), "0\t0\n");
 writeFileSync(join(dir, "events.jsonl"), buildEvents().join("\n") + "\n");
@@ -383,7 +422,7 @@ renderLayer(rowLayerDraws(true), rowsDim);
 renderLayer(chromeBDraws(), chromeB);
 renderLayer(cardLayerDraws(), card);
 renderLayer(toastLayerDraws(), toast);
-renderLayer(cursorDraws(), cursor, "24x24");
+renderCursor(cursor);
 
 const scrollY = `-${SCROLL.max}*clip((t-${SCROLL.t0})/${SCROLL.t1 - SCROLL.t0},0,1)`;
 // inputs: 0 bg color, 1 rows_bright, 2 rows_dim, 3 chromeB, 4 card, 5 toast, 6 cursor
@@ -395,9 +434,9 @@ const filterComplex = [
   `[a][3:v]overlay=0:'${scrollY}':format=auto:enable='between(t,${FILTER_T},${DUR})'[b]`,
   `[b][4:v]overlay=0:0:format=auto:enable='between(t,${SCENE_B},${DUR})'[c]`,
   `[c][stext]overlay=0:0:format=auto:enable='between(t,${SCENE_B},${DUR})'[s]`,
-  `[s][5:v]overlay=0:0:format=auto:enable='between(t,${DETAIL_T},${DUR})'[d]`,
+  `[s][5:v]overlay=0:0:format=auto:enable='between(t,${DETAIL_T},${DUR})',${sliderDraws().map((d) => ser(d, false)).join(",")}[d]`,
   `[d][6:v]overlay=0:0:format=auto:enable='between(t,${TOAST_T},${DUR})'[e]`,
-  `[e][7:v]overlay='${pathExpr(1)}-11':'${pathExpr(2)}-11':format=auto[vout]`,
+  `[e][7:v]overlay='${pathExpr(1)}-2':'${pathExpr(2)}-2':format=auto[vout]`,
 ].join(";");
 
 console.log("encoding screen.webm ...");

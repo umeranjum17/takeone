@@ -36,14 +36,29 @@ export interface CameraDefaults {
   l2_pad: number;
   l3_pad: number;
   preset: string; // x264 encode preset; slower = smaller file, same pixels
+  establish_s: number; // hold the whole stage this long before the first shot arrives
+  outro_s: number; // return to the whole stage for the final seconds; 0 keeps the last shot
+  idle_speed: number; // play idle gaps this many times faster; 1 turns it off
+  idle_keep: number; // s of real-time footage kept on each side of every action
+  // Stage look: the screen sits as a rounded card on a gradient at rest.
+  background_to: string; // gradient end colour (background is the start)
+  stage_margin: number; // margin around the screen at rest, fraction of its width
+  corner_radius: number; // output px at rest
+  shadow: number; // drop-shadow opacity, 0 turns it off
+  accent: string; // click ripple colour
+  ripple_ms: number; // ripple duration, 0 turns click emphasis off
+  ripple_r: number; // final ripple radius, output px at rest
+  caption_font: string;
+  caption_size: number; // output px; the title is 1.4x this
+  fade_s: number; // fade in from and out to the background
 }
 
 export const DEFAULTS: CameraDefaults = {
   out_w: 1920,
   out_h: 1080,
-  background: "#202124",
+  background: "#2a2d38",
   fps: 30,
-  max_upscale: 1.25,
+  max_upscale: 1.5,
   deadzone_margin: 0.08,
   deadzone_zoom: 1.25,
   dwell: 0.6,
@@ -73,9 +88,25 @@ export const DEFAULTS: CameraDefaults = {
   l2_pad: 1.8,
   l3_pad: 1.35,
   preset: "slow",
+  establish_s: 1.6,
+  outro_s: 1.6,
+  idle_speed: 4,
+  idle_keep: 1,
+  background_to: "#101116",
+  stage_margin: 0.055,
+  corner_radius: 14,
+  shadow: 0.55,
+  accent: "#6d8cff",
+  ripple_ms: 550,
+  ripple_r: 34,
+  caption_font: "Inter SemiBold",
+  caption_size: 38,
+  fade_s: 0.4,
 };
 
-export type Overrides = Partial<Omit<CameraDefaults, "background">> & { background?: string };
+const COLOURS = ["background", "background_to", "accent"];
+
+export type Overrides = Partial<Record<keyof CameraDefaults, number | string>>;
 
 /** Apply `--set key=value` overrides onto a copy of DEFAULTS. */
 export function applyOverrides(overrides: Overrides): CameraDefaults {
@@ -89,18 +120,25 @@ export function applyOverrides(overrides: Overrides): CameraDefaults {
       out.preset = v;
       continue;
     }
-    if (key === "background" && typeof v === "string" && /^#[0-9a-f]{6}$/i.test(v)) {
+    if (COLOURS.includes(k) && typeof v === "string" && /^#[0-9a-f]{6}$/i.test(v)) {
       (out as unknown as Record<string, unknown>)[key] = v;
       continue;
     }
-    const positive = ["out_w", "out_h", "fps", "max_upscale", "rate_window", "rate_max", "move_t_min", "move_t_max", "hop_zoom", "hop_zoom_div", "hop_t_scale", "follow_omega", "lowpass_omega", "l1_pad", "l2_pad", "l3_pad"];
+    // Font names reach an ASS style line, so keep them to plain words.
+    if (k === "caption_font" && typeof v === "string" && /^[A-Za-z0-9 ]{1,64}$/.test(v)) {
+      out.caption_font = v;
+      continue;
+    }
+    const positive = ["out_w", "out_h", "fps", "max_upscale", "rate_window", "rate_max", "move_t_min", "move_t_max", "hop_zoom", "hop_zoom_div", "hop_t_scale", "follow_omega", "lowpass_omega", "l1_pad", "l2_pad", "l3_pad", "caption_size"];
     const integers = ["out_w", "out_h", "fps", "rate_max"];
     if (!(key in out) || typeof v !== "number" || !Number.isFinite(v)
       || (positive.includes(k) ? v <= 0 : v < 0)
       || (integers.includes(k) && !Number.isInteger(v))
       || (["out_w", "out_h"].includes(k) && v % 2 !== 0)
-      || (["max_upscale", "deadzone_zoom", "l1_pad", "l2_pad", "l3_pad"].includes(k) && v < 1)
+      || (["max_upscale", "deadzone_zoom", "l1_pad", "l2_pad", "l3_pad", "idle_speed"].includes(k) && v < 1)
       || (k === "deadzone_margin" && v >= 0.5)
+      || (k === "stage_margin" && v > 0.25)
+      || (k === "shadow" && v > 1)
       || (k === "follow_inner" && (v === 0 || v > 1))
       || (k === "cut_max" && v > 1)) {
       throw new Error(`unknown or invalid --set ${k}=${v}`);

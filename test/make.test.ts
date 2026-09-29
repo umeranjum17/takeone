@@ -98,7 +98,11 @@ test("make --no-jev renders the agreed beat/decision files into a tiny test MP4"
     const output = join(dir, "out", "t1.mp4");
     assert.ok(existsSync(output));
     const probe = JSON.parse(execFileSync("ffprobe", ["-v", "error", "-select_streams", "v:0", "-count_frames", "-show_entries", "stream=width,height,nb_read_frames", "-of", "json", output], { encoding: "utf8" }));
-    assert.deepEqual([probe.streams[0].width, probe.streams[0].height, Number(probe.streams[0].nb_read_frames)], [320, 180, 300]);
+    assert.deepEqual([probe.streams[0].width, probe.streams[0].height], [320, 180]);
+    // Idle squeezing shortens the 10 s take; the video still matches the solved camera path.
+    const cameraFrames = JSON.parse(readFileSync(join(dir, "camera.json"), "utf8")).length;
+    const frames = Number(probe.streams[0].nb_read_frames);
+    assert.ok(frames < 300 && Math.abs(frames - cameraFrames) <= 1, `${frames} frames vs ${cameraFrames} camera samples`);
     const beats = JSON.parse(readFileSync(join(dir, "analysis", "beats.json"), "utf8"));
     const decisions = readFileSync(join(dir, "analysis", "decisions.jsonl"), "utf8").trim().split("\n").map((line) => JSON.parse(line));
     assert.ok(Array.isArray(beats));

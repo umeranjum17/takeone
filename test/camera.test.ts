@@ -48,13 +48,16 @@ function decision(b: Beat, importance: 0 | 1 | 2 = 1): Decision {
   };
 }
 
+const noBookends = { ...DEFAULTS, establish_s: 0, outro_s: 0 };
+
+// Mechanics tests opt out of the opening hold and closing wide shot.
 function camera(beats: Beat[], decisions: Decision[], end = 8) {
   return solveCamera(beats, decisions, {
     width: 3840,
     height: 2160,
     trim_start: 0,
     trim_end: end,
-  });
+  }, noBookends);
 }
 
 function at(frames: ReturnType<typeof camera>, seconds: number) {
@@ -62,10 +65,10 @@ function at(frames: ReturnType<typeof camera>, seconds: number) {
 }
 
 test("framing expands to 16:9 and respects source and upscale clamps", () => {
-  assert.equal(zMax(3840), 2.5);
+  assert.equal(zMax(3840), 3);
   for (let level = 0; level <= 3; level++) {
     const result = frame(zone("edge", [3600, 1900, 100, 100]), level, 3840, 2160);
-    assert.ok(result.z >= 1 && result.z <= 2.5);
+    assert.ok(result.z >= 1 && result.z <= 3);
     assert.ok(result.cx >= 0 && result.cx <= 3840);
     assert.ok(result.cy >= 0 && result.cy <= 2160);
   }
@@ -85,10 +88,10 @@ test("whole-screen non-16:9 frames cover the full source while 16:9 framing is u
   const zoomBeat = beat("wide-zoom", 2, 2500);
   const zoomed = solveCamera([zoomBeat], [decision(zoomBeat)], {
     width: 3840, height: 2160, trim_start: 0, trim_end: 4,
-  });
+  }, noBookends);
   assert.deepEqual(zoomed[60]!, {
-    t: 2, x: 1318.7876879530677, y: 412.2611934930576,
-    w: 2091.19186034831, h: 1176.2954214459244,
+    t: 2, x: 1917.6833193611185, y: 593.4389427400281,
+    w: 1313.3037888436606, h: 738.7333812245591,
   });
 });
 
@@ -358,8 +361,21 @@ test("FOLLOW ignores a drag whose shot arrives after trim", () => {
   active.t1 = 11;
   active.actions = [{ k: "ptr", t: 10200, x: 3840, y: 1080 }];
   const withoutPointer = { ...active, actions: [] };
-  assert.notDeepEqual(solveCamera([active], [decision(active)], take),
-    solveCamera([withoutPointer], [decision(withoutPointer)], take));
+  assert.notDeepEqual(solveCamera([active], [decision(active)], take, noBookends),
+    solveCamera([withoutPointer], [decision(withoutPointer)], take, noBookends));
+});
+
+test("the first shot waits for the establishing hold and the take ends wide", () => {
+  const early = { ...beat("early", 0.3, 2600), t0: 0 };
+  const result = solveCamera([early], [decision(early)],
+    { width: 3840, height: 2160, trim_start: 0, trim_end: 8 });
+  // Still wide until the move toward the establish-delayed arrival starts.
+  assert.deepEqual(result[10], { t: 10 / 30, x: 0, y: 0, w: 3840, h: 2160 });
+  assert.ok(result[Math.round(DEFAULTS.establish_s * 30) + 3]!.w < 3000);
+  assert.ok(result.at(-1)!.w > 3839);
+  const kept = solveCamera([early], [decision(early)],
+    { width: 3840, height: 2160, trim_start: 0, trim_end: 8 }, noBookends);
+  assert.ok(kept[10]!.w < 3840 && kept.at(-1)!.w < 3000);
 });
 
 test("frame samples have smooth log zoom and fixed aspect", () => {
