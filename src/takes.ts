@@ -85,13 +85,8 @@ export async function listTakes(
           ? "complete"
           : "incomplete";
     const clock = takeJson?.clock as { frames?: unknown } | undefined;
-    const durationMs =
-      typeof takeJson?.started_at === "string" && typeof takeJson?.stopped_at === "string"
-        ? Math.round(
-            new Date(takeJson.stopped_at as string).getTime() -
-              new Date(takeJson.started_at as string).getTime(),
-          )
-        : null;
+    const trim = takeJson?.trim as { end?: unknown } | null | undefined;
+    const durationMs = typeof trim?.end === "number" && trim.end >= 0 ? trim.end : null;
     entries.push({
       id,
       path: dir,

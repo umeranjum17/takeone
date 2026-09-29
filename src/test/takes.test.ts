@@ -14,7 +14,8 @@ async function tempRoot(): Promise<string> {
 const TAKE_JSON = JSON.stringify({
   id: "20260101-000001",
   started_at: "2026-01-01T00:00:00.000Z",
-  stopped_at: "2026-01-01T00:01:00.000Z",
+  stopped_at: "2025-12-31T23:59:59.000Z",
+  trim: { start: 0, end: 60_000 },
   pointer: "mapped",
   clock: { offset_ms: 40, median_ms: 0, spread_ms: 2, frames: 1800 },
 });
