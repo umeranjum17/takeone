@@ -79,7 +79,9 @@ Add a `title` and timed `captions` to `take.json` and they render as rounded pil
 2. **Make.** `takeone make` segments the take into beats (at most 30 per minute), finds the regions that changed, and decides each beat's shot. Jev decides the beats that need judgement, from zone descriptions and an optional `--about` topic; idle and cut beats are decided locally. A token preflight refuses the whole run before any call if the plan would exceed its cap, and `--no-jev` keeps every decision local.
 3. **Render.** The camera path is solved on the output clock, eased through a spring and rendered with ffmpeg and libass into a silent 1920×1080 H.264 MP4: stage, click rings, idle speed-up, titles and captions. Rerendering with new `--set` values never calls the planner.
 
-## Install
+## Download / Install
+
+No packaged release exists yet — there is nothing to download. Watch the [releases page](https://github.com/umeranjum17/takeone/releases) (latest: https://github.com/umeranjum17/takeone/releases/latest) for future packaged builds. Until then, install from source:
 
 Requires Node.js 22+ and `ffmpeg` on PATH. Optional: `tesseract` for `--screen-text` OCR. Recording additionally needs Linux on Wayland with Hyprland (see [Recording](#recording-linuxwaylandhyprland)); planning and rendering an existing take do not.
 
