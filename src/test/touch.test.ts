@@ -32,6 +32,7 @@ function mtMove(dev: string, ms: number, x: number, y: number, slot = 0): string
 
 function mtUp(dev: string, ms: number, slot = 0): string[] {
   return [
+    ev(dev, ms, "EV_ABS", "ABS_MT_SLOT", hex(slot)),
     ev(dev, ms, "EV_ABS", "ABS_MT_TRACKING_ID", "ffffffff"),
     ev(dev, ms, "EV_SYN", "SYN_REPORT", hex(0)),
   ];
@@ -99,4 +100,42 @@ test("getevent tap, long press and swipe become click, from==to drag and scroll"
   const ptr = wild.find((e) => e.k === "ptr");
   assert.ok(ptr && ptr.k === "ptr");
   if (ptr.k === "ptr") assert.deepEqual([ptr.x, ptr.y], [1079, 2399]);
+});
+
+test("two-finger pinch reduces to one well-formed primary-finger gesture", () => {
+  const dev = "/dev/input/event6";
+  const opts = { axisMaxX: 23040, axisMaxY: 50688, W: 1080, H: 2400, flingTailMs: 300 };
+  const pinch = [
+    ...mtDown(dev, 0, 9000, 20000, 0, 1),
+    ...mtDown(dev, 50, 14000, 20000, 1, 2),
+    ...mtMove(dev, 100, 9000, 22000, 0),
+    ...mtMove(dev, 150, 14000, 18000, 1),
+    ...mtMove(dev, 200, 9000, 24000, 0),
+    ...mtMove(dev, 250, 14000, 16000, 1),
+    ...mtMove(dev, 300, 9000, 26000, 0),
+    ...mtUp(dev, 350, 1),
+    ...mtMove(dev, 375, 9000, 26000, 0),
+    ...mtUp(dev, 400, 0),
+  ];
+  const primaryOnly = [
+    ...mtDown(dev, 0, 9000, 20000, 0, 1),
+    ...mtMove(dev, 100, 9000, 22000, 0),
+    ...mtMove(dev, 200, 9000, 24000, 0),
+    ...mtMove(dev, 300, 9000, 26000, 0),
+    ...mtMove(dev, 375, 9000, 26000, 0),
+    ...mtUp(dev, 400, 0),
+  ];
+  const pinchEvents = touchEvents(pinch, opts);
+  const want = touchEvents(primaryOnly, opts);
+  assert.deepEqual(pinchEvents, want);
+  const wheels = pinchEvents.filter((e) => e.k === "wheel").length;
+  assert.equal(wheels, want.filter((e) => e.k === "wheel").length);
+  const downs = pinchEvents.filter((e) => e.k === "btn" && e.down).length;
+  const ups = pinchEvents.filter((e) => e.k === "btn" && !e.down).length;
+  assert.equal(downs, ups);
+  const actions = actionsFromEvents(pinchEvents, [], {
+    stream: { w: opts.W, h: opts.H },
+    pointer: "mapped",
+  });
+  assert.deepEqual(actions.map((a) => a.k), ["scroll"]);
 });

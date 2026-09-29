@@ -147,8 +147,10 @@ function pushStroke(out: Event[], s: Stroke, o: TouchOpts): void {
 /**
  * Parse `getevent -lt` lines into take events. Merges every device stream in
  * the log (phone touchpanel via INPUT_PROP_DIRECT, or all emulator
- * virtio MT devices); per-device slot state keeps concurrent fingers apart.
- * Times are ms relative to the first line; output is sorted by t.
+ * virtio MT devices); concurrent fingers are reduced to the primary finger
+ * in v1 (the first active slot of a gesture, ignoring secondary slots until
+ * all fingers lift) so output is always a well-formed single-pointer
+ * sequence. Times are ms relative to the first line; output is sorted by t.
  */
 export function touchEvents(lines: string[] | string, o: TouchOpts): Event[] {
   const arr = typeof lines === "string" ? lines.split("\n") : lines;
@@ -246,7 +248,14 @@ export function touchEvents(lines: string[] | string, o: TouchOpts): Event[] {
     }
   }
   const out: Event[] = [];
-  for (const s of done) pushStroke(out, s, o);
+  done.sort((a, b) => a.t0 - b.t0 || a.t1 - b.t1);
+  let busyEnd = -Infinity;
+  for (const s of done) {
+    if (s.t0 > busyEnd) {
+      pushStroke(out, s, o);
+      busyEnd = s.t1;
+    } else busyEnd = Math.max(busyEnd, s.t1);
+  }
   out.sort((a, b) => a.t - b.t);
   return out;
 }
