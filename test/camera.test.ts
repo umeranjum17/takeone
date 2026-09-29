@@ -428,9 +428,15 @@ test("synthetic 4K source renders silent H.264 at 1920x1080 and 30fps", {
   const dir = await mkdtemp(join(process.cwd(), "takeone:render-"));
   try {
     await mkdir(join(dir, "analysis"));
+    // mpeg4, not VP9: a software 4K VP9 encode blocked a CI runner for 25+ min
+    // inside execFileSync (event loop blocked, so the test timeout could not
+    // fire). The input codec is incidental here - only the rendered MP4 is
+    // asserted - and mpeg4 encodes 4K in under a second. Matroska muxer because
+    // stock webm allows only VP8/VP9/AV1; the pipeline probes content, so the
+    // .webm name is cosmetic.
     execFileSync("ffmpeg", [
       "-v", "error", "-f", "lavfi", "-i", "color=c=blue:s=3840x2160:r=30:d=2",
-      "-c:v", "libvpx-vp9", "-deadline", "realtime", "-cpu-used", "8",
+      "-c:v", "mpeg4", "-q:v", "2", "-f", "matroska",
       "-y", join(dir, "screen.webm"),
     ]);
     await writeFile(join(dir, "take.json"), JSON.stringify({
