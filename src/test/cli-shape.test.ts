@@ -74,25 +74,32 @@ test("toonTable renders empty tables as a bare header", () => {
 
 test("computeTrim keeps the final action and trims only before the first input", () => {
   const duration = 30_000;
-  const trim = computeTrim({ firstInputMs: 2000 }, duration);
+  const trim = computeTrim({ inputMs: [2000] }, duration);
   assert.equal(trim.start, 1500);
   assert.equal(trim.end, duration);
 });
 
 test("computeTrim: an early first input keeps the whole start", () => {
-  const trim = computeTrim({ firstInputMs: 400 }, 10_000);
+  const trim = computeTrim({ inputMs: [400] }, 10_000);
   assert.equal(trim.start, 0);
   assert.equal(trim.end, 10_000);
 });
 
 test("computeTrim leaves the end intact", () => {
   const duration = 30_000;
-  const trim = computeTrim({ firstInputMs: 3000 }, duration);
+  const trim = computeTrim({ inputMs: [3000] }, duration);
   assert.equal(trim.start, 2500);
   assert.equal(trim.end, duration);
 });
 
 test("computeTrim: no input at all leaves the take untrimmed", () => {
-  const trim = computeTrim({ firstInputMs: null }, 8_000);
+  const trim = computeTrim({ inputMs: [] }, 8_000);
   assert.deepEqual(trim, { start: 0, end: 8000 });
+});
+
+test("computeTrim anchors on the first input more than 1 s after the first frame", () => {
+  // Share click in the consent dialog at 3 s, first frame at 4 s, then the
+  // terminal is left at 4.6 s (too early) and the demo starts at 9 s.
+  const trim = computeTrim({ inputMs: [3000, 4600, 9000, 9100] }, 60_000, 4000);
+  assert.deepEqual(trim, { start: 8500, end: 60_000 });
 });

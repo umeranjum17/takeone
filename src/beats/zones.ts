@@ -33,7 +33,7 @@ export function zonesForBeat(
   const act = actZone(beat, o, screen);
   if (act) cands.push({ kind: "act", ...act });
 
-  const txt = txtZone(beat);
+  const txt = txtZone(beat, o.scale);
   if (txt) cands.push({ kind: "txt", bbox: txt.bbox, t: txt.t });
 
   const path = pathZone(beat);
@@ -141,11 +141,27 @@ function actPointOf(a: Action): [number, number] | null {
   return null;
 }
 
-function txtZone(beat: Beat): { bbox: BBox; t: number } | null {
+/**
+ * Everywhere the beat typed, with the clicks that moved between fields, and any
+ * result opening within a control's height of them (the dropdown a field
+ * opens): one beat filling a form frames the form, not the first field's caret.
+ */
+function txtZone(beat: Beat, scale: number): { bbox: BBox; t: number } | null {
+  let zone: { bbox: BBox; t: number } | null = null;
   for (const a of beat.actions) {
-    if (a.k === "type" && a.region) return { bbox: a.region, t: a.t0 };
+    if (a.k === "type" && a.region) zone = zone ? { bbox: unionBBox(zone.bbox, a.region), t: zone.t } : { bbox: a.region, t: a.t0 };
   }
-  return null;
+  if (!zone) return null;
+  for (const a of beat.actions) {
+    if (a.k === "click") zone.bbox = unionBBox(zone.bbox, [a.x, a.y, 1, 1]);
+  }
+  const reach = 2 * ACT_PAD_LOGICAL[1] * scale;
+  const [zx, zy, zw, zh] = zone.bbox;
+  const near: BBox = [zx - reach, zy - reach, zw + 2 * reach, zh + 2 * reach];
+  for (const r of beat.results ?? []) {
+    if (r.area_frac <= PANEL_MAX_AREA && bboxIoU(r.bbox, near) > 0) zone.bbox = unionBBox(zone.bbox, r.bbox);
+  }
+  return zone;
 }
 
 function pathZone(beat: Beat): { bbox: BBox } | null {
@@ -227,10 +243,18 @@ function describeZone(
   return { shows, size, where, activity };
 }
 
+/**
+ * The action the act zone is built around (actZone): a beat that opens with
+ * pointer travel and then rests is described as pointing, not clicking.
+ */
+function actAnchor(beat: Beat): Action | undefined {
+  return beat.actions.find((a) => a.k === "click" || a.k === "dwell" || a.k === "drag" || a.k === "shortcut");
+}
+
 function showsWords(kind: ZoneKind, beat: Beat, stream: { w: number; h: number }): string {
   switch (kind) {
     case "act": {
-      const a = beat.actions[0];
+      const a = actAnchor(beat);
       if (a?.k === "drag") return "the control the user dragged";
       if (a?.k === "dwell") return "the control the user pointed at";
       if (a?.k === "shortcut") return "the area affected by the shortcut";
@@ -255,7 +279,7 @@ function showsWords(kind: ZoneKind, beat: Beat, stream: { w: number; h: number }
 function activityWords(kind: ZoneKind, beat: Beat, t: number | undefined): string {
   switch (kind) {
     case "act": {
-      const a = beat.actions[0];
+      const a = actAnchor(beat);
       if (a?.k === "drag") return "dragged at the start of the beat";
       if (a?.k === "dwell") return "the pointer rested here";
       if (a?.k === "shortcut") return "the shortcut was pressed at the start of the beat";

@@ -1,0 +1,181 @@
+<!doctype html>
+<!--
+  Staged scene for the takeone end-to-end take: a fictional project board with
+  public dummy content. Geometry is fixed for a 2560x1440 CSS-px viewport so
+  scripts/e2e/drive.py can address controls by coordinate; keep the two in sync.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Tidewater board</title>
+<style>
+  :root {
+    --bg: #f4f2ee; --panel: #ffffff; --ink: #1d1f23; --muted: #6b6f76; --line: #e3e0da;
+    --accent: #0f766e; --accent-ink: #ffffff; --warn: #b45309; --hi: #fde68a;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; width: 2560px; height: 1440px; overflow: hidden; background: var(--bg); color: var(--ink);
+    font: 400 20px/1.45 "Adwaita Sans", "Noto Sans", sans-serif; -webkit-font-smoothing: antialiased; user-select: none; }
+  .abs { position: absolute; }
+  header { left: 0; top: 0; width: 2560px; height: 88px; background: var(--panel); border-bottom: 1px solid var(--line); }
+  .logo { left: 40px; top: 24px; font-weight: 700; font-size: 28px; letter-spacing: -0.02em; }
+  .logo b { color: var(--accent); }
+  .search { left: 980px; top: 20px; width: 600px; height: 48px; border: 1px solid var(--line); border-radius: 12px; padding: 10px 18px; color: var(--muted); }
+  .btn { border-radius: 12px; font-weight: 600; display: flex; align-items: center; justify-content: center; }
+  .primary { background: var(--accent); color: var(--accent-ink); }
+  .ghost { border: 1px solid var(--line); background: var(--panel); }
+  #newTask { left: 2200px; top: 20px; width: 200px; height: 48px; }
+  #more { left: 2430px; top: 20px; width: 90px; height: 48px; font-size: 28px; line-height: 1; }
+  nav { left: 0; top: 88px; width: 280px; height: 1352px; background: var(--panel); border-right: 1px solid var(--line); padding: 32px 20px; }
+  nav div { padding: 12px 18px; border-radius: 10px; color: var(--muted); margin-bottom: 6px; }
+  nav div.on { background: #e6f2f0; color: var(--accent); font-weight: 600; }
+  .col { top: 128px; width: 520px; height: 1272px; }
+  .col h2 { margin: 0 0 20px 4px; font-size: 22px; font-weight: 650; display: flex; gap: 12px; align-items: baseline; }
+  .col h2 span { color: var(--muted); font-weight: 400; font-size: 18px; }
+  .lane { position: absolute; top: 56px; left: 0; width: 520px; height: 1216px; border-radius: 16px; padding: 16px; transition: background .15s; }
+  .lane.over { background: #e6f2f0; }
+  .card { position: relative; width: 488px; height: 132px; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 18px 22px; margin-bottom: 16px; box-shadow: 0 1px 2px rgba(0,0,0,.04); }
+  .card .t { font-weight: 600; font-size: 21px; }
+  .card .m { color: var(--muted); font-size: 17px; margin-top: 10px; display: flex; gap: 12px; align-items: center; }
+  .tag { padding: 2px 10px; border-radius: 999px; background: #eef0f3; font-size: 15px; color: #3b4047; }
+  .tag.high { background: #fdecd3; color: var(--warn); }
+  .card.new { animation: pop .5s ease-out; }
+  .card.done .t { text-decoration: line-through; color: var(--muted); }
+  @keyframes pop { from { transform: scale(.94); opacity: 0; } to { transform: none; opacity: 1; } }
+  .dragging { position: fixed !important; z-index: 50; box-shadow: 0 18px 40px rgba(0,0,0,.18); transform: rotate(1.5deg); pointer-events: none; }
+  #activity { left: 1984px; top: 128px; width: 544px; height: 1272px; background: var(--panel); border: 1px solid var(--line); border-radius: 16px; }
+  #activity h2 { margin: 0; padding: 22px 26px; font-size: 22px; border-bottom: 1px solid var(--line); }
+  #feed { position: absolute; top: 74px; bottom: 0; left: 0; right: 0; overflow-y: auto; padding: 8px 26px; scrollbar-width: thin; }
+  .ev { padding: 16px 0; border-bottom: 1px solid var(--line); font-size: 18px; }
+  .ev i { font-style: normal; color: var(--muted); display: block; font-size: 15px; margin-top: 4px; }
+  #scrim { inset: 0; background: rgba(20,22,26,.32); display: none; z-index: 20; }
+  #modal { left: 900px; top: 340px; width: 760px; height: 620px; background: var(--panel); border-radius: 20px; z-index: 30; display: none; padding: 40px 44px; box-shadow: 0 24px 60px rgba(0,0,0,.22); }
+  #modal h3 { margin: 0 0 28px; font-size: 28px; }
+  label { display: block; color: var(--muted); font-size: 17px; margin-bottom: 8px; }
+  .field { width: 672px; height: 56px; border: 1.5px solid var(--line); border-radius: 12px; padding: 12px 16px; font: inherit; color: var(--ink); outline: none; margin-bottom: 24px; }
+  .field:focus { border-color: var(--accent); box-shadow: 0 0 0 4px #cfe7e4; }
+  textarea.field { height: 112px; resize: none; }
+  #prio { width: 300px; display: flex; align-items: center; justify-content: space-between; cursor: default; }
+  #menu, #moreMenu { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 16px 40px rgba(0,0,0,.16); z-index: 40; display: none; padding: 8px; }
+  #menu { left: 944px; top: 836px; width: 300px; }
+  #moreMenu { left: 2180px; top: 80px; width: 340px; }
+  .opt { height: 52px; padding: 12px 16px; border-radius: 10px; }
+  .opt:hover { background: #eef5f4; }
+  #create { left: 1440px; top: 880px; width: 180px; height: 56px; z-index: 31; display: none; }
+  #cancel { left: 1270px; top: 880px; width: 150px; height: 56px; z-index: 31; display: none; }
+  #toast { left: 1080px; top: 1320px; width: 400px; height: 64px; background: var(--ink); color: #fff; border-radius: 14px; display: flex; align-items: center; justify-content: center; opacity: 0; transition: opacity .3s, transform .3s; transform: translateY(12px); z-index: 60; }
+  #toast.on { opacity: 1; transform: none; }
+</style>
+</head>
+<body>
+<header class="abs">
+  <div class="abs logo">Tide<b>water</b></div>
+  <div class="abs search">Search tasks, people, files…</div>
+  <div class="abs btn primary" id="newTask">+ New task</div>
+  <div class="abs btn ghost" id="more">⋯</div>
+</header>
+<nav class="abs">
+  <div class="on">Launch board</div><div>My tasks</div><div>Calendar</div><div>Docs</div><div>Team</div><div>Settings</div>
+</nav>
+<section class="abs col" style="left:320px"><h2>To do <span id="n0">3</span></h2><div class="lane" id="lane0">
+  <div class="card"><div class="t">Write release notes</div><div class="m"><span class="tag">Docs</span>Due Fri</div></div>
+  <div class="card"><div class="t">Record onboarding video</div><div class="m"><span class="tag">Media</span>Due Mon</div></div>
+  <div class="card"><div class="t">Update pricing page</div><div class="m"><span class="tag">Web</span>Due Tue</div></div>
+</div></section>
+<section class="abs col" style="left:872px"><h2>In progress <span id="n1">2</span></h2><div class="lane" id="lane1">
+  <div class="card"><div class="t">Beta feedback survey</div><div class="m"><span class="tag">Research</span>Ana</div></div>
+  <div class="card"><div class="t">Fix export timeout</div><div class="m"><span class="tag high">High</span>Sam</div></div>
+</div></section>
+<section class="abs col" style="left:1424px"><h2>Done <span id="n2">2</span></h2><div class="lane" id="lane2">
+  <div class="card done"><div class="t">Choose launch date</div><div class="m"><span class="tag">Plan</span>Lee</div></div>
+  <div class="card done"><div class="t">Draft FAQ</div><div class="m"><span class="tag">Docs</span>Ana</div></div>
+</div></section>
+<aside class="abs" id="activity"><h2>Activity</h2><div id="feed"></div></aside>
+
+<div class="abs" id="scrim"></div>
+<div class="abs" id="modal">
+  <h3>New task</h3>
+  <label>Title</label><input class="field" id="title" autocomplete="off" spellcheck="false">
+  <label>Notes</label><textarea class="field" id="notes" spellcheck="false"></textarea>
+  <label>Priority</label><div class="field" id="prio"><span id="prioVal">Normal</span><span>▾</span></div>
+</div>
+<div class="abs btn ghost" id="cancel">Cancel</div>
+<div class="abs btn primary" id="create">Create task</div>
+<div class="abs" id="menu"><div class="opt">Low</div><div class="opt">Normal</div><div class="opt">High</div><div class="opt">Urgent</div></div>
+<div class="abs" id="moreMenu"><div class="opt">Export board as CSV</div><div class="opt">Archive done tasks</div><div class="opt">Board settings</div></div>
+<div class="abs" id="toast">Task created</div>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+  const feed = $("feed");
+  const people = ["Ana", "Sam", "Lee", "Kai", "Mo"];
+  const verbs = ["commented on", "moved", "created", "completed", "assigned"];
+  const things = ["Write release notes", "Beta feedback survey", "Fix export timeout", "Draft FAQ", "Update pricing page", "Choose launch date"];
+  for (let i = 0; i < 36; i++) {
+    const d = document.createElement("div");
+    d.className = "ev";
+    d.innerHTML = `<b>${people[i % 5]}</b> ${verbs[i % 5]} “${things[i % 6]}”<i>${i + 2} min ago</i>`;
+    feed.appendChild(d);
+  }
+  const counts = () => [0, 1, 2].forEach((i) => ($(`n${i}`).textContent = $(`lane${i}`).children.length));
+  const show = (on) => ["scrim", "modal", "create", "cancel"].forEach((id) => ($(id).style.display = on ? (id === "create" || id === "cancel" ? "flex" : "block") : "none"));
+  const toast = (text) => { $("toast").textContent = text; $("toast").classList.add("on"); setTimeout(() => $("toast").classList.remove("on"), 2200); };
+  const log = (html) => { const d = document.createElement("div"); d.className = "ev"; d.innerHTML = html + "<i>just now</i>"; feed.prepend(d); };
+  $("newTask").onclick = () => { show(true); $("title").value = ""; $("notes").value = ""; $("prioVal").textContent = "Normal"; setTimeout(() => $("title").focus(), 50); };
+  $("cancel").onclick = () => show(false);
+  $("prio").onclick = () => ($("menu").style.display = $("menu").style.display === "block" ? "none" : "block");
+  [...$("menu").children].forEach((o) => (o.onclick = () => { $("prioVal").textContent = o.textContent; $("menu").style.display = "none"; }));
+  $("create").onclick = () => {
+    const c = document.createElement("div");
+    const high = /high|urgent/i.test($("prioVal").textContent);
+    c.className = "card new";
+    c.innerHTML = `<div class="t"></div><div class="m"><span class="tag ${high ? "high" : ""}">${$("prioVal").textContent}</span>You</div>`;
+    c.querySelector(".t").textContent = $("title").value || "Untitled";
+    $("lane0").prepend(c);
+    show(false); counts(); toast("Task created");
+    log(`<b>You</b> created “${c.querySelector(".t").textContent}”`);
+  };
+  $("more").onclick = () => ($("moreMenu").style.display = $("moreMenu").style.display === "block" ? "none" : "block");
+  const [, archive] = $("moreMenu").children;
+  [...$("moreMenu").children].forEach((o) => (o.onclick = () => { $("moreMenu").style.display = "none"; if (o !== archive) toast(o.textContent); }));
+  archive.onclick = () => {
+    $("moreMenu").style.display = "none";
+    [...$("lane2").children].forEach((c, i) => setTimeout(() => { c.style.transition = "opacity .4s, transform .4s"; c.style.opacity = 0; c.style.transform = "translateX(40px)"; setTimeout(() => { c.remove(); counts(); }, 400); }, i * 120));
+    toast("Done tasks archived");
+    log(`<b>You</b> archived done tasks`);
+  };
+  // Pointer drag between lanes.
+  let drag = null;
+  document.addEventListener("mousedown", (e) => {
+    const card = e.target.closest(".card");
+    if (!card || card.closest("#modal")) return;
+    const r = card.getBoundingClientRect();
+    drag = { card, dx: e.clientX - r.left, dy: e.clientY - r.top, ph: document.createElement("div"), moved: false };
+  });
+  document.addEventListener("mousemove", (e) => {
+    if (!drag) return;
+    if (!drag.moved) {
+      drag.moved = true;
+      drag.ph.style.cssText = "height:132px;margin-bottom:16px;border:2px dashed #b9d8d4;border-radius:14px";
+      drag.card.after(drag.ph);
+      drag.card.classList.add("dragging");
+    }
+    drag.card.style.left = `${e.clientX - drag.dx}px`;
+    drag.card.style.top = `${e.clientY - drag.dy}px`;
+    document.querySelectorAll(".lane").forEach((l) => { const r = l.getBoundingClientRect(); l.classList.toggle("over", e.clientX > r.left && e.clientX < r.right && e.clientY > r.top && e.clientY < r.bottom); });
+  });
+  document.addEventListener("mouseup", (e) => {
+    if (!drag) return;
+    const { card, ph, moved } = drag;
+    drag = null;
+    if (!moved) { card.classList.toggle("done"); return; }
+    const lane = [...document.querySelectorAll(".lane")].find((l) => l.classList.contains("over"));
+    document.querySelectorAll(".lane").forEach((l) => l.classList.remove("over"));
+    card.classList.remove("dragging"); card.style.left = card.style.top = "";
+    if (lane) lane.prepend(card); else ph.before(card);
+    ph.remove(); counts();
+    if (lane) log(`<b>You</b> moved “${card.querySelector(".t").textContent}”`);
+  });
+</script>
+</body>
+</html>

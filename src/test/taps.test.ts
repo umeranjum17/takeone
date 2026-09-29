@@ -5,6 +5,7 @@ import { chmod, mkdtemp, mkdir, readFile, rm, stat, symlink, writeFile } from "n
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { startTaps } from "../taps.js";
+import { getCursorPos } from "../hyprland.js";
 import { evdevProbe } from "../doctor.js";
 import { EV_KEY, EV_REL, REL_WHEEL, REL_HWHEEL, REL_WHEEL_HI_RES, REL_HWHEEL_HI_RES } from "../evdev.js";
 
@@ -53,7 +54,8 @@ test("input is captured before stream geometry is available", async () => {
   await writeFile(join(deviceDir, "early-event-mouse"), "");
   try {
     const eventsPath = join(base, "events.jsonl");
-    const taps = await startTaps({ eventsPath, t0ns: process.hrtime.bigint(), deviceDir, evdevPollHz: 200 });
+    // A take that started 5 s ago stamps this key at ~5000 ms, not in µs.
+    const taps = await startTaps({ eventsPath, t0ns: process.hrtime.bigint() - 5_000_000_000n, deviceDir, evdevPollHz: 200 });
     await new Promise((resolve) => setTimeout(resolve, 50));
     assert.equal(taps.pointerMode, "none");
     taps.setMapping(null);
@@ -62,7 +64,7 @@ test("input is captured before stream geometry is available", async () => {
     const early = (await readFile(eventsPath, "utf8")).trim().split("\n").map((line) => JSON.parse(line));
     assert.equal(early.length, 1);
     assert.equal(early[0].k, "key");
-    assert.ok(early[0].t >= 0);
+    assert.ok(early[0].t >= 5000 && early[0].t < 6000, `t=${early[0].t}`);
   } finally {
     await rm(base, { recursive: true, force: true });
   }
@@ -338,6 +340,21 @@ test("video-only tap never reads or writes Hyprland events; unmapped pointer is 
     if (oldSig === undefined) delete process.env.HYPRLAND_INSTANCE_SIGNATURE;
     else process.env.HYPRLAND_INSTANCE_SIGNATURE = oldSig;
     if (!serverClosed) await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+    await rm(base, { recursive: true, force: true });
+  }
+});
+
+test("hyprland requests carry no trailing newline (0.56 rejects it as an unknown request)", async () => {
+  const base = await mkdtemp(join(tmpdir(), "takeone-hypr-framing-"));
+  const socket = join(base, ".socket.sock");
+  const server = createServer((conn) => {
+    conn.on("data", (data) => conn.end(data.toString() === "j/cursorpos" ? '{"x":3,"y":4}' : "unknown request"));
+  });
+  await new Promise<void>((resolve) => server.listen(socket, resolve));
+  try {
+    assert.deepEqual(await getCursorPos(socket), { x: 3, y: 4 });
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
     await rm(base, { recursive: true, force: true });
   }
 });

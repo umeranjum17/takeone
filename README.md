@@ -23,23 +23,45 @@ For an existing planned take, render reads `screen.webm`, `take.json` (at least 
 
 ## Cost per minute of video (measured)
 
-Measured on a synthetic 44 s 1920×1080 take (`scripts/synth-take.ts`) with a live Jev key, 5 beats, `--about` set:
+Measured on a real 62.7 s desktop take recorded on Hyprland at 3840×2160 (`scripts/e2e`, below). The run used a live Jev key, `--about` set, and no cache:
 
 | Metric | Measured | Per minute of video |
 |---|---|---|
-| Jev input tokens | 8,719 | ~11,900 |
-| Jev cost | $0.000366 | ~$0.0005 |
+| Beats (Jev / local) | 20 (12 / 8) | 19 |
+| Jev requests | 15 | 14 |
+| Jev input tokens | 14,715 | ~14,100 |
+| Jev cost | $0.000618 | ~$0.00059 |
+| Largest request | 1,099 tokens | — |
 | Failed calls | 0 | 0 |
-| `make` wall clock (plan + render) | 7.5 s | ~10 s |
+| `make` wall clock (plan + render, machine at load ~100) | 28–111 s | ~27–106 s |
 
-With `--no-jev` the cost is exactly zero tokens and the same run plans in under a second. Responses are cached per request hash (`analysis/jev-cache.jsonl`), so replanning an unchanged take costs nothing.
+Three clean live runs of the same take, from successive code states, landed between 14.7k and 15.8k input tokens. The preflight planned 22,000 tokens for this take against its 41.8k cap, so it held. Idle and cut beats are decided locally and cost nothing. Jev's `usage.input_tokens` is summed into `take.json` (`jev.input_tokens`, `jev.usd`).
+
+With `--no-jev` the cost is exactly zero tokens. Responses are cached per request hash (`analysis/jev-cache.jsonl`), so replanning an unchanged take costs nothing.
 
 The cost is bounded by design, not by luck:
 
 - **Beat cap**: at most 30 beats per minute (`MAX_BEATS_PER_MIN` in `src/beats/segment.ts`), so the number of Jev calls never grows with how busy the recording is.
 - **Token preflight**: `make` estimates every planned request up front and refuses the whole run (`PreflightRefusal`) when the reserved total exceeds `--max-tokens`, default 40,000 input tokens per take minute (`DEFAULT_TOKENS_PER_MIN` in `src/make.ts`). Each single request is also hard-capped at `REQUEST_TOKEN_CAP` (1,200 estimated tokens) in `src/decide/request.ts`.
 
-Worst case at the defaults: 30 calls/minute × 1,200 tokens ≈ 36,000 tokens ≈ $0.0015 per minute of video at the listed price — under the 40k/minute cap. Rendering costs no tokens at any setting.
+Worst case at the defaults: 30 calls/minute × 1,200 tokens ≈ 36,000 tokens ≈ $0.0015 per minute of video at the listed price — under the 40k/minute cap. The measured take above used 39% of that at 19 beats/minute. Rendering costs no tokens at any setting.
+
+## End-to-end take with a staged scene
+
+`scripts/e2e` records a harmless real take without touching your own apps:
+
+- `scene.sh start PROFILE_DIR [WORKSPACE]` opens `scene.html` fullscreen on an empty Hyprland workspace (default 9). The page is a fictional project board with dummy content, run in a throwaway Chromium profile.
+- `drive.py serve FIFO` creates a uinput virtual mouse and keyboard (group `input`), so the recorder's evdev taps see real kernel events.
+- `echo scene > FIFO` plays ~60 s of clicks, typing, a dropdown, a drag, scrolling and a menu against the scene's fixed geometry.
+
+```sh
+python3 scripts/e2e/drive.py serve /tmp/drive.fifo &      # before recording: taps enumerate devices at start
+scripts/e2e/scene.sh start ~/lab/scene-profile
+takeone record &                                         # share only the output that shows the scene
+echo scene > /tmp/drive.fifo; sleep 65; takeone stop
+scripts/e2e/scene.sh stop ~/lab/scene-profile 1          # return to your workspace
+takeone make <id> --about "Creating a task and moving it across a project board"
+```
 
 ## Look and pacing
 
@@ -85,7 +107,8 @@ Input sources are read passively, never grabbed. If evdev mouse or keyboard devi
 - pointer position and focused window from the Hyprland IPC sockets, mapped into
   stream pixels (with a self-check that falls back to no-pointer mode when no
   monitor matches the stream size within 2 px)
-- clicks, wheel and key *classes* from `/dev/input/by-id/*-event-{mouse,kbd}`,
+- clicks, wheel and key *classes* from every mouse and keyboard in `/proc/bus/input/devices`
+  (USB, Bluetooth, touchpads and virtual devices alike),
   opened non-blocking and polled. Key records are classes only
   (`char|space|enter|backspace|tab|esc|nav|mod|fn`) plus a shortcut name like
   `Ctrl+S` when a non-Shift modifier is held. F13–F24 retain named shortcuts;

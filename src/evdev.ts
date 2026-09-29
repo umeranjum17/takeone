@@ -4,6 +4,8 @@
  * codes takeone cares about.
  */
 
+import { readdir, readFile } from "node:fs/promises";
+
 export const EV_SYN = 0x00;
 export const EV_KEY = 0x01;
 export const EV_REL = 0x02;
@@ -64,4 +66,55 @@ export function extractRecords(chunk: Buffer, carry: Buffer): { records: EvdevRe
     if (record !== null) records.push(record);
   }
   return { records, rest: whole.subarray(count * EVDEV_RECORD_BYTES) };
+}
+
+export interface InputCandidate {
+  path: string;
+  mouse: boolean;
+  kbd: boolean;
+}
+
+/**
+ * Mouse and keyboard event nodes from /proc/bus/input/devices
+ * ("H: Handlers=sysrq kbd event3", "H: Handlers=event4 mouse0"). Unlike
+ * /dev/input/by-id this also lists Bluetooth, i2c touchpad and uinput devices.
+ */
+export function parseInputDevices(text: string): InputCandidate[] {
+  const candidates: InputCandidate[] = [];
+  for (const block of text.split(/^\s*$/m)) {
+    let handlers: string[] | null = null;
+    let keyValue: string | null = null;
+    for (const line of block.split("\n")) {
+      if (line.startsWith("H: Handlers=")) handlers = line.slice("H: Handlers=".length).trim().split(/\s+/);
+      else if (line.startsWith("B: KEY=")) keyValue = line.slice("B: KEY=".length).trim();
+    }
+    if (handlers === null) continue;
+    const event = handlers.find((h) => /^event\d+$/.test(h));
+    if (event === undefined) continue;
+    const mouse = handlers.some((h) => /^mouse\d+$/.test(h));
+    let kbd = false;
+    if (handlers.includes("kbd") && keyValue !== null && keyValue.length > 0) {
+      const low = keyValue.split(/\s+/).at(-1) as string;
+      try {
+        kbd = ((BigInt(`0x${low}`) >> 30n) & 1n) === 1n;
+      } catch {
+        kbd = false;
+      }
+    }
+    if (mouse || kbd) candidates.push({ path: `/dev/input/${event}`, mouse, kbd });
+  }
+  return candidates;
+}
+
+/**
+ * Candidate devices: every mouse/keyboard the kernel lists, or, with `dir`
+ * (tests), the `*-event-mouse` / `*-event-kbd` entries of that directory.
+ * Rejects with the underlying errno error when the listing is unreadable.
+ */
+export async function listInputCandidates(dir?: string): Promise<InputCandidate[]> {
+  if (dir === undefined) return parseInputDevices(await readFile("/proc/bus/input/devices", "utf8"));
+  return (await readdir(dir))
+    .filter((n) => n.endsWith("-event-mouse") || n.endsWith("-event-kbd"))
+    .sort()
+    .map((n) => ({ path: `${dir}/${n}`, mouse: n.endsWith("-event-mouse"), kbd: n.endsWith("-event-kbd") }));
 }

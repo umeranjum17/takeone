@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { buildRequest, estimateTokens, REQUEST_TOKEN_CAP } from "../src/decide/request.ts";
 import { heuristicDecision } from "../src/decide/heuristics.ts";
-import { mapAnswers, argmaxLevel, sumsTo1 } from "../src/decide/mapping.ts";
+import { mapAnswers, argmaxLevel, sumsTo1, frameRect } from "../src/decide/mapping.ts";
 import { redactText } from "../src/decide/redact.ts";
 import { redactWords } from "../src/decide/ocr.ts";
 import type { Action, Beat, Decision, JevAnswers, Zone } from "../src/types.ts";
@@ -201,15 +201,29 @@ test("confidence < 0.5 widens A to the smallest zone containing the top two", ()
   // union of z1+z2 = [0,32,160,88]; the smallest containing zone is z3 (win, 130x110), under 70% of screen
   assert.equal(d.A, "z3");
 
-  // when the containing zone would cover over 70% of the screen, widen to all
+  // two far-apart subjects (union 64% of the screen) that only the whole screen contains: all
   const tiny: JevAnswers = {
     ...low,
     focus_start: { choice: "z1", probabilities: { z1: 0.5, z2: 0.5 }, confidence: 0 },
+    focus_end: { choice: "z1", probabilities: { z1: 0.5, z2: 0.5 }, confidence: 0 },
   };
   const zonesNoWin = [zones[0]!, zones[1]!, zones[3]!];
   const d2 = mapAnswers(clickBeat(zonesNoWin), tiny, { viewport: null, winRect: null, stream: STREAM });
   assert.ok(d2);
   assert.equal(d2.A, "z4");
+
+  // a small union that only the whole screen contains keeps the top choice
+  const near = [zone("z1", "act", [60, 32, 20, 14]), zone("z2", "res", [84, 40, 20, 14]), zones[3]!];
+  const d3 = mapAnswers(clickBeat(near), tiny, { viewport: null, winRect: null, stream: STREAM });
+  assert.ok(d3);
+  assert.equal(d3.A, "z1");
+
+  // an uncertain start widened to all defers to a confident end
+  const sure: JevAnswers = { ...tiny, focus_end: { choice: "z2", probabilities: { z1: 0.05, z2: 0.9, z4: 0.05 }, confidence: 0.85 } };
+  const d4 = mapAnswers(clickBeat(zonesNoWin), sure, { viewport: null, winRect: null, stream: STREAM });
+  assert.ok(d4);
+  assert.equal(d4.A, "z2");
+  assert.equal(d4.B, "z2");
 });
 
 test("tightness widens one level when its confidence is low; K = 2 tightens", () => {
@@ -327,4 +341,13 @@ test("decision record carries model and per-question confidence", () => {
   assert.equal(d.conf.A, 0.8);
   assert.equal(d.conf.B, 0.8);
   assert.equal(d.conf.L, 0.9);
+});
+
+test("frameRect: L1 is the window only when the window is not fullscreen", () => {
+  const z: Zone = { name: "z1", kind: "act", bbox: [3300, 30, 300, 80] } as Zone;
+  const stream = { w: 3840, h: 2160 };
+  assert.deepEqual(frameRect(z, 1, { stream, winRect: [1920, 0, 1920, 1080] }), [1920, 0, 1920, 1080]);
+  const fullscreen = frameRect(z, 1, { stream, winRect: [0, 0, 3840, 2160] });
+  assert.ok(fullscreen[2] < 1000, `w=${fullscreen[2]}`);
+  assert.deepEqual(fullscreen, frameRect(z, 1, { stream, winRect: null }));
 });

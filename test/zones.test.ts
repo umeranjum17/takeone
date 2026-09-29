@@ -76,13 +76,24 @@ test("large window cannot replace the all candidate", () => {
   assert.deepEqual(zones.map((z) => z.kind), ["win", "all"]);
 });
 
-test("result zone uses only the largest attached region", () => {
+test("result zone spans everything that changed, not only the largest region", () => {
+  // A toast at the bottom and the new card it announces at the top right.
   const b = beatOf([{ k: "click", t: 500, x: 90, y: 40, window_cls: "chromium" }], [
     { bbox: [0, 90, 40, 20], area_frac: 0.1 },
     { bbox: [140, 0, 20, 20], area_frac: 0.01 },
   ]);
   const zones = zonesForBeat(b, { ...base, winRect: null });
-  assert.deepEqual(zones.find((z) => z.kind === "res")?.bbox, [0, 90, 40, 20]);
+  assert.deepEqual(zones.find((z) => z.kind === "res")?.bbox, [0, 0, 160, 110]);
+});
+
+test("a typing beat's zone covers every field it typed into", () => {
+  const b = beatOf([
+    { k: "type", t0: 500, t1: 1500, region: [40, 20, 30, 8] },
+    { k: "click", t: 1700, x: 50, y: 50, window_cls: "chromium" },
+    { k: "type", t0: 1800, t1: 2800, region: [40, 46, 50, 10] },
+  ] as Action[]);
+  const txt = zonesForBeat(b, { ...base, winRect: null }).find((z) => z.kind === "txt")!;
+  assert.deepEqual(txt.bbox, [40, 20, 50, 36]);
 });
 
 test("result activity time belongs to its largest region", () => {
@@ -195,4 +206,28 @@ test("OCR eligibility: zones under a quarter of the screen", () => {
     if (z.kind === "all") assert.ok(!eligible);
     if (z.kind === "act") assert.ok(eligible);
   }
+});
+
+test("act zone is described by its anchoring action, not by pointer travel before it", () => {
+  const b = beatOf([
+    { k: "travel", t0: 0, t1: 400, from: [10, 10], to: [100, 60], bbox: [10, 10, 90, 50] },
+    { k: "dwell", t0: 500, t1: 3000, x: 100, y: 60 },
+  ]);
+  const act = zonesForBeat(b, { ...base, winRect: null }).find((z) => z.kind === "act")!;
+  assert.equal(act.desc.shows, "the control the user pointed at");
+  assert.equal(act.desc.activity, "the pointer rested here");
+});
+
+test("a typing beat's zone takes in a dropdown opening just below the form, not a far result", () => {
+  const actions = [
+    { k: "type", t0: 500, t1: 1500, region: [40, 20, 30, 8] },
+    { k: "click", t: 1700, x: 50, y: 40, window_cls: "chromium" },
+  ] as Action[];
+  const menu: Region = { bbox: [45, 70, 20, 30], area_frac: 0.03 }; // 30 px below, scale 1: within 56
+  const far: Region = { bbox: [130, 100, 20, 10], area_frac: 0.01 };
+  const txt = (results: Region[]) => zonesForBeat(beatOf(actions, results), { ...base, winRect: null }).find((z) => z.kind === "txt")!.bbox;
+  assert.deepEqual(txt([menu]), [40, 20, 30, 80]);
+  assert.deepEqual(txt([far]), [40, 20, 30, 21]);
+  // a modal's scrim closing changes the whole screen: never part of the form
+  assert.deepEqual(txt([{ bbox: [0, 0, 160, 120], area_frac: 0.98 }]), [40, 20, 30, 21]);
 });

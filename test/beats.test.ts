@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { segmentBeats, attachedResults, MAX_BEATS_PER_MIN, actStart } from "../src/beats/segment.ts";
+import { segmentBeats, attachedResults, resultParts, MAX_BEATS_PER_MIN, actStart } from "../src/beats/segment.ts";
 import { zonesForBeat } from "../src/beats/zones.ts";
 import type { Action, FrameRegions, Region } from "../src/types.ts";
 import { STREAM, noopFrames } from "./helpers.ts";
@@ -255,4 +255,16 @@ test("attachedResults sorts largest first and respects the window", () => {
   assert.equal(res.length, 2);
   assert.deepEqual(res[0]!.bbox, [0, 0, 40, 40]);
   assert.deepEqual(res[1]!.bbox, [80, 80, 20, 20]);
+});
+
+test("resultParts keeps small real changes in the window and drops cursor noise", () => {
+  const frames: FrameRegions[] = [
+    { t: 1200, changed_frac: 0.1, cut: false, regions: [
+      { bbox: [0, 0, 40, 40], area_frac: 0.083 }, // the result itself: attachedResults' job
+      { bbox: [60, 10, 30, 6], area_frac: 0.003 }, // the new card
+      { bbox: [5, 5, 2, 3], area_frac: 0.0003 }, // the cursor
+    ] },
+    { t: 3000, changed_frac: 0.1, cut: false, regions: [{ bbox: [60, 60, 30, 6], area_frac: 0.003 }] }, // too late
+  ];
+  assert.deepEqual(resultParts(frames, 1100, 2600).map((r) => r.bbox), [[60, 10, 30, 6]]);
 });

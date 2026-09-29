@@ -188,10 +188,10 @@ test("four-moves-per-ten-seconds limit discards lowest-importance excess", () =>
 test("later targets wait until the action shot is visible", () => {
   const action = beat("action", 2, 300);
   action.zones.push({ ...zone("result", [3300, 900, 180, 120]), t_change: 2 });
-  const withResult = camera([action], [{ ...decision(action), B: "result" }], 4);
+  const withResult = camera([action], [{ ...decision(action), B: "result" }], 6);
   const actionOnly = camera([action], [decision(action)], 4);
   assert.deepEqual(at(withResult, 1.9), at(actionOnly, 1.9));
-  assert.ok(at(withResult, 3.5).x > 1000);
+  assert.ok(at(withResult, 4.5).x > 1000); // after the action shot's minimum dwell
 
   const next = beat("next", 3.3, 3300);
   assert.deepEqual(at(camera([action, next], [decision(action), decision(next)], 5), 1.9),
@@ -201,8 +201,9 @@ test("later targets wait until the action shot is visible", () => {
   idle.t0 = 0;
   idle.t1 = 5;
   idle.zones[0]!.bbox = [2100, 600, 1400, 900];
-  assert.deepEqual(at(camera([action, idle], [decision(action), decision(idle)], 5), 1.5),
-    at(camera([idle], [decision(idle)], 5), 1.5));
+  // The idle beat holds (no shot) and its breathe target cannot preempt the action.
+  assert.deepEqual(at(camera([action, idle], [decision(action), decision(idle)], 5), 1.9),
+    at(actionOnly, 1.9));
 });
 
 test("cut move waits until changed_frac remains settled for 300ms", () => {
@@ -357,9 +358,9 @@ test("trimmed beats and targets cannot steer visible frames", () => {
   const idle = beat("idle-trim", 10.2, 300, "idle");
   idle.t0 = 7;
   idle.t1 = 11;
-  const withoutIdleTarget = { ...idle, kind: "click" as const };
+  // Idle beats hold; the breathe target lands before trim and must not steer.
   assert.deepEqual(solveCamera([idle], [decision(idle)], { ...take, trim_end: 11 }),
-    solveCamera([withoutIdleTarget], [decision(idle)], { ...take, trim_end: 11 }));
+    solveCamera([], [], { ...take, trim_end: 11 }));
 });
 
 test("FOLLOW ignores a drag whose shot arrives after trim", () => {
@@ -515,4 +516,79 @@ test("synthetic source renders silent H.264 at the configured size and 30fps", {
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
+});
+
+test("L1 frames a real window, but pads the zone inside a fullscreen window", () => {
+  const button = zone("button", [3300, 30, 300, 80]);
+  const windowed = frame(button, 1, 3840, 2160, [1920, 0, 1920, 1080]);
+  assert.equal(windowed.z, 2);
+  const fullscreen = frame(button, 1, 3840, 2160, [0, 0, 3840, 2160]);
+  assert.ok(fullscreen.z > 2, `z=${fullscreen.z}`);
+  assert.equal(fullscreen.z, frame(button, 1, 3840, 2160).z);
+});
+
+test("a long idle inside a fullscreen window breathes out to the whole screen", () => {
+  const activity = beat("activity", 1, 2600);
+  const idle: Beat = {
+    id: "idle", t0: 2, t1: 7, anchor_t: 2, actions: [], kind: "idle",
+    window_rect: [0, 0, 3840, 2160],
+    zones: [zone("tiny", [2600, 900, 120, 60]), { name: "all", type: "all", bbox: [0, 0, 3840, 2160] }],
+  };
+  const result = camera([activity, idle], [decision(activity), decision(idle)], 8);
+  assert.ok(at(result, 2).w < 3000);
+  assert.ok(at(result, 5).w > 3700);
+});
+
+test("a short pause between two nearby actions holds instead of pulling out", () => {
+  const first = beat("first", 1, 1000);
+  const pause: Beat = {
+    id: "pause", t0: 2, t1: 4.5, anchor_t: 2.5, actions: [], kind: "idle",
+    zones: [{ name: "all", type: "all", bbox: [0, 0, 3840, 2160] }],
+  };
+  const next = beat("next", 5, 1100);
+  const result = camera([first, pause, next], [decision(first), { ...decision(pause), L: 0 }, decision(next)], 6);
+  const widest = Math.max(...result.filter((f) => f.t >= 1.8 && f.t <= 5).map((f) => f.w));
+  assert.ok(widest < 2000, `widest=${widest}`);
+});
+
+test("a result move waits out the minimum dwell after the action shot arrives", () => {
+  const action = beat("action", 2, 300);
+  action.zones.push({ ...zone("result", [3300, 900, 180, 120]), t_change: 2 });
+  const frames = camera([action], [{ ...decision(action), B: "result" }], 6);
+  const speed = frames.slice(1).map((f, i) => Math.abs(f.x - frames[i]!.x) + Math.abs(f.w - frames[i]!.w));
+  const moving = speed.map((s) => s > 2);
+  // find the first hold after the camera first moves, and check it lasts
+  const firstMove = moving.indexOf(true);
+  const holdStart = moving.indexOf(false, firstMove);
+  const holdEnd = moving.indexOf(true, holdStart);
+  assert.ok(holdEnd < 0 || (holdEnd - holdStart) / 30 >= DEFAULTS.dwell, `hold ${(holdEnd - holdStart) / 30}s`);
+});
+
+test("a typing beat does not chase its earlier click points off the result shot", () => {
+  const typing = beat("typing", 1, 1500, "type");
+  typing.t1 = 6;
+  typing.actions = [{ t: 1000, x: 1600, y: 300 }];
+  typing.zones.push({ ...zone("menu", [1500, 1500, 400, 200]), t_change: 3 });
+  const frames = camera([typing], [{ ...decision(typing), B: "menu" }], 6);
+  const last = frames.at(-1)!;
+  assert.ok(last.y <= 1500 && last.y + last.h >= 1700, `menu cropped: y=${last.y} h=${last.h}`);
+});
+
+test("the move cap never drops the breathe out of a long closing idle", () => {
+  const busy = [1, 2.5, 4, 5.5].map((time, index) => beat(`busy${index}`, time, index % 2 ? 3300 : 300));
+  const idle: Beat = {
+    id: "closing", t0: 6.5, t1: 14, anchor_t: 6.5, actions: [], kind: "idle",
+    zones: [{ name: "all", type: "all", bbox: [0, 0, 3840, 2160] }],
+  };
+  const result = camera([...busy, idle], [...busy.map((b) => decision(b, 2)), decision(idle)], 14);
+  assert.ok(at(result, 5.6).w < 3000);
+  assert.ok(at(result, 12).w > 3700, `still close at the end: w=${at(result, 12).w}`);
+});
+
+test("a whole-stage shot during the establish hold does not crowd out the shot behind it", () => {
+  const click = beat("click", 0.6, 3300);
+  const typing = beat("typing", 1.7, 1500, "type");
+  const frames = solveCamera([click, typing], [{ ...decision(click), L: 0 }, decision(typing)],
+    { width: 3840, height: 2160, trim_start: 0, trim_end: 6 });
+  assert.ok(at(frames, 3.5).w < 3000, `typing never framed: w=${at(frames, 3.5).w}`); // before the outro
 });

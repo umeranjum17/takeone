@@ -1,3 +1,4 @@
+import { WIN_MAX_COVER } from "../beats/zones.ts";
 import { DEFAULTS, type CameraDefaults } from "./defaults.ts";
 import type {
   Beat,
@@ -21,6 +22,8 @@ interface Target {
   state: CameraState;
   importance: number;
   startAfter?: number;
+  /** A long-idle widen: quiet by definition, so exempt from the rate cap. */
+  breathe?: boolean;
 }
 
 interface Move {
@@ -78,6 +81,9 @@ export function frame(
   }
 
   const [x, y, zoneW, zoneH] = zone.bbox;
+  // A fullscreen window gives no context framing (L1 would be the whole
+  // screen), so L1 pads the zone instead, as zones.ts drops such a `win`.
+  if (windowRect && windowRect[2] * windowRect[3] > WIN_MAX_COVER * width * height) windowRect = undefined;
   const inWindow = windowRect && x >= windowRect[0] && y >= windowRect[1]
     && x + zoneW <= windowRect[0] + windowRect[2]
     && y + zoneH <= windowRect[1] + windowRect[3];
@@ -173,11 +179,22 @@ function isDeadzone(state: CameraState, target: CameraState, width: number, d: C
   return fitsX && fitsY && zoomRatio < d.deadzone_zoom;
 }
 
-/** Anti-jitter rules: no scroll chase, dwell with union framing, and minimum shot length. */
+/**
+ * Anti-jitter rules: no scroll chase, dwell with union framing, and minimum
+ * shot length. Idle beats HOLD (design 10.3); only a long one BREATHEs, so a
+ * short pause never pulls the camera out between two actions.
+ */
 function applyDwellAndShotLength(shots: Shot[], d: CameraDefaults): Shot[] {
   const accepted: Shot[] = [];
+  const wholeStage = (shot: Shot): boolean => shot.decision.L === 0
+    || (shot.zoneA.type === "all" && (shot.zoneB === shot.zoneA || shot.zoneB.type === "all"));
+  // A whole-stage shot while the camera already shows the whole stage (the
+  // opening establish, or an earlier wide shot) is a no-op; accepting it would
+  // let the minimum shot length drop the next real shot right behind it.
+  let wide = true;
   for (const shot of shots) {
-    if (shot.beat.kind === "scroll") continue;
+    if (shot.beat.kind === "scroll" || shot.beat.kind === "idle") continue;
+    if (wide && wholeStage(shot)) continue;
     const previous = accepted.at(-1);
     if (previous) {
       const dwell = shot.decision.K === 2 ? d.dwell_k2 : d.dwell;
@@ -191,6 +208,7 @@ function applyDwellAndShotLength(shots: Shot[], d: CameraDefaults): Shot[] {
       if (shot.arrival - previous.arrival < d.min_shot) continue;
     }
     accepted.push(shot);
+    wide = wholeStage(shot);
   }
   return accepted;
 }
@@ -208,8 +226,10 @@ function applyMoveRateLimit(targets: Target[], width: number, height: number, d:
     state = target.state;
   }
   let kept = moving;
+  // Dropping a breathe would strand the camera on a close shot through a long
+  // idle, so the cap counts and drops only action targets.
   for (const anchor of moving) {
-    const window = kept.filter((target) => target.t >= anchor.t
+    const window = kept.filter((target) => !target.breathe && target.t >= anchor.t
       && target.t < anchor.t + d.rate_window);
     if (window.length <= d.rate_max) continue;
     const winners = new Set([...window]
@@ -274,11 +294,13 @@ function buildTargets(
     const longIdle = beat.kind === "idle" && beat.t1 - beat.t0 > d.idle_s;
     const distantNext = !nextBeat || nextBeat.t0 - beat.t1 > d.next_beat_s;
     if (!longIdle || !distantNext) continue;
-    const zone = beat.zones[0] ?? { name: "all", type: "all" as const, bbox: [0, 0, width, height] as [number, number, number, number] };
+    // Widen to the window itself; a fullscreen window widens to the whole screen.
+    const zone: Zone = { name: "win", type: "win", bbox: beat.window_rect ?? [0, 0, width, height] };
     targets.push({
       t: beat.t0 + d.breathe_s,
       state: frame(zone, 1, width, height, beat.window_rect, d),
       importance: 0,
+      breathe: true,
     });
   }
   // OUTRO rule: settle back to the whole stage for the closing seconds.
@@ -416,12 +438,16 @@ function sampleCamera(
 
   for (let index = 0; index <= Math.floor((end - start) * d.fps); index++) {
     const time = start + index / d.fps;
-    // Start each move early enough to arrive at its intended shot time.
+    // Start each move early enough to arrive at its intended shot time, but
+    // never before the previous arrival has visibly held for the minimum dwell
+    // (the spring trails the ideal path by about 2/omega): result
+    // and breathe targets obey it too, so no shot flashes by unread.
+    const heldUntil = move ? move.end + 2 / d.lowpass_omega + d.dwell : 0;
     while (targetIndex < targets.length) {
-      if (move && previousTime < move.end) break;
+      if (move && previousTime < heldUntil) break;
       const target = targets[targetIndex]!;
       const candidateMove = createMove(state, target.state, target.t, width, d,
-        Math.max(target.startAfter ?? 0, move?.end ?? 0, previousTime));
+        Math.max(target.startAfter ?? 0, heldUntil, previousTime));
       if (candidateMove.start > time) break;
       targetIndex++;
       if (isDeadzone(state, target.state, width, d)) continue;
@@ -434,9 +460,12 @@ function sampleCamera(
       state = move.to;
     }
 
-    // FOLLOW rule: track drag/travel/type subjects only after leaving inner 60%.
+    // FOLLOW rule: track the pointer of drag/travel beats only after it leaves
+    // the inner 60%. Typing is not followed: its region is a fixed bbox the A
+    // shot already frames, and chasing the beat's older click points pulled the
+    // camera off a result shot (an opened menu) mid-beat.
     const activeBeat = beats.find((beat) => beat.t0 <= time && beat.t1 >= time
-      && ["drag", "travel", "type"].includes(beat.kind));
+      && ["drag", "travel"].includes(beat.kind));
     if (activeBeat) {
       state = followPointer(state, previousFiltered, activeBeat, decisions, width,
         time, time - previousTime, velocity, d);

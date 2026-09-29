@@ -24,6 +24,16 @@ export interface ClockAlign {
 
 export const SPREAD_WARN_MS = 50;
 
+/**
+ * Warn when the median residual exceeds SPREAD_WARN_MS (design section 5).
+ * Residuals are capture-to-receive latency, so the max-min spread tracks the
+ * slowest encode (a 4K keyframe), not how well events line up with frames.
+ */
+export function clockWarning(clock: ClockAlign | null): string | null {
+  if (clock === null || clock.medianMs <= SPREAD_WARN_MS) return null;
+  return `clock residual median ${clock.medianMs.toFixed(1)} ms exceeds ${SPREAD_WARN_MS} ms`;
+}
+
 export function alignClock(samples: FrameSample[]): ClockAlign | null {
   if (samples.length === 0) return null;
   let min = Infinity;

@@ -6,6 +6,7 @@ import { promises as fs } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { explainMissingEngine, resolveEngine, EngineClient } from "@desklink/host";
+import { listInputCandidates, type InputCandidate } from "./evdev.js";
 import { hyprlandSockets, getMonitors } from "./hyprland.js";
 import { toonTable } from "./toon.js";
 
@@ -32,33 +33,32 @@ async function ffmpegVersion(): Promise<string | null> {
   });
 }
 
-export async function evdevProbe(dir = "/dev/input/by-id"): Promise<DoctorCheck> {
-  let names: string[] = [];
+export async function evdevProbe(dir?: string): Promise<DoctorCheck> {
+  let candidates: InputCandidate[];
   try {
-    names = await fs.readdir(dir);
+    candidates = await listInputCandidates(dir);
   } catch (error) {
     return (error as NodeJS.ErrnoException).code === "EACCES"
-      ? { check: "evdev", ok: false, detail: "cannot read evdev directory; add the user to group 'input' and log in again" }
-      : { check: "evdev", ok: false, detail: `${dir} missing` };
+      ? { check: "evdev", ok: false, detail: "cannot read the input device list; add the user to group 'input' and log in again" }
+      : { check: "evdev", ok: false, detail: `${dir ?? "/proc/bus/input/devices"} missing` };
   }
-  const candidates = names.filter((n) => n.endsWith("-event-mouse") || n.endsWith("-event-kbd"));
   let readable = 0;
   let eacces = false;
-  for (const name of candidates) {
+  for (const { path } of candidates) {
     try {
-      const handle = await fs.open(join(dir, name), "r");
+      const handle = await fs.open(path, "r");
       await handle.close();
       readable++;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "EACCES") eacces = true;
     }
   }
-  if (readable === candidates.length && candidates.some((name) => name.endsWith("-event-mouse")) && candidates.some((name) => name.endsWith("-event-kbd"))) {
+  if (readable === candidates.length && candidates.some((c) => c.mouse) && candidates.some((c) => c.kbd)) {
     return { check: "evdev", ok: true, detail: `${readable} readable device(s)` };
   }
   return eacces
     ? { check: "evdev", ok: false, detail: "not all devices readable; add the user to group 'input' and log in again" }
-    : { check: "evdev", ok: false, detail: candidates.length === 0 ? "no *-event-mouse or *-event-kbd devices" : readable === candidates.length ? "both *-event-mouse and *-event-kbd devices required" : "some evdev devices are unreadable" };
+    : { check: "evdev", ok: false, detail: candidates.length === 0 ? "no mouse or keyboard devices" : readable === candidates.length ? "both a mouse and a keyboard device required" : "some evdev devices are unreadable" };
 }
 
 export async function runDoctor(): Promise<DoctorCheck[]> {
