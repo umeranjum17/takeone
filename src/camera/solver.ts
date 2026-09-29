@@ -447,9 +447,12 @@ function sampleCamera(
       state = move.to;
     }
 
-    // FOLLOW rule: track drag/travel/type subjects only after leaving inner 60%.
+    // FOLLOW rule: track the pointer of drag/travel beats only after it leaves
+    // the inner 60%. Typing is not followed: its region is a fixed bbox the A
+    // shot already frames, and chasing the beat's older click points pulled the
+    // camera off a result shot (an opened menu) mid-beat.
     const activeBeat = beats.find((beat) => beat.t0 <= time && beat.t1 >= time
-      && ["drag", "travel", "type"].includes(beat.kind));
+      && ["drag", "travel"].includes(beat.kind));
     if (activeBeat) {
       state = followPointer(state, previousFiltered, activeBeat, decisions, width,
         time, time - previousTime, velocity, d);

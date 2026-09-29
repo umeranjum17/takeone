@@ -563,3 +563,13 @@ test("a result move waits out the minimum dwell after the action shot arrives", 
   const holdEnd = moving.indexOf(true, holdStart);
   assert.ok(holdEnd < 0 || (holdEnd - holdStart) / 30 >= DEFAULTS.dwell, `hold ${(holdEnd - holdStart) / 30}s`);
 });
+
+test("a typing beat does not chase its earlier click points off the result shot", () => {
+  const typing = beat("typing", 1, 1500, "type");
+  typing.t1 = 6;
+  typing.actions = [{ t: 1000, x: 1600, y: 300 }];
+  typing.zones.push({ ...zone("menu", [1500, 1500, 400, 200]), t_change: 3 });
+  const frames = camera([typing], [{ ...decision(typing), B: "menu" }], 6);
+  const last = frames.at(-1)!;
+  assert.ok(last.y <= 1500 && last.y + last.h >= 1700, `menu cropped: y=${last.y} h=${last.h}`);
+});
