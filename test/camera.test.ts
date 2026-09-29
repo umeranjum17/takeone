@@ -67,7 +67,7 @@ function at(frames: ReturnType<typeof camera>, seconds: number) {
 }
 
 test("framing expands to 16:9 and respects source and upscale clamps", () => {
-  assert.equal(zMax(3840), 3);
+  assert.equal(zMax(3840, 2160), 3);
   for (let level = 0; level <= 3; level++) {
     const result = frame(zone("edge", [3600, 1900, 100, 100]), level, 3840, 2160);
     assert.ok(result.z >= 1 && result.z <= 3);
@@ -111,6 +111,28 @@ test("whole-screen non-16:9 frames cover the full source while 16:9 framing is u
     t: 2, x: 1917.6833193611185, y: 593.4389427400281,
     w: 1313.3037888436606, h: 738.7333812245591,
   });
+});
+
+test("phone footage into 16:9 zooms against the padded canvas and keeps the card centred", () => {
+  // 1080x2400 sits on a 4267-wide 16:9 canvas; zoom is measured against it.
+  assert.ok(zMax(1080, 2400) > 1);
+  assert.ok(Math.abs(zMax(1080, 2400) - 2400 * 16 / 9 / 1280) < 1e-9);
+  const tap: Beat = { ...beat("tap", 2, 0), zones: [zone("tap", [120, 1900, 240, 120])] };
+  const frames = solveCamera([tap], [decision(tap)], {
+    width: 1080, height: 2400, trim_start: 0, trim_end: 4,
+  }, noBookends);
+  const deepest = frames.reduce((a, b) => (b.w < a.w ? b : a));
+  assert.ok(Math.abs(deepest.w - 1280) < 1e-6); // max_upscale 1.5 into 1920 wide
+  for (const f of frames) {
+    assert.ok(Math.abs(f.w / f.h - 16 / 9) < 1e-9);
+    // Wider than the phone: the card stays centred, never pushed to one side.
+    if (f.w > 1080) assert.ok(Math.abs(f.x + f.w / 2 - 540) < 1e-6);
+    // Shorter than the phone: the shot stays on the screen, never above or below it.
+    if (f.h < 2400) assert.ok(f.y >= 0 && f.y + f.h <= 2400);
+  }
+  // The tapped region is framed whole.
+  assert.ok(deepest.y <= 1900 && deepest.y + deepest.h >= 2020);
+  assert.ok(frames.every((f, i) => !i || Math.abs(f.w - frames[i - 1]!.w) < 200));
 });
 
 test("non-16:9 padding eases through zoom and back without a crop jump", () => {

@@ -40,8 +40,14 @@ const clamp = (value: number, min: number, max: number) =>
 const lerp = (a: number, b: number, u: number) => a + (b - a) * u;
 const smooth = (u: number) => u * u * u * (u * (u * 6 - 15) + 10);
 
-export function zMax(width: number, d: CameraDefaults = DEFAULTS): number {
-  return Math.max(1, width / (d.out_w / d.max_upscale));
+/** Width of the output-aspect canvas the source sits in; z = 1 shows all of it. */
+export function baseWidth(width: number, height: number, d: CameraDefaults = DEFAULTS): number {
+  return Math.max(width, height * d.out_w / d.out_h);
+}
+
+/** Deepest zoom, measured against the aspect-padded canvas, that keeps within max_upscale. */
+export function zMax(width: number, height: number, d: CameraDefaults = DEFAULTS): number {
+  return Math.max(1, baseWidth(width, height, d) / (d.out_w / d.max_upscale));
 }
 
 /** Convert a camera centre to an output-aspect viewport, allowing padded overscan. */
@@ -51,19 +57,18 @@ function toFrame(
   height: number,
   d: CameraDefaults,
 ): CameraFrame {
-  const z = clamp(state.z, 1, zMax(width, d));
+  const z = clamp(state.z, 1, zMax(width, height, d));
   const aspect = d.out_w / d.out_h;
   const nonWide = Math.abs(width / height - aspect) > 1e-9;
   // Keep the viewport at the output aspect; padded overscan shrinks with zoom.
-  const baseW = nonWide ? Math.max(width, height * aspect) : width;
-  const w = nonWide ? baseW / z : Math.min(width / z, height * aspect);
+  const w = nonWide ? baseWidth(width, height, d) / z : Math.min(width / z, height * aspect);
   const h = w / aspect;
-  const rawX = state.cx - w / 2;
-  const rawY = state.cy - h / 2;
-  const x = nonWide && (w > width || h > height)
-    ? rawX : clamp(rawX, 0, Math.max(0, width - w));
-  const y = nonWide && (w > width || h > height)
-    ? rawY : clamp(rawY, 0, Math.max(0, height - h));
+  // An axis wider than the screen centres it (a phone card in a 16:9 frame);
+  // an axis inside it clamps, so the shot never shows past the screen's edge.
+  const place = (centre: number, view: number, size: number) =>
+    nonWide && view > size ? (size - view) / 2 : clamp(centre - view / 2, 0, Math.max(0, size - view));
+  const x = place(state.cx, w, width);
+  const y = place(state.cy, h, height);
   return { t: 0, x, y, w, h };
 }
 
@@ -125,7 +130,7 @@ export function frame(
   return {
     cx: rx + rw / 2,
     cy: ry + rh / 2,
-    z: clamp(width / rw, 1, zMax(width, d)),
+    z: clamp(baseWidth(width, height, d) / rw, 1, zMax(width, height, d)),
   };
 }
 
@@ -170,8 +175,8 @@ function mergeZones(previous: Zone, next: Zone): Zone {
 }
 
 /** Anti-jitter rule: deadzone avoids a move when the subject already fits. */
-function isDeadzone(state: CameraState, target: CameraState, width: number, d: CameraDefaults): boolean {
-  const viewportW = width / state.z;
+function isDeadzone(state: CameraState, target: CameraState, baseW: number, d: CameraDefaults): boolean {
+  const viewportW = baseW / state.z;
   const viewportH = viewportW * d.out_h / d.out_w;
   const fitsX = Math.abs(target.cx - state.cx) <= viewportW * (0.5 - d.deadzone_margin);
   const fitsY = Math.abs(target.cy - state.cy) <= viewportH * (0.5 - d.deadzone_margin);
@@ -214,10 +219,11 @@ function applyDwellAndShotLength(shots: Shot[], d: CameraDefaults): Shot[] {
 }
 
 function applyMoveRateLimit(targets: Target[], width: number, height: number, d: CameraDefaults): Target[] {
+  const baseW = baseWidth(width, height, d);
   let state: CameraState = { cx: width / 2, cy: height / 2, z: 1 };
   const moving: Target[] = [];
   for (const target of targets) {
-    if (isDeadzone(state, target.state, width, d)) {
+    if (isDeadzone(state, target.state, baseW, d)) {
       const previous = moving.at(-1);
       if (previous) previous.importance = Math.max(previous.importance, target.importance);
       continue;
@@ -239,7 +245,7 @@ function applyMoveRateLimit(targets: Target[], width: number, height: number, d:
   }
   state = { cx: width / 2, cy: height / 2, z: 1 };
   return kept.filter((target) => {
-    if (isDeadzone(state, target.state, width, d)) return false;
+    if (isDeadzone(state, target.state, baseW, d)) return false;
     state = target.state;
     return true;
   });
@@ -311,17 +317,17 @@ function buildTargets(
     && (target.startAfter ?? start) < end).sort((a, b) => a.t - b.t);
 }
 
-function distance(from: CameraState, to: CameraState, width: number): number {
-  return Math.hypot(to.cx - from.cx, to.cy - from.cy) / (width / from.z)
+function distance(from: CameraState, to: CameraState, baseW: number): number {
+  return Math.hypot(to.cx - from.cx, to.cy - from.cy) / (baseW / from.z)
     + Math.abs(Math.log(to.z / from.z));
 }
 
 /** Apply the long-pan/high-zoom hop rule and compute the move interval. */
-function createMove(from: CameraState, to: CameraState, arrival: number, width: number, d: CameraDefaults, startAfter = 0): Move {
-  const viewportW = width / from.z;
+function createMove(from: CameraState, to: CameraState, arrival: number, baseW: number, d: CameraDefaults, startAfter = 0): Move {
+  const viewportW = baseW / from.z;
   const pan = Math.hypot(to.cx - from.cx, to.cy - from.cy) / viewportW;
   const hop = from.z > d.hop_zoom && to.z > d.hop_zoom && pan > d.hop_pan;
-  const duration = moveDuration(distance(from, to, width), d) * (hop ? d.hop_t_scale : 1);
+  const duration = moveDuration(distance(from, to, baseW), d) * (hop ? d.hop_t_scale : 1);
   const mid = hop
     ? { cx: (from.cx + to.cx) / 2, cy: (from.cy + to.cy) / 2, z: Math.max(1, Math.min(from.z, to.z) / d.hop_zoom_div) }
     : from;
@@ -370,7 +376,7 @@ function followPointer(
   previous: CameraState,
   beat: Beat,
   decisions: Map<string, Decision>,
-  width: number,
+  baseW: number,
   time: number,
   dt: number,
   velocity: { x: number; y: number },
@@ -396,7 +402,7 @@ function followPointer(
   } : undefined);
   if (!subject) return state;
 
-  const viewportW = width / state.z;
+  const viewportW = baseW / state.z;
   const viewportH = viewportW * d.out_h / d.out_w;
   const dx = (subject.x as number) - state.cx;
   const dy = (subject.y as number) - state.cy;
@@ -427,6 +433,7 @@ function sampleCamera(
   end: number,
   d: CameraDefaults,
 ): CameraFrame[] {
+  const baseW = baseWidth(width, height, d);
   let state: CameraState = { cx: width / 2, cy: height / 2, z: 1 };
   let previousFiltered = state;
   let previousTime = start;
@@ -446,11 +453,11 @@ function sampleCamera(
     while (targetIndex < targets.length) {
       if (move && previousTime < heldUntil) break;
       const target = targets[targetIndex]!;
-      const candidateMove = createMove(state, target.state, target.t, width, d,
+      const candidateMove = createMove(state, target.state, target.t, baseW, d,
         Math.max(target.startAfter ?? 0, heldUntil, previousTime));
       if (candidateMove.start > time) break;
       targetIndex++;
-      if (isDeadzone(state, target.state, width, d)) continue;
+      if (isDeadzone(state, target.state, baseW, d)) continue;
       move = candidateMove;
     }
 
@@ -467,7 +474,7 @@ function sampleCamera(
     const activeBeat = beats.find((beat) => beat.t0 <= time && beat.t1 >= time
       && ["drag", "travel"].includes(beat.kind));
     if (activeBeat) {
-      state = followPointer(state, previousFiltered, activeBeat, decisions, width,
+      state = followPointer(state, previousFiltered, activeBeat, decisions, baseW,
         time, time - previousTime, velocity, d);
     }
 

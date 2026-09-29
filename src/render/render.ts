@@ -68,7 +68,7 @@ export async function renderTake(dir: string, d: CameraDefaults = DEFAULTS): Pro
   await writeFile(join(dir, "camera.json"), JSON.stringify(frames));
   const stage = stageGeometry(meta.width, meta.height, d);
   const commandFile = join(dir, "camera.cmd");
-  await writeFile(commandFile, sendcmd(stageFrames(frames, meta.width, stage, d)));
+  await writeFile(commandFile, sendcmd(stageFrames(frames, meta.width, meta.height, stage, d)));
 
   const outputDir = join(dir, "out");
   await mkdir(outputDir, { recursive: true });
