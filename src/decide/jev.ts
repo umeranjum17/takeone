@@ -1,32 +1,16 @@
 // Jev planner via @byokit/decide's jev({key}) backend: one POST per beat,
 // concurrency 8, a pluggable request-hash cache in analysis/jev-cache.jsonl,
 // and decide's bounded 429 retry honouring retry-after.
-// The API key is read from TYPESAFE_API_KEY or ~/.config/takeone/env, sent only
-// as a header, and never logged.
+// Credentials come through @byokit/secrets, sent only as a header and never logged.
 
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { homedir } from "node:os";
+export { loadApiKey } from "../secrets.ts";
 import { cacheKey, decide, jev, type Answer, type DecideCache, type Question } from "@byokit/decide";
 
 export const CONCURRENCY = 8;
 /** Whole-call budget per beat (attempts plus bounded 429 waits). */
 export const DECIDE_TIMEOUT_MS = 10000;
-
-/** Load the key from the environment or <configDir>/takeone/env. Never logged. */
-export function loadApiKey(env: NodeJS.ProcessEnv = process.env, configDir?: string): string | null {
-  if (env["TYPESAFE_API_KEY"]) return env["TYPESAFE_API_KEY"];
-  const p = join(configDir ?? join(homedir(), ".config"), "takeone", "env");
-  if (!existsSync(p)) return null;
-  for (const line of readFileSync(p, "utf8").split("\n")) {
-    const s = line.trim();
-    if (!s || s.startsWith("#")) continue;
-    const m = s.match(/^TYPESAFE_API_KEY\s*=\s*(.+)$/);
-    if (m?.[1]) return m[1].trim();
-    if (!s.includes("=")) return s; // a bare key on its own line
-  }
-  return null;
-}
 
 /**
  * File-backed DecideCache over analysis/jev-cache.jsonl. Lines hold the

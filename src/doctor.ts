@@ -8,6 +8,7 @@ import { join } from "node:path";
 import { explainMissingEngine, resolveEngine, EngineClient } from "@desklink/host";
 import { listInputCandidates, type InputCandidate } from "./evdev.js";
 import { hyprlandSockets, getMonitors } from "./hyprland.js";
+import { keyStatus, type KeyOptions } from "./secrets.ts";
 import { toonTable } from "./toon.js";
 
 export interface DoctorCheck {
@@ -61,7 +62,7 @@ export async function evdevProbe(dir?: string): Promise<DoctorCheck> {
     : { check: "evdev", ok: false, detail: candidates.length === 0 ? "no mouse or keyboard devices" : readable === candidates.length ? "both a mouse and a keyboard device required" : "some evdev devices are unreadable" };
 }
 
-export async function runDoctor(): Promise<DoctorCheck[]> {
+export async function runDoctor(keys: KeyOptions = {}): Promise<DoctorCheck[]> {
   const checks: DoctorCheck[] = [];
 
   // Engine binary
@@ -153,6 +154,9 @@ export async function runDoctor(): Promise<DoctorCheck[]> {
       detail: `${root}: ${error instanceof Error ? error.message : String(error)}`,
     });
   }
+
+  const jev = await keyStatus(keys);
+  checks.push({ check: "jev-key", ok: jev.available, detail: jev.detail });
 
   return checks;
 }

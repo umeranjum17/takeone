@@ -1,7 +1,7 @@
 // `takeone capture ...`: recorder protocol v1 surface: hello, record, stop, make.
 import { readFileSync, writeFileSync, writeSync } from "node:fs";
 import { resolve } from "node:path";
-import { loadApiKey } from "./decide/jev.ts";
+import { keyStatus, type KeyOptions } from "./secrets.ts";
 import { makeTake, PreflightRefusal, TakeInputError } from "./make.ts";
 import { resolveCamera } from "./cli.ts";
 
@@ -433,7 +433,7 @@ async function runCaptureStop(args: string[]): Promise<number> {
   return 0;
 }
 
-export async function runCapture(argv: string[]): Promise<number> {
+export async function runCapture(argv: string[], keys: KeyOptions = {}): Promise<number> {
   const [verb, ...rest] = argv;
   if (verb === "hello" && rest.length === 0) {
     console.log(
@@ -444,7 +444,7 @@ export async function runCapture(argv: string[]): Promise<number> {
         android: false,
         events: ["own", "none"],
         // presence only; the key itself is never printed
-        planner: { available: loadApiKey() !== null, needsKey: true },
+        planner: { available: (await keyStatus(keys)).available, needsKey: true },
       }),
     );
     return 0;

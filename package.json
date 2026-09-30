@@ -18,6 +18,7 @@
   },
   "dependencies": {
     "@byokit/decide": "0.4.2",
+    "@byokit/secrets": "0.2.0",
     "@desklink/host": "0.1.0",
     "werift": "0.24.4"
   },

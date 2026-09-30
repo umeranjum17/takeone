@@ -218,8 +218,16 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
   writeFileSync(join(analysisDir, "beats.json"), JSON.stringify(renderBeats, null, 1));
 
   // 3 decide --------------------------------------------------------------
-  const key = opts.noJev ? null : opts.apiKey !== undefined ? opts.apiKey : loadApiKey();
-  if (!opts.noJev && !key) warn("no TYPESAFE_API_KEY; using heuristic policy for all beats");
+  let key: string | null = null;
+  if (!opts.noJev) {
+    try {
+      key = opts.apiKey === null ? null : await loadApiKey(opts.apiKey !== undefined
+        ? { env: { TYPESAFE_API_KEY: opts.apiKey } } : {});
+    } catch {
+      warn("Jev secret store unavailable; enable the OS keyring or supply TAKEONE_SECRETS_PASSPHRASE_FD for the BYOKit sealed store");
+    }
+    if (!key) warn("no Jev key; run takeone key set (stdin); using heuristic policy for all beats");
+  }
 
   // heuristic pre-pass, in shot order, to fill current_shot
   const heuristics: Decision[] = [];

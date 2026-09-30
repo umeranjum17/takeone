@@ -74,7 +74,7 @@ function run(args: string[], o: { env?: NodeJS.ProcessEnv; keyFile?: string } = 
       keyFd = openSync(o.keyFile, "r");
       stdio.push(keyFd); // array index 3 becomes the child's fd 3
     }
-    return spawnSync(process.execPath, [cli, ...args], {
+    return spawnSync(process.execPath, ["--import", join(here, "fake-secrets.js"), cli, ...args], {
       encoding: "utf8",
       timeout: 300_000,
       stdio: stdio as ["ignore", "pipe", "pipe", number?],

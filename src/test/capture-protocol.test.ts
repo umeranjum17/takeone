@@ -81,7 +81,7 @@ function assertWire(label: string, line: string): unknown {
 }
 
 function run(args: string[], env: NodeJS.ProcessEnv = {}) {
-  return spawnSync(process.execPath, [cli, ...args], {
+  return spawnSync(process.execPath, ["--import", join(here, "fake-secrets.js"), cli, ...args], {
     encoding: "utf8",
     timeout: 300_000,
     env: { ...process.env, ...env },

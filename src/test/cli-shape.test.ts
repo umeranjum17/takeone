@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, readFile, readdir, readlink, rm, symlink, writeFile } f
 import { join } from "node:path";
 import { test } from "node:test";
 import { formatDoctor, runDoctor, type DoctorCheck } from "../doctor.js";
+import { overrideStore } from "@byokit/secrets";
 import { toonTable } from "../toon.js";
 import { computeTrim } from "../record.js";
 
@@ -47,7 +48,7 @@ test("doctor leaves an existing probe symlink and its target untouched", { timeo
   process.env.TAKEONE_DIR = join(base, "takes");
   delete process.env.HYPRLAND_INSTANCE_SIGNATURE;
   try {
-    const checks = await runDoctor();
+    const checks = await runDoctor({ env: {}, store: overrideStore({}) });
     assert.equal(checks.find((check) => check.check === "state-dir")?.ok, true);
     assert.equal(await readFile(target, "utf8"), "keep this");
     assert.equal(await readlink(probe), target);
