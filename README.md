@@ -95,6 +95,34 @@ takeone doctor     # report what the recorder needs on this machine
 
 Run `node bin/takeone.mjs` from the checkout, or `takeone` if the package is linked. Set `TAKEONE_DIR` to the parent of your takes; otherwise it defaults to `~/Videos/takeone`.
 
+## Recorder protocol conformance
+
+Recorder protocol v1 was checked on 2026-09-30 against BYOKit main commit
+`9ee18467275832afbe0a0211388b49ab08423c65`, using its unchanged
+`packages/capture/src/testing/contract.ts` (`captureContract`) and `Capture` client.
+TakeOne was built with `npm ci` and tested through the absolute path of this
+checkout's executable `bin/takeone.mjs`, with the kit's clean HOME/XDG environment
+and `PATH=/usr/bin:/bin`. Recording used only a throwaway Xvfb display
+(`--source x11:<display> --events none`); the display was stopped after the run.
+
+| Verb | Contract result |
+|---|---|
+| `hello` | Pass: protocol, capabilities and planner shape |
+| `record` | Pass: recording/done, duration limit, abort and duplicate-record rejection |
+| `stop` | Pass: abort stops the recording; idle stop maps to `not-recording` |
+| `make` | Pass: plan-only, MP4 under the take, zero spend without a key, title/caption edits and missing-take error |
+
+Real contract output summary: **tests 15, suites 0, pass 9, fail 0, cancelled 0,
+skipped 6, todo 0**. The six skipped cases require the fake recorder; this run
+makes no claim about those fault-injection or planner-key cases. The initial run
+had one recording stop during negotiation before its two-second limit; the
+repeat passed all nine real-recorder cases. The MP4 output-path assertion issue
+previously present at BYOKit `fe2f806` is corrected in the tested commit: an MP4
+under `<take>/out/` passes and agrees with protocol section 6.6.
+
+Rerun `captureContract` against the built binary and update this date, BYOKit
+commit and results whenever the capture protocol changes.
+
 ## Quickstart
 
 **1. Render a demo without recording anything.** `scripts/synth-take.ts` generates a complete take: a scripted 44 s 1920×1080 UI demo (dashboard → search → list scroll → detail → slider drag → export toast) drawn entirely with ffmpeg filters, plus matching `take.json`, `frames.tsv`, and `events.jsonl`.
