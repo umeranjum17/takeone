@@ -11,6 +11,11 @@ registerHooks({
         export const keyringEnv = extra => ({ ...extra });
         export function keyringStore() {
           if (process.env.TAKEONE_TEST_NO_KEYRING === '1') throw new KeystoreError('unavailable', 'fake missing keyring');
+          if (process.env.TAKEONE_TEST_KEYRING_FAILURE === '1') return {
+            get: async () => { throw new KeystoreError('failed', 'fake unavailable Secret Service'); },
+            set: async () => { throw new KeystoreError('failed', 'fake unavailable Secret Service'); },
+            delete: async () => { throw new KeystoreError('failed', 'fake unavailable Secret Service'); },
+          };
           return overrideStore({});
         }
       ` };

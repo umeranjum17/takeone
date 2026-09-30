@@ -159,7 +159,7 @@ export function buildQuestions(state: JevRequest["state"], askKeyMoment: boolean
   return q;
 }
 
-/** Mirror of @byokit/decide@0.4.2's internal wire(): Question -> planner JSON.
+/** Mirror of @byokit/decide@0.4.3's internal wire(): Question -> planner JSON.
  *  buildRequest bodies must stay byte-identical to what decide's jev backend
  *  sends; test/jev.test.ts asserts that equality against a fake transport. */
 function toWire(questions: Record<string, Question>): Record<string, unknown> {
