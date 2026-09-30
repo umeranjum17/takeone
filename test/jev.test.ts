@@ -83,6 +83,23 @@ test("a 429 then success is retried", async () => {
   });
 });
 
+test("repeated 429s allow only one retry per beat and do not populate the cache", async () => {
+  await withTmp(async (dir) => {
+    let calls = 0;
+    const cache = new JevFileCache(join(dir, "c.jsonl"));
+    const fake = (async () => {
+      calls++;
+      return new Response("rate limited", { status: 429, headers: { "retry-after": "0" } });
+    }) as typeof fetch;
+    const r = await askBeat(STATE, QUESTIONS, KEY, cache, { fetchImpl: fake });
+    assert.equal(r.decisionSource, "failed");
+    assert.equal(r.inputTokens, undefined);
+    assert.equal(calls, 2);
+    const next = await askBeat(STATE, QUESTIONS, null, cache);
+    assert.equal(next.decisionSource, "failed");
+  });
+});
+
 test("5xx and malformed JSON fail", async () => {
   await withTmp(async (dir) => {
     const r1 = await askBeat(STATE, QUESTIONS, KEY, new JevFileCache(join(dir, "c1.jsonl")), {

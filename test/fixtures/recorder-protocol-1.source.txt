@@ -4,7 +4,7 @@ Source: https://github.com/umeranjum17/byokit, commit fe2f806
   (PR #82, packages/capture/schema/recorder-protocol-1.json).
 License: Apache-2.0 (BYOKit).
 SHA-256: be4c63efb56bca64ce3b6a7fa9a32535c7ba6e5b965518ae025f4524f18647f0
-  (must equal @byokit/capture PROTOCOL_SCHEMA_SHA256; re-copy on protocol change).
+  (must equal @byokit/record 0.1.0 PROTOCOL_SCHEMA_SHA256; re-copy on protocol change).
 
 Direction is one-way: BYOKit content may flow into TakeOne. TakeOne code or
 schema must never flow into BYOKit; TakeOne stays a private product.

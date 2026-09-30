@@ -17,7 +17,8 @@ const TITLE = "Quarterly report";
 const KEY = "test-key-000";
 const FAST = { ...DEFAULTS, preset: "veryfast", out_w: 320, out_h: 180, ripple_ms: 0, fade_s: 0 };
 function fastTake(dir: string, opts: MakeOptions = {}): Promise<MakeResult> {
-  return makeTake(dir, { camera: FAST, log: () => {}, warn: () => {}, ...opts });
+  // No test may discover credentials from the real home; Jev tests pass fake keys explicitly.
+  return makeTake(dir, { apiKey: null, camera: FAST, log: () => {}, warn: () => {}, ...opts });
 }
 
 function buildTake(): string {

@@ -83,7 +83,7 @@ Add a `title` and timed `captions` to `take.json` and they render as rounded pil
 
 No packaged release exists yet — there is nothing to download. Watch the [releases page](https://github.com/umeranjum17/takeone/releases) (latest: https://github.com/umeranjum17/takeone/releases/latest) for future packaged builds. Until then, install from source:
 
-Requires Node.js 22+ and `ffmpeg` on PATH. Optional: `tesseract` for `--screen-text` OCR. Recording the desktop additionally needs Linux on Wayland with Hyprland (see [Recording](#recording)); recording a phone needs `adb` on PATH and an attached device with USB debugging; recording the iOS Simulator needs macOS with Xcode (`xcrun simctl`), `ffprobe` on PATH, and a booted simulator; planning and rendering an existing take do not.
+Requires Node.js 22.18+ and `ffmpeg` on PATH. Optional: `tesseract` for `--screen-text` OCR. Recording the desktop additionally needs Linux on Wayland with Hyprland (see [Recording](#recording)); recording a phone needs `adb` on PATH and an attached device with USB debugging; recording the iOS Simulator needs macOS with Xcode (`xcrun simctl`), `ffprobe` on PATH, and a booted simulator; planning and rendering an existing take do not.
 
 ```sh
 git clone https://github.com/umeranjum17/takeone
@@ -96,6 +96,10 @@ takeone doctor     # report what the recorder needs on this machine
 Run `node bin/takeone.mjs` from the checkout, or `takeone` if the package is linked. Set `TAKEONE_DIR` to the parent of your takes; otherwise it defaults to `~/Videos/takeone`.
 
 ## Recorder protocol conformance
+
+The published `@byokit/record` 0.1.0 kit owns the unchanged recorder protocol v1.
+TakeOne implements the recorder verbs directly and does not depend on the client kit. Its Jev
+planner uses `@byokit/decide` 0.4.2.
 
 Recorder protocol v1 was checked on 2026-09-30 against BYOKit main commit
 `9ee18467275832afbe0a0211388b49ab08423c65`, using its unchanged
