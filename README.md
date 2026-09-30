@@ -138,7 +138,29 @@ node bin/takeone.mjs make /tmp/takes/synth-demo --no-jev
 
 The polished video lands at `/tmp/takes/synth-demo/out/synth-demo.mp4`, next to the plan in `analysis/` and the camera path in `camera.json`. `--no-jev` makes this run offline at zero tokens.
 
-**2. Let Jev plan the camera.** Put `TYPESAFE_API_KEY=...` in your environment or in `~/.config/takeone/env`, then re-run `make` without `--no-jev`. Add `--about "what the demo shows"` for better key moments.
+<a id="jev-key"></a>
+
+**2. Let Jev plan the camera.** Store your key with `takeone key set`, which reads one key line from piped stdin. For example, in Bash, this hidden prompt keeps it out of argv and shell history:
+
+```bash
+read -rsp 'Jev API key: ' jev_key; printf '\n'
+printf '%s' "$jev_key" | takeone key set
+unset jev_key
+```
+
+The key lives under service `takeone`, secret name `jev`, in the OS keyring through `@byokit/secrets` (macOS Keychain or Linux Secret Service; Linux needs `/usr/bin/secret-tool` and an unlocked session). If the keyring CLI is absent or the platform is unsupported, BYOKit's sealed file at `${XDG_CONFIG_HOME:-$HOME/.config}/takeone/secrets.json` needs a passphrase supplied on an open fd >= 3. A failure accessing an available keyring does not select the sealed file. Set `TAKEONE_SECRETS_PASSPHRASE_FD` to that fd number for each command that reads or writes the store. Supply the same passphrase bytes each time; the passphrase is never saved. For example:
+
+```bash
+read -rsp 'Store passphrase: ' store_passphrase; printf '\n'
+read -rsp 'Jev API key: ' jev_key; printf '\n'
+printf '%s' "$jev_key" | TAKEONE_SECRETS_PASSPHRASE_FD=3 takeone key set 3< <(printf '%s' "$store_passphrase")
+TAKEONE_SECRETS_PASSPHRASE_FD=3 takeone make <id> 3< <(printf '%s' "$store_passphrase")
+unset jev_key store_passphrase
+```
+
+`TYPESAFE_API_KEY` remains a host-passed BYOKit override for CI/non-interactive use and is never persisted. `capture make --planner-key-fd N` uses only the supplied fd key, preserving capture's host-owned credential contract; without it, capture planning stays local even when a stored key is available. `capture hello` reports key availability without migrating legacy credentials. On the first planner run without an override, a legacy plaintext key from `~/.config/takeone/env` is moved into an empty store, verified, then its old line (or key-only file) is removed. This legacy path does not follow `XDG_CONFIG_HOME`. Unrelated settings are preserved; an existing stored key is never overwritten by migration, and a different legacy key is left untouched. Interrupted cleanup resumes when the stored and legacy keys match.
+
+Re-run `make` without `--no-jev`. Add `--about "what the demo shows"` for better key moments.
 
 **3. Record your own take** (Linux, Wayland, Hyprland):
 
@@ -201,7 +223,7 @@ node bin/takeone.mjs render /path/to/take [--set fps=24]
 
 `<id>` can also be an absolute take-directory path. `make` writes `analysis/regions.json`, `analysis/actions.json`, renderer-format `analysis/beats.json` (video-relative seconds), and one decision per line in `analysis/decisions.jsonl`; Jev responses are cached separately in `analysis/jev-cache.jsonl`. It updates `take.json` with usage and render metadata, then writes `camera.json`, `camera.cmd`, and `out/<id>.mp4`. Re-running `make` can reuse cached responses. A trim must overlap the video; only that overlap is planned. Beats are capped at 30 per minute, which may merge idle gaps.
 
-With `TYPESAFE_API_KEY` (or a key in `~/.config/takeone/env`), Jev receives zone descriptions and an optional `--about` topic. Without a key, or with `--no-jev`, decisions stay local; failed calls fall back to a local heuristic. Screen text and window titles are not sent by default. `--screen-text` opts in to OCR (with `tesseract` on PATH) and sending filtered text and window labels: each OCR token and each whitespace-delimited window-title word is sent only if it has 2–15 ASCII letters; every other token is `[redacted]`. OCR fragments are not joined. The preflight refuses planned Jev requests above `--max-tokens` (default 40,000 per take minute); `--no-jev` skips calls entirely.
+With a [configured Jev key](#jev-key), Jev receives zone descriptions and an optional `--about` topic. Without a key, when the secret store cannot be read, or with `--no-jev`, decisions stay local; failed calls fall back to a local heuristic. Screen text and window titles are not sent by default. `--screen-text` opts in to OCR (with `tesseract` on PATH) and sending filtered text and window labels: each OCR token and each whitespace-delimited window-title word is sent only if it has 2–15 ASCII letters; every other token is `[redacted]`. OCR fragments are not joined. The preflight refuses planned Jev requests above `--max-tokens` (default 40,000 per take minute); `--no-jev` skips calls entirely.
 
 ### Render an existing take
 

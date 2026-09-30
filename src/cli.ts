@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { homedir } from "node:os";
 import { existsSync, readFileSync, unlinkSync } from "node:fs";
 import { pathToFileURL } from "node:url";
+import { setKeyFromStdin } from "./secrets.ts";
 import { runCapture } from "./capture.ts";
 import { makeTake, PreflightRefusal, TakeInputError } from "./make.ts";
 import { renderTake } from "./render/render.ts";
@@ -89,6 +90,7 @@ function parseArgs(argv: string[]): Args {
 function usage(code: number): never {
   console.error(`takeone make <id> [--no-jev] [--about "<topic>"] [--screen-text] [--max-tokens N] [--set key=value]
 takeone render <take-dir> [--set key=value]
+takeone key set < stdin
 takeone [list|record|stop|doctor]
 
   make plans beats and camera decisions, then renders an MP4.
@@ -104,6 +106,24 @@ takeone [list|record|stop|doctor]
 export async function main(argv: string[]): Promise<number> {
   const [cmd, ...rest] = argv;
   if (cmd === "capture") return runCapture(rest);
+  if (cmd === "key") {
+    if (rest.length !== 1 || rest[0] !== "set") {
+      console.error("usage: takeone key set < stdin (no key arguments)");
+      return 2;
+    }
+    if (process.stdin.isTTY) {
+      console.error("pipe the key into takeone key set; use a hidden-input prompt or a credential manager");
+      return 2;
+    }
+    try {
+      await setKeyFromStdin(process.stdin);
+      console.log("Jev key stored through BYOKit");
+      return 0;
+    } catch {
+      console.error("could not store Jev key; check stdin, the OS keyring or TAKEONE_SECRETS_PASSPHRASE_FD for the BYOKit sealed store");
+      return 1;
+    }
+  }
   if (!cmd || cmd === "list" || cmd === "record" || cmd === "stop" || cmd === "doctor") {
     return runRecorderCommand(cmd ?? "list", rest);
   }

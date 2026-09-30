@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { askBeat, JevFileCache, loadApiKey, CONCURRENCY } from "../src/decide/jev.ts";
+import { askBeat, JevFileCache, CONCURRENCY } from "../src/decide/jev.ts";
 import { buildRequest } from "../src/decide/request.ts";
 import type { Question } from "@byokit/decide";
 import { mkdtempSync, rmSync, readFileSync } from "node:fs";
@@ -192,22 +192,6 @@ test("a hanging backend fails on the timeout", async () => {
     const r = await askBeat(STATE, QUESTIONS, KEY, new JevFileCache(join(dir, "c.jsonl")), { fetchImpl: fake, timeoutMs: 50 });
     assert.equal(r.decisionSource, "failed");
   });
-});
-
-test("loadApiKey reads the env first, then the config file; never leaks into errors", async () => {
-  assert.equal(loadApiKey({ TYPESAFE_API_KEY: "k1" }), "k1");
-  const { writeFileSync, mkdirSync } = await import("node:fs");
-  const dir = mkdtempSync(join(tmpdir(), "takeone-env-"));
-  try {
-    mkdirSync(join(dir, "takeone"), { recursive: true });
-    writeFileSync(join(dir, "takeone", "env"), "# comment\nTYPESAFE_API_KEY=k3\n");
-    assert.equal(loadApiKey({}, dir), "k3");
-    writeFileSync(join(dir, "takeone", "env"), "k4\n");
-    assert.equal(loadApiKey({}, dir), "k4");
-    assert.equal(loadApiKey({}, join(dir, "missing")), null);
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
 });
 
 test("concurrency constant is 8", () => {

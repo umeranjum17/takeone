@@ -24,7 +24,7 @@ function repoVersion(): string {
 }
 
 function run(args: string[], extraEnv: NodeJS.ProcessEnv = {}) {
-  return spawnSync(process.execPath, [cli, ...args], {
+  return spawnSync(process.execPath, ["--import", join(here, "fake-secrets.js"), cli, ...args], {
     encoding: "utf8",
     timeout: 10_000,
     env: { ...process.env, ...extraEnv },
@@ -52,7 +52,7 @@ test("capture hello prints the protocol v1 shape and exits 0", async () => {
 test("capture hello reports no planner without a key, never printing it", async () => {
   const home = await mkdtemp(join(tmpdir(), "takeone-cap-"));
   try {
-    // empty key counts as no key; empty HOME hides ~/.config/takeone/env
+    // Empty override and a fake BYOKit keyring report no configured key.
     const r = run(["capture", "hello"], { HOME: home, TYPESAFE_API_KEY: "" });
     assert.equal(r.status, 0, r.stderr);
     const out = JSON.parse(r.stdout);

@@ -48,6 +48,7 @@ test("doctor leaves an existing probe symlink and its target untouched", { timeo
   delete process.env.HYPRLAND_INSTANCE_SIGNATURE;
   try {
     const checks = await runDoctor();
+    assert.equal(checks.some((check) => check.check === "jev-key"), false);
     assert.equal(checks.find((check) => check.check === "state-dir")?.ok, true);
     assert.equal(await readFile(target, "utf8"), "keep this");
     assert.equal(await readlink(probe), target);
