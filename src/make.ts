@@ -38,7 +38,7 @@ export interface MakeOptions {
   about?: string;
   screenText?: boolean;
   maxTokens?: number;
-  /** overrides loadApiKey(); injectable for tests */
+  /** Host-passed BYOKit override; null disables Jev, undefined loads the configured store. */
   apiKey?: string | null;
   /** injectable for tests */
   fetchImpl?: typeof fetch;
