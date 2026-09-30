@@ -23,7 +23,7 @@ takeone splits the two jobs. Recording is only recording. Camera work is planned
 
 ## See it in action
 
-Every capture below is real takeone output: stills from a 62.7 s take of a staged, fictional project board, recorded through the view-only portal capture, and one synthetic take rendered with the current code. Nothing is mocked.
+Every capture below is real takeone output: stills from a 69.3 s take of a staged, fictional project board, recorded on an empty Hyprland workspace, and one synthetic take rendered with the current code. Every person shown is Umer. Nothing is mocked.
 
 ### Plan the camera after you record
 
@@ -38,7 +38,7 @@ The recorder keeps the whole 3840×2160 screen and the input events. `make` pick
 When a click opens a panel or dialog, the shot holds all of it. While you type, the camera keeps the whole form in frame (title, notes, priority and buttons) instead of chasing the caret.
 
 <p align="center">
-  <picture><source srcset="docs/assets/readme/typing.webp" type="image/webp"><img src="docs/assets/readme/typing.jpg" alt="The New task dialog held whole while notes are typed: the Title reads Draft launch announcement, the focused Notes field reads Two short paragraphs and a link to t, and Priority, Cancel and Create task stay in frame" width="720" /></picture>
+  <picture><source srcset="docs/assets/readme/typing.webp" type="image/webp"><img src="docs/assets/readme/typing.jpg" alt="The New task dialog held whole while notes are typed: the Title reads Draft launch announcement, the focused Notes field reads Two short paragraphs and a link to, and Priority, Cancel and Create task stay in frame" width="720" /></picture>
 </p>
 
 ### Every click shows
@@ -256,7 +256,7 @@ Colours take `--set key=#RRGGBB`; `caption_font` takes letters, digits and space
 
 ## End-to-end take with a staged scene
 
-`scripts/e2e` records a harmless real take without touching your own apps. It is how the captures above were made:
+`scripts/e2e` records a harmless real take without touching your own apps. It stages and drives the board used in the captures above:
 
 - `scene.sh start PROFILE_DIR [WORKSPACE]` opens `scene.html` fullscreen on an empty Hyprland workspace (default 9). The page is a fictional project board with dummy content, run in a throwaway Chromium profile.
 - `drive.py serve FIFO` creates a uinput virtual mouse and keyboard (group `input`), so the recorder's evdev taps see real kernel events.
@@ -270,6 +270,8 @@ echo scene > /tmp/drive.fifo; sleep 65; takeone stop
 scripts/e2e/scene.sh stop ~/lab/scene-profile 1          # return to your workspace
 takeone make <id> --about "Creating a task and moving it across a project board"
 ```
+
+The current README board captures used a portal-free monitor recording with `gpu-screen-recorder -w HDMI-A-1`, paired with takeone's input-event taps and the recorder's first-frame monotonic timestamp, then planned and rendered by takeone. The scene ran on an empty workspace under a desktop lock; the original workspace and windows were restored afterwards. The captions example is the synthetic analytics take with Umer as its owner.
 
 ## Recording
 
