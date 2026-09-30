@@ -83,12 +83,12 @@
   <div class="card"><div class="t">Update pricing page</div><div class="m"><span class="tag">Web</span>Due Tue</div></div>
 </div></section>
 <section class="abs col" style="left:872px"><h2>In progress <span id="n1">2</span></h2><div class="lane" id="lane1">
-  <div class="card"><div class="t">Beta feedback survey</div><div class="m"><span class="tag">Research</span>Ana</div></div>
-  <div class="card"><div class="t">Fix export timeout</div><div class="m"><span class="tag high">High</span>Sam</div></div>
+  <div class="card"><div class="t">Beta feedback survey</div><div class="m"><span class="tag">Research</span>Umer</div></div>
+  <div class="card"><div class="t">Fix export timeout</div><div class="m"><span class="tag high">High</span>Umer</div></div>
 </div></section>
 <section class="abs col" style="left:1424px"><h2>Done <span id="n2">2</span></h2><div class="lane" id="lane2">
-  <div class="card done"><div class="t">Choose launch date</div><div class="m"><span class="tag">Plan</span>Lee</div></div>
-  <div class="card done"><div class="t">Draft FAQ</div><div class="m"><span class="tag">Docs</span>Ana</div></div>
+  <div class="card done"><div class="t">Choose launch date</div><div class="m"><span class="tag">Plan</span>Umer</div></div>
+  <div class="card done"><div class="t">Draft FAQ</div><div class="m"><span class="tag">Docs</span>Umer</div></div>
 </div></section>
 <aside class="abs" id="activity"><h2>Activity</h2><div id="feed"></div></aside>
 
@@ -108,13 +108,13 @@
 <script>
   const $ = (id) => document.getElementById(id);
   const feed = $("feed");
-  const people = ["Ana", "Sam", "Lee", "Kai", "Mo"];
+  const people = ["Umer"];
   const verbs = ["commented on", "moved", "created", "completed", "assigned"];
   const things = ["Write release notes", "Beta feedback survey", "Fix export timeout", "Draft FAQ", "Update pricing page", "Choose launch date"];
   for (let i = 0; i < 36; i++) {
     const d = document.createElement("div");
     d.className = "ev";
-    d.innerHTML = `<b>${people[i % 5]}</b> ${verbs[i % 5]} “${things[i % 6]}”<i>${i + 2} min ago</i>`;
+    d.innerHTML = `<b>${people[i % people.length]}</b> ${verbs[i % 5]} “${things[i % 6]}”<i>${i + 2} min ago</i>`;
     feed.appendChild(d);
   }
   const counts = () => [0, 1, 2].forEach((i) => ($(`n${i}`).textContent = $(`lane${i}`).children.length));
@@ -129,11 +129,11 @@
     const c = document.createElement("div");
     const high = /high|urgent/i.test($("prioVal").textContent);
     c.className = "card new";
-    c.innerHTML = `<div class="t"></div><div class="m"><span class="tag ${high ? "high" : ""}">${$("prioVal").textContent}</span>You</div>`;
+    c.innerHTML = `<div class="t"></div><div class="m"><span class="tag ${high ? "high" : ""}">${$("prioVal").textContent}</span>Umer</div>`;
     c.querySelector(".t").textContent = $("title").value || "Untitled";
     $("lane0").prepend(c);
     show(false); counts(); toast("Task created");
-    log(`<b>You</b> created “${c.querySelector(".t").textContent}”`);
+    log(`<b>Umer</b> created “${c.querySelector(".t").textContent}”`);
   };
   $("more").onclick = () => ($("moreMenu").style.display = $("moreMenu").style.display === "block" ? "none" : "block");
   const [, archive] = $("moreMenu").children;
@@ -142,7 +142,7 @@
     $("moreMenu").style.display = "none";
     [...$("lane2").children].forEach((c, i) => setTimeout(() => { c.style.transition = "opacity .4s, transform .4s"; c.style.opacity = 0; c.style.transform = "translateX(40px)"; setTimeout(() => { c.remove(); counts(); }, 400); }, i * 120));
     toast("Done tasks archived");
-    log(`<b>You</b> archived done tasks`);
+    log(`<b>Umer</b> archived done tasks`);
   };
   // Pointer drag between lanes.
   let drag = null;
@@ -174,7 +174,7 @@
     card.classList.remove("dragging"); card.style.left = card.style.top = "";
     if (lane) lane.prepend(card); else ph.before(card);
     ph.remove(); counts();
-    if (lane) log(`<b>You</b> moved “${card.querySelector(".t").textContent}”`);
+    if (lane) log(`<b>Umer</b> moved “${card.querySelector(".t").textContent}”`);
   });
 </script>
 </body>
