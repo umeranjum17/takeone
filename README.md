@@ -1,5 +1,5 @@
 <h1 align="center">
-  <img src="docs/assets/readme/icon.png" width="72" alt="" valign="middle" /> takeone
+  <img src="docs/assets/readme/icon-288.png" width="72" alt="" valign="middle" /> takeone
 </h1>
 
 <p align="center">
