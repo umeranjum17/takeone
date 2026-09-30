@@ -99,7 +99,7 @@ Run `node bin/takeone.mjs` from the checkout, or `takeone` if the package is lin
 
 The published `@byokit/record` 0.1.0 kit owns the unchanged recorder protocol v1.
 TakeOne implements the recorder verbs directly and does not depend on the client kit. Its Jev
-planner uses `@byokit/decide` 0.4.2.
+planner uses `@byokit/decide`; dependency versions are pinned in [package.json](package.json).
 
 Recorder protocol v1 was checked on 2026-09-30 against BYOKit main commit
 `9ee18467275832afbe0a0211388b49ab08423c65`, using its unchanged
