@@ -125,6 +125,30 @@ test("CLI stores piped input in BYOKit's sealed fallback and never echoes secret
   assert.ok(!(argv.stdout + argv.stderr).includes("argv-secret"));
 }));
 
+test("CLI falls back to BYOKit's sealed store when the keyring operation fails", () => fixture(async (root) => {
+  const passPath = join(root, "pass-input");
+  writeFileSync(passPath, "test-passphrase", { mode: 0o600 });
+  const run = (args: string[], input = "") => {
+    const fd = openSync(passPath, "r");
+    try {
+      return spawnSync(process.execPath, ["--import", join(here, "fake-secrets.js"), join(here, "../cli.js"), ...args], {
+        input, encoding: "utf8", timeout: 10_000,
+        env: { ...process.env, HOME: root, XDG_CONFIG_HOME: join(root, ".config"), TYPESAFE_API_KEY: "", TAKEONE_TEST_KEYRING_FAILURE: "1", TAKEONE_SECRETS_PASSPHRASE_FD: "3" },
+        stdio: ["pipe", "pipe", "pipe", fd],
+      });
+    } finally { closeSync(fd); }
+  };
+  const set = run(["key", "set"], "operational-failure-secret\n");
+  assert.equal(set.status, 0, set.stderr);
+  assert.ok(!(set.stdout + set.stderr).includes("operational-failure-secret"));
+  const sealed = join(root, ".config", "takeone", "secrets.json");
+  assert.ok(existsSync(sealed));
+  assert.ok(!readFileSync(sealed, "utf8").includes("operational-failure-secret"));
+  const hello = run(["capture", "hello"]);
+  assert.equal(hello.status, 0, hello.stderr);
+  assert.equal(JSON.parse(hello.stdout).planner.available, true);
+}));
+
 test("migration finds the old HOME path when XDG config moved", () => fixture(async (root, legacy) => {
   const store = overrideStore({});
   writeFileSync(legacy, "TYPESAFE_API_KEY=home-key\n");

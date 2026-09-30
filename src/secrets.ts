@@ -18,18 +18,7 @@ function configRoot(o: KeyOptions): string {
   return o.configDir ?? env.XDG_CONFIG_HOME ?? join(env.HOME ?? homedir(), ".config");
 }
 
-/** Keyring first; only absent/unsupported keyrings select a sealed file. */
-export function persistentKeys(o: KeyOptions = {}): Keystore {
-  if (o.store) return o.store;
-  const env = o.env ?? process.env;
-  try {
-    return keyringStore({ service: "takeone", env: {
-      ...(env.DBUS_SESSION_BUS_ADDRESS ? { DBUS_SESSION_BUS_ADDRESS: env.DBUS_SESSION_BUS_ADDRESS } : {}),
-      ...(env.XDG_RUNTIME_DIR ? { XDG_RUNTIME_DIR: env.XDG_RUNTIME_DIR } : {}),
-    } });
-  } catch (error) {
-    if (!(error instanceof KeystoreError) || !["unavailable", "unsupported"].includes(error.code)) throw error;
-  }
+function sealedStore(env: NodeJS.ProcessEnv, o: KeyOptions): Keystore {
   const fd = env.TAKEONE_SECRETS_PASSPHRASE_FD;
   if (!fd || !/^\d+$/.test(fd) || Number(fd) < 3 || !Number.isSafeInteger(Number(fd))) {
     throw new Error("no OS keyring; supply a passphrase on TAKEONE_SECRETS_PASSPHRASE_FD (an open fd >= 3) for the BYOKit sealed store");
@@ -37,6 +26,48 @@ export function persistentKeys(o: KeyOptions = {}): Keystore {
   // fileStore retains these bytes for subsequent operations; it owns encryption.
   const passphrase = readFileSync(Number(fd));
   return fileStore({ path: join(configRoot(o), "takeone", "secrets.json"), passphrase });
+}
+
+/** Keyring first; a failed keyring operation selects the sealed file when configured. */
+export function persistentKeys(o: KeyOptions = {}): Keystore {
+  if (o.store) return o.store;
+  const env = o.env ?? process.env;
+  try {
+    const keyring = keyringStore({ service: "takeone", env: {
+      ...(env.DBUS_SESSION_BUS_ADDRESS ? { DBUS_SESSION_BUS_ADDRESS: env.DBUS_SESSION_BUS_ADDRESS } : {}),
+      ...(env.XDG_RUNTIME_DIR ? { XDG_RUNTIME_DIR: env.XDG_RUNTIME_DIR } : {}),
+    } });
+    let fallback: Keystore | undefined;
+    const useFallback = (error: unknown): Keystore => {
+      if (!(error instanceof KeystoreError) || !["unavailable", "failed"].includes(error.code)) throw error;
+      return fallback ??= sealedStore(env, o);
+    };
+    return {
+      async get(name) {
+        if (fallback) return fallback.get(name);
+        try {
+          const value = await keyring.get(name);
+          // A keyring CLI can report "not found" when its service is unreachable.
+          if (value !== null || !env.TAKEONE_SECRETS_PASSPHRASE_FD) return value;
+          return useFallback(new KeystoreError("unavailable", "keyring entry unavailable")).get(name);
+        }
+        catch (error) { return useFallback(error).get(name); }
+      },
+      async set(name, secret) {
+        if (fallback) return fallback.set(name, secret);
+        try { return await keyring.set(name, secret); }
+        catch (error) { return useFallback(error).set(name, secret); }
+      },
+      async delete(name) {
+        if (fallback) return fallback.delete(name);
+        try { return await keyring.delete(name); }
+        catch (error) { return useFallback(error).delete(name); }
+      },
+    };
+  } catch (error) {
+    if (!(error instanceof KeystoreError) || !["unavailable", "unsupported"].includes(error.code)) throw error;
+  }
+  return sealedStore(env, o);
 }
 
 function legacyValue(line: string): string | null {
