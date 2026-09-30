@@ -148,7 +148,7 @@ printf '%s' "$jev_key" | takeone key set
 unset jev_key
 ```
 
-The key lives under service `takeone`, secret name `jev`, in the OS keyring through `@byokit/secrets` (macOS Keychain or Linux Secret Service; Linux needs `/usr/bin/secret-tool` and an unlocked session). If the keyring CLI is absent or the platform is unsupported, BYOKit's sealed file at `${XDG_CONFIG_HOME:-$HOME/.config}/takeone/secrets.json` needs a passphrase supplied on an open fd >= 3. A failure accessing an available keyring does not select the sealed file. Set `TAKEONE_SECRETS_PASSPHRASE_FD` to that fd number for each command that reads or writes the store. Supply the same passphrase bytes each time; the passphrase is never saved. For example:
+The key lives under service `takeone`, secret name `jev`, in the OS keyring through `@byokit/secrets` (macOS Keychain or Linux Secret Service; Linux needs `/usr/bin/secret-tool` and an unlocked session). If the keyring is absent, unsupported, or unavailable when used, BYOKit's sealed file at `${XDG_CONFIG_HOME:-$HOME/.config}/takeone/secrets.json` is used when a passphrase is supplied on an open fd >= 3. Set `TAKEONE_SECRETS_PASSPHRASE_FD` to that fd number for each command that reads or writes the store. Supply the same passphrase bytes each time; the passphrase is never saved. For example:
 
 ```bash
 read -rsp 'Store passphrase: ' store_passphrase; printf '\n'
