@@ -48,6 +48,21 @@ test("key-only legacy file is deleted; existing different stored key wins", () =
   assert.equal(readFileSync(legacy, "utf8"), "TYPESAFE_API_KEY=stale-key\n");
 }));
 
+test("migration resumes verified cleanup without rewriting a matching stored key", () => fixture(async (root, legacy) => {
+  const memory = overrideStore({ [JEV_SECRET]: "legacy-key" });
+  const store: Keystore = {
+    get: (name) => memory.get(name),
+    set: async () => { throw Error("must not rewrite"); },
+    delete: (name) => memory.delete(name),
+  };
+  writeFileSync(legacy, "# settings\nOTHER=keep\nTYPESAFE_API_KEY=legacy-key\nlegacy-key\n");
+  assert.equal(await loadApiKey(options(root, store)), "legacy-key");
+  assert.equal(readFileSync(legacy, "utf8"), "# settings\nOTHER=keep\n");
+  writeFileSync(legacy, "legacy-key\n");
+  assert.equal(await loadApiKey(options(root, store)), "legacy-key");
+  assert.equal(existsSync(legacy), false);
+}));
+
 test("failed writes and failed verification preserve plaintext", () => fixture(async (root, legacy) => {
   for (const failure of ["write", "verify"]) {
     const source = "TYPESAFE_API_KEY=legacy-key\n";
@@ -113,9 +128,16 @@ test("CLI stores piped input in BYOKit's sealed fallback and never echoes secret
 test("migration finds the old HOME path when XDG config moved", () => fixture(async (root, legacy) => {
   const store = overrideStore({});
   writeFileSync(legacy, "TYPESAFE_API_KEY=home-key\n");
-  const o = { env: { HOME: root, XDG_CONFIG_HOME: join(root, "xdg") }, store };
+  const xdg = join(root, "xdg");
+  mkdirSync(join(xdg, "takeone"), { recursive: true });
+  const extra = join(xdg, "takeone", "env");
+  writeFileSync(extra, "TYPESAFE_API_KEY=xdg-key\n");
+  const o = { env: { HOME: root, XDG_CONFIG_HOME: xdg }, store };
   assert.equal(await loadApiKey(o), "home-key");
   assert.equal(existsSync(legacy), false);
+  await store.delete(JEV_SECRET);
+  assert.equal(await loadApiKey(o), null);
+  assert.equal(readFileSync(extra, "utf8"), "TYPESAFE_API_KEY=xdg-key\n");
 }));
 
 test("migration preserves a legacy file changed during store write", () => fixture(async (root, legacy) => {
@@ -131,4 +153,9 @@ test("migration preserves a legacy file changed during store write", () => fixtu
   };
   await assert.rejects(loadApiKey(options(root, store)), /changed during migration/);
   assert.equal(readFileSync(legacy, "utf8"), "TYPESAFE_API_KEY=new-key\nOTHER=new\n");
+  assert.equal(await loadApiKey(options(root, store)), "old-key");
+  assert.equal(readFileSync(legacy, "utf8"), "TYPESAFE_API_KEY=new-key\nOTHER=new\n");
+  writeFileSync(legacy, "TYPESAFE_API_KEY=old-key\nOTHER=new\n");
+  assert.equal(await loadApiKey(options(root, store)), "old-key");
+  assert.equal(readFileSync(legacy, "utf8"), "OTHER=new\n");
 }));

@@ -53,8 +53,9 @@ async function migrate(store: Keystore, path: string): Promise<void> {
   const lines = source.split("\n");
   const key = lines.map(legacyValue).find((value) => value !== null);
   if (!key) return;
-  if (await store.get(JEV_SECRET) !== null) return;
-  await store.set(JEV_SECRET, key);
+  const stored = await store.get(JEV_SECRET);
+  if (stored !== null && stored !== key) return;
+  if (stored === null) await store.set(JEV_SECRET, key);
   if (await store.get(JEV_SECRET) !== key) throw new Error("Jev key migration could not verify the secret store");
   // Do not replace a file edited while the keyring operation was in progress.
   if (readFileSync(path, "utf8") !== source) throw new Error("legacy key file changed during migration; retry");
@@ -68,11 +69,7 @@ export async function loadApiKey(o: KeyOptions = {}): Promise<string | null> {
   const env = o.env ?? process.env;
   if (env.TYPESAFE_API_KEY) return overrideStore({ [JEV_SECRET]: env.TYPESAFE_API_KEY }).get(JEV_SECRET);
   const store = persistentKeys(o);
-  const legacyPaths = new Set([
-    join(env.HOME ?? homedir(), ".config", "takeone", "env"),
-    join(configRoot(o), "takeone", "env"),
-  ]);
-  for (const path of legacyPaths) await migrate(store, path);
+  await migrate(store, join(env.HOME ?? homedir(), ".config", "takeone", "env"));
   return store.get(JEV_SECRET);
 }
 

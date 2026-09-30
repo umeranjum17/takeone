@@ -156,7 +156,7 @@ TAKEONE_SECRETS_PASSPHRASE_FD=3 takeone make <id> 3< <(printf '%s' "$store_passp
 unset jev_key store_passphrase
 ```
 
-`TYPESAFE_API_KEY` remains a host-passed BYOKit override for CI/non-interactive use and is never persisted. `capture make --planner-key-fd N` uses only the supplied fd key, preserving capture's host-owned credential contract. On the first planner run without an override, a legacy plaintext key is moved into an empty store, verified, then its old line (or key-only file) is removed. Unrelated settings are preserved; an existing stored key is never overwritten by migration. `takeone doctor` reports key availability without migrating or displaying it.
+`TYPESAFE_API_KEY` remains a host-passed BYOKit override for CI/non-interactive use and is never persisted. `capture make --planner-key-fd N` uses only the supplied fd key, preserving capture's host-owned credential contract. On the first planner run without an override, a legacy plaintext key is moved into an empty store, verified, then its old line (or key-only file) is removed. Unrelated settings are preserved; an existing stored key is never overwritten by migration. Interrupted cleanup resumes when the stored and legacy keys match.
 
 Re-run `make` without `--no-jev`. Add `--about "what the demo shows"` for better key moments.
 
