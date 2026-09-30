@@ -5,7 +5,7 @@
   "description": "Turn a raw screen recording into a polished demo.",
   "type": "module",
   "engines": {
-    "node": ">=22"
+    "node": ">=22.18"
   },
   "bin": {
     "takeone": "./bin/takeone.mjs"
@@ -17,7 +17,7 @@
     "typecheck": "tsc --project tsconfig.check.json"
   },
   "dependencies": {
-    "@byokit/decide": "0.3.0",
+    "@byokit/decide": "0.4.2",
     "@desklink/host": "0.1.0",
     "werift": "0.24.4"
   },
