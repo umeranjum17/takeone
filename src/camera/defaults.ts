@@ -5,6 +5,27 @@ export interface CameraDefaults {
   out_w: number;
   out_h: number;
   background: string;
+  text: string;
+  card: string;
+  display_font: string;
+  bg_style: "linear" | "solid" | "radial" | "mesh" | "image";
+  bg_stops: string; // comma-separated #RRGGBB, 2–8 stops; empty uses background/background_to
+  background_image: string; // local image path, used only with bg_style=image
+  grain: number;
+  shadow_blur: number;
+  shadow_y: number;
+  shadow_x: number;
+  border: number;
+  border_color: string;
+  shadow_color: string;
+  bg_pattern: "none" | "grid" | "scanlines";
+  caption_rounding: number; // 0 square .. 1 pill
+  caption_opacity: number;
+  caption_border: number;
+  glow: number;
+  spring_omega: number; // overlay motion only
+  spring_zeta: number;
+  pace: number; // hold/min-shot multiplier; never camera move duration
   fps: number;
   quality: "draft" | "standard" | "master"; // encode CRF 23 / 18 / 14
   max_upscale: number; // never upscale source pixels more than this
@@ -60,6 +81,27 @@ export const DEFAULTS: CameraDefaults = {
   out_w: 1920,
   out_h: 1080,
   background: "#2a2d38",
+  text: "#ffffff",
+  card: "#101217",
+  display_font: "Inter SemiBold",
+  bg_style: "linear",
+  bg_stops: "",
+  background_image: "",
+  grain: 4,
+  shadow_blur: 28,
+  shadow_y: 18,
+  shadow_x: 0,
+  border: 0,
+  border_color: "#ffffff",
+  shadow_color: "#000000",
+  bg_pattern: "none",
+  caption_rounding: 1,
+  caption_opacity: 0.86,
+  caption_border: 0,
+  glow: 0,
+  spring_omega: 14,
+  spring_zeta: 1,
+  pace: 1,
   fps: 60,
   quality: "standard",
   max_upscale: 1.5,
@@ -110,17 +152,37 @@ export const DEFAULTS: CameraDefaults = {
   fade_s: 0.4,
 };
 
-const COLOURS = ["background", "background_to", "accent"];
+const COLOURS = ["background", "background_to", "accent", "text", "card", "border_color", "shadow_color"];
 
 export type Overrides = Partial<Record<keyof CameraDefaults, number | string>>;
 
 /** Apply `--set key=value` overrides onto a copy of DEFAULTS. */
-export function applyOverrides(overrides: Overrides): CameraDefaults {
-  const out: CameraDefaults = { ...DEFAULTS };
+export function applyOverrides(overrides: Overrides, base: CameraDefaults = DEFAULTS): CameraDefaults {
+  const out: CameraDefaults = { ...base };
   const PRESETS = ["ultrafast", "superfast", "veryfast", "faster", "fast",
     "medium", "slow", "slower", "veryslow", "placebo"];
   for (const [k, v] of Object.entries(overrides)) {
     const key = k as keyof CameraDefaults;
+    if (key === "bg_pattern") {
+      if (typeof v !== "string" || !["none", "grid", "scanlines"].includes(v)) throw new Error(`unknown or invalid --set ${k}=${v}`);
+      out.bg_pattern = v as CameraDefaults["bg_pattern"];
+      continue;
+    }
+    if (key === "bg_style") {
+      if (!["linear", "solid", "radial", "mesh", "image"].includes(String(v))) throw new Error(`unknown or invalid --set ${k}=${v}`);
+      out.bg_style = v as CameraDefaults["bg_style"];
+      continue;
+    }
+    if (key === "bg_stops") {
+      if (typeof v !== "string" || (v !== "" && !/^#[0-9a-f]{6}(,#[0-9a-f]{6}){1,7}$/i.test(v))) throw new Error(`unknown or invalid --set ${k}=${v}`);
+      out.bg_stops = v;
+      continue;
+    }
+    if (key === "background_image") {
+      if (typeof v !== "string" || /[\x00-\x1f]/.test(v) || v.length > 4096) throw new Error(`unknown or invalid --set ${k}=${v}`);
+      out.background_image = v;
+      continue;
+    }
     if (key === "quality") {
       if (v !== "draft" && v !== "standard" && v !== "master") throw new Error(`unknown or invalid --set ${k}=${v}`);
       out.quality = v;
@@ -136,14 +198,14 @@ export function applyOverrides(overrides: Overrides): CameraDefaults {
       continue;
     }
     // Font names reach an ASS style line, so keep them to plain words.
-    if (k === "caption_font" && typeof v === "string" && /^[A-Za-z0-9 ]{1,64}$/.test(v)) {
-      out.caption_font = v;
+    if (["caption_font", "display_font"].includes(k) && typeof v === "string" && /^[A-Za-z0-9 ]{1,64}$/.test(v)) {
+      (out as unknown as Record<string, unknown>)[key] = v;
       continue;
     }
-    if (COLOURS.includes(k) || k === "caption_font") {
+    if (COLOURS.includes(k) || ["caption_font", "display_font"].includes(k)) {
       throw new Error(`unknown or invalid --set ${k}=${v}`);
     }
-    const positive = ["out_w", "out_h", "fps", "max_upscale", "rate_window", "rate_max", "move_t_min", "move_t_max", "hop_zoom", "hop_zoom_div", "hop_t_scale", "follow_omega", "lowpass_omega", "l1_pad", "l2_pad", "l3_pad", "frame_max", "caption_size"];
+    const positive = ["out_w", "out_h", "fps", "max_upscale", "rate_window", "rate_max", "move_t_min", "move_t_max", "hop_zoom", "hop_zoom_div", "hop_t_scale", "follow_omega", "lowpass_omega", "l1_pad", "l2_pad", "l3_pad", "frame_max", "caption_size", "spring_omega", "spring_zeta", "pace"];
     const integers = ["out_w", "out_h", "fps", "rate_max"];
     if (!(key in out) || typeof v !== "number" || !Number.isFinite(v)
       || (positive.includes(k) ? v <= 0 : v < 0)
@@ -153,7 +215,11 @@ export function applyOverrides(overrides: Overrides): CameraDefaults {
       || (k === "frame_max" && v > 1)
       || (k === "deadzone_margin" && v >= 0.5)
       || (k === "stage_margin" && v > 0.25)
-      || (k === "shadow" && v > 1)
+      || (["shadow", "glow", "caption_rounding", "caption_opacity"].includes(k) && v > 1)
+      || (["border", "caption_border"].includes(k) && v > 16)
+      || (k === "grain" && v > 100)
+      || (k === "spring_zeta" && (v < 0.75 || v > 2))
+      || (k === "pace" && (v < 0.25 || v > 4))
       || (k === "follow_inner" && (v === 0 || v > 1))
       || (k === "cut_max" && v > 1)) {
       throw new Error(`unknown or invalid --set ${k}=${v}`);
