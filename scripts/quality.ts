@@ -234,7 +234,7 @@ function captions(video: string, dir: string, meta: TakeMeta, d: typeof DEFAULTS
   return checks;
 }
 
-export function compare(video: string, golden: string, output: string, vmaf: boolean) {
+export function compare(video: string, golden: string, output: string, vmaf: boolean, encoderReference = golden) {
   const count = (file: string): number => {
     const probe = JSON.parse(command('ffprobe', ['-v', 'error', '-select_streams', 'v:0', '-count_frames', '-show_entries', 'stream=nb_read_frames', '-of', 'json', file]).toString());
     const n = Number(probe.streams[0]?.nb_read_frames);
@@ -251,7 +251,7 @@ export function compare(video: string, golden: string, output: string, vmaf: boo
   let vmafScore: number | null = null;
   if (vmaf) {
     const log = join(output, 'vmaf.json');
-    ffmpeg(['-i', video, '-i', golden, '-filter_complex', `[0:v]${clock}[a];[1:v]${clock}[b];[a][b]libvmaf=log_fmt=json:log_path=${log}:n_threads=2`, '-f', 'null', '-']);
+    ffmpeg(['-i', video, '-i', encoderReference, '-filter_complex', `[0:v]${clock}[a];[1:v]${clock}[b];[a][b]libvmaf=log_fmt=json:log_path=${log}:n_threads=2`, '-f', 'null', '-']);
     vmafScore = json<{ pooled_metrics: { vmaf: { mean: number } } }>(log).pooled_metrics.vmaf.mean;
   }
   return { candidateFrames, goldenFrames, timelineMismatch: candidateFrames !== goldenFrames, minSSIM: Math.min(...scores.map(s => s.ssim)), framesBelow095: scores.filter(s => s.ssim < 0.95), vmaf: vmafScore, mode: vmaf ? 'SSIM + VMAF' : 'SSIM only: ffmpeg has no libvmaf' };
@@ -337,7 +337,9 @@ async function main() {
     });
     // Motion blur does not exist yet. Never invent a passing ghosting measurement.
     const golden = join(baselineDir, `${fixture}.mp4`);
-    const regression = initialize ? null : compare(video, golden, dir, vmaf);
+    const encoderReference = join(dir, 'encoder-reference.mp4');
+    if (!initialize && vmaf) await renderTake(dir, d, { output: encoderReference, lossless: true });
+    const regression = initialize ? null : compare(video, golden, dir, vmaf, encoderReference);
     const fixtureFailures = initialize ? Object.entries(metrics).filter(([, m]) => !Number.isFinite(m.value)).map(([k]) => `${k}: nonfinite measurement`) : regressions(metrics, stored![fixture]!);
     if (regression && !args.includes('--accept-golden')) {
       if (regression.timelineMismatch) fixtureFailures.push(`golden timeline: ${regression.candidateFrames} frames vs ${regression.goldenFrames}; human review required`);

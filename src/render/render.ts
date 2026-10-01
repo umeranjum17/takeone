@@ -3,7 +3,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { availableParallelism } from "node:os";
 import { fileURLToPath } from "node:url";
 import { resolveTheme } from "../themes.ts";
-import { basename, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import type { CameraDefaults } from "../camera/defaults.ts";
 import { actionCameraMilliseconds } from "../beats/clock.ts";
 import { solveCamera } from "../camera/solver.ts";
@@ -46,7 +46,11 @@ function runFfmpeg(args: string[]): Promise<string> {
 }
 
 /** Read the take's durable inputs, write its camera path and render the silent MP4. */
-export async function renderTake(dir: string, d?: CameraDefaults): Promise<{ out: string; seconds: number }> {
+export async function renderTake(
+  dir: string,
+  d?: CameraDefaults,
+  options: { output?: string; lossless?: boolean } = {},
+): Promise<{ out: string; seconds: number }> {
   const meta = JSON.parse(await readFile(join(dir, "take.json"), "utf8")) as TakeMeta;
   d ??= resolveTheme(meta.theme);
   const phone = meta.device !== undefined && meta.height > meta.width;
@@ -122,7 +126,8 @@ export async function renderTake(dir: string, d?: CameraDefaults): Promise<{ out
   if (typeof id !== "string" || !/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(id) || id === "..") {
     throw new Error(`invalid take id: ${id}`);
   }
-  const output = join(outputDir, `${id}.mp4`);
+  const output = options.output ?? join(outputDir, `${id}.mp4`);
+  await mkdir(dirname(output), { recursive: true });
 
   // Render intermediates live next to camera.cmd so a failed render can be rerun by hand.
   const stageFile = join(dir, "stage.png");
@@ -194,7 +199,8 @@ export async function renderTake(dir: string, d?: CameraDefaults): Promise<{ out
     "-filter_threads", threads, "-filter_complex_threads", threads,
     graphOption, commandFile,
     ...(clock ? ["-t", String(duration)] : []),
-    "-r", String(d.fps), "-an", ...encodingOptions(d),
+    "-r", String(d.fps), "-an",
+    ...(options.lossless ? ["-c:v", "libx264", "-qp", "0", "-preset", "ultrafast", "-pix_fmt", pixelFormat] : encodingOptions(d)),
     "-color_primaries", "bt709", "-color_trc", "bt709", "-colorspace", "bt709", "-color_range", "tv",
     "-movflags", "+faststart", output,
   ]);
