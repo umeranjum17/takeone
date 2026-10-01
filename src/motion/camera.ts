@@ -1,5 +1,5 @@
 import type { CameraFrame } from "../camera/types.ts";
-import { bitmapSize, heroSize, heroTransform } from "./geometry.ts";
+import { bentoViewport, bitmapSize, heroSize, heroTransform } from "./geometry.ts";
 import { allTimelines } from "./layout.ts";
 import { readingFloor } from "./storyboard.ts";
 import { motionTokens } from "./theme.ts";
@@ -9,15 +9,12 @@ export function cameraViewport(sb: Storyboard, list: number) {
   const tokens = motionTokens(sb.theme.name, sb.theme.overrides);
   const { out_w: W, out_h: H } = sb.output;
   if (sb.layout.kind === "single") return {width:W,height:H};
-  const sx = W / 1920, sy = H / 1080;
-  const iw = W - 2 * tokens.margin_x * sx, ih = H - 2 * tokens.margin_y * sy;
-  const gx = tokens.gutter_x * sx, gy = tokens.gutter_y * sy;
-  const unit = (iw - 2 * gx) / 3;
-  return {width:sb.layout.grid === "2x2" ? (iw - gx) / 2 : list === 0 || list === 3 ? 2 * unit + gx : unit,height:(ih - gy) / 2};
+  return bentoViewport(W, H, tokens, sb.layout.grid, list);
 }
 
 export function sceneCameras(sb: Storyboard): Record<string, (CameraFrame & { caption?: string; output?: CameraFrame })[]> {
   const paths: Record<string, (CameraFrame & { caption?: string; output?: CameraFrame })[]> = {};
+  const minShot = motionTokens(sb.theme.name, sb.theme.overrides).min_shot;
   const lists = allTimelines(sb.layout, sb.scenes);
   lists.forEach((scenes, list) => scenes.forEach((scene, i) => {
     if (scene.pattern !== "zoom-tour" && scene.pattern !== "hero-reveal") return;
@@ -49,7 +46,7 @@ export function sceneCameras(sb: Storyboard): Record<string, (CameraFrame & { ca
     const requested = Math.min(width * .88, height * .65 * screen.width / screen.height);
     const size = bitmapSize(screen, requested, requested * screen.height / screen.width);
     const stops = scene.stops ?? [];
-    const holds = stops.map(s => Math.max(1.2, s.hold ?? 0, readingFloor(s.caption ?? "")));
+    const holds = stops.map(s => Math.max(minShot, s.hold ?? 0, readingFloor(s.caption ?? "")));
     const targets = stops.map(s => {
       const r = sb.regions.find(r => r.id === s.region)!;
       if (r.screen !== (scene.screen ?? Object.keys(sb.screens)[0])) throw new Error("zoom-tour: stops must belong to the scene screen");

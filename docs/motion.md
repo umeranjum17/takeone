@@ -8,7 +8,7 @@ The three core patterns are `hero-reveal`, `zoom-tour`, and `end-card`. A tour a
 
 `--plan-only` writes an editable storyboard. `takeone render <dir>` rerenders the saved storyboard and source screens. A supplied `--storyboard file.json` uses paths relative to the output take directory; use absolute source paths when importing a plan from elsewhere.
 
-Storyboard v1 contains `source`, `screens`, `regions`, `scenes`, `transitions`, `output`, and `theme`. Scene `at` defaults to the previous scene end. Output is 1920×1080 at 60 fps with eight fixed workers. Internal viewport dimensions support bento master comparisons. Worker count is part of the render identity: keep it fixed between deterministic rerenders. `render.json` records workers, shell, encoder, timing and subframe accumulation. Hero and tour bitmap transforms also write `camera.json`.
+Storyboard v1 contains `source`, `screens`, `regions`, `scenes`, `output`, and `theme`. Scene `at` defaults to the previous scene end; scene windows define cuts. Text duration includes its reveal and a full reading hold. Output is 1920×1080 at 60 fps with eight fixed workers. Internal viewport dimensions support bento master comparisons. Worker count is part of the render identity: keep it fixed between deterministic rerenders. `render.json` records workers, shell, encoder, timing and subframe accumulation. Hero and tour bitmap transforms also write `camera.json`.
 
 `layout: {kind:"bento", grid:"2x2", master:{d:6,scenes:[...]}, tiles:[{id:"TL",offset_s:0},...]}` plays the same master in four clipped viewports with shifted clocks. Tile ids are TL, TR, BL and BR. `pinwheel-3x2` instead takes `tiles:{A:[...],B:[...],C:[...],D:[...]}` for independent timelines. Gutters, page colour and corners are theme tokens.
 

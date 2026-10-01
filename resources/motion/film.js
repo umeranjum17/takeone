@@ -7,7 +7,7 @@ window.sceneCtx = (W, H, scene, key) => {
   const S = STORYBOARD, sb = S.storyboard;
   const regions = Object.fromEntries(sb.regions.map((r) => [r.id, r]));
   return {
-    W, H, fps: sb.output.fps, seed: sb.seed, tokens: S.tokens, screens: S.screens, regions,
+    W, H, fps: sb.output.fps, tokens: S.tokens, screens: S.screens, regions,
     region: (id) => { const r = regions[id]; if (!r) throw new Error(`unknown region ${id}`); return r; },
     screen: (id) => { const s = S.screens[id ?? Object.keys(S.screens)[0]]; if (!s) throw new Error(`unknown screen ${id}`); return s; },
     camera: S.cameras?.[key] ?? null,

@@ -1,4 +1,7 @@
 import test from "node:test";
+import { spawn } from "node:child_process";
+import { setTimeout as delay } from "node:timers/promises";
+import { encodeFrames } from "../src/motion/render.ts";
 import vm from "node:vm";
 import { readFileSync } from "node:fs";
 import { motionPage } from "../src/motion/page.ts";
@@ -64,7 +67,7 @@ test("camera tour emits native-bounded smooth paths and checks hold floor",()=>{
 test("fragment reading floor and states are validated",()=>{
   assert.throws(()=>validateStoryboard({...board(),scenes:[{pattern:"fragment",kind:"feed-row",d:1}]}),/reading-time floor/);
   assert.throws(()=>validateStoryboard({...board(),scenes:[{pattern:"fragment",kind:"button",state:"missing",d:3}]}),/idle, hover, pressed/);
-  validateStoryboard({...board(),scenes:[{pattern:"fragment",kind:"input",state:"typing",d:3}]});
+  validateStoryboard({...board(),scenes:[{pattern:"fragment",kind:"input",state:"typing",d:3.5}]});
 });
 
 test("ingest timer clock preserves order, nested timers and cancellation",async()=>{
@@ -124,5 +127,54 @@ test("motion planning preserves screen ownership, quoted states and bounded bitm
   assert.throws(()=>parseMotionArgs(["first.png","--aspect","9:16"]),/unknown option/);
   assert.throws(()=>parseMotionArgs(["first.png","--fps","30"]),/unknown option/);
   assert.throws(()=>validateStoryboard({...board(),output:{quality:"draft"}}),/not supported/);
-  assert.throws(()=>validateStoryboard({...board(),scenes:[...board().scenes,...board().scenes],transitions:[{after:0,kind:"xfade",d:.25}]}),/expected cut/);
+});
+
+
+test("text reveal must finish before its reading hold on every timeline",()=>{
+  const cases=[
+    {pattern:"fragment",kind:"input",state:"typing",text:"ShipTheOctoberReleaseNow",d:1.1},
+    {pattern:"end-card",logo:"A".repeat(32),d:1.1},
+    {pattern:"hero-reveal",title:"One two three four five six seven eight",d:3.2},
+    {pattern:"hero-reveal",subtitle:"Launch",d:1.6},
+    {pattern:"end-card",logo:"",cta:"Launch",d:1.7},
+    {pattern:"end-card",logo:"",url:"Launch",d:1.8},
+  ];
+  for(const scene of cases) {
+    assert.throws(()=>validateStoryboard({...board(),scenes:[scene]}),/reveal and reading-time/);
+    assert.throws(()=>validateStoryboard({...board(),layout:{kind:"bento",grid:"2x2",master:{d:6,scenes:[scene]},tiles:["TL","TR","BL","BR"].map(id=>({id,offset_s:0}))}}),/reveal and reading-time/);
+    assert.throws(()=>validateStoryboard({...board(),layout:{kind:"bento",grid:"pinwheel-3x2",tiles:Object.fromEntries(["A","B","C","D"].map(id=>[id,[scene]]))}}),/reveal and reading-time/);
+    validateStoryboard({...board(),scenes:[{...scene,d:6}]});
+  }
+  assert.throws(()=>validateStoryboard({...board(),tempo:{bpm:120,phase_s:0,snap:"beat"},scenes:[{pattern:"hero-reveal",title:"One two three four",d:2.5+1/60}]}),/reading-time/);
+});
+
+test("tour planning holds the effective minimum before reversing",()=>{
+  const raw={...board(),theme:{name:"editorial",overrides:{min_shot:3}},regions:[{id:"r1",rect:[900,300,760,620],screen:"S1",from:"user"}],scenes:[{pattern:"zoom-tour",d:8,screen:"S1",stops:[{region:"r1"}]}]};
+  const sb=validateStoryboard(raw),frames=sceneCameras(sb)["0"]!;
+  const minimum=Math.min(...frames.map(f=>f.w));
+  const hold=frames.filter(f=>Math.abs(f.w-minimum)<1e-8);
+  assert.ok(hold.length/60>=3);
+  assertBoundedCamera(frames.map(f=>f.output??f));
+  assert.throws(()=>sceneCameras(validateStoryboard({...raw,scenes:[{...raw.scenes[0]!,d:5}]})),/bounded moves/);
+});
+
+test("bento rejects combined spacing that removes tile area",()=>{
+  const scenes=[{pattern:"hero-reveal",d:6,title:"Launch"}];
+  const layouts=[{kind:"bento",grid:"2x2",master:{d:6,scenes},tiles:["TL","TR","BL","BR"].map(id=>({id,offset_s:0}))},{kind:"bento",grid:"pinwheel-3x2",tiles:Object.fromEntries(["A","B","C","D"].map(id=>[id,scenes]))}];
+  for(const layout of layouts) {
+    assert.throws(()=>validateStoryboard({...board(),layout,theme:{name:"editorial",overrides:{margin_y:400,gutter_y:400}}}),/positive tile/);
+    validateStoryboard({...board(),layout,output:{out_w:886,out_h:486}});
+  }
+  for(const layout of layouts)validateStoryboard({...board(),layout,theme:{name:"editorial",overrides:{margin_x:400,gutter_x:400}}});
+});
+
+test("encoding closes failed streams during warm-up and backpressure",{timeout:5000},async()=>{
+  const options={stdio:["pipe","ignore","ignore"] as ["pipe","ignore","ignore"]};
+  async function* frames() {yield Buffer.alloc(1024);yield Buffer.alloc(1024);}
+  await encodeFrames(spawn(process.execPath,["-e","process.stdin.resume()"],options),frames());
+  async function* warmup() {await delay(50);yield Buffer.alloc(1024);}
+  await assert.rejects(encodeFrames(spawn(process.execPath,["-e","process.exit(2)"],options),warmup()),/exited 2|[Pp]remature|EPIPE/);
+  async function* large() {for(let i=0;i<10;i++)yield Buffer.alloc(1024*1024);}
+  await assert.rejects(encodeFrames(spawn(process.execPath,["-e","setTimeout(()=>process.exit(2),20)"],options),large()),/exited 2|[Pp]remature|EPIPE|ECONNRESET/);
+  await assert.rejects(encodeFrames(spawn("./missing-motion-encoder",[],options),warmup()),/ENOENT/);
 });

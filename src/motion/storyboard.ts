@@ -1,4 +1,6 @@
 // storyboard.json v1 validation at the trust boundary. Errors name the offending field (JSON path).
+import { bentoViewport } from "./geometry.ts";
+import { motionTokens } from "./theme.ts";
 import { allTimelines, layoutDuration, validateLayout } from "./layout.ts";
 import { parseStateOp } from "./ingest.ts";
 import { beatTime, lintFonts } from "./lint.ts";
@@ -32,7 +34,29 @@ export function readingFloor(text: string): number {
 
 /** Every string a scene puts on screen, for the reading floor and the glyph-coverage gate. */
 export function sceneTexts(s: Scene): string[] {
-  return [s.title, s.subtitle, s.cta, s.url, s.logo, s.text, ...(s.stops ?? []).map((x) => x.caption)].filter((t): t is string => !!t);
+  if (s.pattern === "hero-reveal") return [s.title, s.subtitle].filter((t): t is string => !!t);
+  if (s.pattern === "end-card") return [s.logo ?? "TakeOne", s.cta, s.url].filter((t): t is string => !!t);
+  if (s.pattern === "fragment") {
+    const defaults: Record<string, string> = { button: "Create task", input: s.state === "empty" ? "Task title" : "Draft launch announcement", chip: "High priority", toast: "Task created" };
+    if (s.kind === "feed-row") return ["Umer", s.text ?? "moved Draft launch announcement", "Just now"];
+    return [s.kind === "input" && s.state === "empty" ? "Task title" : s.text ?? defaults[s.kind ?? ""] ?? ""].filter(Boolean);
+  }
+  return (s.stops ?? []).map(x => x.caption ?? "").filter(Boolean);
+}
+
+function sceneReadingDuration(s: Scene, fps: number): number {
+  let reveal = 0;
+  if (s.pattern === "hero-reveal") {
+    const words = (s.title ?? "").trim().split(/\s+/).filter(Boolean).length;
+    reveal = Math.max(words ? .4 + .06 * (words - 1) : 0, s.subtitle ? .6 : 0);
+  } else if (s.pattern === "end-card") {
+    const glyphs = [...(s.logo ?? "TakeOne")].filter(ch => ch.trim()).length;
+    reveal = Math.max(glyphs ? .55 + .035 * (glyphs - 1) : 0, s.cta ? .65 : 0, s.url ? .75 : 0);
+  } else if (s.pattern === "fragment" && s.kind === "input" && s.state === "typing") {
+    reveal = .055 * (s.text ?? "Draft launch announcement").length;
+  }
+  const reading = readingFloor(sceneTexts(s).join(" "));
+  return reading ? Math.ceil(reveal * fps - 1e-9) / fps + reading + 1 / fps : 0;
 }
 
 function scene(raw: unknown, path: string): Scene {
@@ -51,8 +75,7 @@ function scene(raw: unknown, path: string): Scene {
     if (!s.kind || !kinds.includes(s.kind)) throw new StoryboardError(`${path}.kind`, `choose ${kinds.join(", ")}`);
     if (s.kind === "button" && s.state && !["idle", "hover", "pressed"].includes(s.state)) throw new StoryboardError(`${path}.state`, "choose idle, hover, pressed");
     if (s.kind === "input" && s.state && !["empty", "typing", "filled"].includes(s.state)) throw new StoryboardError(`${path}.state`, "choose empty, typing, filled");
-    const defaults: Record<string, string> = { button: "Create task", input: "Draft launch announcement", chip: "High priority", toast: "Task created", "feed-row": "Umer moved Draft launch announcement" };
-    if (s.d < readingFloor(s.text ?? defaults[s.kind] ?? "")) throw new StoryboardError(`${path}.d`, "fragment is under reading-time floor");
+
   }
   if (raw["stops"] !== undefined) {
     if (!Array.isArray(raw["stops"]) || raw["stops"].length > 8) throw new StoryboardError(`${path}.stops`, "expected up to 8 stops");
@@ -148,27 +171,6 @@ export function validateStoryboard(raw: unknown): Storyboard {
     return s;
   });
   if (t > MAX_DURATION_S) throw new StoryboardError("scenes", `total duration ${t.toFixed(2)} s exceeds ${MAX_DURATION_S} s`);
-  scenes.forEach((s, i) => {
-    for (const k of ["screen"] as const) if (s[k] !== undefined && Object.keys(screens).length && !Object.hasOwn(screens, s[k]!)) throw new StoryboardError(`scenes[${i}].${k}`, `unknown screen ${s[k]}`);
-    if (s.focus !== undefined && !regionIds.has(s.focus)) throw new StoryboardError(`scenes[${i}].focus`, `unknown region ${s.focus}`);
-    s.stops?.forEach((x, j) => { if (!regionIds.has(x.region)) throw new StoryboardError(`scenes[${i}].stops[${j}].region`, `unknown region ${x.region}`); });
-    // zoom-tour checks its floor per stop (camera planning); other scenes hold all their text at once.
-    const floor = readingFloor(sceneTexts(s).join(" "));
-    if (s.pattern !== "zoom-tour" && s.d + 1e-9 < floor) {
-      throw new StoryboardError(`scenes[${i}].d`, `${s.d} s is under the reading-time floor ${floor.toFixed(2)} s`);
-    }
-  });
-
-  const transitions = raw["transitions"] ?? [];
-  if (!Array.isArray(transitions)) throw new StoryboardError("transitions", "expected an array");
-  transitions.forEach((x, i) => {
-    if (!isObj(x) || !["cut"].includes(String(x["kind"]))) throw new StoryboardError(`transitions[${i}].kind`, "expected cut");
-    num(x["after"], `transitions[${i}].after`, 0, scenes.length - 2);
-    if (!Number.isInteger(x["after"])) throw new StoryboardError(`transitions[${i}].after`, "expected scene index");
-    num(x["d"] ?? 0, `transitions[${i}].d`, 0, 0);
-    x["d"] ??= 0;
-  });
-
   let layout: Storyboard["layout"];
   try { layout = validateLayout(raw["layout"] ?? { kind: "single" }, scene); } catch (e) {
     if (e instanceof StoryboardError) throw e;
@@ -177,7 +179,7 @@ export function validateStoryboard(raw: unknown): Storyboard {
   }
 
   const result: Storyboard = {
-    version: 1, id, seed: raw["seed"] === undefined ? 1 : num(raw["seed"], "seed", 0, 2 ** 31),
+    version: 1, id,
     output: { out_w, out_h, fps, workers, motion_blur, preset: String(preset) },
     theme: { name: themeName, overrides: overrides as Storyboard["theme"]["overrides"] },
     ...(raw["tempo"] === undefined ? {} : { tempo: raw["tempo"] as Storyboard["tempo"] }),
@@ -186,9 +188,12 @@ export function validateStoryboard(raw: unknown): Storyboard {
     regions: regions as Storyboard["regions"],
     layout,
     scenes,
-    transitions: transitions as Storyboard["transitions"],
     planner: (isObj(raw["planner"]) ? raw["planner"] : { by: "user", abstained: [] }) as Storyboard["planner"],
   };
+  if (layout.kind === "bento") {
+    const tokens = motionTokens(themeName, result.theme.overrides);
+    for (let list = 0; list < 4; list++) bentoViewport(out_w, out_h, tokens, layout.grid, list);
+  }
   if (result.tempo) {
     const tempo = result.tempo;
     num(tempo.bpm, "tempo.bpm", 20, 300);
@@ -204,7 +209,7 @@ export function validateStoryboard(raw: unknown): Storyboard {
   for (const list of allTimelines(layout, scenes)) for (const [i, s] of list.entries()) {
     if (s.focus && !regionIds.has(s.focus)) throw new StoryboardError(`scenes[${i}].focus`, "unknown region");
     if (s.screen && Object.keys(screens).length && !Object.hasOwn(screens, s.screen)) throw new StoryboardError(`scenes[${i}].screen`, "unknown screen");
-    if (s.pattern !== "zoom-tour" && s.d < readingFloor(sceneTexts(s).join(" "))) throw new StoryboardError(`scenes[${i}].d`, "under reading-time floor");
+    if (s.pattern !== "zoom-tour" && s.d + 1e-9 < sceneReadingDuration(s, fps)) throw new StoryboardError(`scenes[${i}].d`, "under reveal and reading-time floor");
     for (const stop of s.stops ?? []) if (!regionIds.has(stop.region)) throw new StoryboardError(`scenes[${i}].stops`, "unknown region");
     const owner = s.screen ?? Object.keys(screens)[0] ?? Object.keys((source["states"] ?? {}) as object)[0] ?? "S1";
     for (const id of [s.focus, ...(s.stops ?? []).map(stop => stop.region)].filter(Boolean)) {

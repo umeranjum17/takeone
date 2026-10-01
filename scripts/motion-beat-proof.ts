@@ -10,13 +10,13 @@ const dir = resolve("tmp/motion-beat-proof");
 mkdirSync(dir, { recursive: true });
 const source = readStoryboard(resolve("tmp/motion-proof/zoom-tour"));
 const sb = validateStoryboard({ ...source, tempo: { bpm: 120, phase_s: 0, snap: "beat" }, scenes: [
-  { pattern: "hero-reveal", d: 2, screen: "S1", title: "Launch board" },
-  { pattern: "hero-reveal", d: 2, screen: "S2", title: "Draft your launch" },
-  { pattern: "hero-reveal", d: 2, screen: "S3", title: "Task created" },
-], transitions: [] });
+  { pattern: "hero-reveal", d: 3, screen: "S1", title: "Launch board" },
+  { pattern: "hero-reveal", d: 3, screen: "S2", title: "Draft your launch" },
+  { pattern: "hero-reveal", d: 3, screen: "S3", title: "Task created" },
+] });
 const { html } = writePage(dir, sb);
 const measurements = [];
-for (const time of [2, 4]) {
+for (const time of [3, 6]) {
   const framesDir = join(dir, String(time));
   await renderFrames({ html, width: 1920, height: 1080, fps: 60, firstFrame: time * 60 - 2, frames: 5, workers: 1, framesDir });
   const frames = Array.from({ length: 5 }, (_, i) => decodePng(readFileSync(join(framesDir, `${String(i + 1).padStart(6, "0")}.png`))).data);

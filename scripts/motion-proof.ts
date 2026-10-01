@@ -10,6 +10,7 @@ import { validateStoryboard } from "../src/motion/storyboard.ts";
 import type { Scene } from "../src/motion/types.ts";
 import { cameraViewport } from "../src/motion/camera.ts";
 import { allTimelines } from "../src/motion/layout.ts";
+import { motionTokens } from "../src/motion/theme.ts";
 import { cameraMetrics } from "./quality.ts";
 
 const root=resolve("tmp/evidence/t1-l8"),work=resolve("tmp/motion-proof");mkdirSync(root,{recursive:true});mkdirSync(work,{recursive:true});
@@ -51,7 +52,7 @@ async function render(id:string,scenes:Scene[],extras:Record<string,unknown>={})
     const parts=key.split(":"),list=parts.length===1 || parts[0]==="master" ? 0 : ["A","B","C","D"].indexOf(parts[0]!);
     const scene=lists[list]![Number(parts.at(-1))]!;
     const viewport=cameraViewport(story,list);
-    const m=cameraMetrics(projected,60,viewport.width,viewport.height,1.2);
+    const m=cameraMetrics(projected,60,viewport.width,viewport.height,motionTokens(story.theme.name,story.theme.overrides).min_shot);
     if(scene.pattern==="hero-reveal") {m.max_upscale!.target=1;m.max_upscale!.goalPassed=m.max_upscale!.value<=1+1e-9;}
     return [key,m];
   }));
@@ -67,11 +68,11 @@ writeFileSync(join(root,"takeone-motion-determinism.json"),JSON.stringify({ident
 writeFileSync(join(root,"takeone-motion-run1.framemd5"),decodedA);writeFileSync(join(root,"takeone-motion-run2.framemd5"),decodedB);
 if(decodedA!==decodedB)throw new Error("decoded determinism gate failed");
 if(timing.wall_s>15)throw new Error(`6s/1080p60 wall-time ${timing.wall_s.toFixed(2)} s exceeds 15 s`);
-const hero=await render("hero-reveal",Object.keys(states).map((screen,i)=>({pattern:"hero-reveal",d:2,screen,device:i===5?"phone":"browser",title:["Your next launch","Make a task","Find your focus","Keep work moving","Bring everyone along","Clear the deck"][i]!})),{tempo:{bpm:120,phase_s:0,snap:"beat"}});
+const hero=await render("hero-reveal",Object.keys(states).map((screen,i)=>({pattern:"hero-reveal",d:3,screen,device:i===5?"phone":"browser",title:["Your next launch","Make a task","Find your focus","Keep work moving","Bring everyone along","Clear the deck"][i]!})),{tempo:{bpm:120,phase_s:0,snap:"beat"}});
 execFileSync("ffmpeg",["-v","error","-y","-ss","1","-i",hero.out,"-frames:v","1",join(root,"takeone-motion-device-after.png")]);
 const regions=Object.keys(states).map((screen,i)=>({id:`r${i}`,screen,rect:i===1?[900,300,760,680]:[320,128,1656,780],from:"user"}));
 const tour=await render("zoom-tour",Object.keys(states).map((screen,i)=>({pattern:"zoom-tour",d:5,screen,device:"browser",stops:[{region:`r${i}`,caption:["Launch board","Draft your launch","Task created","Keep work moving","Umer moved it","Done tasks archived"][i]!}]})),{regions});
-await render("end-card",Object.keys(states).map(screen=>({pattern:"end-card",d:3,screen,logo:"TakeOne",cta:"Make your first take"})));
+await render("end-card",Object.keys(states).map(screen=>({pattern:"end-card",d:3.5,screen,logo:"TakeOne",cta:"Make your first take"})));
 // Fragment contact sheets are native 1080p, with every state visible at once.
 for(const theme of ["editorial","midnight"]) {
   const dir=join(work,`fragments-${theme}`);mkdirSync(dir,{recursive:true});
