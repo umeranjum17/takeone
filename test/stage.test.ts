@@ -10,6 +10,7 @@ import { bandEligible, bandLayout, bandText, captionAss, captionLayouts, takeCap
 import { measureCaptions } from "../src/render/render.ts";
 import { THEMES, resolveTheme } from "../src/themes.ts";
 
+
 const clickAt = (t: number): Beat => ({
   id: `b${t}`, t0: t, t1: t + 0.5, anchor_t: t, zones: [], actions: [{ k: "click", t: t * 1000, x: 10, y: 10 }],
 } as unknown as Beat);
@@ -247,6 +248,7 @@ test("a simultaneous title stacks above the caption", {skip:!hasFfmpeg()}, () =>
 
 
 test("export ends within 1.5 seconds of the last result or cut, ignoring resting pointers", () => {
+
   const action = clickAt(5);
   action.zones = [{name:"result",type:"res",bbox:[0,0,100,100],t_change:5.7}];
   const idle: Beat = { ...clickAt(10), kind:"idle", actions:[{k:"ptr",t:10000,x:10,y:10}] };
@@ -264,6 +266,7 @@ test("export ends within 1.5 seconds of the last result or cut, ignoring resting
     assert.ok(squeezes.every(s => s.a >= DEFAULTS.establish_s));
     if (beats[0] === cut) assert.ok(squeezes.every(s => s.b <= cut.t0-start || s.a >= cut.t1-start));
   }
+
   assert.equal(purposefulEnd([action,idle],0,12,{...DEFAULTS,outro_s:0}),12);
   assert.equal(purposefulEnd([action],0,6,DEFAULTS),6);
 });
