@@ -120,7 +120,7 @@ export function keycapAss(beats: Beat[], start: number, duration: number, d: Cam
       };
       const text = (label: string, x: number, y: number, fontSize: number, clear = 0) =>
         `Dialogue: 9,${assTime(t)},${assTime(end)},Default,,0,0,0,,{\\an5\\pos(${cx + (x - cx) * scale},${cy + (y - cy) * scale + rise})`
-        + `\\fs${fontSize}\\fscx${scale * 100}\\fscy${scale * 100}\\b1\\bord0\\shad0\\1a&H${Math.round(alpha(clear) * 255).toString(16).padStart(2, "0")}&}${label}\n`;
+        + `\\fnArial\\fs${fontSize}\\fscx${scale * 100}\\fscy${scale * 100}\\b1\\bord0\\shad0\\1a&H${Math.round(alpha(clear) * 255).toString(16).padStart(2, "0")}&}${label}\n`;
       const x0 = cx - w / 2, y0 = cy - h / 2;
       ass += shape(x0, y0 + size * 0.14, w, h, size * 0.48, "#000000", 0.62, 4, size * 0.14);
       ass += shape(x0, y0, w, h, size * 0.48, "#edf5ff", 0.74, 5);
