@@ -1,5 +1,5 @@
 import test from "node:test";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { setTimeout as delay } from "node:timers/promises";
 import { encodeFrames } from "../src/motion/render.ts";
 import vm from "node:vm";
@@ -260,4 +260,64 @@ test("state names preserve capture order and reject overwritten operations", asy
     const stable=parseMotionArgs([input,"--state","01=wait 100","--state","4294967295=wait 200","--state","S1=wait 300"]);
     assert.deepEqual(Object.keys(validateStoryboard(planStoryboard(stable,"stable")).source.states!),["01","4294967295","S1"]);
   }
+});
+
+
+test("explicit worker counts reach storyboard validation",()=>{
+  for(const workers of ["0","nope","-1","1.5","65"]) {
+    assert.throws(()=>validateStoryboard(planStoryboard(parseMotionArgs(["page.html","--workers",workers]),"workers")),/output.workers/);
+  }
+  for(const workers of ["1","8","64"]) {
+    assert.equal(validateStoryboard(planStoryboard(parseMotionArgs(["page.html","--workers",workers]),"workers")).output.workers,Number(workers));
+  }
+  assert.equal(validateStoryboard(planStoryboard(parseMotionArgs(["page.html"]),"workers")).output.workers,8);
+});
+
+test("prototype-named captures survive ingest and serialized storyboard consumption",()=>{
+  const result=spawnSync(process.execPath,["--experimental-test-module-mocks","--input-type=module","-e",`
+    import {mock} from 'node:test';
+    import vm from 'node:vm';
+    import assert from 'node:assert/strict';
+    import {mkdtempSync,readFileSync,writeFileSync,rmSync} from 'node:fs';
+    import {resolve,join} from 'node:path';
+    import {encodePng} from './src/motion/png.ts';
+    const png=encodePng({width:16,height:16,channels:3,data:new Uint8Array(16*16*3)});
+    let closed=0;
+    mock.module('./src/motion/cdp.ts',{namedExports:{
+      launch:async()=>({send:async(method)=>method==='Page.captureScreenshot'?{data:png.toString('base64')}:{},evaluate:async()=>{},close:async()=>{closed++;}}),
+      navigate:async()=>{},shellFlags:()=>[]
+    }});
+    mock.module('./src/motion/shell.ts',{namedExports:{pinnedShell:async()=>({path:'mock-shell'}),installShell:async()=>{throw new Error('unexpected install');}}});
+    const {ingest}=await import('./src/motion/ingest.ts');
+    const {parseMotionArgs,planStoryboard}=await import('./src/motion/cli.ts');
+    const {validateStoryboard}=await import('./src/motion/storyboard.ts');
+    const {readStoryboard,pageData}=await import('./src/motion/motion.ts');
+    const {motionPage}=await import('./src/motion/page.ts');
+    const dir=mkdtempSync(resolve('.motion-state-test-'));
+    try {
+      for(const direct of [false,true]) {
+        const story=validateStoryboard(planStoryboard(parseMotionArgs(['page.html','--state','__proto__=wait 100','--state','constructor=wait 100','--state','S1=wait 100']),'captures'));
+        story.source.viewport=[16,16];
+        if(direct)story.screens={};
+        await ingest(dir,story);
+        assert.deepEqual(Object.keys(story.screens),['__proto__','constructor','S1']);
+        assert.deepEqual(readFileSync(join(dir,'sources','__proto__.png')),png);
+        writeFileSync(join(dir,'storyboard.json'),JSON.stringify(story));
+        const restored=readStoryboard(dir);
+        assert.equal(Object.hasOwn(restored.screens,'__proto__'),true);
+        assert.deepEqual(restored.screens['__proto__'],{file:'sources/__proto__.png',width:16,height:16});
+        const data=pageData(dir,restored,{});
+        assert.deepEqual(Object.keys(data.screens),['__proto__','constructor','S1']);
+        const html=motionPage(data,data.tokens,1920,1080);
+        const bootstrap=html.slice(html.indexOf('<script>')+8,html.indexOf('</script>'));
+        const window={};
+        vm.runInNewContext(bootstrap,{window});
+        assert.equal(Object.hasOwn(window.STORYBOARD.screens,'__proto__'),true);
+        assert.equal(window.STORYBOARD.screens['__proto__'].width,16);
+        assert.equal(Object.hasOwn(window.STORYBOARD.storyboard.screens,'__proto__'),true);
+      }
+      assert.equal(closed,2);
+    } finally {rmSync(dir,{recursive:true,force:true});}
+  `],{encoding:"utf8",timeout:5000});
+  assert.equal(result.status,0,result.stderr);
 });

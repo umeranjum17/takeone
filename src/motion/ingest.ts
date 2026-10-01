@@ -29,6 +29,7 @@ export function imageSize(file: string): { width: number; height: number } {
 export async function ingest(dir: string, sb: Storyboard): Promise<void> {
   const states = Object.entries(sb.source.states ?? {});
   validateStateNames(states.map(([id]) => id));
+  sb.screens = Object.assign(Object.create(null), sb.screens);
   const out = join(dir, "sources");
   mkdirSync(out, { recursive: true });
   if (sb.source.kind === "image") {
