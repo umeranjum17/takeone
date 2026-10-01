@@ -7,7 +7,7 @@ import type { Beat, CameraFrame, Decision, TakeMeta } from "../camera/types.ts";
 import { idleSqueezes, setptsExpr, warp, warpBeats } from "./pace.ts";
 import {
   beatClicks, captionAss, cardFilter, clickAss, measureAss, stageFrames, stageGeometry, stageImageFilter, takeCaptions,
-  type Caption,
+  type Caption, type CaptionInk,
 } from "./stage.ts";
 
 /** Encode one crop command per sampled camera frame for FFmpeg's crop filter. */
@@ -134,17 +134,18 @@ function filterPath(path: string): string {
   return escapedOption.replace(/[\\',;\[\]]/g, "\\$&");
 }
 
-/** Ink width of each caption, measured by rendering it with libass and cropdetect. */
-async function measureCaptions(dir: string, captions: Caption[], d: CameraDefaults): Promise<number[]> {
+/** Wrapped ink bounds of each caption, measured by rendering it with libass and cropdetect. */
+async function measureCaptions(dir: string, captions: Caption[], d: CameraDefaults): Promise<CaptionInk[]> {
   if (captions.length === 0) return [];
   const file = join(dir, "measure.ass");
   await writeFile(file, measureAss(captions, d));
-  const log = await runFfmpeg(["-hide_banner", "-f", "lavfi", "-i", `color=black:s=${d.out_w}x200:r=1:d=${captions.length}`,
+  const log = await runFfmpeg(["-hide_banner", "-f", "lavfi", "-i", `color=black:s=${d.out_w}x${d.out_h}:r=1:d=${captions.length}`,
     "-vf", `ass=${filterPath(file)},format=gray,cropdetect=limit=0:round=2:reset=1:skip=0`, "-f", "null", "-"]);
-  const widths = captions.map(() => 0);
-  for (const match of log.matchAll(/x1:(-?\d+) x2:(-?\d+).*? t:(\d+(?:\.\d+)?)/g)) {
-    const index = Math.round(Number(match[3]));
-    if (index < widths.length) widths[index] = Math.max(0, Number(match[2]) - Number(match[1]) + 1);
+  const widths = captions.map(() => ({ w: 0, h: 0 }));
+  for (const match of log.matchAll(/x1:(-?\d+) x2:(-?\d+) y1:(-?\d+) y2:(-?\d+).*? t:(\d+(?:\.\d+)?)/g)) {
+    const index = Math.round(Number(match[5]));
+    if (index < widths.length) widths[index] = { w: Math.max(0, Number(match[2]) - Number(match[1]) + 1),
+      h: Math.max(0, Number(match[4]) - Number(match[3]) + 1) };
   }
   return widths;
 }

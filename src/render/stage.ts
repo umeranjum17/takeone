@@ -230,7 +230,7 @@ export interface Caption { t0: number; t1: number; text: string; title: boolean 
  * output time; durations are output seconds so reading time survives idle squeezing.
  */
 export function takeCaptions(meta: TakeMeta, at: (t: number) => number, duration: number): Caption[] {
-  const clean = (text: string) => text.replace(/[{}\\]/g, "").replace(/\s+/g, " ").trim().slice(0, 90);
+  const clean = (text: string) => text.replace(/[{}\\]/g, "").replace(/\s+/g, " ").trim();
   const out: Caption[] = [];
   const title = typeof meta.title === "string" ? clean(meta.title) : "";
   if (title) out.push({ t0: 0.35, t1: Math.min(duration, 3.1), text: title, title: true });
@@ -242,22 +242,40 @@ export function takeCaptions(meta: TakeMeta, at: (t: number) => number, duration
     const t1 = Math.min(duration, at(caption.t) + d);
     if (text && t1 > t0) out.push({ t0, t1, text, title: false });
   }
-  return out;
+  const body = out.filter(c => !c.title).sort((a, b) => a.t0 - b.t0);
+  for (let i = 0; i + 1 < body.length; i++) body[i]!.t1 = Math.min(body[i]!.t1, body[i + 1]!.t0);
+  return [...out.filter(c => c.title && c.t1 > c.t0), ...body.filter(c => c.t1 > c.t0)];
 }
 
 /**
  * Captions as rounded pills near the bottom, sized from `widths`: ink widths
- * measured with the same libass/font that renders them.
+ * and heights measured with the same libass/font that renders them.
  */
-export function captionAss(captions: Caption[], widths: number[], d: CameraDefaults): string {
+export interface CaptionInk { w: number; h: number }
+
+function captionMargin(size: number, d: CameraDefaults): number {
+  return Math.ceil(d.out_w * 0.05 + size * 0.75);
+}
+
+export function captionAss(captions: Caption[], widths: (number | CaptionInk)[], d: CameraDefaults): string {
   let out = assHeader(d.out_w, d.out_h, d.caption_font, d.caption_size);
+  const heights = captions.map((caption, index) => {
+    const size = caption.title ? Math.round(d.caption_size * 1.4) : d.caption_size;
+    const ink = widths[index] ?? 0;
+    const h = typeof ink === "number"
+      ? Math.ceil(ink / Math.max(1, d.out_w - 2 * captionMargin(size, d))) * size * 1.2 : ink.h;
+    return Math.ceil(Math.max(size, h) + size * 0.9);
+  });
   captions.forEach((caption, index) => {
     const size = caption.title ? Math.round(d.caption_size * 1.4) : d.caption_size;
     const padX = size * 0.75;
-    const pillH = Math.round(size * 1.9);
-    const pillW = Math.min(d.out_w * 0.9, widths[index]! + 2 * padX);
+    const pillH = heights[index]!;
+    const ink = widths[index] ?? 0;
+    const pillW = Math.min(d.out_w * 0.9, (typeof ink === "number" ? ink : ink.w) + 2 * padX);
     const cx = d.out_w / 2;
-    const cy = d.out_h - d.out_h * 0.075 - pillH / 2;
+    const below = caption.title ? Math.max(0, ...captions.map((other, i) =>
+      !other.title && other.t0 < caption.t1 && other.t1 > caption.t0 ? heights[i]! : 0)) : 0;
+    const cy = d.out_h - d.out_h * 0.075 - pillH / 2 - (below ? below + size * 0.35 : 0);
     const rise = Math.round(size * 0.3);
     const move = `\\move(${cx},${cy + rise},${cx},${cy},0,260)`;
     const fade = `\\fad(220,200)`;
@@ -267,17 +285,19 @@ export function captionAss(captions: Caption[], widths: number[], d: CameraDefau
     // The pill is drawn around its own origin so \move animates it with the text.
     out += `Dialogue: 2,${time},Default,,0,0,0,,{\\an7${move}${fade}\\bord0\\shad0\\blur0.6`
       + `\\1c${assColour("#101217")}\\1a${assAlpha(0.14)}\\p1}${roundRect(x, y, pillW, pillH, pillH / 2)}\n`;
-    out += `Dialogue: 3,${time},Default,,0,0,0,,{\\an5${move}${fade}\\fs${size}\\bord0\\shad0}${caption.text}\n`;
+    const margin = captionMargin(size, d);
+    out += `Dialogue: 3,${time},Default,,${margin},${margin},0,,{\\q0\\an5${move}${fade}\\fs${size}\\bord0\\shad0}${caption.text}\n`;
   });
   return out;
 }
 
-/** An ASS script that shows caption i alone during second i, for measuring ink widths. */
+/** Show caption i alone during second i, with the final wrap width, to measure its ink bounds. */
 export function measureAss(captions: Caption[], d: CameraDefaults): string {
-  let out = assHeader(d.out_w, 200, d.caption_font, d.caption_size);
+  let out = assHeader(d.out_w, d.out_h, d.caption_font, d.caption_size);
   captions.forEach((caption, index) => {
     const size = caption.title ? Math.round(d.caption_size * 1.4) : d.caption_size;
-    out += `Dialogue: 0,${assTime(index)},${assTime(index + 1)},Default,,0,0,0,,{\\an4\\pos(8,100)\\fs${size}}${caption.text}\n`;
+    const margin = captionMargin(size, d);
+    out += `Dialogue: 0,${assTime(index)},${assTime(index + 1)},Default,,${margin},${margin},0,,{\\q0\\an5\\pos(${d.out_w / 2},${d.out_h / 2})\\fs${size}}${caption.text}\n`;
   });
   return out;
 }

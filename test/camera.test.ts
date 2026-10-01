@@ -172,9 +172,10 @@ test("minimum dwell delays the next shot and merges its zone with the previous o
   const first = beat("first", 2, 500);
   const next = beat("next", 2.2, 3000);
   const result = camera([first, next], [decision(first, 2), decision(next, 2)], 5);
-  // The merged framing spans both distant subjects rather than jumping to the second alone.
-  assert.ok(at(result, 3.7).x < 1000);
-  assert.ok(at(result, 3.7).x + at(result, 3.7).w > 2800);
+  // After the opposite zoom has held for min_shot, the merged framing spans
+  // both distant subjects rather than jumping to the second alone.
+  assert.ok(at(result, 5).x < 1000);
+  assert.ok(at(result, 5).x + at(result, 5).w > 2800);
 });
 
 test("minimum shot length drops an arrival that is too close to the previous one", () => {
@@ -613,4 +614,17 @@ test("a whole-stage shot during the establish hold does not crowd out the shot b
   const frames = solveCamera([click, typing], [{ ...decision(click), L: 0 }, decision(typing)],
     { width: 3840, height: 2160, trim_start: 0, trim_end: 6 });
   assert.ok(at(frames, 3.5).w < 3000, `typing never framed: w=${at(frames, 3.5).w}`); // before the outro
+});
+
+test("opposite zooms hold for min_shot, including result targets", () => {
+  const action = beat("zoom", 1, 1200);
+  action.t1 = 3;
+  action.zones.push({ name: "wide", type: "all", bbox: [0,0,3840,2160], t_change: 1.1 });
+  const frames = solveCamera([action], [{ ...decision(action), B: "wide" }],
+    { width:3840,height:2160,trim_end:7 }, {...noBookends, dwell:0.2,min_shot:1.5});
+  const speed = frames.slice(1).map((f,i)=>Math.log(frames[i]!.w/f.w)*30);
+  const first = speed.findIndex(v=>v>0.01);
+  const hold = speed.findIndex((v,i)=>i>first && Math.abs(v)<=0.01);
+  const opposite = speed.findIndex((v,i)=>i>hold && v < -0.01);
+  assert.ok(opposite > hold && (opposite-hold)/30 >= 1.5, `hold=${(opposite-hold)/30}`);
 });

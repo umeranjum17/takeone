@@ -441,6 +441,8 @@ function sampleCamera(
   let targetIndex = 0;
   const velocity = { x: 0, y: 0 };
   const filterVelocity = { cx: 0, cy: 0, lz: 0 };
+  let lastZoomMotion = start;
+  let lastZoomDirection = 0;
   const frames: CameraFrame[] = [];
 
   for (let index = 0; index <= Math.floor((end - start) * d.fps); index++) {
@@ -449,12 +451,18 @@ function sampleCamera(
     // never before the previous arrival has visibly held for the minimum dwell
     // (the spring trails the ideal path by about 2/omega): result
     // and breathe targets obey it too, so no shot flashes by unread.
-    const heldUntil = move ? move.end + 2 / d.lowpass_omega + d.dwell : 0;
+    const settle = move ? move.end + 2 / d.lowpass_omega : 0;
+    const heldUntil = move ? settle + d.dwell : 0;
     while (targetIndex < targets.length) {
       if (move && previousTime < heldUntil) break;
       const target = targets[targetIndex]!;
+      const reversing = lastZoomDirection !== 0
+        && Math.sign(Math.log(target.state.z / state.z)) === -lastZoomDirection;
+      // Include result, breathe and outro targets: arrivals alone do not enforce
+      // a visible hold between opposite zooms once the spring settles.
+      const zoomHold = reversing ? Math.max(heldUntil, lastZoomMotion + d.min_shot) : heldUntil;
       const candidateMove = createMove(state, target.state, target.t, baseW, d,
-        Math.max(target.startAfter ?? 0, heldUntil, previousTime));
+        Math.max(target.startAfter ?? 0, zoomHold, previousTime));
       if (candidateMove.start > time) break;
       targetIndex++;
       if (isDeadzone(state, target.state, baseW, d)) continue;
@@ -483,6 +491,13 @@ function sampleCamera(
     const [cy, vy] = spring(previousFiltered.cy, filterVelocity.cy, state.cy, dt, d.lowpass_omega);
     const [lz, vz] = spring(Math.log(previousFiltered.z), filterVelocity.lz, Math.log(state.z), dt, d.lowpass_omega);
     Object.assign(filterVelocity, { cx: vx, cy: vy, lz: vz });
+    const zoomSpeed = dt > 0 ? (lz - Math.log(previousFiltered.z)) / dt : 0;
+    // A hold begins when visible zoom falls below 1% per second. Remember the
+    // direction through pan-only targets, so they cannot bypass the guard.
+    if (Math.abs(zoomSpeed) > 0.01) {
+      lastZoomMotion = time;
+      lastZoomDirection = Math.sign(zoomSpeed);
+    }
     state = { cx, cy, z: Math.exp(lz) };
     previousFiltered = state;
     previousTime = time;
