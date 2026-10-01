@@ -8,6 +8,11 @@
 <head>
 <meta charset="utf-8">
 <title>Tidewater board</title>
+<script>
+  // Only the headless producer opts into this fixed 1920x1080 presentation.
+  window.takeoneScale = new URLSearchParams(location.search).has('headless') ? .75 : 1;
+  if (window.takeoneScale !== 1) document.documentElement.dataset.headless = 'true';
+</script>
 <style>
   :root {
     --bg: #f4f2ee; --panel: #ffffff; --ink: #1d1f23; --muted: #6b6f76; --line: #e3e0da;
@@ -16,6 +21,11 @@
   * { box-sizing: border-box; }
   html, body { margin: 0; width: 2560px; height: 1440px; overflow: hidden; background: var(--bg); color: var(--ink);
     font: 400 20px/1.45 "Adwaita Sans", "Noto Sans", sans-serif; -webkit-font-smoothing: antialiased; user-select: none; }
+  html[data-headless] body { zoom: .75; }
+  html[data-headless] * { transition: none !important; caret-color: transparent; }
+  html[data-headless] body, html[data-headless] input, html[data-headless] textarea {
+    font-family: Arial, sans-serif;
+  }
   .abs { position: absolute; }
   header { left: 0; top: 0; width: 2560px; height: 88px; background: var(--panel); border-bottom: 1px solid var(--line); }
   .logo { left: 40px; top: 24px; font-weight: 700; font-size: 28px; letter-spacing: -0.02em; }
@@ -160,8 +170,8 @@
       drag.card.after(drag.ph);
       drag.card.classList.add("dragging");
     }
-    drag.card.style.left = `${e.clientX - drag.dx}px`;
-    drag.card.style.top = `${e.clientY - drag.dy}px`;
+    drag.card.style.left = `${(e.clientX - drag.dx) / window.takeoneScale}px`;
+    drag.card.style.top = `${(e.clientY - drag.dy) / window.takeoneScale}px`;
     document.querySelectorAll(".lane").forEach((l) => { const r = l.getBoundingClientRect(); l.classList.toggle("over", e.clientX > r.left && e.clientX < r.right && e.clientY > r.top && e.clientY < r.bottom); });
   });
   document.addEventListener("mouseup", (e) => {

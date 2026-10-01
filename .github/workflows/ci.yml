@@ -30,3 +30,30 @@ jobs:
             tmp/quality/*/ocr-*.png
             tmp/quality/*/out/*.mp4
           if-no-files-found: error
+
+  headless-scene:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      - name: Install capture prerequisites
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg unzip fonts-liberation libnss3 libatk1.0-0 libatk-bridge2.0-0 libx11-6 libxcomposite1 libxdamage1 libxrandr2 libgbm1 libasound2t64
+      - uses: actions/cache@v4
+        with:
+          path: .cache/headless-shell
+          key: headless-shell-linux-x64-151.0.7922.34-3cfc2bd0
+      - run: node scripts/install-headless-shell.mjs
+      - name: Capture twice and verify pixels, events, clocks and planning
+        run: node scripts/test-headless-scene.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: headless-scene-evidence
+          path: |
+            tmp/headless-validation/run-*/metrics.json
+            tmp/headless-validation/run-*/frames.framemd5
+            tmp/headless-validation/run-*/takeone-headless-scene-after.png
