@@ -39,13 +39,15 @@ function actPoint(a: Action): [number, number] | null {
   }
 }
 
-/** The beat kind is the dominant action's: longest, first on a tie. */
+/** Intent outranks passive pointer activity; longest wins within each tier. */
 function dominantKind(actions: Action[]): BeatKind {
+  const priority = (a: Action): number => a.k === "dwell" ? 0
+    : a.k === "travel" || a.k === "focus" ? 1 : 2;
   let best = actions[0]!;
   let bestDur = -1;
   for (const a of actions) {
     const d = actEnd(a) - actStart(a);
-    if (d > bestDur) {
+    if (priority(a) > priority(best) || (priority(a) === priority(best) && d > bestDur)) {
       bestDur = d;
       best = a;
     }

@@ -268,3 +268,15 @@ test("resultParts keeps small real changes in the window and drops cursor noise"
   ];
   assert.deepEqual(resultParts(frames, 1100, 2600).map((r) => r.bbox), [[60, 10, 30, 6]]);
 });
+
+test("intent actions outrank longer dwells and incidental travel", () => {
+  const dwell: Action = { k: "dwell", t0: 0, t1: 5000, x: 20, y: 20 };
+  const travel: Action = { k: "travel", t0: 500, t1: 4000, from: [20, 20], to: [30, 30], bbox: [20, 20, 10, 10] };
+  const intents: Action[] = [click(1000, 20, 20, ""), typeAct(1000, 2000, ""),
+    { k: "drag", window_cls: "", t0: 1000, t1: 2000, from: [20, 20], to: [40, 40], bbox: [20, 20, 20, 20] }];
+  for (const intent of intents) {
+    assert.equal(segmentBeats([dwell, travel, intent], [], opts())[0]!.kind, intent.k);
+  }
+  assert.equal(segmentBeats([dwell], [], opts())[0]!.kind, "dwell");
+  assert.equal(segmentBeats([dwell, travel], [], opts())[0]!.kind, "travel");
+});
