@@ -98,7 +98,7 @@ export interface Storyboard {
     dsf?: number;
     states?: Record<string, (StateOp | string)[]>;
   };
-  /** Filled by ingest: screen id -> PNG under sources/. */
+  /** Filled by ingest: screen id -> image under sources/ (copied input or captured PNG). */
   screens: Record<string, Screen>;
   regions: Region[];
   layout: Layout;

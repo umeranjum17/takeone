@@ -1,6 +1,6 @@
 # Motion renders
 
-`takeone motion design.png --out takes/launch --theme editorial --title "Ship your next idea" --device browser`
+See [Motion design from screens](../README.md#motion-design-from-screens) for the basic command.
 
 This mode turns saved screens into a film without recording. It runs offline after ingest, with a sha256 and version pinned Linux x86_64 headless shell. Install the shell with `takeone motion install-shell` (requires network access and `unzip` on PATH); `takeone doctor` reports its identity. The installer uses TakeOne's cache under `XDG_CACHE_HOME` or `~/.cache`. `TAKEONE_CHROME` can select an existing shell, which must match both pins in [shell.ts](../src/motion/shell.ts).
 
@@ -14,7 +14,7 @@ Storyboard v1 contains `source`, `screens`, `regions`, `scenes`, `output`, and `
 
 `tempo:{bpm:120,phase_s:0,snap:"beat"}` requires scene boundaries on half-second beats. One frame of drift is snapped; larger drift is rejected. `snap:"half"` permits quarter-second boundaries. Bento `2x2` offsets also snap or reject on the grid, with zero phase for offsets.
 
-Motion pages reject CSS gradients; use SVG gradients or patterns. Fonts are bundled with SHA entries and OFL licenses. The `editorial` theme uses the bundled Instrument Serif display face. Every displayed storyboard string passes a font cmap coverage gate; missing glyphs reject the plan, so select a bundled font with coverage. End-card glyphs use measured kerned positions. The fragment pattern accepts `kind`: button, input, chip, toast, feed-row, counter, line-chart, bar-chart, spinner, browser-chrome, phone-chrome; button states are idle/hover/pressed, input states empty/typing/filled.
+Motion pages reject CSS gradients; use SVG gradients or patterns. Fonts are bundled with SHA entries and OFL licenses. The `editorial` theme uses the bundled Instrument Serif display face. The font cmap coverage gate checks storyboard copy and emitted fragment/device text in their actual font roles, including chrome mounted by hero and tour scenes. Chrome symbols and the toast checkmark use fixed bundled symbol faces defined in [theme.ts](../src/motion/theme.ts); text-role overrides do not change those faces. Missing glyphs reject the plan, so select a bundled font with coverage. End-card glyphs use measured kerned positions. The fragment pattern accepts `kind`: button, input, chip, toast, feed-row, counter, line-chart, bar-chart, spinner, browser-chrome, phone-chrome; button states are idle/hover/pressed, input states empty/typing/filled.
 
 Motion blur is enabled by default and accumulates subframes only above 35 output pixels per frame. The schedule uses eight samples normally and at least 24 around the fastest half-second, increasing sample count when needed to keep spacing within two pixels. `--blur 0` disables accumulation. Faster spans cost extra captures; the manifest reports the actual cost and peak spacing.
 

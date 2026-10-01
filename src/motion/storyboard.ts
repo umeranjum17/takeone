@@ -32,7 +32,7 @@ export function readingFloor(text: string): number {
   return words ? 0.3 * words + 0.8 : 0;
 }
 
-/** Every string a scene puts on screen, for the reading floor and the glyph-coverage gate. */
+/** Scene reading copy; the glyph gate also checks emitted literals in their actual font roles. */
 export function sceneTexts(s: Scene): string[] {
   if (s.pattern === "hero-reveal") return [s.title, s.subtitle].filter((t): t is string => !!t);
   if (s.pattern === "end-card") return [s.logo ?? "TakeOne", s.cta, s.url].filter((t): t is string => !!t);

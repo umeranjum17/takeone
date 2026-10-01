@@ -1,4 +1,4 @@
-// Ingest: turn the storyboard's source into screens (PNGs under sources/) and resolve selector regions.
+// Ingest: copy source images or capture HTML/URL screens under sources/ and resolve selector regions.
 import { execFileSync } from "node:child_process";
 import { copyFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { extname, isAbsolute, join, resolve } from "node:path";

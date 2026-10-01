@@ -247,7 +247,13 @@ takeone render ~/Videos/takeone/<id> --set background=#0B1220 --set idle_speed=3
 
 ## Motion design from screens
 
-Use `takeone motion` to create a film from images, HTML or a URL without recording. See [Motion renders](docs/motion.md) for setup, common usage and the storyboard contract.
+Use `takeone motion` to create a film from images, HTML or a URL without recording:
+
+```sh
+takeone motion design.png --out takes/launch --theme editorial --title "Ship your next idea" --device browser
+```
+
+See [Motion renders](docs/motion.md) for shell setup, capture states, pattern options and the storyboard contract.
 
 ## Plan and render
 
@@ -299,7 +305,7 @@ Worst case at the defaults: the reserved total (planned tokens plus the 1,200-to
 
 Every recording render uses the same stage, all local ffmpeg/libass work at zero token cost:
 
-- **Stage**: the selected theme sets the screen card, background, and typography; see the theme table below. The stage margin (`stage_margin`, fraction of stage size) eases away as the camera zooms, so close-ups are all screen. When the text band described below is active, the card stays fixed and the camera zooms inside it.
+- **Stage**: the selected theme sets the screen card, background, and typography; see the theme preview below. The stage margin (`stage_margin`, fraction of stage size) eases away as the camera zooms, so close-ups are all screen. When the text band described below is active, the card stays fixed and the camera zooms inside it.
 - **Zoom**: shots never upscale source pixels more than `max_upscale` (1.0 by default): a 4K capture can push into native 1080p detail; a 1080p capture exported at 1080p stays wide. Upscaling remains an explicit setting. The camera path runs through a critically damped spring (`lowpass_omega`), so moves ease in and out without overshoot. See [Plan and render](#plan-and-render) for whole-element framing and static UI detection. Per-level padding never widens a shot past `frame_max` (0.8) of the screen, and the zone itself always keeps `hold_pad` (1.08x) around it.
 - **Bookends**: the first shot waits `establish_s` so the viewer sees the whole screen first, and the camera settles back to the whole stage for the last `outro_s` (0 keeps the last shot). The video fades in from and out to `background_to` over `fade_s`.
 - **Clicks**: every click and drag press gets a press dot and an expanding `accent` ring with a white halo, lasting `ripple_ms` (0 turns it off) and growing to `ripple_r` output px at rest. The ripple is drawn in source space, so it zooms with the content.
@@ -319,19 +325,6 @@ and `--set` overrides the selected theme's tokens. `make --theme` saves the
 selection in the take; `render --theme` previews a different look without
 changing that saved selection.
 
-The committed preview below shows these eight themes; see the shared registry
-linked above for the current selection.
-
-| Theme | Look | Display / caption font |
-|---|---|---|
-| midnight | Dark diagonal gradient | Inter Bold / Inter SemiBold |
-| paper | Cream paper, black hairline and ink | Instrument Serif / IBM Plex Sans |
-| aurora | Four radial colour pools with mint accents | Geist SemiBold / Geist |
-| mono | Black canvas with a white hairline | Geist SemiBold / Geist Mono |
-| neon | Violet vignette, visible pink glow and type | Space Grotesk Bold / Space Grotesk Medium |
-| brutalist | Yellow canvas, square corners, hard offset shadow | Archivo ExtraBold Expanded / IBM Plex Mono |
-| sand | Warm diagonal gradient and soft shadow | Fraunces SemiBold / Manrope Medium |
-| terminal | Green grid, square captions and mono type | JetBrains Mono Bold / JetBrains Mono |
 
 ![Nine recording themes on a fictional launch board](docs/assets/themes/takeone-themes-grid.png)
 
