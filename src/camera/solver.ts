@@ -1,3 +1,4 @@
+import { applyDragVisibility } from "./gesture.ts";
 import { WIN_MAX_COVER } from "../beats/zones.ts";
 import { DEFAULTS, type CameraDefaults } from "./defaults.ts";
 import type {
@@ -707,7 +708,22 @@ function validateCameraInputs(beats: Beat[], decisions: Decision[], take: TakeMe
       || new Set(beat.zones.map((zone) => zone.name)).size !== beat.zones.length
       || beat.actions.some((action) => {
         if (!action || typeof action !== "object") return true;
-        const event = action as { k?: string; t?: unknown; x?: unknown; y?: unknown };
+        const event = action as { k?: string; t?: unknown; x?: unknown; y?: unknown;
+          t0?: number; t1?: number; from?: number[]; to?: number[]; bbox?: number[];
+          subject?: number[]; path?: { t: number; x: number; y: number }[] };
+        if (event.k === "drag" || event.k === "travel") {
+          const point = (p: unknown) => Array.isArray(p) && p.length === 2 && p.every(finite)
+            && p[0]! >= 0 && p[0]! <= take.width && p[1]! >= 0 && p[1]! <= take.height;
+          if (!finite(event.t0) || event.t0 < 0 || !finite(event.t1) || event.t1 < event.t0
+            || !point(event.from) || !point(event.to)
+            || !Array.isArray(event.bbox) || event.bbox.length !== 4 || !event.bbox.every(finite)
+            || event.bbox[0]! < 0 || event.bbox[1]! < 0 || event.bbox[2]! < 0 || event.bbox[3]! < 0
+            || event.bbox[0]! + event.bbox[2]! > take.width || event.bbox[1]! + event.bbox[3]! > take.height
+            || (event.subject !== undefined && !rect(event.subject, take.width, take.height))
+            || (event.path !== undefined && (!Array.isArray(event.path) || event.path.some((p, i) =>
+              !p || !time(p.t) || p.t < event.t0! || p.t > event.t1! || !point([p.x, p.y])
+              || (i > 0 && p.t < event.path![i - 1]!.t))))) return true;
+        }
         return (event.t !== undefined && !time(event.t))
           || ((event.k === "ptr" || event.x !== undefined || event.y !== undefined)
             && (!finite(event.x) || !finite(event.y)
@@ -744,8 +760,9 @@ export function solveCamera(
     .filter((shot) => visibleBeats.includes(shot.beat));
   const quietShots = applyDwellAndShotLength(shots, d).filter((shot) => shot.arrival < end);
   const targets = applyMoveRateLimit(buildTargets(quietShots, visibleBeats, width, height, start, end, d), width, height, d);
-  return sampleCamera(targets, visibleBeats.map((beat) => ({ ...beat,
+  const frames = sampleCamera(targets, visibleBeats.map((beat) => ({ ...beat,
     kind: quietShots.some((shot) => shot.beat === beat) ? beat.kind : "idle",
     actions: quietShots.some((shot) => shot.beat === beat) ? beat.actions : [],
   })), decisionMap, width, height, start, end, d);
+  return applyDragVisibility(frames, visibleBeats, width, height, start, d);
 }

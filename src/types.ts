@@ -42,6 +42,10 @@ export type Action =
       k: "drag";
       t0: number;
       t1: number;
+      /** Recorded pointer samples on the event clock, preserving pauses and curves. */
+      path?: { t: number; x: number; y: number }[];
+      /** First changed region containing the grab point, before the object travels. */
+      subject?: BBox;
       from: [number, number];
       to: [number, number];
       bbox: BBox;
