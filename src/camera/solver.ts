@@ -220,6 +220,11 @@ function applyDwellAndShotLength(shots: Shot[], d: CameraDefaults): Shot[] {
 
 function applyMoveRateLimit(targets: Target[], width: number, height: number, d: CameraDefaults): Target[] {
   const baseW = baseWidth(width, height, d);
+  targets = targets.map((target) => {
+    const viewport = toFrame(target.state, width, height, d);
+    return { ...target, state: { cx: viewport.x + viewport.w / 2,
+      cy: viewport.y + viewport.h / 2, z: baseW / viewport.w } };
+  });
   let state: CameraState = { cx: width / 2, cy: height / 2, z: 1 };
   const moving: Target[] = [];
   for (const target of targets) {
@@ -477,6 +482,12 @@ function sampleCamera(
       state = followPointer(state, previousFiltered, activeBeat, decisions, baseW,
         time, time - previousTime, velocity, d);
     }
+
+    // Constrain the requested viewport before filtering. Clamping the spring's
+    // output instead turns a smooth edge arrival into an abrupt velocity stop.
+    const targetFrame = toFrame(state, width, height, d);
+    state = { cx: targetFrame.x + targetFrame.w / 2, cy: targetFrame.y + targetFrame.h / 2,
+      z: baseW / targetFrame.w };
 
     const dt = time - previousTime;
     const [cx, vx] = spring(previousFiltered.cx, filterVelocity.cx, state.cx, dt, d.lowpass_omega);

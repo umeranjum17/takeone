@@ -6,6 +6,7 @@ export interface CameraDefaults {
   out_h: number;
   background: string;
   fps: number;
+  quality: "draft" | "standard" | "master"; // encode CRF 23 / 18 / 14
   max_upscale: number; // never upscale source pixels more than this
   deadzone_margin: number; // 8% margin for the deadzone rule
   deadzone_zoom: number; // max zoom change for the deadzone rule
@@ -59,7 +60,8 @@ export const DEFAULTS: CameraDefaults = {
   out_w: 1920,
   out_h: 1080,
   background: "#2a2d38",
-  fps: 30,
+  fps: 60,
+  quality: "standard",
   max_upscale: 1.5,
   deadzone_margin: 0.08,
   deadzone_zoom: 1.25,
@@ -119,6 +121,11 @@ export function applyOverrides(overrides: Overrides): CameraDefaults {
     "medium", "slow", "slower", "veryslow", "placebo"];
   for (const [k, v] of Object.entries(overrides)) {
     const key = k as keyof CameraDefaults;
+    if (key === "quality") {
+      if (v !== "draft" && v !== "standard" && v !== "master") throw new Error(`unknown or invalid --set ${k}=${v}`);
+      out.quality = v;
+      continue;
+    }
     if (key === "preset") {
       if (typeof v !== "string" || !PRESETS.includes(v)) throw new Error(`unknown or invalid --set ${k}=${v}`);
       out.preset = v;

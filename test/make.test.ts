@@ -105,7 +105,7 @@ test("make --no-jev renders the agreed beat/decision files into a tiny test MP4"
     // Idle squeezing shortens the 10 s take; the video still matches the solved camera path.
     const cameraFrames = JSON.parse(readFileSync(join(dir, "camera.json"), "utf8")).length;
     const frames = Number(probe.streams[0].nb_read_frames);
-    assert.ok(frames < 300 && Math.abs(frames - cameraFrames) <= 1, `${frames} frames vs ${cameraFrames} camera samples`);
+    assert.ok(frames < 10 * DEFAULTS.fps && Math.abs(frames - cameraFrames) <= 1, `${frames} frames vs ${cameraFrames} camera samples`);
     const beats = JSON.parse(readFileSync(join(dir, "analysis", "beats.json"), "utf8"));
     const decisions = readFileSync(join(dir, "analysis", "decisions.jsonl"), "utf8").trim().split("\n").map((line) => JSON.parse(line));
     assert.ok(Array.isArray(beats));
