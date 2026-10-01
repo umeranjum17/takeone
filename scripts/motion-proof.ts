@@ -73,18 +73,6 @@ execFileSync("ffmpeg",["-v","error","-y","-ss","1","-i",hero.out,"-frames:v","1"
 const regions=Object.keys(states).map((screen,i)=>({id:`r${i}`,screen,rect:i===1?[900,300,760,680]:[320,128,1656,780],from:"user"}));
 const tour=await render("zoom-tour",Object.keys(states).map((screen,i)=>({pattern:"zoom-tour",d:5,screen,device:"browser",stops:[{region:`r${i}`,caption:["Launch board","Draft your launch","Task created","Keep work moving","Umer moved it","Done tasks archived"][i]!}]})),{regions});
 await render("end-card",Object.keys(states).map(screen=>({pattern:"end-card",d:3.5,screen,logo:"TakeOne",cta:"Make your first take"})));
-// Fragment contact sheets are native 1080p, with every state visible at once.
-for(const theme of ["editorial","midnight"]) {
-  const dir=join(work,`fragments-${theme}`);mkdirSync(dir,{recursive:true});
-  const story=validateStoryboard({...raw,theme:{name:theme},screens:sb.screens});
-  const {html}=writePage(work,story);
-  let page=readFileSync(html,"utf8");
-  const fragmentSetup=`window.setup=async()=>{ const stage=$("#stage"); const specs=[${JSON.stringify([{kind:"button",state:"idle"},{kind:"button",state:"hover"},{kind:"button",state:"pressed"},{kind:"input",state:"empty"},{kind:"input",state:"typing"},{kind:"input",state:"filled"},{kind:"chip"},{kind:"toast"},{kind:"feed-row"},{kind:"counter"},{kind:"line-chart"},{kind:"bar-chart"},{kind:"spinner"},{kind:"browser-chrome"},{kind:"phone-chrome"}]).slice(1,-1)}]; specs.forEach((s,i)=>{ const r=h('<div style="position:absolute;overflow:hidden;width:620px;height:196px;left:'+((i%3)*640+20)+'px;top:'+(Math.floor(i/3)*212+14)+'px;padding:28px 12px;background:var(--bg);border:1px solid var(--line);border-radius:var(--radius)"><div style="position:absolute;top:3px;font:18px var(--mono);color:var(--text)">'+s.kind+' '+(s.state??'')+'</div></div>');stage.append(r); const ctx=sceneCtx(620,170,s,''); const el=FRAGMENTS[s.kind](s,ctx); if(s.kind==='feed-row')el.style.fontSize='24px';r.append(el); }); };`;
-  page=page.replace('</body>',`<script>${fragmentSetup}</script></body>`);
-  const path=join(dir,"sheet.html");writeFileSync(path,page);
-  await renderFrames({html:path,width:1920,height:1080,fps:60,frames:1,workers:1,firstFrame:60,framesDir:join(dir,"frames")});
-  copyFileSync(join(dir,"frames","000001.png"),join(root,`takeone-motion-fragments-${theme}-after.png`));
-}
 const rampDir=join(work,"ramp");mkdirSync(rampDir,{recursive:true});
 const rampHtml=join(rampDir,"ramp.html");
 const basePage=readFileSync(writePage(work,sb).html,"utf8");
