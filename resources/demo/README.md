@@ -5,6 +5,5 @@
 fictional launch board with Umer as its demo person. No desktop, accounts,
 network content or personal applications are involved.
 
-The screenshot is frozen so `scripts/theme-proof.ts` needs only ffmpeg and
-bundled fonts to reproduce its eight-theme recording proof. It uses a wider
-stage margin to expose the background, frame and shadow at thumbnail size.
+The screenshot is frozen for the theme proof. See the [theme preview guidance](../../README.md#look-and-pacing)
+for the generator, committed preview status and framing settings.
