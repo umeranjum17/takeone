@@ -148,7 +148,7 @@ export async function main(argv: string[]): Promise<number> {
       let format = "mp4";
       for (let i = 0; i < args.length; i++) {
         const option = args[i];
-        if (!["--set", "--aspect", "--resolution", "--format"].includes(option!)) {
+        if (!["--set", "--theme", "--aspect", "--resolution", "--format"].includes(option!)) {
           throw Error(`unknown option ${option}`);
         }
         const value = args[++i];
@@ -159,7 +159,7 @@ export async function main(argv: string[]): Promise<number> {
         else if (option === "--resolution") resolution = value;
         else if (option === "--format") format = value;
       }
-      const dimensions: Record<string, [number, number]> = {};
+      const dimensions: Overrides = {};
       if (aspect !== undefined) {
         const aspects: Record<string, [number, number]> = {
           landscape: [1920, 1080], portrait: [1080, 1920], square: [1080, 1080],
