@@ -604,6 +604,17 @@ export function solveCamera(
   const visibleBeats = beats.filter((beat) => beat.t1 > start && beat.t0 < end);
   const shots = buildShots(beats, decisions, start, d)
     .filter((shot) => visibleBeats.includes(shot.beat) && !shot.beat.camera_suppressed);
+  const portraitCrop = d.out_h > d.out_w && width / height > d.out_w / d.out_h;
+  if (portraitCrop) {
+    const active = shots.find((shot) => shot.beat.zones.some((zone) => zone.type !== "all"));
+    if (active) {
+      active.arrival = Math.min(active.arrival, start + 1);
+      active.zoneA = active.beat.zones.filter((zone) => zone.type !== "all")
+        .sort((a, b) => Math.abs((a.t_change ?? active.beat.anchor_t) - active.beat.anchor_t)
+          - Math.abs((b.t_change ?? active.beat.anchor_t) - active.beat.anchor_t))[0]!;
+      active.decision = { ...active.decision, L: Math.max(2, active.decision.L) as 2 | 3 };
+    }
+  }
   const quietShots = applyDwellAndShotLength(shots, d).filter((shot) => shot.arrival < end);
   const automatic = applyMoveRateLimit(buildTargets(quietShots, visibleBeats.filter(beat => !beat.camera_suppressed),
     width, height, start, end, d), width, height, d);

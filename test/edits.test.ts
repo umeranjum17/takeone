@@ -72,6 +72,15 @@ test("manual region zoom interrupts FOLLOW, holds its framing, then resumes the 
   for (const f of frames) assert.ok(d.out_w / f.w <= d.max_upscale + 1e-8);
 });
 
+test("wide source in portrait establishes then crops to an active region within one second", () => {
+  const action = { ...beat, t0: 0, t1: 8, anchor_t: 5 };
+  const portrait = { ...d, out_w: 180, out_h: 320, establish_s: 2, outro_s: 0 };
+  const frames = solveCamera([action], [decision], { width: 640, height: 360, trim_end: 8 }, portrait);
+  assert.ok(frames[0]!.w >= 639, `starts with wide establish: ${frames[0]!.w}`);
+  assert.ok(frames[59]!.w < 500, `active crop reached by 1s: ${frames[59]!.w}`);
+  assert.ok(frames.every(frame => 180 / frame.w <= portrait.max_upscale + 1e-8));
+});
+
 test("ffmpeg applies cuts and speed to actual pixels and timestamps", { skip: !hasFfmpeg() }, () => {
   const clock = editTimeline({ ...meta, cuts: [{t0:4,t1:6}], speed: [{t0:6,t1:10,rate:2}] }, [], 1, 11, d);
   // Source frames encode the absolute source second in their luma. At output
