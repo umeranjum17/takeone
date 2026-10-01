@@ -62,26 +62,33 @@ export function analyzeUiBoxes(dec: Decoded, stream: { w: number; h: number }, s
     elapsed_ms: number; analysis_ms_per_minute: number; model_calls: number; usd_per_minute: number } } {
   const began = performance.now();
   const frames: BoxFrame[] = [];
-  const preferred = new Map<number, [number, number]>();
-  for (const t of anchors) {
-    if (t >= start && t < end) {
-      const bucket = Math.floor((t - start) / BOX_INTERVAL_MS);
-      const range = preferred.get(bucket);
-      preferred.set(bucket, range ? [Math.min(range[0], t), Math.max(range[1], t)] : [t, t]);
-    }
-  }
-  let cursor = 0;
+  const requested = [...new Set(anchors.filter(t => t >= start && t < end))].sort((a, b) => a - b);
+  let cursor = 0, anchorCursor = 0;
+  let coveredUntil = -Infinity;
   for (let from = start; from < end; from += BOX_INTERVAL_MS) {
     const until = Math.min(end, from + BOX_INTERVAL_MS);
-    const range = preferred.get(Math.floor((from - start) / BOX_INTERVAL_MS));
-    const target = range ? (range[0] + range[1]) / 2 : from;
+    while (anchorCursor < requested.length && requested[anchorCursor]! < from - 500) anchorCursor++;
+    const nearby: number[] = [];
+    for (let i = anchorCursor; i < requested.length && requested[i]! < until + 500; i++) nearby.push(requested[i]!);
+    const local = nearby.filter(t => t >= from && t < until);
+    const target = local.length ? (local[0]! + local[local.length - 1]!) / 2 : from;
+    const pending = nearby.filter(t => t > coveredUntil);
     while (cursor < dec.frames.length && dec.frames[cursor]!.t < from) cursor++;
-    let selected = cursor;
+    let selected = cursor, bestFirst = -1, bestCount = -1;
     for (let i = cursor; i < dec.frames.length && dec.frames[i]!.t < until; i++) {
-      if (Math.abs(dec.frames[i]!.t - target) < Math.abs((dec.frames[selected]?.t ?? Infinity) - target)) selected = i;
+      const t = dec.frames[i]!.t;
+      const first = pending.length && Math.abs(t - pending[0]!) <= 500 ? 1 : 0;
+      const count = pending.filter(at => Math.abs(t - at) <= 500).length;
+      if (first > bestFirst || (first === bestFirst && (count > bestCount
+        || (count === bestCount && Math.abs(t - target) < Math.abs(dec.frames[selected]!.t - target))))) {
+        selected = i;
+        bestFirst = first;
+        bestCount = count;
+      }
     }
     const f = dec.frames[selected];
     if (!f || f.t >= until) continue;
+    coveredUntil = f.t + 500;
     frames.push({ t: f.t, boxes: detectUiBoxes(f.data, dec.w, dec.h, stream.w, stream.h) });
   }
   const elapsed_ms = performance.now() - began;

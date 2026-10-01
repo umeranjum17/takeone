@@ -118,31 +118,38 @@ test("one reference per second covers separated unchanged-surface clicks through
   for (const [x, y, w, h] of [[42, 25, 61, 16], [42, 44, 61, 16], [248, 16, 68, 159], [180, 44, 61, 16]]) {
     for (let row = y!; row < y! + h!; row++) data.fill(255, row * 320 + x!, row * 320 + x! + w!);
   }
-  const clicks: Action[] = [[250, 580, 250], [1100, 580, 400], [1900, 2250, 400], [2900, 1680, 400]]
-    .map(([t, x, y]) => ({ k: "click", t: t!, x: x!, y: y!, window_cls: "chromium" }));
   const dec = { w: 320, h: 180, frames: Array.from({ length: 600 }, (_, i) => ({ t: i * 100, data })) };
   const changes = dec.frames.map(f => ({ t: f.t, cut: false, changed_frac: 0, regions: [] }));
-  const beats = segmentBeats(clicks, changes, { stream, takeMs: 60000, startMs: 0, endMs: 60000 });
-  const anchors = beats.flatMap(b => [b.anchor_t, ...b.actions.map(actStart), resultTime(b, changes) ?? b.anchor_t]);
-  const boxes = detectUiBoxes(data, dec.w, dec.h, stream.w, stream.h);
-  for (const times of [anchors, [...anchors].reverse()]) {
-    const refs = analyzeUiBoxes(dec, stream, 0, 60000, times);
-    assert.equal(refs.frames.length, 60);
-    assert.equal(new Set(refs.frames.map(f => Math.floor(f.t / 1000))).size, 60);
-    assert.ok(refs.frames.every(f => f.boxes.length <= 24));
-    assert.equal(refs.cost.model_calls, 0);
-    for (const beat of beats.filter(b => b.actions.some(a => a.k === "click"))) {
-      const act = zonesForBeat(beat, { winRect: null, scale: 1, stream, frames: changes,
-        uiBoxes: refs.frames }).find(z => z.kind === "act")!;
-      assert.deepEqual(act.boxes, boxes);
-      for (const action of beat.actions) {
-        if (action.k !== "click") continue;
-        const subject = boxes.find(([x, y, w, h]) => action.x >= x && action.x <= x + w
-          && action.y >= y && action.y <= y + h)!;
-        assert.ok(subject);
-        const [x, y, w, h] = act.bbox;
-        assert.ok(x <= subject[0] && y <= subject[1]
-          && x + w >= subject[0] + subject[2] && y + h >= subject[1] + subject[3]);
+  for (const [start, clickTimes] of [
+    [0, [250, 1100, 1900, 2900]],
+    [50, [250, 1051, 2049, 2900]],
+    [50, [1051, 2049, 2900, 3900]],
+  ] as [number, number[]][]) {
+    const clicks: Action[] = [[580, 250], [580, 400], [2250, 400], [1680, 400]]
+      .map(([x, y], i) => ({ k: "click", t: clickTimes[i]!, x: x!, y: y!, window_cls: "chromium" }));
+    const beats = segmentBeats(clicks, changes, { stream, takeMs: 60000, startMs: start, endMs: 60000 });
+    const anchors = beats.flatMap(b => [b.anchor_t, ...b.actions.map(actStart), resultTime(b, changes) ?? b.anchor_t]);
+    const boxes = detectUiBoxes(data, dec.w, dec.h, stream.w, stream.h);
+    for (const times of [anchors, [...anchors].reverse()]) {
+      const refs = analyzeUiBoxes(dec, stream, start, 60000, times);
+      assert.equal(refs.frames.length, 60);
+      assert.equal(new Set(refs.frames.map(f => Math.floor((f.t - start) / 1000))).size, 60);
+      assert.ok(refs.frames.every(f => f.boxes.length <= 24));
+      assert.equal(refs.cost.model_calls, 0);
+      for (const t of clickTimes) assert.deepEqual(uiBoxesAt(refs.frames, changes, t), boxes);
+      for (const beat of beats.filter(b => b.actions.some(a => a.k === "click"))) {
+        const act = zonesForBeat(beat, { winRect: null, scale: 1, stream, frames: changes,
+          uiBoxes: refs.frames }).find(z => z.kind === "act")!;
+        assert.deepEqual(act.boxes, boxes);
+        for (const action of beat.actions) {
+          if (action.k !== "click") continue;
+          const subject = boxes.find(([x, y, w, h]) => action.x >= x && action.x <= x + w
+            && action.y >= y && action.y <= y + h)!;
+          assert.ok(subject);
+          const [x, y, w, h] = act.bbox;
+          assert.ok(x <= subject[0] && y <= subject[1]
+            && x + w >= subject[0] + subject[2] && y + h >= subject[1] + subject[3]);
+        }
       }
     }
   }
