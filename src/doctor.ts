@@ -121,6 +121,15 @@ export async function runDoctor(): Promise<DoctorCheck[]> {
   const ffmpeg = await ffmpegVersion();
   checks.push({ check: "ffmpeg", ok: ffmpeg !== null, detail: ffmpeg ?? "not found" });
 
+  // Pinned headless shell for motion renders (version and sha256)
+  try {
+    const { pinnedShell } = await import("./motion/shell.ts");
+    const shell = await pinnedShell();
+    checks.push({ check: "motion-shell", ok: true, detail: `chrome-headless-shell ${shell.version} sha256 ${shell.sha256} ${shell.path}` });
+  } catch (error) {
+    checks.push({ check: "motion-shell", ok: false, detail: error instanceof Error ? error.message : String(error) });
+  }
+
   // Writable state dir
   const state = process.env.TAKEONE_STATE_DIR ?? join(homedir(), ".local", "state", "takeone");
   try {

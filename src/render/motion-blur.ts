@@ -1,6 +1,7 @@
 import type { CameraDefaults } from "../camera/defaults.ts";
 import type { CameraFrame } from "../camera/types.ts";
 import { cameraFilter, frameExpr } from "./camera-filter.ts";
+import { boxAverageWeights } from "./frame-average.ts";
 
 /** Linear interpolation of the solved output-clock path, clamped at bookends. */
 export function shutterFrame(frames: CameraFrame[], index: number): CameraFrame {
@@ -84,7 +85,7 @@ export function motionBlurGraph(frames: CameraFrame[], plan: ReturnType<typeof s
       // tmix stores oldest first. Keep one extra zero-weight slot so its
       // equal-weight running-sum shortcut cannot reuse skipped-frame sums.
       // Zero every sample from earlier exposures.
-      const weights = Array.from({ length: plan.samples + 1 }, (_, j) => j < plan.samples + 1 - count ? 0 : 1).join("|");
+      const weights = boxAverageWeights(count, plan.samples + 1).weights.join("|");
       commands.push(`${(Math.max(0, sampled.length - 0.5) / (d.fps * plan.samples)).toFixed(9)} tmix@shutter weights ${weights}`);
       previous = count;
     }

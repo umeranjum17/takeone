@@ -30,7 +30,7 @@ test("theme precedence and validation, including saved portrait takes", () => {
   } finally {rmSync(dir,{recursive:true,force:true});}
 });
 
-test("all eight themes render with bundled faces; midnight decoded frames equal the default", {skip:!hasFfmpeg(),timeout:120000}, async () => {
+test("all bundled themes render with bundled faces; midnight decoded frames equal the default", {skip:!hasFfmpeg(),timeout:120000}, async () => {
   const dir=mkdtempSync(join(process.cwd(),"tmp/theme-render-"));
   const previousConfig = process.env["FONTCONFIG_FILE"];
   const config = join(dir,"fonts.conf");
@@ -61,7 +61,7 @@ test("all eight themes render with bundled faces; midnight decoded frames equal 
       if(name==="midnight")assert.equal(decoded,base);
       selected[name]=decoded;
     }
-    assert.equal(new Set(Object.values(selected)).size,8,"themes should produce eight distinct appearances");
+    assert.equal(new Set(Object.values(selected)).size,Object.keys(THEMES).length,"themes should produce distinct appearances");
   } finally {
     if (previousConfig === undefined) delete process.env["FONTCONFIG_FILE"];
     else process.env["FONTCONFIG_FILE"] = previousConfig;
