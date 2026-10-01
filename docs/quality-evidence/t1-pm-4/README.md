@@ -1,76 +1,74 @@
-# t1-pm-4 real-take framing evidence
+# t1-pm-4 candidate output evidence
 
-This committed package preserves the requested review artifacts. The two MP4s
-for Acme are the reported baseline and current camera renders. The Tidewater
-MP4 and strip are the reported real board take and drag sequence; the after-half
-sheet shows Acme at 1 fps from 16 through 32 seconds.
+These artifacts were regenerated from renderer HEAD
+`87d47178573488510efcff493c583f01e7b3b29c`, based on main
+`684fb6c4f6b1216c5b2aab1f5ebfc35a16569bf3`. The Tidewater result is a real
+scored headless board take from the recovered `screen.webm` source. Acme is a
+separate synthetic camera fixture, not a substitute for the Tidewater render.
 
-## Reported outcomes
+## Candidate output
 
-The source report states that Acme's retention thumb and cursor had zero crop
-misses over 841 frames from 16–30 s. The beat table reports these results:
+- [Tidewater candidate MP4](tidewater-candidate-after.mp4)
+- [Tidewater drag strip](tidewater-candidate-strip.png), sampled 15.5–19 s at
+  0.5 s intervals, including lead-in and post-drop frames.
+- [Acme candidate after-half sheet](acme-candidate-after-half-sheet.png), 1 fps
+  for output times 16–32 s.
+- [Acme candidate MP4](acme-candidate-after.mp4)
+- [Acme 16–30 s frame check](acme-detail-visibility.json): 841 frames, zero
+  cursor misses, zero retention-thumb misses.
+- [Per-beat before/after results](candidate-beat-results.txt)
+- [Current-candidate provenance and hashes](candidate-output-report.txt)
 
-| Take | Beat | Frames | Before visible | After visible | Regressions | Drag frames | Drag clipped | Result |
-| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
-| Acme | b1 | 197 | 197 | 197 | 0 | 0 | 0 | PASS |
-| Acme | b2 | 166 | 2 | 2 | 0 | 0 | 0 | PASS |
-| Acme | b3 | 577 | 577 | 577 | 0 | 0 | 0 | PASS |
-| Acme | b4 | 676 | 0 | 676 | 0 | 222 | 0 | PASS |
-| Acme | b5 | 209 | 181 | 209 | 0 | 0 | 0 | PASS |
-| Tidewater | b1 | 166 | 166 | 166 | 0 | 0 | 0 | PASS |
-| Tidewater | b2 | 1 | 0 | 0 | 0 | 0 | 0 | PASS |
-| Tidewater | b3 | 191 | 136 | 136 | 0 | 0 | 0 | PASS |
-| Tidewater | b4 | 339 | 339 | 339 | 0 | 0 | 0 | PASS |
-| Tidewater | b5 | 1 | 0 | 0 | 0 | 0 | 0 | PASS |
-| Tidewater | b6 | 908 | 850 | 908 | 0 | 117 | 0 | PASS |
-| Tidewater | b7 | 270 | 270 | 270 | 0 | 0 | 0 | PASS |
-| Tidewater | b8 | 3 | 0 | 0 | 0 | 0 | 0 | PASS |
-| Tidewater | b9 | 145 | 94 | 145 | 0 | 0 | 0 | PASS |
-| Tidewater | b10 | 124 | 124 | 124 | 0 | 0 | 0 | PASS |
+The Tidewater strip was inspected at full resolution. The dragged card remains
+visible while crossing the board and after release. Its recorded drag spans
+16.65–18.583333 s; all 117 drag frames keep both the card footprint and cursor
+inside the candidate camera crop. The current-main comparison has zero acted-on
+region regressions across all ten beats.
 
-## Provenance and reproduction status
+The Acme sheet shows the retention slider from before its dialog opens through
+the drag and drop. The separate rendered-crop check uses the candidate camera
+frames after `stageFrames`, maps each output frame back through the output time
+warp, and checks both the cursor footprint and thumb footprint on every frame
+from 16 through 30 s. All 841 frames pass.
 
-`output-report.txt` identifies Tidewater as a scored headless board take
-originating from `scripts/e2e/scene.html`, with native 3840×2160, 60 fps input,
-rendered at 1920×1080, 60 fps, H.264 CRF 18. It reports the drag at
-16.65–18.583333 s (117 output frames), with zero cursor/object misses, and
-identifies the first changed region footprint as `[476,288,800,280]` source
-pixels. The report names base main `9baea61a62b08fa464d6a578e6f3c0ac74ded592`
-and candidate `97328b4`.
+## Reproduce
 
-This evidence was supplied from
-`/home/umer/.treehouse/takeone-9abf5c/11/takeone/tmp/evidence/t1-pm-4`. Its
-cited raw Tidewater source directory
-`/home/umer/.treehouse/takeone-9abf5c/11/takeone/tmp/headless-run-a` is absent.
-The supplied candidate identifier also differs from this package's candidate
-(`63368ac21267553a51c324a46b90387bfa8898f4`, based on
-`684fb6c4f6b1216c5b2aab1f5ebfc35a16569bf3`). Therefore the original render
-cannot be independently regenerated from the supplied source or certified as
-rendered by this exact candidate. The committed MP4s, sheets, strip, and report
-preserve the visual evidence and reported measurements, but do not resolve that
-provenance gap.
+Run heavyweight commands one at a time under the shared lock. Dependencies are
+already specified in `package-lock.json`.
 
-Verify the committed artifact bytes from the repository root with:
+Tidewater raw input is at
+`/home/umer/.treehouse/takeone-9abf5c/11/takeone/tmp/real/screen.webm`. The
+remaining input plan is committed in `tidewater-plan/`:
 
 ```sh
-(cd docs/quality-evidence/t1-pm-4 && sha256sum -c SHA256SUMS)
-ffprobe -v error -select_streams v:0 \
-  -show_entries stream=width,height,avg_frame_rate,nb_frames,duration,codec_name \
-  -of default=noprint_wrappers=1 docs/quality-evidence/t1-pm-4/tidewater-real-after.mp4
+mkdir -p tmp/t1-pm-4-real/analysis
+cp /home/umer/.treehouse/takeone-9abf5c/11/takeone/tmp/real/screen.webm tmp/t1-pm-4-real/
+cp docs/quality-evidence/t1-pm-4/tidewater-plan/{events.jsonl,frames.tsv,take.json} tmp/t1-pm-4-real/
+cp docs/quality-evidence/t1-pm-4/tidewater-plan/analysis/* tmp/t1-pm-4-real/analysis/
+flock /home/umer/.treehouse/firstmate-8bf1b0/1/firstmate/state/takeone-heavy.lock node --input-type=module -e 'import { renderTake } from "./src/render/render.ts"; import { DEFAULTS } from "./src/camera/defaults.ts"; await renderTake("tmp/t1-pm-4-real", DEFAULTS);'
 ```
 
-The Tidewater render reports H.264, 1920×1080, 60 fps, 2396 frames, and
-39.933333 s. Re-rendering and rerunning the per-beat comparison require the
-missing raw Tidewater take and its before/after camera JSON; those inputs were
-not present in the supplied evidence directory. No synthetic fixture is used
-as a substitute for this real-take proof.
+Regenerate Acme and its current-candidate output with:
 
-## Artifacts
+```sh
+flock /home/umer/.treehouse/firstmate-8bf1b0/1/firstmate/state/takeone-heavy.lock node scripts/synth-take.ts tmp/t1-pm-4-acme
+flock /home/umer/.treehouse/firstmate-8bf1b0/1/firstmate/state/takeone-heavy.lock node --input-type=module -e 'import { makeTake } from "./src/make.ts"; import { DEFAULTS } from "./src/camera/defaults.ts"; await makeTake("tmp/t1-pm-4-acme", { noJev: true, camera: { ...DEFAULTS, fps: 60, caption_font: "Liberation Sans" } });'
+node docs/quality-evidence/t1-pm-4/check-acme-detail-visibility.ts
+```
 
-- `acme-after-half-sheet.png`: 1 fps Acme after sheet, 16–32 s.
-- `acme-before.mp4`, `acme-after.mp4`: Acme baseline and current camera renders.
-- `tidewater-real-strip.png`: real-take drag strip through the drop.
-- `tidewater-real-after.mp4`: rendered Tidewater real take.
-- `beat-results.txt`: original per-beat before/after visibility table.
-- `output-report.txt`: source provenance and output-review report.
-- `SHA256SUMS`: integrity hashes for every artifact above.
+The committed output-clock beat files and before/after camera paths can be
+checked through the project's executable checker:
+
+```sh
+node scripts/check-framing.ts docs/quality-evidence/t1-pm-4/tidewater-output-clock-beats.json docs/quality-evidence/t1-pm-4/tidewater-main-before-camera.json docs/quality-evidence/t1-pm-4/tidewater-candidate-camera.json
+node scripts/check-framing.ts docs/quality-evidence/t1-pm-4/acme-output-clock-beats.json docs/quality-evidence/t1-pm-4/acme-main-before-camera.json docs/quality-evidence/t1-pm-4/acme-candidate-camera.json
+```
+
+`candidate-output-report.txt` records the raw source and plan hashes, exact
+renderer HEAD, camera and rendered-output hashes, and output stream metadata.
+`SHA256SUMS` covers every committed artifact in this package. The earlier
+`beat-results.txt`, `output-report.txt`, `acme-after.mp4`,
+`acme-after-half-sheet.png`, `tidewater-real-after.mp4`, and
+`tidewater-real-strip.png` are preserved copies of the superseded evidence;
+current-candidate conclusions use the `candidate-*` files and camera paths
+listed above.

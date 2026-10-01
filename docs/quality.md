@@ -143,10 +143,9 @@ the action region and cursor path provide the framing context. The handoff to
 the following action retains that context, including when a shot is omitted
 by the camera's movement budget.
 
-The real-take evidence package for t1-pm-4 is in
+The t1-pm-4 candidate evidence package is in
 [`quality-evidence/t1-pm-4`](quality-evidence/t1-pm-4/README.md). It includes
-the Acme after-half sheet and before/after renders, Tidewater real-take strip
-and render, per-beat results, provenance, and artifact hashes. The supplied
-report identifies candidate `97328b4`; this worktree is `63368ac`. The raw
-Tidewater source path cited by the report is unavailable, so that package does
-not establish a render from this exact candidate.
+the Acme after-half sheet, current-main and candidate camera paths, a real
+Tidewater render and drag strip, per-beat results, reproduction commands, and
+source/output hashes. The earlier supplied artifacts remain in the package as
+historical evidence; current-candidate conclusions use the regenerated files.
