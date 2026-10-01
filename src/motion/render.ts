@@ -11,6 +11,7 @@ import { averagePngs } from "./png.ts";
 
 export const WARMUP = 3;
 export const SETTLE = 2;
+export const MOTION_CRF = 10;
 
 export interface FramePlan {
   /** Sub-frame offsets (in frames, centred on 0) per output frame; absent or [0] = one sample. */
@@ -147,7 +148,7 @@ export async function renderFrames(job: FrameJob): Promise<FrameResult> {
   const results = await Promise.allSettled(Array.from({ length: workers }, async (_, w) => {
     const f0 = cuts[w]!, f1 = cuts[w + 1]!;
     const b = await openPage(shell, job.html, job.width, job.height, requests, job.rasterScale);
-    const enc = job.mp4 ? encoder(segs[w]!, job.fps, job.crf ?? 18, job.preset ?? "medium", job.width, job.height) : null;
+    const enc = job.mp4 ? encoder(segs[w]!, job.fps, job.crf ?? MOTION_CRF, job.preset ?? "medium", job.width, job.height) : null;
     const md5: string[] = [];
     async function* frames() {
       for (let n = WARMUP; n > 0; n--) { const i = Math.max(0, f0 - n); await frameAt(b, i + first, job.fps, undefined); }

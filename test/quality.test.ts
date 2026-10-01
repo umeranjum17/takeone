@@ -63,3 +63,25 @@ test('golden comparison executes ffmpeg and flags visibly degraded frames', asyn
     assert.ok(degraded.mode.includes('SSIM only'));
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
+
+test('golden comparison pairs frames across container timestamp precision', async () => {
+  const { execFileSync } = await import('node:child_process');
+  const { mkdirSync, mkdtempSync, rmSync } = await import('node:fs');
+  const { resolve, join } = await import('node:path');
+  const { compare } = await import('../scripts/quality.ts');
+  mkdirSync(resolve('tmp'), { recursive: true });
+  const dir = mkdtempSync(resolve('tmp/quality-test-'));
+  try {
+    const video = join(dir, 'alternating.mp4'), reference = join(dir, 'reference.mkv');
+    execFileSync('ffmpeg', ['-nostdin', '-v', 'error', '-f', 'lavfi', '-i',
+      "nullsrc=s=64x64:r=60:d=0.2,geq=lum='if(mod(N,2),220,20)':cb=128:cr=128",
+      '-c:v', 'libx264', '-crf', '0', '-pix_fmt', 'yuv420p', video]);
+    // FFV1 preserves decoded pixels but Matroska rounds frame timestamps to milliseconds.
+    execFileSync('ffmpeg', ['-nostdin', '-v', 'error', '-i', video, '-c:v', 'ffv1', reference]);
+    const result = compare(video, reference, dir, false);
+    assert.equal(result.candidateFrames, 12);
+    assert.equal(result.goldenFrames, 12);
+    assert.equal(result.minSSIM, 1);
+    assert.deepEqual(result.framesBelow095, []);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
