@@ -6,9 +6,9 @@
     "capture_commit": "791dd7e09ecba3a0e405fc256d9ff2c335d6004c",
     "capture_source": "scripts/e2e/android/record.ts and src/android/*; unchanged between capture_commit and render_commit",
     "render_base_commit": "c5c4d516b0151d97c9f3fe311e7aa88a2eb151a3",
-    "render_worktree_change": "wide-phone body captions moved to the top-center caption lane",
+    "render_worktree_change": "wide-phone cues keep the title lane at top and place priority cues below the modal",
     "take_id": "20261001-114145",
-    "take_metadata_sha256": "752bbea59bad76d22e9270312bf5a4df03449aaaa8500a0cfad9fadb959ab4ed",
+    "take_metadata_sha256": "b4f1b7ee61d69150899a7eff920a178674320dc2bb062844cf5b704608776366",
     "source_video": {
       "file": "recording-raw.mp4",
       "original": "screen.webm from the real take directory",
@@ -32,9 +32,9 @@
       "dimensions": "1920x1080",
       "fps": 60,
       "duration_seconds": 17.7,
-      "sha256": "40e8bc130f19a5cd81ec1fe0eb6eb501dc7298d4c46558467aa80726ac929554",
+      "sha256": "e9a1f77922ea7fff6b1a3cc588f0e648b44435fd24f05b7d2145656109580255",
       "contact_sheet": "wide-contact-sheet.png",
-      "contact_sheet_sha256": "9d6295867fcb7d87b1c1db27a6e510904567ace7b9900f42bb8afe72600c9581"
+      "contact_sheet_sha256": "5f3dedb12ddbd36e03595061d48a967e40bb5ebf2bde566f4608ef877f43b278"
     },
     "raw_vs_render_first_10_seconds": {
       "file": "raw-vs-render-first-10s.mp4",

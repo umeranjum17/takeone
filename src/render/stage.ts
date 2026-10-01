@@ -259,7 +259,7 @@ export function clickAss(clicks: Click[], width: number, height: number, start: 
   return out;
 }
 
-export interface Caption { t0: number; t1: number; text: string; title: boolean }
+export interface Caption { t0: number; t1: number; text: string; title: boolean; position?: "top" | "bottom" }
 
 /**
  * Title plus captions from take.json, sanitised for ASS. `at` maps a video time to
@@ -276,7 +276,7 @@ export function takeCaptions(meta: TakeMeta, at: (t: number) => number, duration
     const d = Number.isFinite(caption.d) && caption.d! > 0 ? caption.d! : 3;
     const t0 = Math.max(0, at(caption.t));
     const t1 = Math.min(duration, at(caption.t) + d);
-    if (text && t1 > t0) out.push({ t0, t1, text, title: false });
+    if (text && t1 > t0) out.push({ t0, t1, text, title: false, position: caption.position });
   }
   const body = out.filter(c => !c.title).sort((a, b) => a.t0 - b.t0);
   for (let i = 0; i + 1 < body.length; i++) body[i]!.t1 = Math.min(body[i]!.t1, body[i + 1]!.t0);
@@ -310,7 +310,8 @@ export function captionLayouts(captions: Caption[], widths: (number | CaptionInk
     const below = caption.title && !widePhone ? Math.max(0, ...captions.map((other, i) =>
       !other.title && other.t0 < caption.t1 && other.t1 > caption.t0 ? heights[i]! : 0)) : 0;
     const cx = d.out_w / 2;
-    const cy = widePhone && !caption.title ? d.out_h * 0.035 + h / 2
+    const top = widePhone && !caption.title && caption.position !== "bottom";
+    const cy = top ? d.out_h * 0.035 + h / 2
       : d.out_h - d.out_h * 0.075 - h / 2 - (below ? below + size * 0.35 : 0);
     return { cx, cy, w, h, size, rise: Math.round(size * 0.3) };
   });

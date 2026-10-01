@@ -24,8 +24,16 @@ if (!input || !maxX || !maxY) throw new Error("no emulator primary touch screen"
 adb("shell", "am", "force-stop", "design.takeone.tidewater");
 adb("shell", "am", "start", "-n", "design.takeone.tidewater/.TidewaterActivity");
 // Slow emulator boots must not become a blank opening in the recorded demo.
-const appPid = adb("shell", "pidof", "design.takeone.tidewater").trim();
 const loadDeadline = Date.now() + 30_000;
+let appPid = "";
+while (!appPid) {
+  try { appPid = adb("shell", "pidof", "design.takeone.tidewater").trim(); }
+  catch { /* Android can take a moment to assign the launched process. */ }
+  if (!appPid) {
+    if (Date.now() > loadDeadline) throw new Error("Tidewater process did not start");
+    await sleep(250);
+  }
+}
 while (!adb("logcat", "-d", "--pid", appPid, "-s", "TidewaterDemo:I").includes("board ready")) {
   if (Date.now() > loadDeadline) throw new Error("Tidewater board did not finish loading");
   await sleep(250);
@@ -59,6 +67,7 @@ const clicks = touches.filter(e => e.k === "btn" && e.down);
 if (clicks.length !== 4) throw new Error(`expected four real taps; got ${clicks.length}`);
 meta.title = "Tidewater · From plan to priority";
 const captions = ["Start a new task", "Choose a priority", "Make it high priority", "Add the launch brief"];
-meta.captions = clicks.map((e, i) => ({ t: Math.max(0, (e.t - meta.offset_ms) / 1000), d: 2.6, text: captions[i] }));
+meta.captions = clicks.map((e, i) => ({ t: Math.max(0, (e.t - meta.offset_ms) / 1000), d: 2.6, text: captions[i],
+  ...(i === 1 || i === 2 ? { position: "bottom" as const } : {}) }));
 writeFileSync(metaPath, JSON.stringify(meta, null, 2) + "\n");
 console.log(JSON.stringify(result, null, 2));
