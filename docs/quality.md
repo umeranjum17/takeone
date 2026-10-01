@@ -112,8 +112,9 @@ videos and tighten numeric baselines together. This switch bypasses similarity
 review only; it cannot bypass any numeric regression. Never use it in CI. Golden updates require reviewed before/after output frames;
 never accept degraded output to pass the comparison.
 Golden videos are synthetic, silent and small enough to store directly in git.
-SSIM compares timestamps from zero; changed timelines therefore need visual
-review rather than a misleading average-only score.
+SSIM and VMAF align decoded frames by index on a common time base using each
+stream's frame rate, rather than container timestamp precision. Changed timelines
+therefore need visual review rather than a misleading average-only score.
 
 `--reuse` reuses an already generated/planned fixture to speed up local
 measurement debugging, still rerendering and checking determinism. Normal CI

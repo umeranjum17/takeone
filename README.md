@@ -319,6 +319,9 @@ and `--set` overrides the selected theme's tokens. `make --theme` saves the
 selection in the take; `render --theme` previews a different look without
 changing that saved selection.
 
+The committed preview below shows these eight themes; see the shared registry
+linked above for the current selection.
+
 | Theme | Look | Display / caption font |
 |---|---|---|
 | midnight | Dark diagonal gradient | Inter Bold / Inter SemiBold |
