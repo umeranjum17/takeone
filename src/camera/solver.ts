@@ -477,17 +477,7 @@ function spring(value: number, velocity: number, target: number, dt: number, ome
   ];
 }
 
-function followPointer(
-  state: CameraState,
-  previous: CameraState,
-  beat: Beat,
-  decisions: Map<string, Decision>,
-  baseW: number,
-  time: number,
-  dt: number,
-  velocity: { x: number; y: number },
-  d: CameraDefaults,
-): CameraState {
+function pointerAt(beat: Beat, time: number): { x: number; y: number } | undefined {
   const points = beat.actions
     .map((action) => action as { t?: number; x?: number; y?: number })
     .filter((action) => Number.isFinite(action.x) && Number.isFinite(action.y))
@@ -500,6 +490,21 @@ function followPointer(
     x: lerp(before.x!, after?.x ?? before.x!, ratio),
     y: lerp(before.y!, after?.y ?? before.y!, ratio),
   };
+  return pointer;
+}
+
+function followPointer(
+  state: CameraState,
+  previous: CameraState,
+  beat: Beat,
+  decisions: Map<string, Decision>,
+  baseW: number,
+  time: number,
+  dt: number,
+  velocity: { x: number; y: number },
+  d: CameraDefaults,
+): CameraState {
+  const pointer = pointerAt(beat, time);
   const decision = decisions.get(beat.id);
   const zone = beat.zones.find((candidate) => candidate.name === decision?.A);
   const subject = pointer ?? (zone ? {
@@ -526,6 +531,27 @@ function followPointer(
   velocity.x = (oldVelocityX - omega * (oldVelocityX + omega * offsetX) * dt) * decay;
   velocity.y = (oldVelocityY - omega * (oldVelocityY + omega * offsetY) * dt) * decay;
   return { ...state, cx: nextX, cy: nextY };
+}
+
+/** Keep the followed focus zone readable after pointer following and camera filtering. */
+function containFollowedSubject(state: CameraState, zone: Zone, width: number, height: number, d: CameraDefaults): CameraState {
+  const baseW = baseWidth(width, height, d);
+  const [x, y, w, h] = zone.bbox;
+  const aspect = d.out_w / d.out_h;
+  const padding = Math.min(w, h) * 0.01;
+  const viewW = Math.min(baseW, Math.max(baseW / state.z, w + padding * 2, (h + padding * 2) * aspect));
+  const viewH = viewW / aspect;
+  const left = x - padding;
+  const top = y - padding;
+  const minX = left + viewW / 2;
+  const maxX = x + w + padding - viewW / 2;
+  const minY = top + viewH / 2;
+  const maxY = y + h + padding - viewH / 2;
+  return {
+    cx: minX > maxX ? (x + w / 2) : clamp(state.cx, minX, maxX),
+    cy: minY > maxY ? (y + h / 2) : clamp(state.cy, minY, maxY),
+    z: baseW / viewW,
+  };
 }
 
 /** Sample HOLD/MOVE/FOLLOW/BREATHE camera states at output fps. */
@@ -611,6 +637,16 @@ function sampleCamera(
       lastZoomDirection = Math.sign(zoomSpeed);
     }
     state = { cx, cy, z: Math.exp(lz) };
+    if (activeBeat) {
+      const decision = decisions.get(activeBeat.id);
+      const subject = activeBeat.zones.find((zone) => zone.name === decision?.A);
+      if (subject) {
+        const pointer = pointerAt(activeBeat, time);
+        const [x, y, w, h] = subject.bbox;
+        const focus = pointer ? { ...subject, bbox: [pointer.x - w / 2, pointer.y - h / 2, w, h] as Box } : subject;
+        state = containFollowedSubject(state, focus, width, height, d);
+      }
+    }
     previousFiltered = state;
     previousTime = time;
     frames.push({ ...toFrame(state, width, height, d), t: time - start });

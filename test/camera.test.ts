@@ -280,6 +280,28 @@ test("timestamped pointer actions follow interpolation, not the final position e
   assert.ok(at(moving, 4).x > at(stationary, 4).x + 100);
 });
 
+test("drag and travel follow frames keep the selected focus zone inside safe margins", () => {
+  for (const kind of ["drag", "travel"] as const) {
+    const moving = beat(`${kind}-focus`, 2, 1900, kind);
+    moving.t0 = 1;
+    moving.t1 = 5;
+    moving.zones[0] = zone("focus", [1800, 900, 240, 160]);
+    moving.actions = [{ t: 1000, x: 500, y: 1080 }, { t: 5000, x: 3300, y: 1080 }];
+    const frames = camera([moving], [decision(moving)], 5);
+    const [, , w, h] = moving.zones[0]!.bbox;
+    for (const crop of frames.filter((frame) => frame.t >= 1 && frame.t <= 5)) {
+      const margin = Math.min(crop.w, crop.h) * 0.01;
+      const pointerX = 500 + (crop.t - 1) / 4 * 2800;
+      const x = pointerX - w / 2;
+      const y = 1080 - h / 2;
+      assert.ok(crop.x <= x - margin && crop.x + crop.w >= x + w + margin,
+        `${kind} focus clipped horizontally at ${crop.t}`);
+      assert.ok(crop.y <= y - margin && crop.y + crop.h >= y + h + margin,
+        `${kind} focus clipped vertically at ${crop.t}`);
+    }
+  }
+});
+
 test("ultrawide whole-screen viewport is 16:9 and covers every source pixel", () => {
   const f = solveCamera([], [], { width: 3440, height: 1440, trim_end: 1 })[0]!;
   assert.ok(Math.abs(f.w / f.h - 16 / 9) < 1e-9);
