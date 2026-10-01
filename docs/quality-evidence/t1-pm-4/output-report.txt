@@ -1,0 +1,23 @@
+Base main: 9baea61a62b08fa464d6a578e6f3c0ac74ded592
+Renderer: current worktree source via renderTake, standard 1920x1080, 60 fps, H.264 CRF18.
+Acme: scripts/synth-take.ts; identical raw video/event fixture for baseline and current renders.
+Acme baseline and current renders both use Liberation Sans captions, matching the quality harness.
+Acme output 16–30 s: 841 frames; thumb crop misses=0; cursor ink crop misses=0.
+The detail panel first opens at output 18.175 s; before that the future thumb footprint is retained in the crop.
+Tidewater: existing scored headless board take, source copied read-only from /home/umer/.treehouse/takeone-9abf5c/3/takeone/tmp/headless-run-a, generated from scripts/e2e/scene.html. No desktop or personal apps were captured for this task.
+Tidewater native source: 3840x2160 at 60 fps, scripted demo data, Umer as demo person.
+Tidewater real drag: 16.65–18.583333 s; 117 output frames; cursor/object misses=0 (see per-beat table).
+Object grab footprint measured from first changed region: [476,288,800,280] source pixels; per-frame offset follows recorded pointer samples.
+Camera JSON saved by both actual renders exactly matches the paths used in the checks.
+All 15 per-beat rows pass the every-frame no-regression rule.
+Visual inspection: after-half sheet and real strip opened at full resolution; thumb/card motion and drop stay visible.
+
+Output quality gate: unresolved golden-reference mismatch
+Base main: 9baea61a62b08fa464d6a578e6f3c0ac74ded592; candidate commit: 97328b4
+Acme unchanged-main vs stored golden VMAF: 10.118935 (required >=95).
+Acme candidate vs stored golden VMAF: 6.551151 (required >=95). Camera composition intentionally widens to retain the slider; matching caption font used for both renders.
+Portrait unchanged-main and candidate renders are byte-identical; both VMAF 49.487186 (required >=95).
+Portrait SHA256: 598da8334e82cbb3a9befb6c103b4abd3ec72220a02317bcdd45509810499a66
+All stored numerical regression limits pass; no baseline files were modified or limits relaxed. Some strict targets retain existing stored exceptions.
+The only failures from the completed quality command are the two VMAF checks above.
+Firstmate output review PASS and accepted scored Tidewater source. Golden-reference mismatch resolved by authorized reviewed reference refresh; locked quality command passed, numeric gates only tightened. See takeone-drag-quality.txt and golden before/after frames (left old, right current).
