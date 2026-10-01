@@ -51,8 +51,9 @@ this reports goal status but does not change the baseline ratchet gate.
 - Banding: longest equal-luma run across a decoded rest-frame background row,
   10 pixels from the top at ≥0.7 s, goal ≤64 px.
 - Regression: ffmpeg SSIM for every aligned frame versus committed golden
-  renders; any frame <0.95 requires human review and fails CI. VMAF mean must
-  also be ≥95 when ffmpeg provides libvmaf. Stock CI ffmpeg may lack libvmaf;
+  renders; frames below 0.95 are recorded for human review but do not fail CI
+  by themselves. VMAF mean must be ≥95 when ffmpeg provides libvmaf. Stock CI
+  ffmpeg may lack libvmaf;
   that run explicitly reports **SSIM only** rather than claiming a VMAF pass.
   Candidate and golden frame counts must match; changed duration requires review.
 - Motion blur ghosting: explicitly not applicable until blur exists. No

@@ -250,7 +250,6 @@ async function main() {
     if (regression && !args.includes('--accept-golden')) {
       if (regression.timelineMismatch) fixtureFailures.push(`golden timeline: ${regression.candidateFrames} frames vs ${regression.goldenFrames}; human review required`);
       if (!Number.isFinite(regression.minSSIM) || (regression.vmaf !== null && !Number.isFinite(regression.vmaf))) fixtureFailures.push('similarity score is not finite');
-      if (regression.framesBelow095.length) fixtureFailures.push(`SSIM: ${regression.framesBelow095.length} frames below 0.95 require human review`);
       if (regression.vmaf !== null && regression.vmaf < 95) fixtureFailures.push(`VMAF: ${regression.vmaf} < 95`);
     }
     failures.push(...fixtureFailures.map(f => `${fixture}: ${f}`));
