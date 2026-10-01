@@ -262,12 +262,12 @@ Worst case at the defaults: the reserved total (planned tokens plus the 1,200-to
 
 Every render uses the same stage, all local ffmpeg/libass work at zero token cost:
 
-- **Stage**: at rest the screen sits as a rounded card (`corner_radius`, output px) with a soft drop shadow (`shadow`, opacity 0–1) on a diagonal gradient from `background` to `background_to`, inset by `stage_margin` (fraction of the stage size). The margin eases away as the camera zooms, so close-ups are all screen.
+- **Stage**: the selected theme sets the screen card, background, and typography; see the theme table below. The stage margin (`stage_margin`, fraction of stage size) eases away as the camera zooms, so close-ups are all screen.
 - **Zoom**: shots never upscale source pixels more than `max_upscale` (1.5): a clear push-in on a 1080p capture that keeps text crisp. The camera path runs through a critically damped spring (`lowpass_omega`), so moves ease in and out without overshoot. When a click opens a panel or dialog (a change region holding the click, up to half the screen), the shot holds the whole panel: per-level padding never widens a shot past `frame_max` (0.8) of the screen, and the zone itself always keeps `hold_pad` (1.08x) around it.
 - **Bookends**: the first shot waits `establish_s` so the viewer sees the whole screen first, and the camera settles back to the whole stage for the last `outro_s` (0 keeps the last shot). The video fades in from and out to `background_to` over `fade_s`.
 - **Clicks**: every click and drag press gets a press dot and an expanding `accent` ring with a white halo, lasting `ripple_ms` (0 turns it off) and growing to `ripple_r` output px at rest. The ripple is drawn in source space, so it zooms with the content.
 - **Pacing**: idle stretches between actions play `idle_speed` times faster (1 turns it off), keeping `idle_keep` seconds of real time around every action. The camera is solved on the output clock, so moves keep their natural speed.
-- **Titles and captions**: optional `title` and `captions` in `take.json` render as rounded pills near the bottom in `caption_font` at `caption_size` px (the title is 1.4× larger). Caption times are source-video seconds; `d` (default 3) is on-screen seconds, so reading time survives idle squeezing.
+- **Titles and captions**: optional `title` and `captions` in `take.json` render near the bottom in the selected theme's display and caption fonts at `caption_size` px (the title is 1.4× larger). Caption times are source-video seconds; `d` (default 3) is on-screen seconds, so reading time survives idle squeezing.
 
 ```json
 { "title": "Find any report in seconds",
@@ -296,8 +296,8 @@ changing that saved selection.
 
 Theme fonts are bundled under OFL 1.1 with their licence files in
 `resources/fonts/`. Caption measurement and final rendering use the same
-libass `fontsdir`; `render.log` records the selected faces. Custom fonts may
-still fall back through fontconfig if they are not installed or bundled.
+libass `fontsdir`; `render.log` records the selected faces. A custom font that
+is neither installed nor bundled may be substituted through fontconfig.
 
 Colours (`background`, `background_to`, `accent`, `text`, `card`) take
 `--set key=#RRGGBB`. `caption_font` and `display_font` take letters, digits and
