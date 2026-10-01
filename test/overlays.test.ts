@@ -4,7 +4,7 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { DEFAULTS, applyOverrides } from "../src/camera/defaults.ts";
 import type { Beat } from "../src/camera/types.ts";
-import { blurGraph, keycapAss, keycapCues, keycapObstacles, overlayRegions, shortcutKeys, spotlightAss } from "../src/render/overlays.ts";
+import { blurGraph, keycapAss, keycapCues, keycapObstacles, overlayRegions, shortcutKeys, spotlightAss, spotlightGraph } from "../src/render/overlays.ts";
 import { warpBeats } from "../src/render/pace.ts";
 import { hasFfmpeg } from "./helpers.ts";
 
@@ -44,15 +44,31 @@ test("region validation and timing preserve privacy coverage across trims and sp
   }
 });
 
-test("rendered spotlights preserve holes and dim only the rest, including overlapping regions", {skip:!hasFfmpeg()},()=>{
+test("spotlights feather rounded holes, preserve overlap and restore the frame outside the interval", {skip:!hasFfmpeg()},()=>{
   const dir=mkdtempSync(`${process.cwd()}/tmp-spotlight-`);
   try {
-    writeFileSync(`${dir}/spot.ass`,spotlightAss([
-      {t0:0,t1:2,rect:[50,50,160,100]}, {t0:0,t1:2,rect:[150,50,160,100]}],640,360,d));
-    const pixels=execFileSync("ffmpeg",["-v","error","-f","lavfi","-i","color=white:s=640x360:d=1",
-      "-vf",`ass=${dir}/spot.ass,format=gray`,"-frames:v","1","-f","rawvideo","-"],{maxBuffer:1_000_000});
-    assert.ok(pixels[20*640+20]!<180);
-    for(const x of [80,180,280]) assert.ok(pixels[90*640+x]!>240,`hole x=${x}`);
+    const regions=[{t0:0,t1:0.5,rect:[50,50,160,100] as [number,number,number,number]},
+      {t0:0,t1:0.5,rect:[150,50,160,100] as [number,number,number,number]}];
+    writeFileSync(`${dir}/spot.ass`,spotlightAss(regions,640,360,d));
+    const graph=`[0:v]format=yuv420p[spotlightInput];${spotlightGraph(regions,640,360,1,d,`${dir}/spot.ass`)};[screen]format=gray[out]`;
+    const pixels=execFileSync("ffmpeg",["-v","error","-f","lavfi","-i","color=white:s=640x360:r=10:d=1",
+      "-filter_complex",graph,"-map","[out]","-f","rawvideo","-"],{maxBuffer:3_000_000});
+    const value=(x:number,y:number,frame=2)=>pixels[frame*640*360+y*640+x]!;
+    assert.ok(value(20,20)>140 && value(20,20)<190);
+    for(const x of [80,180,280]) assert.ok(value(x,90)>240,`hole x=${x}`);
+    assert.ok(value(50,50)<value(62,62),"rounded corner remains dim");
+    assert.ok(value(50,90)>value(44,90) && value(50,90)<value(60,90),"soft edge");
+    assert.ok(value(20,20,8)>240,"outside the interval the source returns");
+    const edge=[{t0:0,t1:1,rect:[0,0,200,100] as [number,number,number,number]}];
+    writeFileSync(`${dir}/edge.ass`,spotlightAss(edge,640,360,d,{
+      frames:[{t:0,x:40,y:40,w:320,h:180}],
+      stage:{w:640,h:360,baseW:640,baseH:360,screenX:0,screenY:0,restScale:1},
+    }));
+    const edgePixels=execFileSync("ffmpeg",["-v","error","-f","lavfi","-i","color=white:s=640x360:r=60:d=1",
+      "-filter_complex",`[0:v]format=yuv420p[spotlightInput];${spotlightGraph(edge,640,360,1,d,`${dir}/edge.ass`)};[screen]crop=320:180:40:40,scale=640:360,format=gray[out]`,
+      "-map","[out]","-frames:v","1","-f","rawvideo","-"],{maxBuffer:1_000_000});
+    assert.ok(edgePixels[40*640+1]!<190,"zoomed hole stays inside output frame");
+    assert.ok(edgePixels[40*640+30]!>240,"zoomed subject remains bright");
   } finally {rmSync(dir,{recursive:true,force:true});}
 });
 
@@ -90,7 +106,7 @@ test("keycaps are OCR legible at both shortcut holds", {skip:!hasFfmpeg()||!hasO
     for(const [t,key] of [[1,"K"],[3,"S"]] as const){
       const png=`${dir}/${key}.png`;
       execFileSync("ffmpeg",["-y","-v","error","-f","lavfi","-i","color=black:s=1920x1080:r=10:d=4",
-        "-vf",`ass=${dir}/keys.ass,select=gte(t\\,${t}),crop=650:180:635:650,format=gray,lut=y='if(gt(val,160),0,255)'`,"-frames:v","1",png]);
+        "-vf",`ass=${dir}/keys.ass,select=gte(t\\,${t}),crop=650:180:635:710,format=gray,lut=y='if(gt(val,160),0,255)'`,"-frames:v","1",png]);
       const text=execFileSync("tesseract",[png,"stdout","--psm","7"],{encoding:"utf8",stdio:["ignore","pipe","ignore"]});
       assert.equal(text.trim().replace(/\s+/g," "),`Ctrl + ${key}`);
     }
@@ -108,13 +124,11 @@ test("platform labels are explicit and validated", () => {
 test("placement clears focus and captions for the entire hold, or hides in a full frame",()=>{
   const b=beats([{k:"shortcut",t:1000,combo:"Ctrl+K"}]);
   const preferred=keycapCues(b,0,4,d)[0]!;
-  assert.equal(preferred.cy,d.out_h*0.68);
+  assert.equal(preferred.cx,d.out_w/2);
+  assert.ok(preferred.cy > d.out_h*0.65);
   const obstacles=[{t0:1,t1:3.5,rect:[200,210,240,80] as [number,number,number,number]},
     {t0:1,t1:3.5,rect:[0,300,640,60] as [number,number,number,number]}];
-  const cue=keycapCues(b,0,4,d,obstacles)[0]!;
-  assert.ok(cue.cx !== preferred.cx || cue.cy !== preferred.cy);
-  for (const {rect:[x,y,w,h]} of obstacles) assert.ok(
-    cue.cx + cue.w/2 <= x || cue.cx - cue.w/2 >= x+w || cue.cy + cue.h/2 <= y || cue.cy - cue.h/2 >= y+h);
+  assert.equal(keycapCues(b,0,4,d,obstacles).length,0,"occupied dock hides instead of floating over content");
   assert.equal(keycapCues(b,0,4,d,[{t0:1,t1:4,rect:[0,0,640,360]}]).length,0);
 });
 

@@ -8,7 +8,7 @@ import type { CameraDefaults } from "../camera/defaults.ts";
 import { actionCameraMilliseconds } from "../beats/clock.ts";
 import { solveCamera } from "../camera/solver.ts";
 import type { Beat, Decision, TakeMeta } from "../camera/types.ts";
-import { blurGraph, keycapAss, keycapObstacles, overlayRegions, spotlightAss } from "./overlays.ts";
+import { blurGraph, keycapAss, keycapObstacles, overlayRegions, spotlightAss, spotlightGraph } from "./overlays.ts";
 import { motionBlurGraph, shutterPlan } from "./motion-blur.ts";
 import { idleSqueezes, setptsExpr, warp, warpBeats } from "./pace.ts";
 import { phoneTapShots } from "./phone.ts";
@@ -124,13 +124,12 @@ export async function renderTake(dir: string, d?: CameraDefaults): Promise<{ out
   const keysFile = join(dir, "keycaps.ass");
   const keys = keycapAss(outBeats, trimStart, duration, d,
     keycapObstacles(outBeats, decisions, stageCamera, band ? { ...stage, screenX: 0, screenY: 0 } : stage,
-      trimStart, captions, captionInk, text, widePhone, band));
+      trimStart, captions, captionInk, text, widePhone, band, [...spotlights, ...blurs]));
   await writeFile(keysFile, keys);
   const spotlightFile = join(dir, "spotlight.ass");
-  const spotlight = spotlightAss(spotlights, meta.width, meta.height, d);
+  const spotlight = spotlightAss(spotlights, meta.width, meta.height, d, { frames: stageCamera, stage: band ? { ...stage, screenX: 0, screenY: 0 } : stage });
   await writeFile(spotlightFile, spotlight);
-  const keysOverlay = hasDialogue(keys) ? `,ass=${filterPath(keysFile)}` : "";
-  const spotlightOverlay = hasDialogue(spotlight) ? `,ass=${filterPath(spotlightFile)}` : "";
+  const keysOverlay = hasDialogue(keys) ? `,ass=${filterPath(keysFile)}:fontsdir=${filterPath(FONTS_DIR)}` : "";
 
   const fade = Math.min(d.fade_s, duration / 4);
   const background = `0x${d.background_to.slice(1)}`;
@@ -144,13 +143,16 @@ export async function renderTake(dir: string, d?: CameraDefaults): Promise<{ out
   const filter = [
     `[0:v]setpts='${setptsExpr(squeezes, d.idle_speed)}',fps=${d.fps}${clicksOverlay},scale=in_color_matrix=auto:out_color_matrix=bt601,format=${pixelFormat}[region0]`,
     ...(blurs.length ? [blurGraph(blurs, pixelFormat)] : []),
+    ...(spotlights.length ? [
+      `[region${blurs.length}]null[spotlightInput]`,
+      spotlightGraph(spotlights, meta.width, meta.height, duration, d, filterPath(spotlightFile))
+        .replace(/\[screen\]$/, band ? "[raw]" : "[screen]"),
+    ] : [`[region${blurs.length}]null${band ? "[raw]" : "[screen]"}`]),
     (band ? [
-      `[region${blurs.length}]null${spotlightOverlay}[raw]`,
       `${camera.replace(/^\[c4\]/, "[raw]")};[camera]null[screen]`,
       cardFilter(stage.baseW, stage.baseH, stage, d, still),
       `[c4]trim=end=${duration}${captionsOverlay}${keysOverlay}`,
     ] : [
-      `[region${blurs.length}]null${spotlightOverlay}[screen]`,
       cardFilter(meta.width, meta.height, stage, d, still),
       `${camera};[camera]trim=end=${duration}${captionsOverlay}${keysOverlay}`,
     ]).join(";")
