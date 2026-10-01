@@ -180,7 +180,6 @@ export async function main(argv: string[]): Promise<number> {
         else if (option === "--aspect") aspect = value;
         else if (option === "--resolution") resolution = value;
         else if (option === "--format") format = value;
-        else throw Error(`unknown option ${option}`);
       }
       const dimensions: Record<string, [number, number]> = {};
       if (aspect !== undefined) {
