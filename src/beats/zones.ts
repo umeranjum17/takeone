@@ -69,11 +69,31 @@ export function zonesForBeat(
       name: `z${i + 1}`,
       kind: c.kind,
       bbox: c.bbox,
+      ...(c.kind !== "all" && c.kind !== "win" ? { boxes: contextBoxes(beat, o, c.t ?? beat.anchor_t, c.kind) } : {}),
       area_frac: bboxArea(c.bbox) / screen,
       ...(c.t !== undefined ? { t: c.t } : {}),
       desc,
     };
   });
+}
+
+/** Keep individual nearby change boxes: their union loses the edges we can frame around. */
+function contextBoxes(
+  beat: Beat,
+  o: { stream: { w: number; h: number }; frames: FrameRegions[] },
+  at: number,
+  kind: ZoneKind,
+): BBox[] {
+  const nearby = o.frames.filter((f) => !f.cut && f.t >= beat.t0
+    && f.t <= beat.t1 && f.t >= at - ACT_REGION_MS && f.t <= at + ACT_REGION_MS);
+  const regions = [...nearby.flatMap((f) => f.regions), ...(kind === "res" ? beat.results ?? [] : [])];
+  const boxes = new Map<string, BBox>();
+  for (const r of regions) {
+    const box = clampBBox(r.bbox, o.stream.w, o.stream.h);
+    // Whole-screen redraws and modal scrims provide no local UI boundary.
+    if (box && bboxArea(box) <= screenArea(o.stream) * PANEL_MAX_AREA) boxes.set(box.join(","), box);
+  }
+  return [...boxes.values()];
 }
 
 function actZone(

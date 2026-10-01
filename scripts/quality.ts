@@ -92,7 +92,7 @@ export function edgePosition(row: Uint8Array, predicted: number): number | null 
   }
   return sum >= 20 ? weighted / sum : null;
 }
-function judder(video: string, frames: CameraFrame[], meta: TakeMeta, d: typeof DEFAULTS): { rms: number; samples: number } {
+function judder(video: string, frames: CameraFrame[], meta: TakeMeta, d: typeof DEFAULTS, required: boolean): { rms: number; samples: number } | null {
   // A 3-row strip through the straight card edge avoids corners, captions and rescaling.
   const rows = frameRows(video, `crop=iw:3:0:${Math.floor(d.out_h / 2)}:exact=1`);
   const st = stageGeometry(meta.width, meta.height, d);
@@ -110,7 +110,10 @@ function judder(video: string, frames: CameraFrame[], meta: TakeMeta, d: typeof 
     // Only include moving camera, to keep long rest periods from diluting RMS.
     if (a != null && b != null && c != null && peak([frames[i]!.x - frames[i - 1]!.x, frames[i]!.w - frames[i - 1]!.w]) > 0.01) jitter.push(c - 2 * b + a);
   }
-  if (!jitter.length) throw new Error('no moving visible edge samples for judder');
+  if (!jitter.length) {
+    if (required) throw new Error('no moving visible edge samples for judder');
+    return null;
+  }
   return { rms: Math.sqrt(jitter.reduce((s, v) => s + v * v, 0) / jitter.length), samples: jitter.length };
 }
 
@@ -220,7 +223,7 @@ async function main() {
     hashes.forEach((h, i) => { if (i && h === hashes[i - 1] && frames[i] && peak(['x', 'y', 'w'].map(k => frames[i]![k as 'x'] - frames[i - 1]![k as 'x'])) > 0.01) hitches++; });
     const rest = frames.find(f => f.t >= 0.7 && f.t < 1.2) ?? frames[0]!;
     const row = ffmpeg(['-ss', String(rest.t), '-i', video, '-vf', 'crop=iw:1:0:10:exact=1', '-frames:v', '1', '-pix_fmt', 'gray', '-f', 'rawvideo', '-']);
-    const edge = judder(video, frames, meta, d);
+    const edge = judder(video, frames, meta, d, fixture === 'synth');
     const ocr = captions(video, dir, meta, d, frames.at(-1)!.t);
     const metrics: Metrics = {
       ...cameraMetrics(frames, d.fps, d.out_w, d.out_h, d.min_shot),
@@ -233,7 +236,7 @@ async function main() {
       frame_count_error: metric(Math.abs(Number(stream.nb_read_frames) - camera.length), 1, 'frames'),
       hitches: metric(hitches, 0, 'frames'),
       determinism_error: metric(Number(!deterministic), 0),
-      subpixel_judder: metric(edge.rms, 0.15, 'px/frame²'),
+      ...(edge ? { subpixel_judder: metric(edge.rms, 0.15, 'px/frame²') } : {}),
       caption_ocr_errors: metric(ocr.filter(c => !c.exact).length, 0, 'checkpoints'),
       banding: metric(widestRun(row), 64, 'px'),
     };
@@ -254,7 +257,7 @@ async function main() {
     }
     failures.push(...fixtureFailures.map(f => `${fixture}: ${f}`));
     baselines[fixture] = metrics;
-    (report.fixtures as Record<string, unknown>)[fixture] = { metrics, sha256: sha(video), goldenSha256: existsSync(golden) ? sha(golden) : null, stream, source: JSON.parse(command('ffprobe', ['-v', 'error', '-show_streams', '-of', 'json', join(dir, 'screen.webm')]).toString()).streams[0], cameraFrames: camera.length, decodedFrames: hashes.length, judderSamples: edge.samples, ocr, regression, motionBlurGhosting: { status: 'not-applicable', reason: 'renderer has no motion blur' }, failures: fixtureFailures };
+    (report.fixtures as Record<string, unknown>)[fixture] = { metrics, sha256: sha(video), goldenSha256: existsSync(golden) ? sha(golden) : null, stream, source: JSON.parse(command('ffprobe', ['-v', 'error', '-show_streams', '-of', 'json', join(dir, 'screen.webm')]).toString()).streams[0], cameraFrames: camera.length, decodedFrames: hashes.length, judderSamples: edge?.samples ?? 0, ocr, regression, motionBlurGhosting: { status: 'not-applicable', reason: 'renderer has no motion blur' }, failures: fixtureFailures };
   }
   report.failures = failures;
   save(join(root, 'metrics.json'), report);

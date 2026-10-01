@@ -215,6 +215,7 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
       ...(windowRect ? { window_rect: windowRect } : {}),
       actions: b.actions.map((a) => "t1" in a ? { ...a, t0: seconds(a.t0), t1: seconds(a.t1) } : { ...a, t: seconds(a.t) }),
       zones: b.zones.map((z) => ({ name: z.name, type: z.kind, bbox: z.bbox,
+        ...(z.boxes?.length ? { boxes: z.boxes } : {}),
         ...(z.kind === "res" && z.t !== undefined ? { t_change: seconds(Math.max(b.t0, Math.min(b.t1, z.t))) } : {}),
       })),
       ...(b.kind === "cut" ? { changed_frac: scopedFrames.filter((f) => f.t >= b.t0 && f.t <= b.t1).map((f) => ({ t: seconds(f.t), f: f.changed_frac })) } : {}),

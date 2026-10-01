@@ -231,3 +231,13 @@ test("a typing beat's zone takes in a dropdown opening just below the form, not 
   // a modal's scrim closing changes the whole screen: never part of the form
   assert.deepEqual(txt([{ bbox: [0, 0, 160, 120], area_frac: 0.98 }]), [40, 20, 30, 21]);
 });
+
+test("context boxes survive candidate deduplication and keep individual card boundaries", () => {
+  const b = beatOf([{ k: 'click', t: 500, x: 80, y: 60, window_cls: 'chromium' }]);
+  const boxes: Region[] = [{ bbox: [40, 25, 80, 70], area_frac: .29 }, { bbox: [125, 25, 30, 70], area_frac: .11 }];
+  const zs = zonesForBeat(b, { ...base, winRect: null, frames: [
+    { t: 500, cut: false, changed_frac: .1, regions: boxes },
+    { t: 600, cut: false, changed_frac: .1, regions: [...boxes, { bbox: [0, 0, 160, 120], area_frac: 1 }] },
+  ] });
+  assert.deepEqual(zs.find(z => z.kind === 'act')?.boxes, boxes.map(r => r.bbox));
+});
