@@ -411,7 +411,7 @@ function buildTargets(
     const context = shot ? mergeZones(shot.zoneA, revealed) : revealed;
     targets.push({ t: Math.max(start, result.t - 0.3), state: frame(context, 1, width, height, undefined, d),
       importance: 2, reveal: result });
-    targets.push({ t: result.t + 0.8, startAfter: result.t,
+    targets.push({ t: result.t + 1, startAfter: result.t,
       state: frame(revealed, 2, width, height, undefined, d), importance: 2, reveal: result });
   }
 

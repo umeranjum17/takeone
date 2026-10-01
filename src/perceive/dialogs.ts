@@ -50,14 +50,8 @@ export function dialogResults(
     board = undefined;
     dimmed = undefined;
     const regions = change.regions.filter((region) => region.area_frac >= 0.001);
-    const primary = [...regions].sort((a, b) => b.area_frac - a.area_frac)[0];
-    // Inserting a card shifts its siblings. Keep that whole changed column,
-    // rather than spanning it, a distant activity feed and a bottom toast.
-    const subject = primary ? regions.filter((region) =>
-      region.bbox[0] < primary.bbox[0] + primary.bbox[2]
-      && region.bbox[0] + region.bbox[2] > primary.bbox[0]) : [];
-    results.push({ t: times[i]!, bbox: subject.length
-      ? subject.map((region) => region.bbox).reduce(unionBBox)
+    results.push({ t: times[i]!, bbox: regions.length
+      ? regions.map((region) => region.bbox).reduce(unionBBox)
       : [0, 0, geometry.streamW, geometry.streamH] });
   }
   return results;
