@@ -5,7 +5,8 @@
     "app": "design.takeone.tidewater, offline Tidewater test fixture; no accounts, network access, or personal apps",
     "capture_commit": "791dd7e09ecba3a0e405fc256d9ff2c335d6004c",
     "capture_source": "scripts/e2e/android/record.ts and src/android/*; unchanged between capture_commit and render_commit",
-    "render_commit": "641e12e629ede31a11cee89ee886d40a72522c34",
+    "render_base_commit": "c5c4d516b0151d97c9f3fe311e7aa88a2eb151a3",
+    "render_worktree_change": "wide-phone body captions moved to the top-center caption lane",
     "take_id": "20261001-114145",
     "take_metadata_sha256": "752bbea59bad76d22e9270312bf5a4df03449aaaa8500a0cfad9fadb959ab4ed",
     "source_video": {
@@ -31,9 +32,9 @@
       "dimensions": "1920x1080",
       "fps": 60,
       "duration_seconds": 17.7,
-      "sha256": "a98e72236a46b7171cd5ff340e6ee97bd024ddd7733a80bd1c0d4c12dc89cca1",
+      "sha256": "40e8bc130f19a5cd81ec1fe0eb6eb501dc7298d4c46558467aa80726ac929554",
       "contact_sheet": "wide-contact-sheet.png",
-      "contact_sheet_sha256": "98f18da78e3961f0c250307c58604f5baed06c6839351f7191ab003afeed5f76"
+      "contact_sheet_sha256": "9d6295867fcb7d87b1c1db27a6e510904567ace7b9900f42bb8afe72600c9581"
     },
     "raw_vs_render_first_10_seconds": {
       "file": "raw-vs-render-first-10s.mp4",

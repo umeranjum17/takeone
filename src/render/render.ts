@@ -151,12 +151,13 @@ export async function renderTake(dir: string, d?: CameraDefaults): Promise<{ out
   const captions = takeCaptions(meta, outTime, duration);
   const captionsFile = join(dir, "captions.ass");
   const captionInk = await measureCaptions(dir, captions, d);
-  const captionsAss = captionAss(captions, captionInk, d);
+  const widePhone = phone && d.out_w > d.out_h;
+  const captionsAss = captionAss(captions, captionInk, d, widePhone);
   await writeFile(captionsFile, captionsAss);
 
   const keysFile = join(dir, "keycaps.ass");
   const keys = keycapAss(outBeats, trimStart, duration, d,
-    keycapObstacles(outBeats, decisions, stageCamera, stage, trimStart, captions, captionInk, d));
+    keycapObstacles(outBeats, decisions, stageCamera, stage, trimStart, captions, captionInk, d, widePhone));
   await writeFile(keysFile, keys);
   const spotlightFile = join(dir, "spotlight.ass");
   const spotlight = spotlightAss(spotlights, meta.width, meta.height, d);

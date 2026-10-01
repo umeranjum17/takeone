@@ -294,7 +294,7 @@ function captionMargin(size: number, d: CameraDefaults): number {
 }
 
 /** Shared geometry keeps keycap collision avoidance identical to caption placement. */
-export function captionLayouts(captions: Caption[], widths: (number | CaptionInk)[], d: CameraDefaults) {
+export function captionLayouts(captions: Caption[], widths: (number | CaptionInk)[], d: CameraDefaults, widePhone = false) {
   const heights = captions.map((caption, index) => {
     const size = caption.title ? Math.round(d.caption_size * 1.4) : d.caption_size;
     const ink = widths[index] ?? 0;
@@ -307,17 +307,18 @@ export function captionLayouts(captions: Caption[], widths: (number | CaptionInk
     const ink = widths[index] ?? 0;
     const w = Math.min(d.out_w * 0.9, (typeof ink === "number" ? ink : ink.w) + 2 * size * 0.75);
     const h = heights[index]!;
-    const below = caption.title ? Math.max(0, ...captions.map((other, i) =>
+    const below = caption.title && !widePhone ? Math.max(0, ...captions.map((other, i) =>
       !other.title && other.t0 < caption.t1 && other.t1 > caption.t0 ? heights[i]! : 0)) : 0;
     const cx = d.out_w / 2;
-    const cy = d.out_h - d.out_h * 0.075 - h / 2 - (below ? below + size * 0.35 : 0);
+    const cy = widePhone && !caption.title ? d.out_h * 0.035 + h / 2
+      : d.out_h - d.out_h * 0.075 - h / 2 - (below ? below + size * 0.35 : 0);
     return { cx, cy, w, h, size, rise: Math.round(size * 0.3) };
   });
 }
 
-export function captionAss(captions: Caption[], widths: (number | CaptionInk)[], d: CameraDefaults): string {
+export function captionAss(captions: Caption[], widths: (number | CaptionInk)[], d: CameraDefaults, widePhone = false): string {
   let out = assHeader(d.out_w, d.out_h, d.caption_font, d.caption_size);
-  const layouts = captionLayouts(captions, widths, d);
+  const layouts = captionLayouts(captions, widths, d, widePhone);
   captions.forEach((caption, index) => {
     const { cx, cy, w, h, size, rise } = layouts[index]!;
     const settle = Math.round(260 * 14 / d.spring_omega / d.spring_zeta);
