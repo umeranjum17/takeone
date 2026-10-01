@@ -39,7 +39,7 @@ html, body { width: ${width}px; height: ${height}px; overflow: hidden; backgroun
 #stage { position: absolute; left: 0; top: 0; width: ${width}px; height: ${height}px; overflow: hidden; background: var(--bg); }
 .layer { position: absolute; inset: 0; overflow: hidden; }
 </style>
-<script>window.bitmapSize = ${bitmapSize.toString()}; window.heroSize = ${heroSize.toString()}; window.heroTransform = ${heroTransform.toString()}; window.FONT_FACES = ${JSON.stringify(faces)}; window.STORYBOARD = ${json};</script>
+<script>window.bitmapSize = ${bitmapSize.toString()}; window.heroSize = ${heroSize.toString()}; window.heroTransform = ${heroTransform.toString()}; window.FONT_FACES = ${JSON.stringify(faces)}; window.STORYBOARD = JSON.parse(${JSON.stringify(json)});</script>
 ${motionScripts().map((f) => `<script src="${pathToFileURL(f).href}"></script>`).join("\n")}
 </head><body><div id="stage"></div></body></html>
 `;

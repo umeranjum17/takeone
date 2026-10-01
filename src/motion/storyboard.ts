@@ -150,8 +150,9 @@ export function validateStoryboard(raw: unknown): Storyboard {
     }
   }
 
-  const screens = raw["screens"] ?? {};
-  if (!isObj(screens)) throw new StoryboardError("screens", "expected an object");
+  const rawScreens = raw["screens"] ?? {};
+  if (!isObj(rawScreens)) throw new StoryboardError("screens", "expected an object");
+  const screens = Object.assign(Object.create(null), rawScreens);
   for (const [k, v] of Object.entries(screens)) {
     if (!ID.test(k) || !isObj(v) || typeof v["file"] !== "string") throw new StoryboardError(`screens.${k}`, "expected {file, width, height}");
     num(v["width"], `screens.${k}.width`, 1, 16384); num(v["height"], `screens.${k}.height`, 1, 16384);
