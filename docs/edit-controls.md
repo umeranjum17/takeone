@@ -6,6 +6,26 @@ them. Times below are **seconds relative to the source video**, before trim or
 idle pacing. Recorder `trim.start` / `trim.end` still use milliseconds; the
 renderer writes `trim_start` / `trim_end` in source-video seconds.
 
+## Output aspect and format
+
+`render` accepts `--aspect landscape|portrait|square`, which selects 1920×1080,
+1080×1920, or 1080×1080 output. Without this option, portrait source video
+defaults to portrait output and other sources to landscape. `--resolution 4k`
+selects 3840×2160, or 2160×3840 for portrait output; if both options are given,
+the resolution selects the size while the aspect selects its orientation.
+Explicit `--set out_w=...` / `--set out_h=...` dimensions are overridden by
+these presets.
+
+`--format mp4|gif|webm|prores4444` selects the output container/encoding and
+defaults to `mp4`. GIF output is encoded at 15 fps and scaled to at most 1080
+pixels wide; WebM uses VP9, and `prores4444` writes a ProRes 4444 `.mov` file.
+For example:
+
+```sh
+takeone render ~/Videos/takeone/<id> --aspect portrait --format gif
+takeone render ~/Videos/takeone/<id> --aspect square --resolution 4k --format webm
+```
+
 ```json
 {
   "cuts": [
