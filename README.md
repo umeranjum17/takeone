@@ -365,6 +365,8 @@ For the static-boundary proof, run `bash scripts/e2e/uiboxes-record.sh` under th
 
 ## End-to-end take with a staged scene
 
+To produce a scripted board take without a desktop, use the [headless demo-scene guide](docs/headless-scene.md).
+
 `scripts/e2e` records a harmless real take without touching your own apps. It stages and drives the board used in the captures above:
 
 - `scene.sh start PROFILE_DIR [WORKSPACE]` opens `scene.html` fullscreen on an empty Hyprland workspace (default 9). The page is a fictional project board with dummy content, run in a throwaway Chromium profile.
