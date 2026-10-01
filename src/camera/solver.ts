@@ -64,7 +64,8 @@ function toFrame(
 ): CameraFrame {
   const z = clamp(state.z, 1, zMax(width, height, d));
   const aspect = d.out_w / d.out_h;
-  const nonWide = Math.abs(width / height - aspect) > 1e-9;
+  const aspectDelta = Math.abs(width / height / aspect - 1);
+  const nonWide = aspectDelta > 1e-9;
   // Keep the viewport at the output aspect; padded overscan shrinks with zoom.
   const w = nonWide ? baseWidth(width, height, d) / z : Math.min(width / z, height * aspect);
   const h = w / aspect;
@@ -72,7 +73,8 @@ function toFrame(
   // newly available margin to avoid a one-frame jump at the source boundary.
   const place = (centre: number, view: number, size: number) => {
     if (!nonWide) return clamp(centre - view / 2, 0, Math.max(0, size - view));
-    const u = smooth(clamp((size - view) / (size * 0.75), 0, 1));
+    const easeBoundary = aspectDelta > 0.01;
+    const u = easeBoundary ? smooth(clamp((size - view) / (size * 0.75), 0, 1)) : 1;
     const effectiveCentre = size / 2 + (centre - size / 2) * u;
     return view > size ? (size - view) / 2
       : clamp(effectiveCentre - view / 2, 0, Math.max(0, size - view));
@@ -350,14 +352,13 @@ function createMove(from: CameraState, to: CameraState, arrival: number, baseW: 
   const mid = hop
     ? { cx: (from.cx + to.cx) / 2, cy: (from.cy + to.cy) / 2, z: Math.max(1, Math.min(from.z, to.z) / d.hop_zoom_div) }
     : from;
-  if (manual) {
-    // A user can request a much deeper zoom than the planner. Smootherstep's
-    // peak slope is 1.875 and peak acceleration is <5.78: bound the ideal path
-    // to 1 ln/s and 4 ln/s² before the final spring. Hops ease each half.
-    const travel = hop ? 2 * Math.max(Math.abs(Math.log(mid.z / from.z)), Math.abs(Math.log(to.z / mid.z)))
-      : Math.abs(Math.log(to.z / from.z));
-    duration = Math.max(duration, 1.875 * travel, Math.sqrt(5.78 * travel * (hop ? 2 : 1) / 4));
-  }
+  // Smootherstep's peak slope is 1.875. Manual edits retain their existing
+  // speed and acceleration bounds; portrait reframes leave room for the final
+  // spring while keeping their zoom speed within budget. Hops ease each half.
+  const travel = hop ? 2 * Math.max(Math.abs(Math.log(mid.z / from.z)), Math.abs(Math.log(to.z / mid.z)))
+    : Math.abs(Math.log(to.z / from.z));
+  if (manual) duration = Math.max(duration, 1.875 * travel, Math.sqrt(5.78 * travel * (hop ? 2 : 1) / 4));
+  else if (d.out_h > d.out_w) duration = Math.max(duration, 2 * travel);
   const start = Math.max(arrival - duration, startAfter);
   return { from, to, mid, start, end: start + duration, hop };
 }
