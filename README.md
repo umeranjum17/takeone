@@ -333,7 +333,7 @@ linked above for the current selection.
 | sand | Warm diagonal gradient and soft shadow | Fraunces SemiBold / Manrope Medium |
 | terminal | Green grid, square captions and mono type | JetBrains Mono Bold / JetBrains Mono |
 
-![Eight recording themes on a fictional launch board](docs/assets/themes/takeone-themes-grid.png)
+![Historical eight recording themes on a fictional launch board](docs/assets/themes/takeone-themes-grid.png)
 
 Theme fonts are bundled under OFL 1.1 with their licence files in
 `resources/fonts/`. Caption measurement and final rendering use the same
@@ -359,10 +359,12 @@ remains critically damped. Recording `pace` scales camera holds (`dwell`,
 
 The committed eight-theme grid and comparison video predate `editorial`.
 The README grid comes from a real 1080p60 take, each theme showing its title
-over a caption frame: `node scripts/theme-proof.ts tmp/theme-real --take path/to/take`.
-The generator is [scripts/theme-proof.ts](scripts/theme-proof.ts); its grid
-layout needs updating before it can include all current themes.
-`node scripts/theme-proof.ts tmp/theme-proof` uses a synthetic fixture, a fictional
+above a caption frame. The corrected [generator](scripts/theme-proof.ts) derives
+input count and positions from the current nine-theme list and emits
+`provenance.json` with generator, source and grid hashes. Preview regeneration
+remains outstanding; run `node scripts/theme-proof.ts tmp/theme-real --take path/to/take`
+for a real take, or `node scripts/theme-proof.ts tmp/theme-proof` for the synthetic
+fixture. The synthetic fixture is a fictional
 Tidewater launch board with Umer as its demo person, with no desktop capture.
 The captured 2560×1440 fixture comes from `scripts/e2e/scene.html`; the proof
 uses `stage_margin=0.16` so background treatment is visible at thumbnail size.

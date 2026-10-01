@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { sceneTexts } from "./storyboard.ts";
 import { allTimelines } from "./layout.ts";
-import { fontFile, motionTokens } from "./theme.ts";
+import { fontFile, motionTokens, SYMBOL_FONT, RULE_FONT } from "./theme.ts";
 import type { Storyboard, Tempo } from "./types.ts";
 
 export function lintCss(css: string): void {
@@ -49,9 +49,13 @@ export function lintFonts(sb: Storyboard): void {
   for (const scenes of allTimelines(sb.layout, sb.scenes)) for (const [i, s] of scenes.entries()) {
     const fragmentTexts = s.pattern === "fragment" ? sceneTexts(s) : [];
     const monoFragment = s.kind === "counter" || s.kind === "phone-chrome";
+    const feedRow = s.pattern === "fragment" && s.kind === "feed-row";
+    const device = s.pattern === "fragment" ? s.kind === "browser-chrome" ? "browser" : s.kind === "phone-chrome" ? "phone" : "none" : ["hero-reveal", "zoom-tour"].includes(s.pattern) ? s.device ?? "browser" : "none";
     const display = [s.title, s.logo];
-    const body = [s.subtitle, s.cta, s.text, ...(!monoFragment ? fragmentTexts : []), ...(s.stops ?? []).map(t => t.caption)];
-    for (const [family, strings] of [[tokens.display_font, display], [tokens.caption_font, body], [tokens.mono_font, [s.url, ...(monoFragment ? fragmentTexts : []), ...(s.pattern === "fragment" && s.kind === "counter" ? ["0123456789"] : [])]]] as const) {
+    const body = [s.subtitle, s.cta, s.text, ...(!monoFragment ? feedRow ? fragmentTexts.slice(0, 2) : fragmentTexts : []), ...(s.stops ?? []).map(t => t.caption), ...(device === "browser" ? ["Design preview"] : [])];
+    const mono = [s.url, ...(monoFragment ? fragmentTexts : []), ...(s.kind === "counter" ? ["0123456789"] : []), ...(feedRow ? ["Just now"] : []), ...(device === "phone" ? ["9:41"] : [])];
+    const symbols = [...(s.kind === "toast" ? ["✓"] : []), ...(device === "browser" ? ["● ● ●"] : [])];
+    for (const [family, strings] of [[tokens.display_font, display], [tokens.caption_font, body], [tokens.mono_font, mono], [SYMBOL_FONT, symbols], [RULE_FONT, device === "phone" ? ["━"] : []]] as const) {
       for (const text of strings) if (text && !fontCovers(fontFile(family)!, text)) throw new Error(`scenes[${i}]: missing glyph in ${family} for ${JSON.stringify(text)}; select a bundled font with coverage`);
     }
   }

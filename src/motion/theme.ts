@@ -4,6 +4,9 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { applyOverrides, type CameraDefaults, type Overrides } from "../camera/defaults.ts";
 import { themeDefaults, THEMES } from "../themes.ts";
 
+export const SYMBOL_FONT = "Inter SemiBold";
+export const RULE_FONT = "Geist Mono";
+
 export const FONTS_DIR = fileURLToPath(new URL("../../resources/fonts/", import.meta.url));
 
 /** Motion-only tokens. `page` is the backdrop behind bento tiles; tiles and single scenes use `background`. */
@@ -74,13 +77,13 @@ export function fontFile(family: string): string | null {
 
 /** :root CSS variables plus @font-face rules (local files only) for the page. */
 export function themeCss(t: MotionTokens): { css: string; faces: string[] } {
-  const families = [...new Set([t.display_font, t.caption_font, t.mono_font])];
+  const families = [...new Set([t.display_font, t.caption_font, t.mono_font, SYMBOL_FONT, RULE_FONT])];
   const faces = families.map((f) => `@font-face { font-family: "${f}"; src: url("${pathToFileURL(fontFile(f)!).href}") format("truetype"); }`);
   const vars: Record<string, string> = {
     "--page": t.page, "--bg": t.background, "--bg-to": t.background_to, "--accent": t.accent, "--text": t.text,
     "--card": t.card, "--ink": t.ink, "--muted": t.muted, "--line": t.line, "--border-color": t.border_color,
     "--shadow-color": t.shadow_color, "--display": `"${t.display_font}"`, "--body": `"${t.caption_font}"`,
-    "--mono": `"${t.mono_font}"`, "--radius": `${t.corner_radius}px`, "--border": `${t.border}px`,
+    "--mono": `"${t.mono_font}"`, "--symbols": `"${SYMBOL_FONT}"`, "--rules": `"${RULE_FONT}"`, "--radius": `${t.corner_radius}px`, "--border": `${t.border}px`,
     "--shadow": String(t.shadow), "--shadow-blur": `${t.shadow_blur}px`, "--shadow-x": `${t.shadow_x}px`,
     "--shadow-y": `${t.shadow_y}px`, "--glow": String(t.glow), "--gutter-x": `${t.gutter_x}px`, "--gutter-y": `${t.gutter_y}px`,
     "--margin-x": `${t.margin_x}px`, "--margin-y": `${t.margin_y}px`, "--pill-radius": String(t.caption_rounding),

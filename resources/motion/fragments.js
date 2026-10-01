@@ -7,7 +7,7 @@ FRAGMENTS.input=(s)=>{
   return el;
 };
 FRAGMENTS.chip=s=>box(esc(s.text??"High priority"),"display:inline-flex;border-radius:999px;padding:10px 24px;background:var(--design-accent, var(--accent));color:var(--design-on-accent, var(--bg))");
-FRAGMENTS.toast=s=>box(`✓ &nbsp; ${esc(s.text??"Task created")}`,"background:var(--ink);color:var(--card)");
+FRAGMENTS.toast=s=>box(`<span style="font-family:var(--symbols)">✓</span> &nbsp; ${esc(s.text??"Task created")}`,"background:var(--ink);color:var(--card)");
 FRAGMENTS["feed-row"]=s=>box(`<b>Umer</b> ${esc(s.text??"moved Draft launch announcement")}<div style="font:18px var(--mono);margin-top:10px">Just now</div>`);
 FRAGMENTS.counter=s=>{const el=box("0","font:80px var(--mono)");tick(ms=>el.textContent=String(Math.round(60*smootherstep(Math.max(0,Math.min(1,ms/1500))))));return el;};
 FRAGMENTS["line-chart"]=()=>box(`<svg width="560" height="190" viewBox="0 0 560 190"><path d="M0 160 L80 125 L160 135 L240 75 L320 95 L400 45 L480 60 L560 10" fill="none" stroke="var(--design-accent, var(--accent))" stroke-width="6"/><path d="M0 185 H560" stroke="var(--line)"/></svg>`);

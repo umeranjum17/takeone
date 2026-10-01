@@ -3,6 +3,7 @@
 // node scripts/theme-proof.ts [output-dir] [--baseline path/to/old/render.ts]
 // node scripts/theme-proof.ts [output-dir] --take path/to/real/take  (grid from a real take at 1080p60)
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { cpSync, mkdirSync, readFileSync, writeFileSync, copyFileSync } from "node:fs";
 import { resolve, join } from "node:path";
@@ -22,10 +23,12 @@ const ff = (...args:string[]) => execFileSync("ffmpeg", ["-nostdin","-hide_banne
 const names=Object.keys(THEMES);
 const font=join(FONTS_DIR,"Geist.ttf");
 /** Each cell stacks a title frame over a caption frame; the label is the theme, never on the video. */
-const grid=()=>{
+const grid=(source:string)=>{
+ const columns=4,layout=names.map((_,i)=>`${(i%columns)*640}_${Math.floor(i/columns)*756}`).join("|");
  const inputs=names.flatMap(name=>["-i",join(dest,`${name}.png`)]);
  const cells=names.map((name,i)=>`[${i}:v]scale=640:720,pad=640:756:0:36:color=0x121319,drawtext=fontfile='${font}':text='${name}':x=20:y=9:fontsize=20:fontcolor=white[c${i}]`).join(";");
- ff(...inputs,"-filter_complex",`${cells};${names.map((_,i)=>`[c${i}]`).join("")}xstack=inputs=8:layout=0_0|640_0|1280_0|1920_0|0_756|640_756|1280_756|1920_756[grid]`,"-map","[grid]","-frames:v","1","-update","1",join(dest,"takeone-themes-grid.png"));
+ ff(...inputs,"-filter_complex",`${cells};${names.map((_,i)=>`[c${i}]`).join("")}xstack=inputs=${names.length}:layout=${layout}[grid]`,"-map","[grid]","-frames:v","1","-update","1",join(dest,"takeone-themes-grid.png"));
+ writeFileSync(join(dest,"provenance.json"),JSON.stringify({generator:"scripts/theme-proof.ts",generator_sha256:createHash("sha256").update(readFileSync(fileURLToPath(import.meta.url))).digest("hex"),source,source_sha256:createHash("sha256").update(readFileSync(source)).digest("hex"),themes:names,grid:{columns,rows:Math.ceil(names.length/columns),width:columns*640,height:Math.ceil(names.length/columns)*756},grid_sha256:createHash("sha256").update(readFileSync(join(dest,"takeone-themes-grid.png"))).digest("hex")},null,2)+"\n");
 };
 if(values.take!==undefined){
  // A real take at the default 1080p60 output: frames from its title and its first caption.
@@ -42,7 +45,7 @@ if(values.take!==undefined){
   ff("-i",join(dest,`${name}-title.png`),"-i",join(dest,`${name}-caption.png`),"-filter_complex","[0:v][1:v]vstack","-frames:v","1","-update","1",join(dest,`${name}.png`));
   console.log(`rendered ${name}`);
  }
- grid();
+ grid(join(resolve(values.take),"screen.webm"));
  console.log(`proof saved in ${dest}`);
  process.exit(0);
 }
@@ -75,7 +78,7 @@ for(const name of names){
  facts[name]={seconds:result.seconds,contrast,fonts:[...readFileSync(join(take,"render.log"),"utf8").matchAll(/fontselect:[^\n]+/g)].map(m=>m[0])};
  console.log(`rendered ${name}`);
 }
-grid();
+grid(source);
 const quote=(s:string)=>s.replace(/'/g,"'\\''");
 writeFileSync(join(dest,"cycle.txt"),names.map(n=>`file '${quote(join(dest,`${n}.mp4`))}'`).join("\n")+"\n");
 ff("-f","concat","-safe","0","-i",join(dest,"cycle.txt"),"-c","copy","-movflags","+faststart",join(dest,"takeone-themes-cycle.mp4"));
