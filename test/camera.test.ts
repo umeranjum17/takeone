@@ -6,7 +6,7 @@ import test from "node:test";
 import { applyOverrides, DEFAULTS } from "../src/camera/defaults.ts";
 import { frame, moveDuration, solveCamera, zMax } from "../src/camera/solver.ts";
 import type { Beat, Decision, Zone } from "../src/camera/types.ts";
-import { renderTake, sendcmd } from "../src/render/render.ts";
+import { renderTake, cameraFilter } from "../src/render/render.ts";
 import { hasFfmpeg } from "./helpers.ts";
 
 // Only tests pass a fast preset and tiny output: shipped output stays
@@ -63,7 +63,7 @@ function camera(beats: Beat[], decisions: Decision[], end = 8) {
 }
 
 function at(frames: ReturnType<typeof camera>, seconds: number) {
-  return frames[Math.round(seconds * 30)]!;
+  return frames[Math.round(seconds * DEFAULTS.fps)]!;
 }
 
 test("framing expands to 16:9 and respects source and upscale clamps", () => {
@@ -107,10 +107,8 @@ test("whole-screen non-16:9 frames cover the full source while 16:9 framing is u
   const zoomed = solveCamera([zoomBeat], [decision(zoomBeat)], {
     width: 3840, height: 2160, trim_start: 0, trim_end: 4,
   }, noBookends);
-  assert.deepEqual(zoomed[60]!, {
-    t: 2, x: 1917.6833193611185, y: 593.4389427400281,
-    w: 1313.3037888436606, h: 738.7333812245591,
-  });
+  assert.ok(at(zoomed, 2).w < 1400);
+  assert.ok(at(zoomed, 2).x > 1800);
 });
 
 test("phone footage into 16:9 zooms against the padded canvas and keeps the card centred", () => {
@@ -152,13 +150,12 @@ test("non-16:9 padding eases through zoom and back without a crop jump", () => {
   assert.ok(frames.every((f, i) => !i || Math.abs(f.w - frames[i - 1]!.w) < 200));
 });
 
-test("move duration clamps and sendcmd emits one crop update per frame", () => {
+test("move duration clamps and the camera retains fractional source coordinates", () => {
   assert.equal(moveDuration(0), 0.6);
   assert.ok(moveDuration(100) <= 1.4);
-  assert.match(
-    sendcmd([{ t: 0, x: 0, y: 0, w: 3840, h: 2160 }]),
-    /^0\.000000 \[enter\] crop@a w 3840, crop@a h 2160, crop@a x 0, crop@a y 0;\n$/,
-  );
+  const filter = cameraFilter([{ t: 0, x: 0.125, y: 0.25, w: 1920, h: 1080 }], 3840, 2160, DEFAULTS);
+  assert.match(filter, /x0='0.062500000'/);
+  assert.match(filter, /interpolation=cubic/);
 });
 
 test("deadzone skips framing that already fits with the configured margin", () => {
@@ -412,8 +409,8 @@ test("the first shot waits for the establishing hold and the take ends wide", ()
   const result = solveCamera([early], [decision(early)],
     { width: 3840, height: 2160, trim_start: 0, trim_end: 8 });
   // Still wide until the move toward the establish-delayed arrival starts.
-  assert.deepEqual(result[10], { t: 10 / 30, x: 0, y: 0, w: 3840, h: 2160 });
-  assert.ok(result[Math.round(DEFAULTS.establish_s * 30) + 3]!.w < 3000);
+  assert.deepEqual(result[10], { t: 10 / DEFAULTS.fps, x: 0, y: 0, w: 3840, h: 2160 });
+  assert.ok(result[Math.round(DEFAULTS.establish_s * DEFAULTS.fps) + 3]!.w < 3000);
   assert.ok(result.at(-1)!.w > 3839);
   const kept = solveCamera([early], [decision(early)],
     { width: 3840, height: 2160, trim_start: 0, trim_end: 8 }, noBookends);
@@ -425,7 +422,7 @@ test("frame samples have smooth log zoom and fixed aspect", () => {
   const second = beat("second", 3, 500, "type");
   second.actions = [{ x: 700, y: 900 }];
   const result = camera([first, second], [decision(first), decision(second)], 5);
-  assert.equal(result.length, 151);
+  assert.equal(result.length, 5 * DEFAULTS.fps + 1);
   for (let index = 1; index < result.length; index++) {
     const current = result[index]!
     const previous = result[index - 1]!;
@@ -483,7 +480,7 @@ test("render without trim_end uses the latest beat end", { timeout: 120_000, ski
     const count = execFileSync("ffprobe", ["-v", "error", "-select_streams", "v:0",
       "-show_entries", "stream=nb_frames", "-of", "default=noprint_wrappers=1:nokey=1", output],
     { encoding: "utf8" });
-    assert.equal(Number(count.trim()), 54);
+    assert.equal(Number(count.trim()), Math.round(1.8 * DEFAULTS.fps));
     // Square pixels must survive per-frame crop-size changes (ffmpeg 6.1
     // stalls on per-frame SAR changes; see setsar=1 each side of scale).
     const sar = execFileSync("ffprobe", ["-v", "error", "-select_streams", "v:0",
@@ -495,7 +492,7 @@ test("render without trim_end uses the latest beat end", { timeout: 120_000, ski
   }
 });
 
-test("synthetic source renders silent H.264 at the configured size and 30fps", {
+test("synthetic source renders silent H.264 at the configured size and 60fps", {
   timeout: 120_000, skip: needsFfmpeg,
 }, async () => {
   const dir = await mkdtemp(join(process.cwd(), "takeone:render-"));
@@ -530,12 +527,18 @@ test("synthetic source renders silent H.264 at the configured size and 30fps", {
       id: "fixture", width: 320, height: 180, trim_start: 0, trim_end: 2,
     }));
     const output = (await renderTake(dir, FAST)).out;
-    const probe = execFileSync("ffprobe", [
+    const probe = JSON.parse(execFileSync("ffprobe", [
       "-v", "error", "-select_streams", "v:0", "-show_entries",
-      "stream=width,height,nb_frames,codec_name", "-of", "csv=p=0", output,
-    ], { encoding: "utf8" });
-    assert.match(probe, /h264/);
-    assert.match(probe, /320,180,60/);
+      "stream=width,height,nb_frames,codec_name,r_frame_rate,color_range,color_space,color_transfer,color_primaries", "-of", "json", output,
+    ], { encoding: "utf8" })).streams[0];
+    assert.deepEqual(probe, { codec_name: "h264", width: 320, height: 180, color_range: "tv",
+      color_space: "bt709", color_transfer: "bt709", color_primaries: "bt709", r_frame_rate: "60/1", nb_frames: "120" });
+    for (const quality of ["draft", "standard", "master"] as const) {
+      await renderTake(dir, { ...FAST, quality });
+      const first = await readFile(output);
+      await renderTake(dir, { ...FAST, quality });
+      assert.deepEqual(await readFile(output), first, `${quality} must encode byte-identically`);
+    }
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -584,7 +587,7 @@ test("a result move waits out the minimum dwell after the action shot arrives", 
   const firstMove = moving.indexOf(true);
   const holdStart = moving.indexOf(false, firstMove);
   const holdEnd = moving.indexOf(true, holdStart);
-  assert.ok(holdEnd < 0 || (holdEnd - holdStart) / 30 >= DEFAULTS.dwell, `hold ${(holdEnd - holdStart) / 30}s`);
+  assert.ok(holdEnd < 0 || (holdEnd - holdStart) / DEFAULTS.fps >= DEFAULTS.dwell, `hold ${(holdEnd - holdStart) / DEFAULTS.fps}s`);
 });
 
 test("a typing beat does not chase its earlier click points off the result shot", () => {

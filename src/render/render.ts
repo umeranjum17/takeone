@@ -1,5 +1,6 @@
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { availableParallelism } from "node:os";
 import { basename, join } from "node:path";
 import { DEFAULTS, type CameraDefaults } from "../camera/defaults.ts";
 import { solveCamera } from "../camera/solver.ts";
@@ -10,16 +11,54 @@ import {
   type Caption, type CaptionInk,
 } from "./stage.ts";
 
-/** Encode one crop command per sampled camera frame for FFmpeg's crop filter. */
-export function sendcmd(frames: CameraFrame[], offsetX = 0, offsetY = 0): string {
-  return frames.map((frame) => {
-    const t = frame.t.toFixed(6);
-    const w = Math.round(frame.w);
-    const h = Math.round(frame.h);
-    const x = Math.round(frame.x + offsetX);
-    const y = Math.round(frame.y + offsetY);
-    return `${t} [enter] crop@a w ${w}, crop@a h ${h}, crop@a x ${x}, crop@a y ${y};`;
-  }).join("\n") + "\n";
+/**
+ * ffmpeg reparses perspective expressions every frame. Keep a compact piecewise
+ * linear path, with at most 0.001 working-pixel error at any sampled corner.
+ * Balanced lookup also keeps parser depth logarithmic on long takes.
+ */
+function frameExpr(values: number[]): string {
+  if (values.length === 1) return values[0]!.toFixed(9);
+  const knots = [0];
+  const simplify = (lo: number, hi: number): void => {
+    const slope = (values[hi]! - values[lo]!) / (hi - lo);
+    let worst = 0.001;
+    let split = -1;
+    for (let i = lo + 1; i < hi; i++) {
+      const error = Math.abs(values[i]! - values[lo]! - (i - lo) * slope);
+      if (error > worst) { worst = error; split = i; }
+    }
+    if (split < 0) { knots.push(hi); return; }
+    simplify(lo, split);
+    simplify(split, hi);
+  };
+  simplify(0, values.length - 1);
+  const lookup = (lo: number, hi: number): string => {
+    if (hi - lo === 1) {
+      const a = knots[lo]!;
+      const b = knots[hi]!;
+      const slope = (values[b]! - values[a]!) / (b - a);
+      // perspective's input frame counter starts at one.
+      return `${values[a]!.toFixed(9)}+clip(in-1-${a},0,${b - a})*${slope.toFixed(9)}`;
+    }
+    const mid = Math.floor((lo + hi) / 2);
+    return `if(lt(in-1,${knots[mid]}),${lookup(lo, mid)},${lookup(mid, hi)})`;
+  };
+  return lookup(0, knots.length - 1);
+}
+
+/** Subpixel source warp; master supersamples at 2x before Lanczos downsampling. */
+export function cameraFilter(frames: CameraFrame[], width: number, height: number, d: CameraDefaults): string {
+  const factor = d.quality === "master" ? 2 : 1;
+  const w = d.out_w * factor;
+  const h = d.out_h * factor;
+  const interpolation = d.quality === "draft" ? "linear" : "cubic";
+  const x0 = frameExpr(frames.map((f) => f.x * w / width));
+  const y0 = frameExpr(frames.map((f) => f.y * h / height));
+  const x1 = frameExpr(frames.map((f) => (f.x + f.w) * w / width));
+  const y1 = frameExpr(frames.map((f) => (f.y + f.h) * h / height));
+  return `scale=${w}:${h}:flags=lanczos,perspective=x0='${x0}':y0='${y0}'`
+    + `:x1='${x1}':y1='${y0}':x2='${x0}':y2='${y1}':x3='${x1}':y3='${y1}'`
+    + `:sense=source:eval=frame:interpolation=${interpolation},scale=${d.out_w}:${d.out_h}:flags=lanczos,setsar=1`;
 }
 
 /** Run ffmpeg, resolve with its stderr, and include its final 20 stderr lines on failure. */
@@ -68,7 +107,7 @@ export async function renderTake(dir: string, d: CameraDefaults = DEFAULTS): Pro
   await writeFile(join(dir, "camera.json"), JSON.stringify(frames));
   const stage = stageGeometry(meta.width, meta.height, d);
   const commandFile = join(dir, "camera.cmd");
-  await writeFile(commandFile, sendcmd(stageFrames(frames, meta.width, meta.height, stage, d)));
+  const camera = cameraFilter(stageFrames(frames, meta.width, meta.height, stage, d), stage.w, stage.h, d);
 
   const outputDir = join(dir, "out");
   await mkdir(outputDir, { recursive: true });
@@ -101,13 +140,21 @@ export async function renderTake(dir: string, d: CameraDefaults = DEFAULTS): Pro
   const clicksOverlay = hasDialogue(clicksAss) ? `,ass=${filterPath(clicksFile)}` : "";
   const captionsOverlay = hasDialogue(captionsAss) ? `,ass=${filterPath(captionsFile)}` : "";
   const filter = [
-    `[0:v]setpts='${setptsExpr(squeezes, d.idle_speed)}'${clicksOverlay},format=yuv420p[screen]`,
+    `[0:v]setpts='${setptsExpr(squeezes, d.idle_speed)}',fps=${d.fps}${clicksOverlay},scale=in_color_matrix=auto:out_color_matrix=bt601,format=yuv420p[screen]`,
     cardFilter(meta.width, meta.height, stage, d, still),
-    `[c4]sendcmd=f=${filterPath(commandFile)},crop@a=w=iw:h=ih:x=0:y=0:exact=1,`
-      + `setsar=1,scale=${d.out_w}:${d.out_h}:flags=lanczos,setsar=1${captionsOverlay}`
+    `[c4]${camera}${captionsOverlay}`
       + (fade > 0 ? `,fade=t=in:st=0:d=${fade}:color=${background},fade=t=out:st=${duration - fade}:d=${fade}:color=${background}` : "")
-      + `,format=yuv420p`,
+      + `,scale=in_color_matrix=bt601:out_color_matrix=bt709:out_range=tv,format=yuv420p,setparams=range=limited:color_primaries=bt709:color_trc=bt709:colorspace=bt709`,
   ].join(";");
+
+  await writeFile(commandFile, filter);
+  const crf = { draft: 23, standard: 18, master: 14 }[d.quality];
+
+  const threads = String(Math.min(32, availableParallelism()));
+  const ffmpegMajor = Number(execFileSync("ffmpeg", ["-version"], { encoding: "utf8" })
+    .match(/ffmpeg version (?:n)?(\d+)/)?.[1] ?? 0);
+  // ffmpeg 7 introduced file-valued options; older releases use the script flag.
+  const graphOption = ffmpegMajor >= 7 ? "-/filter_complex" : "-filter_complex_script";
 
   // Keep camera.cmd on failure for straightforward diagnosis and re-rendering.
   await runFfmpeg([
@@ -116,8 +163,10 @@ export async function renderTake(dir: string, d: CameraDefaults = DEFAULTS): Pro
     "-framerate", String(d.fps), "-i", stageFile,
     "-framerate", String(d.fps), "-i", holesFile,
     // Slice threads keep the stage filters from starving the encoder.
-    "-filter_complex_threads", "4", "-filter_complex", filter,
-    "-r", String(d.fps), "-an", "-c:v", "libx264", "-crf", "18",
+    "-filter_threads", threads, "-filter_complex_threads", threads,
+    graphOption, commandFile,
+    "-r", String(d.fps), "-an", "-c:v", "libx264", "-crf", String(crf),
+    "-color_primaries", "bt709", "-color_trc", "bt709", "-colorspace", "bt709", "-color_range", "tv",
     "-preset", d.preset, "-movflags", "+faststart", output,
   ]);
   return { out: output, seconds: duration };
