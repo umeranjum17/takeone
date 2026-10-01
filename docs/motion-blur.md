@@ -27,6 +27,6 @@ The wall-time ratio depends on machine load and the fraction of fast camera move
 
 Proof uses the fictional Tidewater board in `scripts/e2e/scene.html`, captured headlessly at its native 2560×1440 size. The only demo person is Umer. A 10 s proof take moves between task cards and the activity feed, with idle compression disabled. Before/after crops at frame 304 (5.067 s) retain 100% output scale. The paired clip labels blur off/on, and a contact sheet covers the complete output. No desktop or device was captured.
 
-Executable tests check centred exposure timing, pan/zoom/diagonal spacing, strength validation, exact output frame counts, no mixing of alternating source images, identical decoded rerenders, a continuous thin-line streak, and unchanged sharp holds. All 308 tests and typecheck pass.
+Executable tests check centred exposure timing, pan/zoom/diagonal spacing, strength validation, exact output frame counts, no mixing of alternating source images, identical decoded rerenders, a continuous thin-line streak, and unchanged sharp holds.
 
 The first full suite run encountered temporary-storage quota errors. A subsequent worktree-local run had one Unix-socket pathname-length failure; that fixture passes with a shorter temporary directory, and the full 308-test suite then passed. These are environment failures rather than render regressions.
