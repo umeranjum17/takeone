@@ -19,13 +19,12 @@ export function shellCache(): string {
   return join(process.env["XDG_CACHE_HOME"] ?? join(homedir(), ".cache"), "takeone", "headless-shell", SHELL_VERSION);
 }
 
-/** Where a pinned shell may already live: explicit env, TakeOne's cache, or Playwright's cache of the same build. */
+/** Where a pinned shell may already live: explicit env, TakeOne's cache. */
 export function shellCandidates(): string[] {
   const env = process.env["TAKEONE_CHROME"];
   return [
     ...(env ? [env] : []),
     join(shellCache(), BIN),
-    join(homedir(), ".cache/ms-playwright/chromium_headless_shell-1234", BIN),
   ];
 }
 

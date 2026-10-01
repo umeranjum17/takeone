@@ -1,9 +1,14 @@
 import test from "node:test";
 import vm from "node:vm";
+import { readFileSync } from "node:fs";
+import { motionPage } from "../src/motion/page.ts";
 import { INGEST_CLOCK } from "../src/motion/ingest-clock.ts";
 import assert from "node:assert/strict";
 import { validateStoryboard } from "../src/motion/storyboard.ts";
 import { beatTime, fontCovers, lintCss } from "../src/motion/lint.ts";
+import { parseMotionArgs, planStoryboard } from "../src/motion/cli.ts";
+import { bitmapSize, heroSize } from "../src/motion/geometry.ts";
+import { motionTokens } from "../src/motion/theme.ts";
 import { fontFile } from "../src/motion/theme.ts";
 import { planSpeeds } from "../src/motion/blur.ts";
 import { averageRaw, decodePng, encodePng } from "../src/motion/png.ts";
@@ -73,4 +78,51 @@ test("ingest timer clock preserves order, nested timers and cancellation",async(
     return JSON.stringify(trace);
   })()`,context);
   assert.deepEqual(JSON.parse(result),[5,946684800010,10,"nested",15,20]);
+});
+
+
+function assertBoundedCamera(frames:{x:number;y:number;w:number;h:number}[]) {
+  const velocities=frames.slice(1).map((f,i)=>Math.log(frames[i]!.w/f.w)*60);
+  assert.ok(frames.every(f=>1920/f.w<=1.5+1e-9));
+  assert.ok(velocities.every(v=>Math.abs(v)<=1+1e-9));
+  assert.ok(velocities.slice(1).every((v,i)=>Math.abs(v-velocities[i]!)*60<=4+1e-9));
+  const positions=frames.map(f=>[-f.x*1920/f.w,-f.y*1080/f.h]);
+  assert.ok(positions.slice(2).every((p,i)=>Math.hypot(p[0]!-2*positions[i+1]![0]!+positions[i]![0]!,p[1]!-2*positions[i+1]![1]!+positions[i]![1]!)*3600<=9000+1e-9));
+}
+
+test("motion planning preserves screen ownership, quoted states and bounded bitmap cameras",()=>{
+  const plan=validateStoryboard({...planStoryboard(parseMotionArgs(["first.png","second.png","--region","100,100,200,200:Focus","--region","100,100,200,200:Other@S2"]),"regression") as object,screens:{S1:{file:"first.png",width:2560,height:1440},S2:{file:"second.png",width:2560,height:1440}}});
+  assert.deepEqual(plan.scenes.filter(s=>s.pattern==="zoom-tour").map(s=>s.screen),["S1","S2"]);
+  const paths=sceneCameras(plan);
+  assert.ok(paths["0"]!.some(f=>f.w!==paths["0"]![0]!.w));
+  for(const frames of Object.values(paths))assertBoundedCamera(frames.map(f=>f.output??f));
+  for(const input of ["page.html","https://example.test"]) {
+    const state=validateStoryboard(planStoryboard(parseMotionArgs([input,"--state",'S1=type #title "Draft; launch"; wait 300']),"state"));
+    assert.deepEqual(state.source.states!.S1!.map(op=>parseStateOp(op)),[["type","#title","Draft; launch"],["wait",300]]);
+  }
+  const mono=motionTokens("mono");assert.equal(mono.text,"#ffffff");assert.equal(mono.background,"#000000");assert.equal(mono.ink,"#000000");assert.equal(mono.card,"#ffffff");
+  for(const device of ["browser","phone","laptop","none"] as const) {
+    const small={width:100,height:100},scene={pattern:"hero-reveal" as const,d:5,device};
+    const hero=heroSize(small,scene,1920,1080);assert.ok(Math.max(hero.width/100,hero.height/100)*1.03<=1+1e-9);
+    const hard=bitmapSize(small,600,800);assert.ok(Math.max(hard.width/100,hard.height/100)<=1.5);
+  }
+  const browser:Record<string,unknown>={};browser.window=browser;
+  const bootstrap=motionPage({},mono,1920,1080).match(/<script>([\s\S]*?)<\/script>/)![1]!;
+  vm.runInNewContext(bootstrap,browser);
+  const browserHero=browser.heroSize as typeof heroSize;
+  assert.deepEqual(JSON.parse(JSON.stringify(browserHero({width:100,height:100},{pattern:"hero-reveal",d:5,device:"phone"},1920,1080))),heroSize({width:100,height:100},{pattern:"hero-reveal",d:5,device:"phone"},1920,1080));
+  browser.CHROME={};vm.runInNewContext(readFileSync(new URL("../resources/motion/chrome.js",import.meta.url),"utf8"),browser);
+  const requested:string[]=[];browser.deviceFrame=()=>({frame:"frame"});
+  const chrome=browser.CHROME as Record<string,(ctx:unknown)=>unknown>;
+  const ctx={scene:{screen:"S2"},W:1920,H:1080,screen:(id:string)=>{requested.push(id);return {width:100,height:100};}};
+  chrome.browser!(ctx);chrome.phone!(ctx);assert.deepEqual(requested,["S2","S2"]);
+  const large=validateStoryboard({...board(),screens:{S1:{file:"large.png",width:16384,height:9216}},regions:[{id:"r1",rect:[100,100,20,20],screen:"S1",from:"user"}],scenes:[{pattern:"zoom-tour",screen:"S1",d:60,stops:[{region:"r1"}]}]});
+  const frames=sceneCameras(large)["0"]!;
+  assertBoundedCamera(frames.map(f=>f.output??f));
+  assert.throws(()=>sceneCameras({...large,scenes:[{...large.scenes[0]!,d:5}]}),/bounded moves/);
+  assert.throws(()=>validateStoryboard({...board(),regions:[{id:"r1",rect:[0,0,10,10],screen:"S1",from:"user"}],scenes:[{pattern:"hero-reveal",screen:"S2",focus:"r1",d:5}]}),/screen/);
+  assert.throws(()=>parseMotionArgs(["first.png","--aspect","9:16"]),/unknown option/);
+  assert.throws(()=>parseMotionArgs(["first.png","--fps","30"]),/unknown option/);
+  assert.throws(()=>validateStoryboard({...board(),output:{quality:"draft"}}),/not supported/);
+  assert.throws(()=>validateStoryboard({...board(),scenes:[...board().scenes,...board().scenes],transitions:[{after:0,kind:"xfade",d:.25}]}),/expected cut/);
 });

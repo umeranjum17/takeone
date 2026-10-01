@@ -8,7 +8,7 @@ window.mountBento = async (stage, sb) => {
     stage.append(clip);
     // Every tile is a clipped viewport. Canon tiles share exactly the same virtual viewport.
     const root=window.h(`<div style="position:absolute;width:${w}px;height:${h}px;overflow:hidden;background:var(--bg)"></div>`);
-    clip.append(root); mountScenes(root,scenes,[],w,h,shift,key);
+    clip.append(root); mountScenes(root,scenes,w,h,shift,key);
   };
   if(sb.layout.grid==="2x2") {
     const w=(iw-gx)/2,h=(ih-gy)/2;

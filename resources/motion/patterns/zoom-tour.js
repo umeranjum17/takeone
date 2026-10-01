@@ -1,5 +1,6 @@
 PATTERNS["zoom-tour"] = (layer,s,ctx) => {
-  const {W,H}=ctx,scr=ctx.screen(s.screen),cw=Math.min(W*.88,H*.65*scr.width/scr.height),ch=cw*scr.height/scr.width;
+  const {W,H}=ctx,scr=ctx.screen(s.screen),requested=Math.min(W*.88,H*.65*scr.width/scr.height);
+  const {width:cw,height:ch}=bitmapSize(scr,requested,requested*scr.height/scr.width);
   const {frame,img,viewport}=deviceFrame(scr,s.device??"browser",cw,ch);
   frame.style.cssText+=`;position:absolute;left:${(W-cw)/2}px;top:${H*.08}px`;
   img.style.cssText=`position:absolute;left:0;top:0;width:${scr.width}px;height:${scr.height}px;max-width:none;transform-origin:0 0`;
@@ -13,8 +14,7 @@ PATTERNS["zoom-tour"] = (layer,s,ctx) => {
     const p=paths?.[i]??{x:0,y:0,w:scr.width,h:scr.height},q=paths?.[i+1]??p;
     const x=p.x+(q.x-p.x)*a,y=p.y+(q.y-p.y)*a,w=p.w+(q.w-p.w)*a;
     img.style.transform=`scale(${cw/w}) translate(${-x}px,${-y}px)`;
-    let start=.4,txt="";
-    for(const stop of s.stops??[]) { const hold=Math.max(1.2,stop.hold??0,.3*(stop.caption??"").split(/\s+/).filter(Boolean).length+.8); if(t>=start+.6) txt=stop.caption??""; start+=1.4+hold; }
+    const txt=p.caption??"";
     caption.textContent=txt; caption.style.display=txt ? "block" : "none";
   });
 };

@@ -17,17 +17,14 @@ window.sceneCtx = (W, H, scene, key) => {
 
 // Mount scenes into root. Scene times are film seconds; shiftMs moves the whole film on the page clock
 // (a tile whose clock reads page time + offset passes shiftMs = -offset). keyPrefix names camera paths.
-window.mountScenes = (root, scenes, transitions, W, H, shiftMs = 0, keyPrefix = "") => {
+window.mountScenes = (root, scenes, W, H, shiftMs = 0, keyPrefix = "") => {
   scenes.forEach((s, i) => {
-    const xin = transitions.find((t) => t.after === i - 1 && t.kind === "xfade");
-    const xout = transitions.find((t) => t.after === i && t.kind === "xfade");
     const layer = h(`<div class="layer" data-scene="${i}" data-pattern="${esc(s.pattern)}"></div>`);
     layer.style.zIndex = String(i + 1);
     root.append(layer);
     window.BASE = s.at * 1000 + shiftMs;
     const dMs = s.d * 1000;
-    WINDOW(layer, 0, dMs + (xout ? xout.d * 1000 : 0));
-    if (xin) K(layer, [[0, { opacity: 0 }], [xin.d * 1000, { opacity: 1 }, ""]]);
+    WINDOW(layer, 0, dMs);
     const build = PATTERNS[s.pattern];
     if (!build) throw new Error(`no pattern ${s.pattern}`);
     build(layer, s, sceneCtx(W, H, s, keyPrefix + i));
@@ -38,7 +35,7 @@ window.mountScenes = (root, scenes, transitions, W, H, shiftMs = 0, keyPrefix = 
 window.setup = async () => {
   if (STORYBOARD.palette) { document.documentElement.style.setProperty("--design-accent", STORYBOARD.palette.accent); document.documentElement.style.setProperty("--design-on-accent", STORYBOARD.palette.accent_text); }
   const sb = STORYBOARD.storyboard, stage = $("#stage"), { out_w: W, out_h: H } = sb.output;
-  if (sb.layout.kind === "single") mountScenes(stage, sb.scenes, sb.transitions, W, H);
+  if (sb.layout.kind === "single") mountScenes(stage, sb.scenes, W, H);
   else if (sb.layout.kind === "bento" && window.mountBento) await mountBento(stage, sb);
   else throw new Error(`layout ${sb.layout.kind} is not available`);
   for (const f of window.AFTER_MOUNT ?? []) await f(); // e.g. kerned glyph layout once fonts and layout are final

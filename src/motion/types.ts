@@ -3,7 +3,6 @@
 import type { Overrides } from "../camera/defaults.ts";
 
 export type Rect = [number, number, number, number]; // x, y, w, h in source px of its screen
-export type Aspect = "16:9" | "9:16" | "1:1" | "4:5";
 export type Device = "browser" | "phone" | "laptop" | "none";
 export const PATTERNS = ["hero-reveal", "zoom-tour", "end-card", "fragment"] as const;
 export type PatternName = (typeof PATTERNS)[number];
@@ -54,7 +53,7 @@ export interface Scene {
   push?: number;
 }
 
-export interface Transition { after: number; kind: "cut" | "xfade"; d: number }
+export interface Transition { after: number; kind: "cut"; d: number }
 
 export interface Tempo { bpm: number; phase_s: number; snap: "beat" | "half" }
 
@@ -75,7 +74,6 @@ export interface BentoPinwheel {
 export type Layout = { kind: "single" } | Bento2x2 | BentoPinwheel;
 
 export interface Output {
-  aspect: Aspect;
   out_w: number;
   out_h: number;
   fps: number;
@@ -83,7 +81,6 @@ export interface Output {
   workers: number;
   /** 0 off, 1 on: sub-frame accumulation on fast spans (L8-i). */
   motion_blur: number;
-  quality: "draft" | "standard" | "master";
   preset: string;
 }
 
