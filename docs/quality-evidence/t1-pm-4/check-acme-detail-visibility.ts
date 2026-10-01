@@ -1,8 +1,10 @@
 import { readFileSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { stageFrames, stageGeometry } from "../../../src/render/stage.ts";
 import { DEFAULTS } from "../../../src/camera/defaults.ts";
 import { idleSqueezes, warp } from "../../../src/render/pace.ts";
-const dir = "tmp/t1-pm-4-acme";
+const dir = process.argv[2] ?? "tmp/t1-pm-4-acme";
+const candidate = execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim();
 const meta = JSON.parse(readFileSync(`${dir}/take.json`, "utf8"));
 const camera = JSON.parse(readFileSync(`${dir}/camera.json`, "utf8"));
 const events = readFileSync(`${dir}/events.jsonl`, "utf8").split(/\r?\n/).filter(Boolean).map(line => JSON.parse(line)).filter(e => e.k === "ptr").sort((a, b) => a.t - b.t);
@@ -51,6 +53,6 @@ for (const { f, source, i } of rows) {
   cursorMiss += Number(missedCursor); thumbMiss += Number(missedThumb);
   if (!firstMiss && (missedCursor || missedThumb)) firstMiss = { outputTime: f.t, sourceTime: source, crop: f, cursor, thumb, missedCursor, missedThumb };
 }
-const result = { squeezes, candidate: "87d47178573488510efcff493c583f01e7b3b29c", interval: [16, 30], frames: rows.length, cursorMiss, thumbMiss, firstMiss };
+const result = { squeezes, candidate, interval: [16, 30], frames: rows.length, cursorMiss, thumbMiss, firstMiss };
 console.log(JSON.stringify(result, null, 2));
 writeFileSync(`${dir}/detail-visibility.json`, JSON.stringify(result, null, 2) + "\n");

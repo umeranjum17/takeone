@@ -1,6 +1,6 @@
 Baseline: main commit 684fb6c4f6b1216c5b2aab1f5ebfc35a16569bf3
-Renderer candidate: 8f8cf08903046cf9fb258dc4eb84dfb70b3fb27e
-Comparison: current-candidate camera paths on the output clock; every frame checks acted-on bbox and drag subject/cursor.
+Candidate: 87d47178573488510efcff493c583f01e7b3b29c
+Comparison: every frame; same candidate output clock; acted-on bbox and drag subject/cursor checked.
 
 Tidewater real take
 beat | frames | before visible | after visible | regressions | drag frames | drag clipped | result
@@ -23,5 +23,5 @@ b3 | 577 | 525 | 577 | 0 | 0 | 0 | PASS
 b4 | 676 | 589 | 676 | 0 | 222 | 0 | PASS
 b5 | 209 | 175 | 209 | 0 | 0 | 0 | PASS
 
-Acme rendered crop, 16–30 s: 841 frames; retention thumb misses 0; cursor misses 0.
-Tidewater rendered drag, 16.65–18.583333 s: 117 frames; dragged-card and cursor misses 0.
+Acme candidate output interval 16–30 s: 841 frames; retention thumb misses 0; cursor misses 0.
+Tidewater drag output interval 16.65–18.583333 s: 117 frames; dragged-card and cursor misses 0.
