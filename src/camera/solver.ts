@@ -478,14 +478,20 @@ function spring(value: number, velocity: number, target: number, dt: number, ome
 }
 
 function pointerAt(beat: Beat, time: number): { x: number; y: number } | undefined {
-  const points = beat.actions
-    .map((action) => action as { t?: number; x?: number; y?: number })
-    .filter((action) => Number.isFinite(action.x) && Number.isFinite(action.y))
-    .sort((a, b) => (a.t ?? -Infinity) - (b.t ?? -Infinity));
-  const before = points.filter((point) => point.t === undefined || point.t / 1000 <= time).at(-1);
-  const after = points.find((point) => point.t !== undefined && point.t / 1000 > time);
+  const actions = beat.actions.map((action) => action as {
+    t?: number; x?: number; y?: number; t0?: number; t1?: number;
+    from?: [number, number]; to?: [number, number];
+  });
+  const samples = actions.filter((action) => Number.isFinite(action.x) && Number.isFinite(action.y));
+  const points = (samples.length ? samples.flatMap((point) => [{ t: point.t, x: point.x!, y: point.y! }])
+    : actions.flatMap((action) => Number.isFinite(action.t0) && Number.isFinite(action.t1)
+      && action.from?.every(Number.isFinite) && action.to?.every(Number.isFinite)
+      ? [{ t: action.t0, x: action.from[0], y: action.from[1] }, { t: action.t1, x: action.to[0], y: action.to[1] }]
+      : [])).sort((a, b) => (a.t ?? -Infinity) - (b.t ?? -Infinity));
+  const before = points.filter((point) => point.t === undefined || point.t <= time).at(-1);
+  const after = points.find((point) => point.t !== undefined && point.t > time);
   const ratio = before?.t !== undefined && after?.t !== undefined
-    ? (time - before.t / 1000) / ((after.t - before.t) / 1000) : 0;
+    ? (time - before.t) / (after.t - before.t) : 0;
   const pointer = before && {
     x: lerp(before.x!, after?.x ?? before.x!, ratio),
     y: lerp(before.y!, after?.y ?? before.y!, ratio),
