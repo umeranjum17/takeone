@@ -326,7 +326,7 @@ async function main() {
     }
     failures.push(...fixtureFailures.map(f => `${fixture}: ${f}`));
     baselines[fixture] = metrics;
-    (report.fixtures as Record<string, unknown>)[fixture] = { metrics, sha256: sha(video), goldenSha256: existsSync(golden) ? sha(golden) : null, stream, source: JSON.parse(command('ffprobe', ['-v', 'error', '-show_streams', '-of', 'json', join(dir, 'screen.webm')]).toString()).streams[0], cameraFrames: camera.length, decodedFrames: hashes.length, judderSamples: edge?.samples ?? 0, judderStatus: edge ? (edge.samples ? 'measured' : 'not-applicable: no camera motion at native cap') : 'not-applicable: optional fixture has no measurable judder', ocr, regression, motionBlurGhosting: { status: 'not-applicable', reason: 'renderer has no motion blur' }, failures: fixtureFailures };
+    (report.fixtures as Record<string, unknown>)[fixture] = { metrics, sha256: sha(video), goldenSha256: existsSync(golden) ? sha(golden) : null, stream, source: JSON.parse(command('ffprobe', ['-v', 'error', '-show_streams', '-of', 'json', join(dir, 'screen.webm')]).toString()).streams[0], cameraFrames: camera.length, decodedFrames: hashes.length, judderSamples: edge?.samples ?? 0, judderStatus: edge ? (edge.samples ? 'measured' : 'not-applicable: no camera motion at native cap') : 'not-applicable: optional fixture has no measurable judder', ocr, regression, motionBlurGhosting: { status: 'not-applicable', reason: 'motion blur ghosting is qualified separately; see docs/motion-blur.md' }, failures: fixtureFailures };
   }
   report.failures = failures;
   save(join(root, 'metrics.json'), report);

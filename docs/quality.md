@@ -61,7 +61,7 @@ this reports goal status but does not change the baseline ratchet gate.
   be relaxed by baseline ratchets or `--accept-golden`. Source geometry, hash,
   reference/candidate energy, ratios, crops and short encoded clips are recorded.
   See [native-pixel sharpness qualification](sharpness.md) for measurements and
-  the regression evidence.
+  the regression evidence and capture limitations.
 - Flat-card noise: a native uniform 160×30 white patch passes through a
   stage-sized padded surface and the same sampler/encoder at an integer native
   crop. Decoded luma variance must be ≤0.05 and mean drift ≤4 code values. This
