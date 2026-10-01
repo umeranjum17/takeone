@@ -103,13 +103,16 @@ export function stageFrames(frames: CameraFrame[], width: number, height: number
     const portraitMargin = portraitCrop
       ? clamp((f.w - portraitFillWidth) / (st.baseW - portraitFillWidth), 0, 1)
       : 1;
-    let w = Math.min(st.w, f.w * (1 + 2 * d.stage_margin * keep * portraitMargin));
+    const naturalW = Math.min(st.w, f.w * (1 + 2 * d.stage_margin * keep * portraitMargin));
+    let w = naturalW;
     let h = Math.min(st.h, w / aspect);
-    // Once a portrait crop fits inside the source screen, stage padding must
-    // not push its visible window back outside that screen.
-    if (portraitCrop && f.w <= portraitFillWidth * 1.1) {
-      w = portraitFillWidth;
-      h = height;
+    // Ease stage padding out as the portrait viewport approaches screen fill.
+    // A hard clamp here changes the visible viewport in one frame at the
+    // fill threshold, even though the solver path itself is smooth.
+    if (portraitCrop && f.w < portraitFillWidth * 1.1) {
+      const fillMix = smooth(clamp((f.w - portraitFillWidth) / (portraitFillWidth * 0.1), 0, 1));
+      w = portraitFillWidth + (naturalW - portraitFillWidth) * fillMix;
+      h = Math.min(height, w / aspect);
     }
     const cx = f.x + f.w / 2 + st.screenX;
     const cy = f.y + f.h / 2 + st.screenY;
