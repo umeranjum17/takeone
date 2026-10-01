@@ -8,61 +8,13 @@ import type { CameraDefaults } from "../camera/defaults.ts";
 import { solveCamera } from "../camera/solver.ts";
 import type { Beat, CameraFrame, Decision, TakeMeta } from "../camera/types.ts";
 import { blurGraph, keycapAss, keycapObstacles, overlayRegions, spotlightAss } from "./overlays.ts";
+export { cameraFilter } from "./camera-filter.ts";
+import { motionBlurGraph, shutterPlan } from "./motion-blur.ts";
 import { idleSqueezes, setptsExpr, warp, warpBeats } from "./pace.ts";
 import {
   beatClicks, captionAss, cardFilter, clickAss, measureAss, stageFrames, stageGeometry, stageImageFilter, takeCaptions,
   type Caption, type CaptionInk,
 } from "./stage.ts";
-
-/**
- * ffmpeg reparses perspective expressions every frame. Keep a compact piecewise
- * linear path, with at most 0.001 working-pixel error at any sampled corner.
- * Balanced lookup also keeps parser depth logarithmic on long takes.
- */
-function frameExpr(values: number[]): string {
-  if (values.length === 1) return values[0]!.toFixed(9);
-  const knots = [0];
-  const simplify = (lo: number, hi: number): void => {
-    const slope = (values[hi]! - values[lo]!) / (hi - lo);
-    let worst = 0.001;
-    let split = -1;
-    for (let i = lo + 1; i < hi; i++) {
-      const error = Math.abs(values[i]! - values[lo]! - (i - lo) * slope);
-      if (error > worst) { worst = error; split = i; }
-    }
-    if (split < 0) { knots.push(hi); return; }
-    simplify(lo, split);
-    simplify(split, hi);
-  };
-  simplify(0, values.length - 1);
-  const lookup = (lo: number, hi: number): string => {
-    if (hi - lo === 1) {
-      const a = knots[lo]!;
-      const b = knots[hi]!;
-      const slope = (values[b]! - values[a]!) / (b - a);
-      // perspective's input frame counter starts at one.
-      return `${values[a]!.toFixed(9)}+clip(in-1-${a},0,${b - a})*${slope.toFixed(9)}`;
-    }
-    const mid = Math.floor((lo + hi) / 2);
-    return `if(lt(in-1,${knots[mid]}),${lookup(lo, mid)},${lookup(mid, hi)})`;
-  };
-  return lookup(0, knots.length - 1);
-}
-
-/** Subpixel source warp; master supersamples at 2x before Lanczos downsampling. */
-export function cameraFilter(frames: CameraFrame[], width: number, height: number, d: CameraDefaults): string {
-  const factor = d.quality === "master" ? 2 : 1;
-  const w = d.out_w * factor;
-  const h = d.out_h * factor;
-  const interpolation = d.quality === "draft" ? "linear" : "cubic";
-  const x0 = frameExpr(frames.map((f) => f.x * w / width));
-  const y0 = frameExpr(frames.map((f) => f.y * h / height));
-  const x1 = frameExpr(frames.map((f) => (f.x + f.w) * w / width));
-  const y1 = frameExpr(frames.map((f) => (f.y + f.h) * h / height));
-  return `scale=${w}:${h}:flags=lanczos,perspective=x0='${x0}':y0='${y0}'`
-    + `:x1='${x1}':y1='${y0}':x2='${x0}':y2='${y1}':x3='${x1}':y3='${y1}'`
-    + `:sense=source:eval=frame:interpolation=${interpolation},scale=${d.out_w}:${d.out_h}:flags=lanczos,setsar=1`;
-}
 
 /** Run ffmpeg, resolve with its stderr, and include its final 20 stderr lines on failure. */
 function runFfmpeg(args: string[]): Promise<string> {
@@ -115,7 +67,9 @@ export async function renderTake(dir: string, d?: CameraDefaults): Promise<{ out
   const stage = stageGeometry(meta.width, meta.height, d);
   const commandFile = join(dir, "camera.cmd");
   const stageCamera = stageFrames(frames, meta.width, meta.height, stage, d);
-  const camera = cameraFilter(stageCamera, stage.w, stage.h, d);
+  const shutter = shutterPlan(stageCamera, stage.w, stage.h, d);
+  await writeFile(join(dir, "motion-blur.json"), JSON.stringify(shutter.metrics, null, 2));
+  const camera = motionBlurGraph(stageCamera, shutter, stage.w, stage.h, d);
 
   const outputDir = join(dir, "out");
   await mkdir(outputDir, { recursive: true });
@@ -163,7 +117,7 @@ export async function renderTake(dir: string, d?: CameraDefaults): Promise<{ out
     ...(blurs.length ? [blurGraph(blurs)] : []),
     `[region${blurs.length}]null${spotlightOverlay}[screen]`,
     cardFilter(meta.width, meta.height, stage, d, still),
-    `[c4]${camera}${captionsOverlay}${keysOverlay}`
+    `${camera};[camera]trim=end=${duration}${captionsOverlay}${keysOverlay}`
       + (fade > 0 ? `,fade=t=in:st=0:d=${fade}:color=${background},fade=t=out:st=${duration - fade}:d=${fade}:color=${background}` : "")
       + `,scale=in_color_matrix=bt601:out_color_matrix=bt709:out_range=tv,format=yuv420p,setparams=range=limited:color_primaries=bt709:color_trc=bt709:colorspace=bt709`,
   ].join(";");
@@ -171,7 +125,7 @@ export async function renderTake(dir: string, d?: CameraDefaults): Promise<{ out
   await writeFile(commandFile, filter);
   const crf = { draft: 23, standard: 18, master: 14 }[d.quality];
 
-  const threads = String(Math.min(32, availableParallelism()));
+  const threads = String(Math.min(8, availableParallelism()));
   const ffmpegMajor = Number(execFileSync("ffmpeg", ["-version"], { encoding: "utf8" })
     .match(/ffmpeg version (?:n)?(\d+)/)?.[1] ?? 0);
   // ffmpeg 7 introduced file-valued options; older releases use the script flag.
