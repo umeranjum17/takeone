@@ -12,6 +12,7 @@ function activity(beats: Beat[]): [number, number][] {
   const spans: [number, number][] = [];
   for (const beat of beats) {
     spans.push([beat.anchor_t, beat.anchor_t]);
+    for (const result of beat.dialog_results ?? []) spans.push([result.t, result.t]);
     for (const zone of beat.zones) if (zone.t_change !== undefined) spans.push([zone.t_change, zone.t_change]);
     for (const action of beat.actions) {
       const a = action as { k?: string; t?: number; t0?: number; t1?: number };
@@ -62,6 +63,7 @@ export function warpBeats(beats: Beat[], start: number, squeezes: Squeeze[], spe
     t0: s(beat.t0),
     t1: s(beat.t1),
     anchor_t: s(beat.anchor_t),
+    dialog_results: beat.dialog_results?.map((result) => ({ ...result, t: s(result.t) })),
     zones: beat.zones.map((zone) => zone.t_change === undefined ? zone : { ...zone, t_change: s(zone.t_change) }),
     changed_frac: beat.changed_frac?.map((sample) => ({ ...sample, t: s(sample.t) })),
     actions: beat.actions.map((action) => {

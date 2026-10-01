@@ -6,6 +6,7 @@ import type {
   JevAnswers,
   TakeMeta,
 } from "./types.ts";
+import { dialogResults } from "./perceive/dialogs.ts";
 import { perceiveRegions } from "./perceive/regions.ts";
 import { actionsFromEvents } from "./perceive/actions.ts";
 import { decodeAnalysisFrames, firstFrameTimeMs, readEvents } from "./perceive/decode.ts";
@@ -168,6 +169,9 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
     pointers,
     { w: dec.w, h: dec.h, streamW: take.stream.w, streamH: take.stream.h },
   );
+  const revealed = dialogResults(dec.frames.map((f) => f.data), dec.frames.map((f) => f.t), pointers,
+    { w: dec.w, h: dec.h, streamW: take.stream.w, streamH: take.stream.h })
+    .filter((result) => result.t >= startMs && result.t <= endMs);
   const takeMs = endMs - startMs;
   const scopedFrames = frames.filter((f) => f.t >= startMs && f.t <= endMs);
   const winFor = (t: number): { cls: string; rect: BBox; title: string } | null => {
@@ -221,6 +225,13 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
       ...(b.kind === "cut" ? { changed_frac: scopedFrames.filter((f) => f.t >= b.t0 && f.t <= b.t1).map((f) => ({ t: seconds(f.t), f: f.changed_frac })) } : {}),
     };
   });
+  // Keep close results independently of shot selection and segmentation: a
+  // dismissal can occur inside a drag/dwell beat whose action target survives.
+  for (const result of revealed) {
+    const owner = renderBeats.find((beat) => beat.t0 <= seconds(result.t) && beat.t1 >= seconds(result.t))
+      ?? renderBeats.filter((beat) => beat.t0 <= seconds(result.t)).at(-1);
+    if (owner) (owner.dialog_results ??= []).push({ t: seconds(result.t), bbox: result.bbox });
+  }
   writeFileSync(join(analysisDir, "beats.json"), JSON.stringify(renderBeats, null, 1));
 
   // 3 decide --------------------------------------------------------------
