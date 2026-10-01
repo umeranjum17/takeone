@@ -8,6 +8,16 @@ import { launch, navigate } from "./cdp.ts";
 import { pinnedShell } from "./shell.ts";
 import type { StateOp, Storyboard } from "./types.ts";
 
+export function validateStateNames(names: Iterable<string>): void {
+  const seen = new Set<string>();
+  for (const name of names) {
+    const index = Number(name);
+    if (!/^[A-Za-z0-9_-]{1,64}$/.test(name) || (String(index) === name && Number.isInteger(index) && index >= 0 && index < 4294967295)) throw new Error(`state: invalid screen id ${name}; use a non-index name`);
+    if (seen.has(name)) throw new Error(`state: duplicate screen id ${name}`);
+    seen.add(name);
+  }
+}
+
 export function imageSize(file: string): { width: number; height: number } {
   const probe = JSON.parse(execFileSync("ffprobe", ["-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height", "-of", "json", file], { encoding: "utf8" })) as { streams: { width: number; height: number }[] };
   const s = probe.streams[0];
@@ -17,6 +27,8 @@ export function imageSize(file: string): { width: number; height: number } {
 
 /** Fill sb.screens from the source. Images are copied as-is; screen ids are S1..Sn in file order. */
 export async function ingest(dir: string, sb: Storyboard): Promise<void> {
+  const states = Object.entries(sb.source.states ?? {});
+  validateStateNames(states.map(([id]) => id));
   const out = join(dir, "sources");
   mkdirSync(out, { recursive: true });
   if (sb.source.kind === "image") {
@@ -46,9 +58,7 @@ export async function ingest(dir: string, sb: Storyboard): Promise<void> {
     const point = async (selector: string) => b.evaluate<{ x: number; y: number }>(`(() => { const el = document.querySelector(${JSON.stringify(selector)}); if (!el) throw new Error('missing selector'); const r = el.getBoundingClientRect(); return { x:r.x+r.width/2,y:r.y+Math.min(r.height/2,70) }; })()`);
     const mouse = (type: string, p: {x: number; y: number}, pressed = false) => b.send("Input.dispatchMouseEvent", { type, ...p, button: type === "mouseMoved" ? "none" : "left", buttons: pressed ? 1 : 0, clickCount: 1 });
     let held: {x: number; y: number} | undefined;
-    const states = Object.entries(sb.source.states ?? {});
     for (const [id, ops] of states.length ? states : [["S1", []] as [string, (StateOp | string)[]]]) {
-      if (!/^[A-Za-z0-9_-]{1,64}$/.test(id)) throw new Error("state: invalid screen id");
       for (const raw of ops) {
         const op = parseStateOp(raw);
         if (op[0] === "wait") await wait(op[1]);

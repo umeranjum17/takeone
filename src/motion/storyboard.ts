@@ -2,7 +2,7 @@
 import { bentoViewport } from "./geometry.ts";
 import { motionTokens } from "./theme.ts";
 import { allTimelines, layoutDuration, validateLayout } from "./layout.ts";
-import { parseStateOp } from "./ingest.ts";
+import { parseStateOp, validateStateNames } from "./ingest.ts";
 import { beatTime, lintFonts } from "./lint.ts";
 import { PATTERNS, type Scene, type Storyboard } from "./types.ts";
 
@@ -143,8 +143,9 @@ export function validateStoryboard(raw: unknown): Storyboard {
   if (source["dsf"] !== undefined) num(source["dsf"], "source.dsf", 1, 4);
   if (source["states"] !== undefined) {
     if (!isObj(source["states"])) throw new StoryboardError("source.states", "expected state operations object");
+    try { validateStateNames(Object.keys(source["states"])); } catch (e) { throw new StoryboardError("source.states", (e as Error).message); }
     for (const [id, ops] of Object.entries(source["states"])) {
-      if (!ID.test(id) || !Array.isArray(ops)) throw new StoryboardError(`source.states.${id}`, "expected named operations array");
+      if (!Array.isArray(ops)) throw new StoryboardError(`source.states.${id}`, "expected named operations array");
       for (const op of ops) { try { parseStateOp(op); } catch (e) { throw new StoryboardError(`source.states.${id}`, String(e)); } }
     }
   }
