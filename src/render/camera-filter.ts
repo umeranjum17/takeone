@@ -48,6 +48,6 @@ export function cameraFilter(frames: CameraFrame[], width: number, height: numbe
   const y1 = frameExpr(frames.map((f) => (f.y + f.h) * h / height), tolerance);
   return `scale=${w}:${h}:flags=lanczos,perspective=x0='${x0}':y0='${y0}'`
     + `:x1='${x1}':y1='${y0}':x2='${x0}':y2='${y1}':x3='${x1}':y3='${y1}'`
-    + `:sense=source:eval=frame:interpolation=${interpolation},scale=${d.out_w}:${d.out_h}:flags=lanczos,setsar=1`;
+    + `:sense=source:eval=frame:interpolation=${interpolation},`
+    + (factor === 1 ? "" : `scale=${d.out_w}:${d.out_h}:flags=lanczos,`) + "setsar=1";
 }
-
