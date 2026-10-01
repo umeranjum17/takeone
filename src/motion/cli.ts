@@ -3,11 +3,11 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, extname, join, resolve } from "node:path";
 import { renderMotion } from "./motion.ts";
 import { installShell } from "./shell.ts";
-import { ASPECTS, validateStoryboard } from "./storyboard.ts";
-import type { Aspect, Device, PatternName, Region, Scene } from "./types.ts";
+import { validateStoryboard } from "./storyboard.ts";
+import type { Device, PatternName, Region, Scene } from "./types.ts";
 
 export const MOTION_USAGE = `takeone motion <image.png|page.html|https://url>... [--out DIR] [--pattern hero-reveal,zoom-tour,end-card]
-  [--theme midnight|paper|aurora|mono|neon|brutalist|sand|terminal|editorial] [--aspect 16:9|9:16|1:1|4:5] [--fps 60]
+  [--theme midnight|paper|aurora|mono|neon|brutalist|sand|terminal|editorial]
   [--title TEXT] [--subtitle TEXT] [--cta TEXT] [--url TEXT] [--logo WORD] [--device browser|phone|laptop|none]
   [--region x,y,w,h[:label][@SCREEN]]... [--state NAME='click #id; type #id "text"; drag #a #b; wait 300']...
   [--workers N] [--blur 0|1] [--storyboard file.json] [--plan-only]
@@ -17,7 +17,7 @@ takeone motion install-shell     download the pinned chrome-headless-shell (sha2
   takeone render <dir> rerenders it. With no --pattern it plans hero-reveal, zoom-tour and end-card.`;
 
 interface MotionArgs {
-  inputs: string[]; out?: string; patterns?: PatternName[]; theme?: string; aspect?: Aspect; fps?: number; title?: string;
+  inputs: string[]; out?: string; patterns?: PatternName[]; theme?: string; title?: string;
   subtitle?: string; cta?: string; url?: string; logo?: string; device?: Device; regions: string[]; states: [string, string][];
   workers?: number; blur?: number; storyboard?: string; planOnly: boolean;
 }
@@ -37,8 +37,6 @@ export function parseMotionArgs(argv: string[]): MotionArgs {
     if (s === "--out") a.out = v;
     else if (s === "--pattern") a.patterns = v.split(",") as PatternName[];
     else if (s === "--theme") a.theme = v;
-    else if (s === "--aspect") a.aspect = v as Aspect;
-    else if (s === "--fps") a.fps = Number(v);
     else if (s === "--title") a.title = v;
     else if (s === "--subtitle") a.subtitle = v;
     else if (s === "--cta") a.cta = v;
@@ -66,6 +64,21 @@ export function parseRegion(spec: string, index: number, screen: string): Region
     ...(m[5] ? { label: m[5] } : {}), from: "user" };
 }
 
+export function splitStateOps(text: string): string[] {
+  const ops: string[] = [];
+  let start = 0, quoted = false, escaped = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (escaped) { escaped = false; continue; }
+    if (ch === "\\" && quoted) { escaped = true; continue; }
+    if (ch === '"') quoted = !quoted;
+    if (ch === ";" && !quoted) { ops.push(text.slice(start, i).trim()); start = i + 1; }
+  }
+  if (quoted) throw new Error("--state: unterminated quoted text");
+  ops.push(text.slice(start).trim());
+  return ops.filter(Boolean);
+}
+
 /** The local planner: pattern defaults, regions in the order given, copy from flags. */
 export function planStoryboard(a: MotionArgs, id: string): unknown {
   const first = a.inputs[0]!;
@@ -75,28 +88,29 @@ export function planStoryboard(a: MotionArgs, id: string): unknown {
   const regions = a.regions.map((r, i) => parseRegion(r, i, screens[0]!));
   const patterns = a.patterns ?? (["hero-reveal", "zoom-tour", "end-card"] as PatternName[]);
   const title = a.title ?? "See it in motion.";
-  const scenes: Scene[] = patterns.map((p): Scene => {
-    if (p === "hero-reveal") return { pattern: p, d: 5, screen: screens[0]!, title, ...(a.subtitle ? { subtitle: a.subtitle } : {}),
-      ...(regions[0] ? { focus: regions[0].id } : {}), device: a.device ?? "browser" };
+  const scenes: Scene[] = patterns.flatMap((p): Scene[] => {
+    if (p === "hero-reveal") return [{ pattern: p, d: 5, screen: regions[0]?.screen ?? screens[0]!, title, ...(a.subtitle ? { subtitle: a.subtitle } : {}),
+      ...(regions[0] ? { focus: regions[0].id } : {}), device: a.device ?? "browser" }];
     if (p === "zoom-tour") {
-      const stops = regions.length ? regions.map((r) => ({ region: r.id, ...(r.label ? { caption: r.label } : {}) })) : [];
-      return { pattern: p, d: 3 + 3.5 * Math.max(1, stops.length), screen: screens.at(-1)!, stops, device: a.device ?? "browser" };
+      const owners = regions.length ? [...new Set(regions.map(r => r.screen))] : [screens.at(-1)!];
+      return owners.map(screen => {
+        const stops = regions.filter(r => r.screen === screen).map(r => ({ region: r.id, ...(r.label ? { caption: r.label } : {}) }));
+        return { pattern: p, d: 3 + 3.5 * Math.max(1, stops.length), screen, stops, device: a.device ?? "browser" };
+      });
     }
-    if (p === "end-card") return { pattern: p, d: 3.5, screen: screens.at(-1)!, cta: a.cta ?? "Try it today", ...(a.url ? { url: a.url } : {}),
-      logo: a.logo ?? "TakeOne" };
+    if (p === "end-card") return [{ pattern: p, d: 3.5, screen: screens.at(-1)!, cta: a.cta ?? "Try it today", ...(a.url ? { url: a.url } : {}),
+      logo: a.logo ?? "TakeOne" }];
     throw new Error(`--pattern ${p} needs a storyboard (core patterns: hero-reveal, zoom-tour, end-card)`);
   });
   const source = kind === "image" ? { kind, files: a.inputs.map((f) => resolve(f)) }
-    : kind === "html" ? { kind, file: resolve(first), viewport: [2560, 1440], states: Object.fromEntries(a.states.map(([n, ops]) => [n, ops.split(/\s*;\s*/).filter(Boolean)])) }
-    : { kind, url: first, viewport: [1440, 900], dsf: 2, states: Object.fromEntries(a.states.map(([n, ops]) => [n, ops.split(/\s*;\s*/).filter(Boolean)])) };
-  const aspect = a.aspect ?? "16:9";
-  if (!Object.hasOwn(ASPECTS, aspect)) throw new Error(`--aspect: choose ${Object.keys(ASPECTS).join(", ")}`);
+    : kind === "html" ? { kind, file: resolve(first), viewport: [2560, 1440], states: Object.fromEntries(a.states.map(([n, ops]) => [n, splitStateOps(ops)])) }
+    : { kind, url: first, viewport: [1440, 900], dsf: 2, states: Object.fromEntries(a.states.map(([n, ops]) => [n, splitStateOps(ops)])) };
   return {
     version: 1, id, seed: 1,
-    output: { aspect, ...(a.fps ? { fps: a.fps } : {}), ...(a.workers ? { workers: a.workers } : {}), ...(a.blur !== undefined ? { motion_blur: a.blur } : {}) },
+    output: { ...(a.workers ? { workers: a.workers } : {}), ...(a.blur !== undefined ? { motion_blur: a.blur } : {}) },
     theme: { name: a.theme ?? "midnight", overrides: {} },
     source, screens: {}, regions, layout: { kind: "single" }, scenes,
-    transitions: scenes.slice(1).map((_, i) => ({ after: i, kind: "xfade", d: 0.25 })),
+    transitions: [],
     planner: { by: "local", abstained: [] },
   };
 }
@@ -130,7 +144,7 @@ export async function runMotion(argv: string[], takesDir: string): Promise<numbe
   mkdirSync(dir, { recursive: true });
   writeFileSync(join(dir, "storyboard.json"), JSON.stringify(sb, null, 2) + "\n");
   writeFileSync(join(dir, "take.json"), JSON.stringify({ id: basename(dir), theme: sb.theme.name,
-    motion: { pattern: sb.scenes.map((s) => s.pattern).join("+"), aspect: sb.output.aspect, storyboard: "storyboard.json" } }, null, 2) + "\n");
+    motion: { pattern: sb.scenes.map((s) => s.pattern).join("+"), storyboard: "storyboard.json" } }, null, 2) + "\n");
   if (a.planOnly) { console.log(join(dir, "storyboard.json")); return 0; }
   const { out, manifest } = await renderMotion(dir);
   console.error(`motion: ${manifest.frames} frames ${manifest.width}x${manifest.height}@${manifest.fps} on ${manifest.workers} workers in ${manifest.render_s} s`);

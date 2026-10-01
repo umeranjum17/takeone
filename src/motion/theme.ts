@@ -24,7 +24,7 @@ const EXTRAS: Record<string, Partial<MotionExtras>> = {
   midnight: { page: "#101116", muted: "#9aa0b4", line: "#3a3e4c", ink: "#f4f5f8", mono_font: "Geist Mono" },
   paper: { page: "#ebe7de", muted: "#77736a", line: "#d6d1c6", ink: "#111111", mono_font: "IBM Plex Mono" },
   aurora: { page: "#070b18", muted: "#93a0c4", line: "#2b3358", ink: "#eef2ff", mono_font: "Geist Mono" },
-  mono: { page: "#000000", muted: "#8a8a8a", line: "#2a2a2a", ink: "#ffffff", mono_font: "Geist Mono" },
+  mono: { page: "#000000", muted: "#8a8a8a", line: "#2a2a2a", ink: "#000000", mono_font: "Geist Mono" },
   neon: { page: "#07060d", muted: "#b07ab0", line: "#3a1c55", ink: "#ffe8fd", mono_font: "Space Grotesk Medium" },
   brutalist: { page: "#ffe14d", muted: "#5c5420", line: "#111111", ink: "#111111", mono_font: "IBM Plex Mono" },
   sand: { page: "#d9c7ab", muted: "#7a6a55", line: "#cdbb9e", ink: "#222222", mono_font: "IBM Plex Mono" },
@@ -56,7 +56,7 @@ export function motionTokens(name: string, overrides: Record<string, number | st
     } else (recording as Record<string, unknown>)[k] = v;
   }
   let base: CameraDefaults;
-  try { base = applyOverrides(recording, themeDefaults(name)); } catch (e) { throw new Error(`theme.overrides: ${(e as Error).message}`); }
+  try { base = applyOverrides(recording, { ...themeDefaults(name), ...(name === "mono" ? { text: "#ffffff" } : {}) }); } catch (e) { throw new Error(`theme.overrides: ${(e as Error).message}`); }
   for (const f of [base.display_font, base.caption_font]) if (!fontFile(f)) throw new Error(`theme: font ${f} is not bundled in resources/fonts`);
   return { ...base, ...extras };
 }

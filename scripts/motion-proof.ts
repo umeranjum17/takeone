@@ -8,6 +8,8 @@ import { renderMotion, writePage } from "../src/motion/motion.ts";
 import { renderFrames, withPage } from "../src/motion/render.ts";
 import { validateStoryboard } from "../src/motion/storyboard.ts";
 import type { Scene } from "../src/motion/types.ts";
+import { cameraViewport } from "../src/motion/camera.ts";
+import { allTimelines } from "../src/motion/layout.ts";
 import { cameraMetrics } from "./quality.ts";
 
 const root=resolve("tmp/evidence/t1-l8"),work=resolve("tmp/motion-proof");mkdirSync(root,{recursive:true});mkdirSync(work,{recursive:true});
@@ -29,29 +31,46 @@ const sheet=(mp4:string,name:string)=>{
   const duration=Number(execFileSync("ffprobe",["-v","error","-show_entries","format=duration","-of","default=noprint_wrappers=1:nokey=1",mp4],{encoding:"utf8"}));
   execFileSync("ffmpeg",["-v","error","-y","-i",mp4,"-vf",`fps=16/${duration},scale=480:270,tile=4x4`,"-frames:v","1",join(root,name)]);
 };
+function saveReference(dir:string,id:string,manifest:{width:number;height:number}) {
+  execFileSync("ffmpeg",["-v","error","-y","-framerate","60","-i",join(dir,"reference-frames","%06d.png"),"-vf",`scale=${manifest.width}:${manifest.height}:flags=lanczos:out_color_matrix=bt709:out_range=tv,format=yuv420p,setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709:range=tv`,"-c:v","ffv1","-color_primaries","bt709","-color_trc","bt709","-colorspace","bt709","-color_range","tv",join(root,`takeone-motion-${id}-reference.mkv`)]);
+}
 async function render(id:string,scenes:Scene[],extras:Record<string,unknown>={}) {
   const dir=join(work,id);mkdirSync(dir,{recursive:true});
   const screens=Object.fromEntries(Object.entries(sb.screens).map(([id,s])=>[id,{...s,file:resolve(work,s.file)}]));
   const story=validateStoryboard({...raw,id,source:{kind:"image"},screens,scenes,...extras});
   writeFileSync(join(dir,"storyboard.json"),JSON.stringify(story,null,2));
-  const start=performance.now(), r=await renderMotion(dir);
+  const start=performance.now(), r=await renderMotion(dir, id === "timing" ? {} : {framesDir:join(dir,"reference-frames")});
   const wall_s=(performance.now()-start)/1000;
   copyFileSync(r.out,join(root,`takeone-motion-${id}.mp4`));copyFileSync(join(dir,"render.json"),join(root,`takeone-motion-${id}-render.json`));
   sheet(r.out,`takeone-motion-${id}-after.png`);
+  if (id !== "timing") saveReference(dir,id,r.manifest);
+  const paths=r.manifest.camera ? JSON.parse(readFileSync(join(dir,"camera-scenes.json"),"utf8")) : {};
+  const lists=allTimelines(story.layout,story.scenes);
+  const metrics=Object.fromEntries(Object.entries(paths).map(([key,frames])=>{
+    const projected=(frames as (import("../src/camera/types.ts").CameraFrame & {output?:import("../src/camera/types.ts").CameraFrame})[]).map(f=>f.output??f);
+    const parts=key.split(":"),list=parts.length===1 || parts[0]==="master" ? 0 : ["A","B","C","D"].indexOf(parts[0]!);
+    const scene=lists[list]![Number(parts.at(-1))]!;
+    const viewport=cameraViewport(story,list);
+    const m=cameraMetrics(projected,60,viewport.width,viewport.height,1.2);
+    if(scene.pattern==="hero-reveal") {m.max_upscale!.target=1;m.max_upscale!.goalPassed=m.max_upscale!.value<=1+1e-9;}
+    return [key,m];
+  }));
+  writeFileSync(join(root,`takeone-motion-${id}-camera-gates.json`),JSON.stringify(metrics,null,2));
+  if(id==="zoom-tour")writeFileSync(join(root,"takeone-motion-camera-gates.json"),JSON.stringify(metrics,null,2));
   return {dir,...r,wall_s};
 }
 const timing=await render("timing",[{pattern:"hero-reveal",d:6,title:"Make it move",screen:"S1",device:"browser"}]);
 const decodedA=framesMd5(timing.out);const a=timing.manifest;
-const again=await renderMotion(timing.dir);const decodedB=framesMd5(again.out);
+const again=await renderMotion(timing.dir,{framesDir:join(timing.dir,"reference-frames")});const decodedB=framesMd5(again.out);
+saveReference(timing.dir,"timing",again.manifest);
 writeFileSync(join(root,"takeone-motion-determinism.json"),JSON.stringify({identical:decodedA===decodedB,frames:360,workers:a.workers,decoded_sha256:createHash("sha256").update(decodedA).digest("hex"),render_s:a.render_s,concat_s:a.concat_s,wall_s:timing.wall_s,timing_pass:timing.wall_s<=15},null,2));
 writeFileSync(join(root,"takeone-motion-run1.framemd5"),decodedA);writeFileSync(join(root,"takeone-motion-run2.framemd5"),decodedB);
 if(decodedA!==decodedB)throw new Error("decoded determinism gate failed");
+if(timing.wall_s>15)throw new Error(`6s/1080p60 wall-time ${timing.wall_s.toFixed(2)} s exceeds 15 s`);
 const hero=await render("hero-reveal",Object.keys(states).map((screen,i)=>({pattern:"hero-reveal",d:2,screen,device:i===5?"phone":"browser",title:["Your next launch","Make a task","Find your focus","Keep work moving","Bring everyone along","Clear the deck"][i]!})),{tempo:{bpm:120,phase_s:0,snap:"beat"}});
 execFileSync("ffmpeg",["-v","error","-y","-ss","1","-i",hero.out,"-frames:v","1",join(root,"takeone-motion-device-after.png")]);
 const regions=Object.keys(states).map((screen,i)=>({id:`r${i}`,screen,rect:i===1?[900,300,760,680]:[320,128,1656,780],from:"user"}));
 const tour=await render("zoom-tour",Object.keys(states).map((screen,i)=>({pattern:"zoom-tour",d:5,screen,device:"browser",stops:[{region:`r${i}`,caption:["Launch board","Draft your launch","Task created","Keep work moving","Umer moved it","Done tasks archived"][i]!}]})),{regions});
-const cameras=JSON.parse(readFileSync(join(tour.dir,"camera-scenes.json"),"utf8"));
-writeFileSync(join(root,"takeone-motion-camera-gates.json"),JSON.stringify(Object.fromEntries(Object.entries(cameras).map(([id,frames])=>[id,cameraMetrics(frames as never,60,1920,1080,1.2)])),null,2));
 await render("end-card",Object.keys(states).map(screen=>({pattern:"end-card",d:3,screen,logo:"TakeOne",cta:"Make your first take"})));
 // Fragment contact sheets are native 1080p, with every state visible at once.
 for(const theme of ["editorial","midnight"]) {
@@ -65,6 +84,12 @@ for(const theme of ["editorial","midnight"]) {
   await renderFrames({html:path,width:1920,height:1080,fps:60,frames:1,workers:1,firstFrame:60,framesDir:join(dir,"frames")});
   copyFileSync(join(dir,"frames","000001.png"),join(root,`takeone-motion-fragments-${theme}-after.png`));
 }
+const rampDir=join(work,"ramp");mkdirSync(rampDir,{recursive:true});
+const rampHtml=join(rampDir,"ramp.html");
+const basePage=readFileSync(writePage(work,sb).html,"utf8");
+writeFileSync(rampHtml,basePage.replace('</body>',`<script>window.setup=async()=>{$('#stage').innerHTML='<svg width="1920" height="1080"><defs><linearGradient id="r"><stop offset="0" stop-color="#202020"/><stop offset="1" stop-color="#dddddd"/></linearGradient></defs><rect width="1920" height="1080" fill="url(#r)"/></svg>';};</script></body>`));
+await renderFrames({html:rampHtml,width:1920,height:1080,fps:60,frames:1,workers:1,framesDir:join(rampDir,"frames"),mp4:join(root,"takeone-motion-ramp.mp4")});
+copyFileSync(join(rampDir,"frames","000001.png"),join(root,"takeone-motion-ramp-reference.png"));
 // Canon proof: compare the viewport to the same master page at shifted times, without encoder loss.
 const bento=await render("bento",[{pattern:"hero-reveal",d:6,title:"Make it move",screen:"S1"}],{layout:{kind:"bento",grid:"2x2",master:{d:6,scenes:[{pattern:"hero-reveal",d:8,title:"Make it move",screen:"S1",device:"browser"}]},tiles:[{id:"TL",offset_s:0},{id:"TR",offset_s:.5},{id:"BL",offset_s:1},{id:"BR",offset_s:1.5}]}});
 const bentoSb=JSON.parse(readFileSync(join(bento.dir,"storyboard.json"),"utf8"));

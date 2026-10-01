@@ -37,41 +37,12 @@ window.WINDOW = (el, t0, t1) => {
   return animation;
 };
 
-// Damped spring baked into CSS linear(). Peak overshoot = exp(-zeta*pi/sqrt(1-zeta^2)). zeta >= 1 is critically damped.
-window.spring = (zeta = 1, cycles = 2.2, n = 64) => {
-  const w = cycles * 2 * Math.PI, pts = [];
-  for (let i = 0; i <= n; i++) {
-    const t = i / n;
-    let x;
-    if (zeta >= 1) x = 1 - (1 + w * t) * Math.exp(-w * t); // critically damped
-    else { const wd = w * Math.sqrt(1 - zeta * zeta); x = 1 - Math.exp(-zeta * w * t) * (Math.cos(wd * t) + (zeta * w / wd) * Math.sin(wd * t)); }
-    pts.push(i === n ? 1 : x);
-  }
-  if (zeta >= 1) { const end = pts[n - 1] < 1 ? 1 - (1 + w) * Math.exp(-w) : 1; for (let i = 0; i < n; i++) pts[i] /= end; }
-  return `linear(${pts.map((v) => v.toFixed(4)).join(",")})`;
-};
-// Expo-out: each 60 fps frame closes a fixed fraction of the remaining distance (ratio r). Only for masked starts.
-window.expo = (frames, r = 0.76) => {
-  const end = 1 - r ** frames, pts = [];
-  for (let i = 0; i <= frames; i++) pts.push(((1 - r ** i) / end).toFixed(4));
-  return `linear(${pts.join(",")})`;
-};
 window.smootherstep = (x) => (x <= 0 ? 0 : x >= 1 ? 1 : x * x * x * (x * (x * 6 - 15) + 10));
 window.SMOOTH = `linear(${Array.from({ length: 33 }, (_, i) => smootherstep(i / 32).toFixed(4)).join(",")})`;
-window.IO = "cubic-bezier(.65,0,.35,1)"; // cubic in-out
-window.EASE_IN = "cubic-bezier(.55,0,1,.45)";
-
 window.$ = (s, r = document) => r.querySelector(s);
 window.$$ = (s, r = document) => [...r.querySelectorAll(s)];
 window.h = (html) => { const t = document.createElement("template"); t.innerHTML = html.trim(); return t.content.firstElementChild; };
 window.esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
-// Seeded PRNG (mulberry32): procedural art is a pure function of its seed.
-window.rng = (seed) => () => {
-  seed |= 0; seed = (seed + 0x6d2b79f5) | 0;
-  let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
-  t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-  return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-};
 // Per-frame tick helper: f(localMs) runs only while the scene clock is inside [0, d] (clamped outside).
 window.tick = (fn) => { const base = window.BASE; TICKS.push((ms) => fn(ms - base)); };
 

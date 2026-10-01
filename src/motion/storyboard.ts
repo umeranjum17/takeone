@@ -2,14 +2,13 @@
 import { allTimelines, layoutDuration, validateLayout } from "./layout.ts";
 import { parseStateOp } from "./ingest.ts";
 import { beatTime, lintFonts } from "./lint.ts";
-import { PATTERNS, type Aspect, type Scene, type Storyboard } from "./types.ts";
+import { PATTERNS, type Scene, type Storyboard } from "./types.ts";
 
 export class StoryboardError extends Error {
   path: string;
   constructor(path: string, message: string) { super(`${path}: ${message}`); this.path = path; }
 }
 
-export const ASPECTS: Record<Aspect, [number, number]> = { "16:9": [1920, 1080], "9:16": [1080, 1920], "1:1": [1080, 1080], "4:5": [1080, 1350] };
 export const MAX_DURATION_S = 120;
 const DEVICES = ["browser", "phone", "laptop", "none"];
 const PRESETS = ["ultrafast", "superfast", "veryfast", "faster", "fast", "medium", "slow", "slower", "veryslow"];
@@ -73,18 +72,14 @@ export function validateStoryboard(raw: unknown): Storyboard {
   const id = raw["id"] ?? "motion";
   if (typeof id !== "string" || !ID.test(id)) throw new StoryboardError("id", "expected [A-Za-z0-9_-]{1,64}");
   const o = isObj(raw["output"]) ? raw["output"] : {};
-  const aspect = (o["aspect"] ?? "16:9") as Aspect;
-  if (!Object.hasOwn(ASPECTS, aspect)) throw new StoryboardError("output.aspect", `choose ${Object.keys(ASPECTS).join(", ")}`);
-  const [w, h] = ASPECTS[aspect];
-  const out_w = o["out_w"] === undefined ? w : num(o["out_w"], "output.out_w", 16, 7680);
-  const out_h = o["out_h"] === undefined ? h : num(o["out_h"], "output.out_h", 16, 4320);
+  if (o["aspect"] !== undefined || o["quality"] !== undefined) throw new StoryboardError("output", "aspect and quality options are not supported");
+  if (o["fps"] !== undefined && o["fps"] !== 60) throw new StoryboardError("output.fps", "expected 60");
+  const out_w = o["out_w"] === undefined ? 1920 : num(o["out_w"], "output.out_w", 16, 7680);
+  const out_h = o["out_h"] === undefined ? 1080 : num(o["out_h"], "output.out_h", 16, 4320);
   if (out_w % 2 || out_h % 2 || !Number.isInteger(out_w) || !Number.isInteger(out_h)) throw new StoryboardError("output", "out_w and out_h must be even integers");
-  const fps = o["fps"] === undefined ? 60 : num(o["fps"], "output.fps", 1, 120);
-  if (!Number.isInteger(fps)) throw new StoryboardError("output.fps", "expected an integer");
+  const fps = 60;
   const workers = o["workers"] === undefined ? 8 : num(o["workers"], "output.workers", 1, 64);
   if (!Number.isInteger(workers)) throw new StoryboardError("output.workers", "expected an integer");
-  const quality = o["quality"] ?? "standard";
-  if (!["draft", "standard", "master"].includes(String(quality))) throw new StoryboardError("output.quality", "choose draft, standard, master");
   const preset = o["preset"] ?? "medium";
   if (!PRESETS.includes(String(preset))) throw new StoryboardError("output.preset", `choose ${PRESETS.join(", ")}`);
   const motion_blur = o["motion_blur"] === undefined ? 1 : num(o["motion_blur"], "output.motion_blur", 0, 1);
@@ -148,6 +143,7 @@ export function validateStoryboard(raw: unknown): Storyboard {
   const scenes = raw["scenes"].map((x, i) => {
     const s = scene(x, `scenes[${i}]`);
     s.at ??= t;
+    if (s.at < t) throw new StoryboardError(`scenes[${i}].at`, "overlapping scenes");
     t = Math.max(t, s.at + s.d);
     return s;
   });
@@ -166,10 +162,10 @@ export function validateStoryboard(raw: unknown): Storyboard {
   const transitions = raw["transitions"] ?? [];
   if (!Array.isArray(transitions)) throw new StoryboardError("transitions", "expected an array");
   transitions.forEach((x, i) => {
-    if (!isObj(x) || !["cut", "xfade"].includes(String(x["kind"]))) throw new StoryboardError(`transitions[${i}].kind`, "choose cut, xfade");
+    if (!isObj(x) || !["cut"].includes(String(x["kind"]))) throw new StoryboardError(`transitions[${i}].kind`, "expected cut");
     num(x["after"], `transitions[${i}].after`, 0, scenes.length - 2);
     if (!Number.isInteger(x["after"])) throw new StoryboardError(`transitions[${i}].after`, "expected scene index");
-    num(x["d"] ?? 0, `transitions[${i}].d`, 0, 2);
+    num(x["d"] ?? 0, `transitions[${i}].d`, 0, 0);
     x["d"] ??= 0;
   });
 
@@ -182,7 +178,7 @@ export function validateStoryboard(raw: unknown): Storyboard {
 
   const result: Storyboard = {
     version: 1, id, seed: raw["seed"] === undefined ? 1 : num(raw["seed"], "seed", 0, 2 ** 31),
-    output: { aspect, out_w, out_h, fps, workers, motion_blur, quality: quality as Storyboard["output"]["quality"], preset: String(preset) },
+    output: { out_w, out_h, fps, workers, motion_blur, preset: String(preset) },
     theme: { name: themeName, overrides: overrides as Storyboard["theme"]["overrides"] },
     ...(raw["tempo"] === undefined ? {} : { tempo: raw["tempo"] as Storyboard["tempo"] }),
     source: source as Storyboard["source"],
@@ -210,6 +206,11 @@ export function validateStoryboard(raw: unknown): Storyboard {
     if (s.screen && Object.keys(screens).length && !Object.hasOwn(screens, s.screen)) throw new StoryboardError(`scenes[${i}].screen`, "unknown screen");
     if (s.pattern !== "zoom-tour" && s.d < readingFloor(sceneTexts(s).join(" "))) throw new StoryboardError(`scenes[${i}].d`, "under reading-time floor");
     for (const stop of s.stops ?? []) if (!regionIds.has(stop.region)) throw new StoryboardError(`scenes[${i}].stops`, "unknown region");
+    const owner = s.screen ?? Object.keys(screens)[0] ?? Object.keys((source["states"] ?? {}) as object)[0] ?? "S1";
+    for (const id of [s.focus, ...(s.stops ?? []).map(stop => stop.region)].filter(Boolean)) {
+      const region = (regions as Storyboard["regions"]).find(r => r.id === id)!;
+      if (region.screen !== owner) throw new StoryboardError(`scenes[${i}]`, "regions must belong to the scene screen");
+    }
   }
   lintFonts(result);
   return result;

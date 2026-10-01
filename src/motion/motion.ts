@@ -1,10 +1,11 @@
 // `takeone motion`: screens in, type-led film out. Writes a take-shaped directory (take.json, sources/,
 // storyboard.json, out/<id>.mp4, render.json) that `takeone render <dir>` rerenders with zero planning.
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { isAbsolute, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { blurPlan } from "./blur.ts";
+import { allTimelines } from "./layout.ts";
 import { sceneCameras } from "./camera.ts";
 import { ingest } from "./ingest.ts";
 import { samplePalette } from "./palette.ts";
@@ -15,7 +16,6 @@ import { filmDuration, validateStoryboard } from "./storyboard.ts";
 import { motionTokens } from "./theme.ts";
 import type { Storyboard } from "./types.ts";
 
-export const CRF = { draft: 23, standard: 18, master: 14 } as const;
 
 export interface RenderManifest {
   version: 1;
@@ -55,7 +55,7 @@ export function pageData(dir: string, sb: Storyboard, cameras: Record<string, un
 }
 
 /** Write the page for a storyboard and return its path (dir/.motion/film.html). */
-export function writePage(dir: string, sb: Storyboard): { html: string; cameras: Record<string, unknown> } {
+export function writePage(dir: string, sb: Storyboard): { html: string; cameras: ReturnType<typeof sceneCameras> } {
   const cameras = sceneCameras(sb);
   const data = pageData(dir, sb, cameras);
   mkdirSync(join(dir, ".motion"), { recursive: true });
@@ -87,26 +87,30 @@ export async function renderMotion(dir: string, o: RenderOptions = {}): Promise<
         const i = sb.scenes.findIndex(s => t >= s.at! && t < s.at! + s.d);
         const scene = sb.scenes[Math.max(0, i)]!;
         const screen = sb.screens[scene.screen ?? Object.keys(sb.screens)[0]!]!;
-        const path = cameras[String(i)] as import("../camera/types.ts").CameraFrame[] | undefined;
-        const view = path?.[Math.round((t - scene.at!) * sb.output.fps)] ?? { x: 0, y: 0, w: screen.width, h: screen.height };
+        const frame = cameras[String(i)]?.[Math.round((t - scene.at!) * sb.output.fps)];
+        const view = frame?.output ?? frame ?? { x: 0, y: 0, w: screen.width, h: screen.height };
         return { ...view, t };
       });
       writeFileSync(join(dir, "camera.json"), JSON.stringify(track) + "\n");
-    } else writeFileSync(join(dir, "camera.json"), JSON.stringify(cameras) + "\n");
+    } else writeFileSync(join(dir, "camera.json"), JSON.stringify(Object.fromEntries(Object.entries(cameras).map(([key, frames]) => [key, frames.map(f => f.output ?? f)]))) + "\n");
+  } else {
+    rmSync(join(dir, "camera-scenes.json"), { force: true });
+    rmSync(join(dir, "camera.json"), { force: true });
   }
   const { out_w: width, out_h: height, fps } = sb.output;
   const frames = Math.round(filmDuration(sb) * fps);
   const blur = await blurPlan(html, sb, frames);
+  const rasterScale = allTimelines(sb.layout, sb.scenes).some(list => list.some(scene => scene.pattern === "zoom-tour")) ? 2 : 1;
   mkdirSync(join(dir, "out"), { recursive: true });
   const out = join(dir, "out", `${sb.id}.mp4`);
-  const crf = CRF[sb.output.quality];
+  const crf = 18;
   const r = await renderFrames({ html, width, height, fps, frames, workers: sb.output.workers, plan: blur.plan, mp4: out, crf,
-    preset: sb.output.preset, shell, rasterScale: Object.keys(cameras).length ? 2 : 1, ...(o.framesDir ? { framesDir: o.framesDir } : {}) });
+    preset: sb.output.preset, shell, rasterScale, ...(o.framesDir ? { framesDir: o.framesDir } : {}) });
   const md5 = r.md5.map((h, i) => `${String(i + 1).padStart(6, "0")} ${h}`).join("\n") + "\n";
   writeFileSync(join(dir, "out", `${sb.id}.frames.md5`), md5);
   const manifest: RenderManifest = {
     version: 1, storyboard_sha256: createHash("sha256").update(raw).digest("hex"), out: `out/${sb.id}.mp4`,
-    frames, fps, width, height, workers: r.workers, warmup: 3, raster_scale: Object.keys(cameras).length ? 2 : 1,
+    frames, fps, width, height, workers: r.workers, warmup: 3, raster_scale: rasterScale,
     shell: { version: r.shell.version, sha256: r.shell.sha256, flags: r.flags }, ffmpeg: ffmpegVersion(),
     encode: { codec: "libx264", profile: "high", crf, preset: sb.output.preset, pix_fmt: "yuv420p", colour: "bt709/tv" },
     render_s: +r.render_s.toFixed(2), concat_s: +r.concat_s.toFixed(2),
