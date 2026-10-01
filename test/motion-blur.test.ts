@@ -33,6 +33,13 @@ test("zoom and diagonal motion keep actual corner spacing within two pixels", ()
   assert.ok(shutterPlan(path, 320, 180, d).metrics.maxSpacingPx <= 2);
 });
 
+test("a shutter spanning a camera reversal still samples the full path", () => {
+  const reversal = [0, 10, 0].map((x, i) => ({ t: i / 60, x, y: 0, w: 160, h: 90 }));
+  const plan = shutterPlan(reversal, 160, 90, d);
+  assert.ok([...plan.groups].some(([count, indices]) => count > 1 && indices.includes(1)));
+  assert.ok(plan.metrics.maxSpacingPx <= 2);
+});
+
 test("real blur preserves every frame and never mixes adjacent source images", { skip: hasFfmpeg() ? false : "ffmpeg unavailable" }, () => {
   const plan = shutterPlan(frames, 320, 90, d);
   const graph = motionBlurGraph(frames, plan, 320, 90, d).replaceAll("[c4]", "[0:v]");

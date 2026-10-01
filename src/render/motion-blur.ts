@@ -22,6 +22,13 @@ function displacement(a: CameraFrame, b: CameraFrame, width: number, height: num
   return max;
 }
 
+function pathDisplacements(frames: CameraFrame[], from: number, to: number, width: number, height: number, d: CameraDefaults): number[] {
+  const points = [from];
+  for (let i = Math.floor(from) + 1; i < to; i++) points.push(i);
+  points.push(to);
+  return points.slice(1).map((point, i) => displacement(shutterFrame(frames, points[i]!), shutterFrame(frames, point), width, height, d));
+}
+
 export function shutterPlan(frames: CameraFrame[], width: number, height: number, d: CameraDefaults) {
   const half = d.motion_blur / 4; // 180 degrees at strength 1
   const groups = new Map<number, number[]>();
@@ -30,13 +37,14 @@ export function shutterPlan(frames: CameraFrame[], width: number, height: number
   let blurredFrames = 0;
   let samples = 1;
   for (let i = 0; i < frames.length; i++) {
-    const span = displacement(shutterFrame(frames, i - half), shutterFrame(frames, i + half), width, height, d);
+    const span = pathDisplacements(frames, i - half, i + half, width, height, d).reduce((sum, part) => sum + part, 0);
     let count = span <= 2 ? 1 : Math.ceil(span / 2) + 1;
     const spacing = (n: number): number => {
       let max = 0;
       for (let j = 1; j < n; j++) {
-        max = Math.max(max, displacement(shutterFrame(frames, i - half + 2 * half * (j - 1) / (n - 1)),
-          shutterFrame(frames, i - half + 2 * half * j / (n - 1)), width, height, d));
+        const from = i - half + 2 * half * (j - 1) / (n - 1);
+        const to = i - half + 2 * half * j / (n - 1);
+        max = Math.max(max, ...pathDisplacements(frames, from, to, width, height, d));
       }
       return max;
     };
