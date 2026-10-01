@@ -105,7 +105,8 @@ Intentional camera, caption or appearance changes can correctly fail the golden
 comparison. Review the per-frame SSIM list, OCR crops and rendered videos, then
 explicitly run `npm run quality -- --ratchet --accept-golden` to replace golden
 videos and tighten numeric baselines together. This switch bypasses similarity
-review only; it cannot bypass any numeric regression. Never use it in CI.
+review only; it cannot bypass any numeric regression. Never use it in CI. Golden updates require reviewed before/after output frames;
+never accept degraded output to pass the comparison.
 Golden videos are synthetic, silent and small enough to store directly in git.
 SSIM compares timestamps from zero; changed timelines therefore need visual
 review rather than a misleading average-only score.
