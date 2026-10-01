@@ -21,6 +21,8 @@ interface Target {
   t: number;
   state: CameraState;
   importance: number;
+  subject?: Zone;
+  boxes?: Box[];
   startAfter?: number;
   /** A long-idle widen: quiet by definition, so exempt from the rate cap. */
   breathe?: boolean;
@@ -39,6 +41,80 @@ const clamp = (value: number, min: number, max: number) =>
   Math.max(min, Math.min(max, value));
 const lerp = (a: number, b: number, u: number) => a + (b - a) * u;
 const smooth = (u: number) => u * u * u * (u * (u * 6 - 15) + 10);
+
+type Box = Zone["bbox"];
+export const HIGH_CLIP_FRACTION = 0.9;
+
+/** Fraction of each UI box outside a crop. A hold permits whole boxes or tiny edge slivers. */
+export function clippedFractions(view: Pick<CameraFrame, "x" | "y" | "w" | "h">, boxes: Box[]): number[] {
+  return boxes.map(([x, y, w, h]) => {
+    const visible = Math.max(0, Math.min(x + w, view.x + view.w) - Math.max(x, view.x))
+      * Math.max(0, Math.min(y + h, view.y + view.h) - Math.max(y, view.y));
+    const clipped = clamp(1 - visible / (w * h), 0, 1);
+    return clipped < 1e-6 ? 0 : clipped;
+  });
+}
+
+/** Enclosing perception panels take priority over the requested tightness. */
+function withContext(zone: Zone, boxes: Box[], width: number, height: number): Zone {
+  let subject = zone;
+  const [x, y, w, h] = zone.bbox;
+  for (const box of boxes) {
+    if (box[2] * box[3] <= w * h || box[2] * box[3] > width * height * 0.5) continue;
+    const contains = x >= box[0] && y >= box[1]
+      && x + w <= box[0] + box[2] && y + h <= box[1] + box[3];
+    // A padded click can extend past its card, but its centre still belongs to it.
+    const containsClick = zone.type === "act" && x + w / 2 >= box[0] && y + h / 2 >= box[1]
+      && x + w / 2 <= box[0] + box[2] && y + h / 2 <= box[1] + box[3];
+    if (contains || containsClick) subject = mergeZones(subject, { ...zone, bbox: box });
+  }
+  return subject;
+}
+
+/** Search edge-aligned crops at this zoom, then widen only if none can hold the UI whole. */
+function compose(state: CameraState, subject: Zone, boxes: Box[], width: number, height: number, d: CameraDefaults): CameraState {
+  if (!boxes.length || state.z === 1) return state;
+  const desired = toFrame(state, width, height, d);
+  const aspect = d.out_w / d.out_h;
+  const baseW = baseWidth(width, height, d);
+  const [sx, sy, sw, sh] = subject.bbox;
+  for (let w = desired.w; ; w = Math.min(baseW, w + baseW * 0.025)) {
+    const h = w / aspect;
+    const gap = Math.min(w, h) * 0.01;
+    const positions = (s: number, span: number, view: number, size: number, axis: 0 | 1): number[] => {
+      if (view >= size) return [(size - view) / 2];
+      const low = Math.max(0, s + span + Math.min(gap, size - s - span) - view);
+      const high = Math.min(size - view, s - Math.min(gap, s));
+      if (low > high) return [];
+      const candidates = [(low + high) / 2, low, high];
+      for (const box of boxes) {
+        const start = box[axis];
+        const end = start + box[axis + 2]!;
+        candidates.push(start - gap, end + gap, start - gap - view, end + gap - view);
+      }
+      return [...new Set(candidates.map((p) => clamp(p, low, high)))];
+    };
+    let best: CameraFrame | undefined;
+    let bestScore = Infinity;
+    for (const x of positions(sx, sw, w, width, 0)) {
+      for (const y of positions(sy, sh, h, height, 1)) {
+        const crop = { t: 0, x, y, w, h };
+        const clips = clippedFractions(crop, boxes);
+        if (clips.some((f) => f > 0 && f < HIGH_CLIP_FRACTION)) continue;
+        // Balance space around the visible cluster, rather than an isolated click.
+        const visible = boxes.filter((_, i) => clips[i] === 0);
+        let cluster = subject;
+        for (const box of visible) cluster = mergeZones(cluster, { ...subject, bbox: box });
+        const [cx, cy, cw, ch] = cluster.bbox;
+        const score = Math.pow((x + w / 2 - cx - cw / 2) / w, 2)
+          + Math.pow((y + h / 2 - cy - ch / 2) / h, 2);
+        if (score < bestScore) { best = crop; bestScore = score; }
+      }
+    }
+    if (best) return { cx: best.x + w / 2, cy: best.y + h / 2, z: baseW / w };
+    if (w >= baseW) return { cx: width / 2, cy: height / 2, z: 1 };
+  }
+}
 
 /** Width of the output-aspect canvas the source sits in; z = 1 shows all of it. */
 export function baseWidth(width: number, height: number, d: CameraDefaults = DEFAULTS): number {
@@ -85,6 +161,9 @@ export function frame(
     return { cx: width / 2, cy: height / 2, z: 1 };
   }
 
+  const boxes = zone.boxes ?? [];
+  zone = withContext(zone, boxes, width, height);
+
   const [x, y, zoneW, zoneH] = zone.bbox;
   // A fullscreen window gives no context framing (L1 would be the whole
   // screen), so L1 pads the zone instead, as zones.ts drops such a `win`.
@@ -127,11 +206,11 @@ export function frame(
     rh = fitW / aspect;
   }
 
-  return {
+  return compose({
     cx: rx + rw / 2,
     cy: ry + rh / 2,
     z: clamp(baseWidth(width, height, d) / rw, 1, zMax(width, height, d)),
-  };
+  }, rect === windowRect ? { ...zone, bbox: rect } : zone, boxes, width, height, d);
 }
 
 export function moveDuration(drift: number, d: CameraDefaults = DEFAULTS): number {
@@ -184,6 +263,20 @@ function isDeadzone(state: CameraState, target: CameraState, baseW: number, d: C
   return fitsX && fitsY && zoomRatio < d.deadzone_zoom;
 }
 
+/** A nearby target may still need a correction when the current hold cuts its context. */
+function canHold(state: CameraState, target: Target, width: number, height: number, d: CameraDefaults): boolean {
+  if (!isDeadzone(state, target.state, baseWidth(width, height, d), d)) return false;
+  if (!target.boxes?.length || !target.subject) return true;
+  const crop = toFrame(state, width, height, d);
+  const [x, y, w, h] = target.subject.bbox;
+  const margin = Math.min(crop.w, crop.h) * 0.01;
+  return crop.x <= x - Math.min(margin, x)
+    && crop.y <= y - Math.min(margin, y)
+    && crop.x + crop.w >= x + w + Math.min(margin, width - x - w)
+    && crop.y + crop.h >= y + h + Math.min(margin, height - y - h)
+    && clippedFractions(crop, target.boxes).every((f) => f === 0 || f >= HIGH_CLIP_FRACTION);
+}
+
 /**
  * Anti-jitter rules: no scroll chase, dwell with union framing, and minimum
  * shot length. Idle beats HOLD (design 10.3); only a long one BREATHEs, so a
@@ -228,7 +321,7 @@ function applyMoveRateLimit(targets: Target[], width: number, height: number, d:
   let state: CameraState = { cx: width / 2, cy: height / 2, z: 1 };
   const moving: Target[] = [];
   for (const target of targets) {
-    if (isDeadzone(state, target.state, baseW, d)) {
+    if (canHold(state, target, width, height, d)) {
       const previous = moving.at(-1);
       if (previous) previous.importance = Math.max(previous.importance, target.importance);
       continue;
@@ -250,7 +343,7 @@ function applyMoveRateLimit(targets: Target[], width: number, height: number, d:
   }
   state = { cx: width / 2, cy: height / 2, z: 1 };
   return kept.filter((target) => {
-    if (isDeadzone(state, target.state, baseW, d)) return false;
+    if (canHold(state, target, width, height, d)) return false;
     state = target.state;
     return true;
   });
@@ -281,19 +374,27 @@ function buildTargets(
   d: CameraDefaults,
 ): Target[] {
   const targets = shots.flatMap((shot) => {
-    const targetA = frame(shot.zoneA, shot.decision.L, width, height, shot.beat.window_rect, d);
+    const boxesFor = (zone: Zone): Box[] => zone.boxes?.length ? zone.boxes
+      : shot.beat.zones.filter((z) => !["all", "win", "path"].includes(z.type)).map((z) => z.bbox);
+    const framed = (zone: Zone): CameraState => frame({ ...zone, boxes: boxesFor(zone) },
+      shot.decision.L, width, height, shot.beat.window_rect, d);
+    const targetA = framed(shot.zoneA);
     const result: Target[] = [{
       t: shot.arrival,
       state: targetA,
       importance: shot.decision.K,
+      subject: withContext(shot.zoneA, boxesFor(shot.zoneA), width, height),
+      boxes: boxesFor(shot.zoneA),
       startAfter: shot.beat.kind === "cut" ? cutSettledAt(shot.beat, shot.arrival, d) : undefined,
     }];
     if (shot.zoneB !== shot.zoneA && shot.decision.B) {
       const resultTime = shot.zoneB.t_change ?? shot.beat.t1;
       if (resultTime >= start && resultTime < end) result.push({
         t: resultTime + d.result_late,
-        state: frame(shot.zoneB, shot.decision.L, width, height, shot.beat.window_rect, d),
+        state: framed(shot.zoneB),
         importance: shot.decision.K,
+        subject: withContext(shot.zoneB, boxesFor(shot.zoneB), width, height),
+        boxes: boxesFor(shot.zoneB),
       });
     }
     return result;
@@ -470,7 +571,7 @@ function sampleCamera(
         Math.max(target.startAfter ?? 0, zoomHold, previousTime));
       if (candidateMove.start > time) break;
       targetIndex++;
-      if (isDeadzone(state, target.state, baseW, d)) continue;
+      if (canHold(state, target, width, height, d)) continue;
       move = candidateMove;
     }
 
@@ -544,6 +645,8 @@ function validateCameraInputs(beats: Beat[], decisions: Decision[], take: TakeMe
           || !finite(sample.f) || sample.f < 0 || sample.f > 1)))
       || beat.zones.some((zone) => !zone || typeof zone.name !== "string" || !zone.name
         || !rect(zone.bbox, take.width, take.height)
+        || (zone.boxes !== undefined && (!Array.isArray(zone.boxes)
+          || zone.boxes.some((box) => !rect(box, take.width, take.height))))
         || (zone.t_change !== undefined && (!time(zone.t_change)
           || zone.t_change < beat.t0 || zone.t_change > beat.t1)))
       || new Set(beat.zones.map((zone) => zone.name)).size !== beat.zones.length

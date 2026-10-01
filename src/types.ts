@@ -91,6 +91,8 @@ export interface Zone {
   name: string;
   kind: ZoneKind;
   bbox: BBox;
+  /** Nearby perception boxes, retained even when candidate zones are deduplicated. */
+  boxes?: BBox[];
   area_frac: number;
   /** ms of the zone's first activity within the beat, when it has any */
   t?: number;
