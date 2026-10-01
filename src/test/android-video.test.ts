@@ -70,3 +70,40 @@ test("a split header waits for the rest of the bytes", () => {
   assert.equal(events.length, 1);
   assert.equal(events[0]!.type, "media");
 });
+
+test("timestamped Android video keeps sparse-frame timing and its final idle hold", async () => {
+  const { execFileSync } = await import("node:child_process");
+  const { mkdtempSync, writeFileSync, rmSync } = await import("node:fs");
+  const { join } = await import("node:path");
+  const { AndroidVideoMux, nalUnits } = await import("../android/mux.js");
+  const dir = mkdtempSync(join(process.cwd(), "tmp-android-mux-"));
+  try {
+    const raw = execFileSync("ffmpeg", ["-v", "error", "-f", "lavfi", "-i", "testsrc2=s=64x96:r=1:d=2",
+      "-c:v", "libx264", "-x264-params", "aud=1:keyint=1", "-f", "h264", "-"]);
+    const frames: Buffer[][] = [];
+    for (const nal of nalUnits(raw)) {
+      if ((nal[0]! & 31) === 9) frames.push([]);
+      frames.at(-1)!.push(nal);
+    }
+    const mux = new AndroidVideoMux();
+    const chunks = frames.map((frame, i) => {
+      const payload = Buffer.concat(frame.flatMap(nal => [Buffer.from([0, 0, 0, 1]), nal]));
+      mux.configure(payload);
+      return mux.frame(10_000_000n + BigInt(i) * 5_000_000n, true, payload, 64, 96);
+    });
+    chunks.push(mux.finish(12_000));
+    const input = join(dir, "timed.mkv"), output = join(dir, "screen.mp4");
+    writeFileSync(input, Buffer.concat(chunks));
+    execFileSync("ffmpeg", ["-v", "error", "-i", input, "-c:v", "copy", output]);
+    const probe = JSON.parse(execFileSync("ffprobe", ["-v", "error", "-show_entries",
+      "packet=pts_time,duration_time", "-show_entries", "format=duration", "-of", "json", output], { encoding: "utf8" }));
+    assert.deepEqual(probe.packets.map((p: { pts_time: string; duration_time: string }) =>
+      [Number(p.pts_time), Number(p.duration_time)]), [[0, 5], [5, 7]]);
+    assert.equal(Number(probe.format.duration), 12);
+    // Both actual source pictures remain decodable through the transport.
+    const decoded = execFileSync("ffmpeg", ["-v", "error", "-i", output, "-fps_mode", "passthrough",
+      "-pix_fmt", "gray", "-f", "rawvideo", "-"]);
+    assert.equal(decoded.length, 2 * 64 * 96);
+    assert.notDeepEqual(decoded.subarray(0, 64 * 96), decoded.subarray(64 * 96));
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});

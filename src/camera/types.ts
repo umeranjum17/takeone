@@ -52,6 +52,8 @@ export interface Decision {
 }
 
 export interface TakeMeta {
+  /** Mobile capture renders inside a handset frame. */
+  device?: "android" | "ios";
   theme?: string;
   id?: string;
   width: number;

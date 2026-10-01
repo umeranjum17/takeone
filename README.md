@@ -181,21 +181,36 @@ takeone stop
 takeone make <id> --about "Searching and checking out in the app"
 ```
 
-No phone app and no new core: the phone take is the same take directory
-(`take.json`, `screen.webm`, `frames.tsv`, `events.jsonl`), rendered portrait
-1080×1920 by default, and `--touch-offset-ms N` calibrates touch timing.
-Try it with no phone attached — the synthetic portrait take renders offline:
+The phone take uses the same directory format (`take.json`, `screen.webm`,
+`frames.tsv`, `events.jsonl`). Android recordings carry the encoder's timestamps,
+including still holds, and render with a graphite handset frame. The recorder
+prints `recording:` once video is flowing; start demonstrating after that message.
+Portrait output defaults to 1080×1920. `--touch-offset-ms N` calibrates touch timing.
+To plan the same take for a wide export, set both output dimensions:
 
 ```sh
-node scripts/synth-portrait.ts /tmp/p
-# encoding screen.webm ...
-# portrait take written to /tmp/p
-node bin/takeone.mjs make /tmp/p --no-jev
-# make: 5 beats; 0 by jev, 5 by heuristic
+takeone make <id> --set out_w=1920 --set out_h=1080
 ```
 
-The polished video lands at `/tmp/p/out/p.mp4` (`ffprobe` reports
-`1080,1920`) and `analysis/actions.json` holds 3 `click` and 1 `scroll`.
+For a reproducible real recording, the offline Tidewater Android fixture reuses
+`scripts/e2e/scene.html`. It needs an Android SDK with API/build-tools 35, a JDK,
+and a dedicated 1080×2400 emulator at density 420. It has no accounts or network
+permission. Install it only on a test emulator:
+
+```sh
+scripts/e2e/android/build.sh
+adb -s emulator-PORT root
+adb -s emulator-PORT install --no-incremental -r tmp/android-fixture/tidewater.apk
+node scripts/e2e/android/record.ts emulator-PORT "$PWD/tmp/android-takes"
+# Prints the real take path; four kernel taps create a high-priority launch brief.
+takeone make <absolute-take-path> --no-jev --set idle_speed=1
+# Save that portrait MP4 before generating the wide export at the same path.
+takeone make <absolute-take-path> --no-jev --set idle_speed=1 --set out_w=1920 --set out_h=1080
+```
+
+`scripts/synth-portrait.ts` remains an offline colour-pattern timing fixture.
+It is not an Android app recording or product demo.
+
 
 **3c. Record the iOS Simulator instead** (macOS, Xcode with the Simulator):
 

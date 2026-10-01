@@ -74,7 +74,7 @@ export function cornerSize(st: Stage, d: CameraDefaults): number {
  * card's shadow, and [holes], the same image with the card cut out as alpha. The
  * screen is opaque, so the render only needs the four corners of [holes] on top.
  */
-export function stageImageFilter(width: number, height: number, st: Stage, d: CameraDefaults): string {
+export function stageImageFilter(width: number, height: number, st: Stage, d: CameraDefaults, phone = false): string {
   const radius = d.corner_radius / st.restScale;
   const shadowY = Math.round(d.shadow_y / st.restScale);
   const blur = (d.shadow_blur / st.restScale).toFixed(1);
@@ -101,10 +101,32 @@ export function stageImageFilter(width: number, height: number, st: Stage, d: Ca
       `[accent][accentmask]alphamerge[edge]`,
       `[base][edge]overlay=format=auto[look]`,
     ] : [`[base]null[look]`]),
-    `[look]format=rgb24,split[stage][cut]`,
+    ...(phone ? phoneFrameFilter(width, height, st, radius) : []),
+    `[${phone ? "framed" : "look"}]format=rgb24,split[stage][cut]`,
     `[m2]negate,pad=${st.w}:${st.h}:${st.screenX}:${st.screenY}:white[hole]`,
     `[cut][hole]alphamerge[holes]`,
   ].join(";");
+}
+
+/** Graphite handset: a fine metal rim, dark bezel and physical side controls.
+ * Drawn behind the source so app pixels and touch coordinates remain unchanged. */
+function phoneFrameFilter(width: number, height: number, st: Stage, radius: number): string[] {
+  const bezel = 12 / st.restScale;
+  const cx = st.screenX + width / 2;
+  const cy = st.screenY + height / 2;
+  const mask = (edge: number) => `geq=lum='255*clip(${radius + edge}+0.5-hypot(max(abs(X+0.5-${cx})-(${width / 2 - radius}),0),max(abs(Y+0.5-${cy})-(${height / 2 - radius}),0)),0,1)'`;
+  const buttonW = Math.max(2, Math.round(3 / st.restScale));
+  const x = Math.round(st.screenX + width + bezel - 1);
+  return [
+    `color=0x777d88:s=${st.w}x${st.h}:d=1,format=rgba[rim]`,
+    `color=black:s=${st.w}x${st.h}:d=1,format=gray,${mask(bezel)}[rimMask]`,
+    `[rim][rimMask]alphamerge[rimAlpha]`,
+    `[look][rimAlpha]overlay=format=auto[metal]`,
+    `color=0x171a20:s=${st.w}x${st.h}:d=1,format=rgba[bezel]`,
+    `color=black:s=${st.w}x${st.h}:d=1,format=gray,${mask(bezel - 1.5 / st.restScale)}[bezelMask]`,
+    `[bezel][bezelMask]alphamerge[bezelAlpha]`,
+    `[metal][bezelAlpha]overlay=format=auto,drawbox=x=${x}:y=${Math.round(st.screenY + height * .24)}:w=${buttonW}:h=${Math.round(height * .08)}:color=0x626975:t=fill,drawbox=x=${Math.round(st.screenX - bezel - buttonW + 1)}:y=${Math.round(st.screenY + height * .18)}:w=${buttonW}:h=${Math.round(height * .1)}:color=0x626975:t=fill[framed]`,
+  ];
 }
 
 /** Main-graph filters that lay the opaque [screen] on the looped [stage] and round its corners. */

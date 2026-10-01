@@ -9,6 +9,7 @@ import { solveCamera } from "../camera/solver.ts";
 import type { Beat, CameraFrame, Decision, TakeMeta } from "../camera/types.ts";
 import { blurGraph, keycapAss, keycapObstacles, overlayRegions, spotlightAss } from "./overlays.ts";
 import { idleSqueezes, setptsExpr, warp, warpBeats } from "./pace.ts";
+import { phoneTapShots } from "./phone.ts";
 import {
   beatClicks, captionAss, cardFilter, clickAss, measureAss, stageFrames, stageGeometry, stageImageFilter, takeCaptions,
   type Caption, type CaptionInk,
@@ -88,6 +89,8 @@ function runFfmpeg(args: string[]): Promise<string> {
 export async function renderTake(dir: string, d?: CameraDefaults): Promise<{ out: string; seconds: number }> {
   const meta = JSON.parse(await readFile(join(dir, "take.json"), "utf8")) as TakeMeta;
   d ??= resolveTheme(meta.theme);
+  const phone = meta.device !== undefined && meta.height > meta.width;
+  if (phone) d = { ...d, corner_radius: 36, stage_margin: Math.max(0.16, d.stage_margin) };
   const beats = JSON.parse(await readFile(join(dir, "analysis/beats.json"), "utf8")) as Beat[];
   // The planner stores seconds; the existing FOLLOW solver consumes action timestamps in ms.
   if ("stream" in meta) for (const beat of beats) beat.actions = beat.actions.map((action) => {
@@ -109,8 +112,19 @@ export async function renderTake(dir: string, d?: CameraDefaults): Promise<{ out
   const blurs = overlayRegions(meta, "blur", outTime, trimStart, trimEnd);
   const spotlights = overlayRegions(meta, "spotlight", outTime, trimStart, trimEnd);
   const outBeats = warpBeats(beats, trimStart, squeezes, d.idle_speed);
-  const frames = solveCamera(outBeats, decisions, { ...meta, trim_end: trimStart + duration },
+  const tapShots = meta.device === "android" ? phoneTapShots(outBeats, meta.width, meta.height) : null;
+  const solved = solveCamera(tapShots?.beats ?? outBeats, tapShots?.decisions ?? decisions, { ...meta, trim_end: trimStart + duration },
     { ...d, min_shot: d.min_shot * d.pace, dwell: d.dwell * d.pace, dwell_k2: d.dwell_k2 * d.pace });
+  // A handset's controls span its narrow screen. Keep that entire width while
+  // pushing in and following the tapped row; horizontal pans slice labels.
+  const frames = phone ? solved.map(f => {
+    const w = Math.max(f.w, meta.width * d.hold_pad);
+    const h = w * d.out_h / d.out_w;
+    const cy = f.y + f.h / 2;
+    const y = h >= meta.height ? (meta.height - h) / 2
+      : Math.max(0, Math.min(meta.height - h, cy - h / 2));
+    return { t: f.t, x: (meta.width - w) / 2, y, w, h };
+  }) : solved;
   await writeFile(join(dir, "camera.json"), JSON.stringify(frames));
   const stage = stageGeometry(meta.width, meta.height, d);
   const commandFile = join(dir, "camera.cmd");
@@ -128,7 +142,7 @@ export async function renderTake(dir: string, d?: CameraDefaults): Promise<{ out
   // Render intermediates live next to camera.cmd so a failed render can be rerun by hand.
   const stageFile = join(dir, "stage.png");
   const holesFile = join(dir, "stage-holes.png");
-  await runFfmpeg(["-y", "-v", "error", ...(d.bg_style === "image" ? ["-i", resolveBackgroundImage(dir, d.background_image)] : []), "-filter_complex", stageImageFilter(meta.width, meta.height, stage, d),
+  await runFfmpeg(["-y", "-v", "error", ...(d.bg_style === "image" ? ["-i", resolveBackgroundImage(dir, d.background_image)] : []), "-filter_complex", stageImageFilter(meta.width, meta.height, stage, d, phone),
     "-map", "[stage]", "-frames:v", "1", "-update", "1", stageFile,
     "-map", "[holes]", "-frames:v", "1", "-update", "1", holesFile]);
   const clicksFile = join(dir, "clicks.ass");
