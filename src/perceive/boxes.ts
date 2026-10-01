@@ -54,7 +54,7 @@ export function detectUiBoxes(data: Uint8Array, w: number, h: number, streamW: n
     .slice(0, BOX_MAX_PER_FRAME);
 }
 
-/** One reference per occupied second, preferring shot anchors over the cadence frame.
+/** One reference per occupied trim-relative second, prioritizing uncovered action/shot times.
  * At most ceil(duration seconds) references; no extra decode or network/model calls.
  */
 export function analyzeUiBoxes(dec: Decoded, stream: { w: number; h: number }, start: number, end: number,

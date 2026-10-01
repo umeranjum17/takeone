@@ -23,6 +23,7 @@ export const OCR_MAX_AREA = 0.25; // screen text only read for zones under 25%
  * `winRect` is the focused window rect at the beat's anchor (from events.jsonl);
  * `stream` is the video size; `scale` maps logical to stream px;
  * `frames` are the perception regions (analysis/regions.json).
+ * `uiBoxes` are optional static boundaries (analysis/ui-boxes.json).
  */
 export function zonesForBeat(
   beat: Beat,
@@ -78,7 +79,7 @@ export function zonesForBeat(
   });
 }
 
-/** Keep individual nearby change boxes: their union loses the edges we can frame around. */
+/** Keep individual nearby UI boundaries: their union loses the edges we can frame around. */
 function contextBoxes(
   beat: Beat,
   o: { stream: { w: number; h: number }; frames: FrameRegions[]; uiBoxes?: BoxFrame[] },
