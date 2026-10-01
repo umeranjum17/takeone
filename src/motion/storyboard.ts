@@ -37,6 +37,9 @@ export function sceneTexts(s: Scene): string[] {
   if (s.pattern === "hero-reveal") return [s.title, s.subtitle].filter((t): t is string => !!t);
   if (s.pattern === "end-card") return [s.logo ?? "TakeOne", s.cta, s.url].filter((t): t is string => !!t);
   if (s.pattern === "fragment") {
+    if (s.kind === "counter") return ["60"];
+    if (s.kind === "browser-chrome") return ["Design preview"];
+    if (s.kind === "phone-chrome") return ["9:41"];
     const defaults: Record<string, string> = { button: "Create task", input: s.state === "empty" ? "Task title" : "Draft launch announcement", chip: "High priority", toast: "Task created" };
     if (s.kind === "feed-row") return ["Umer", s.text ?? "moved Draft launch announcement", "Just now"];
     return [s.kind === "input" && s.state === "empty" ? "Task title" : s.text ?? defaults[s.kind ?? ""] ?? ""].filter(Boolean);
@@ -55,6 +58,7 @@ function sceneReadingDuration(s: Scene, fps: number): number {
   } else if (s.pattern === "fragment" && s.kind === "input" && s.state === "typing") {
     reveal = .055 * (s.text ?? "Draft launch announcement").length;
   }
+  if (s.pattern === "fragment" && s.kind === "counter") reveal = 1.5;
   const reading = readingFloor(sceneTexts(s).join(" "));
   return reading ? Math.ceil(reveal * fps - 1e-9) / fps + reading + 1 / fps : 0;
 }
