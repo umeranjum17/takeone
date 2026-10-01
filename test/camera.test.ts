@@ -5,9 +5,7 @@ import { join } from "node:path";
 import test from "node:test";
 import { applyOverrides, DEFAULTS } from "../src/camera/defaults.ts";
 import { clippedFractions, HIGH_CLIP_FRACTION, frame, moveDuration, solveCamera, zMax } from "../src/camera/solver.ts";
-import { zonesForBeat } from "../src/beats/zones.ts";
 import type { Beat, Decision, Zone } from "../src/camera/types.ts";
-import type { Action as PerceivedAction, Beat as PerceivedBeat, FrameRegions } from "../src/types.ts";
 import { renderTake, cameraFilter } from "../src/render/render.ts";
 import { hasFfmpeg } from "./helpers.ts";
 
@@ -274,53 +272,12 @@ test("timestamped pointer actions follow interpolation, not the final position e
   const drag = beat("drag", 2, 1900, "drag");
   drag.t0 = 1;
   drag.t1 = 5;
-  drag.zones[0]! = { ...zone("drag", [1700, 900, 400, 200]), boxes: [[1700, 900, 400, 200]] };
-  const action = { k: "drag", t0: 1, t1: 5, from: [1900, 1000], to: [1900, 1000], bbox: [1700, 900, 400, 200] };
-  drag.actions = [action, { t: 1, x: 500, y: 1080 }, { t: 5, x: 3300, y: 1080 }];
+  drag.zones[0]! = zone("drag", [1700, 900, 400, 200]);
+  drag.actions = [{ t: 1000, x: 0, y: 1080 }, { t: 5000, x: 3840, y: 1080 }];
   const moving = camera([drag], [decision(drag)], 5);
-  const stationary = camera([{ ...drag, actions: [action, { t: 1, x: 500, y: 1080 }, { t: 5, x: 500, y: 1080 }] }], [decision(drag)], 5);
+  const stationary = camera([{ ...drag, actions: [{ t: 1000, x: 0, y: 1080 }, { t: 5000, x: 0, y: 1080 }] }], [decision(drag)], 5);
   assert.deepEqual(at(moving, 1), at(stationary, 1));
   assert.ok(at(moving, 4).x > at(stationary, 4).x + 100);
-});
-
-test("drag and travel follow frames keep the selected focus zone inside safe margins", () => {
-  const action: PerceivedAction = {
-    k: "drag", t0: 1000, t1: 5000, from: [500, 1080], to: [3300, 1080],
-    bbox: [500, 1079, 2800, 2], window_cls: "browser",
-  };
-  const perceivedBeat: PerceivedBeat = {
-    id: "drag-focus", t0: 1000, t1: 5000, anchor_t: 3000,
-    window_cls: "browser", actions: [action], zones: [], kind: "drag",
-  };
-  const regions: FrameRegions[] = [{ t: 4800, changed_frac: 0.01, cut: false,
-    regions: [{ bbox: [3180, 1000, 200, 120], area_frac: 0.003 }] }];
-  const perceivedZones = zonesForBeat(perceivedBeat, {
-    winRect: null, stream: { w: 3840, h: 2160 }, scale: 1, frames: regions,
-  });
-  const act = perceivedZones.find((candidate) => candidate.kind === "act")!;
-  assert.ok(act.bbox[2] > 2500, "normal drag act zone contains the full pointer path");
-  assert.ok(act.boxes?.some((box) => box[2] === 200 && box[3] === 120));
-
-  for (const kind of ["drag", "travel"] as const) {
-    const moving = beat(`${kind}-focus`, 2, 1900, kind);
-    moving.t0 = 1;
-    moving.t1 = 5;
-    const focus: Zone = { name: "focus", type: "act", bbox: act.bbox, boxes: act.boxes };
-    moving.zones[0] = focus;
-    moving.actions = [{ k: kind, t0: 1, t1: 5, from: [500, 1080], to: [3300, 1080], bbox: act.bbox }];
-    const frames = camera([moving], [decision(moving)], 5);
-    const [, , w, h] = act.boxes!.find((box) => box[2] === 200 && box[3] === 120)!;
-    for (const crop of frames.filter((frame) => frame.t >= 1 && frame.t <= 5)) {
-      const margin = Math.min(crop.w, crop.h) * 0.01;
-      const pointerX = 500 + (crop.t - 1) / 4 * 2800;
-      const x = pointerX - w / 2;
-      const y = 1080 - h / 2;
-      assert.ok(crop.x <= x - margin && crop.x + crop.w >= x + w + margin,
-        `${kind} focus clipped horizontally at ${crop.t}`);
-      assert.ok(crop.y <= y - margin && crop.y + crop.h >= y + h + margin,
-        `${kind} focus clipped vertically at ${crop.t}`);
-    }
-  }
 });
 
 test("ultrawide whole-screen viewport is 16:9 and covers every source pixel", () => {
@@ -434,14 +391,14 @@ test("FOLLOW ignores a drag whose shot arrives after trim", () => {
   const late = beat("late-drag", 11.4, 300, "drag");
   late.t0 = 10.5;
   late.t1 = 12.4;
-  late.actions = [{ k: "ptr", t: 10.5, x: 3840, y: 1080 }];
+  late.actions = [{ k: "ptr", t: 10500, x: 3840, y: 1080 }];
   assert.deepEqual(solveCamera([first, late], [decision(first), decision(late)], take),
     solveCamera([first], [decision(first)], take));
 
   const active = beat("active-drag", 10.4, 300, "drag");
   active.t0 = 10.2;
   active.t1 = 11;
-  active.actions = [{ k: "ptr", t: 10.2, x: 3840, y: 1080 }];
+  active.actions = [{ k: "ptr", t: 10200, x: 3840, y: 1080 }];
   const withoutPointer = { ...active, actions: [] };
   assert.notDeepEqual(solveCamera([active], [decision(active)], take, noBookends),
     solveCamera([withoutPointer], [decision(withoutPointer)], take, noBookends));

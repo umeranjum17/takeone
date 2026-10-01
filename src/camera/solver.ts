@@ -477,28 +477,6 @@ function spring(value: number, velocity: number, target: number, dt: number, ome
   ];
 }
 
-function pointerAt(beat: Beat, time: number): { x: number; y: number } | undefined {
-  const actions = beat.actions.map((action) => action as {
-    t?: number; x?: number; y?: number; t0?: number; t1?: number;
-    from?: [number, number]; to?: [number, number];
-  });
-  const samples = actions.filter((action) => Number.isFinite(action.x) && Number.isFinite(action.y));
-  const points = (samples.length ? samples.flatMap((point) => [{ t: point.t, x: point.x!, y: point.y! }])
-    : actions.flatMap((action) => Number.isFinite(action.t0) && Number.isFinite(action.t1)
-      && action.from?.every(Number.isFinite) && action.to?.every(Number.isFinite)
-      ? [{ t: action.t0, x: action.from[0], y: action.from[1] }, { t: action.t1, x: action.to[0], y: action.to[1] }]
-      : [])).sort((a, b) => (a.t ?? -Infinity) - (b.t ?? -Infinity));
-  const before = points.filter((point) => point.t === undefined || point.t <= time).at(-1);
-  const after = points.find((point) => point.t !== undefined && point.t > time);
-  const ratio = before?.t !== undefined && after?.t !== undefined
-    ? (time - before.t) / (after.t - before.t) : 0;
-  const pointer = before && {
-    x: lerp(before.x!, after?.x ?? before.x!, ratio),
-    y: lerp(before.y!, after?.y ?? before.y!, ratio),
-  };
-  return pointer;
-}
-
 function followPointer(
   state: CameraState,
   previous: CameraState,
@@ -510,7 +488,18 @@ function followPointer(
   velocity: { x: number; y: number },
   d: CameraDefaults,
 ): CameraState {
-  const pointer = pointerAt(beat, time);
+  const points = beat.actions
+    .map((action) => action as { t?: number; x?: number; y?: number })
+    .filter((action) => Number.isFinite(action.x) && Number.isFinite(action.y))
+    .sort((a, b) => (a.t ?? -Infinity) - (b.t ?? -Infinity));
+  const before = points.filter((point) => point.t === undefined || point.t / 1000 <= time).at(-1);
+  const after = points.find((point) => point.t !== undefined && point.t / 1000 > time);
+  const ratio = before?.t !== undefined && after?.t !== undefined
+    ? (time - before.t / 1000) / ((after.t - before.t) / 1000) : 0;
+  const pointer = before && {
+    x: lerp(before.x!, after?.x ?? before.x!, ratio),
+    y: lerp(before.y!, after?.y ?? before.y!, ratio),
+  };
   const decision = decisions.get(beat.id);
   const zone = beat.zones.find((candidate) => candidate.name === decision?.A);
   const subject = pointer ?? (zone ? {
@@ -537,42 +526,6 @@ function followPointer(
   velocity.x = (oldVelocityX - omega * (oldVelocityX + omega * offsetX) * dt) * decay;
   velocity.y = (oldVelocityY - omega * (oldVelocityY + omega * offsetY) * dt) * decay;
   return { ...state, cx: nextX, cy: nextY };
-}
-
-/** Keep the followed focus zone readable after pointer following and camera filtering. */
-function containFollowedSubject(state: CameraState, zone: Zone, width: number, height: number, d: CameraDefaults): CameraState {
-  const baseW = baseWidth(width, height, d);
-  const [x, y, w, h] = zone.bbox;
-  const aspect = d.out_w / d.out_h;
-  const padding = Math.min(w, h) * 0.01;
-  const viewW = Math.min(baseW, Math.max(baseW / state.z, w + padding * 2, (h + padding * 2) * aspect));
-  const viewH = viewW / aspect;
-  const left = x - padding;
-  const top = y - padding;
-  const minX = left + viewW / 2;
-  const maxX = x + w + padding - viewW / 2;
-  const minY = top + viewH / 2;
-  const maxY = y + h + padding - viewH / 2;
-  return {
-    cx: minX > maxX ? (x + w / 2) : clamp(state.cx, minX, maxX),
-    cy: minY > maxY ? (y + h / 2) : clamp(state.cy, minY, maxY),
-    z: baseW / viewW,
-  };
-}
-
-function followFocus(zone: Zone, pointer: { x: number; y: number } | undefined): Zone {
-  if (!pointer || !zone.boxes?.length) return zone;
-  const nearest = zone.boxes.reduce((best, box) => {
-    const dx = Math.max(box[0] - pointer.x, 0, pointer.x - box[0] - box[2]);
-    const dy = Math.max(box[1] - pointer.y, 0, pointer.y - box[1] - box[3]);
-    const distance = dx * dx + dy * dy;
-    const bestDx = Math.max(best[0] - pointer.x, 0, pointer.x - best[0] - best[2]);
-    const bestDy = Math.max(best[1] - pointer.y, 0, pointer.y - best[1] - best[3]);
-    const bestDistance = bestDx * bestDx + bestDy * bestDy;
-    return distance < bestDistance || (distance === bestDistance && box[2] * box[3] < best[2] * best[3])
-      ? box : best;
-  });
-  return { ...zone, bbox: [pointer.x - nearest[2] / 2, pointer.y - nearest[3] / 2, nearest[2], nearest[3]] };
 }
 
 /** Sample HOLD/MOVE/FOLLOW/BREATHE camera states at output fps. */
@@ -658,13 +611,6 @@ function sampleCamera(
       lastZoomDirection = Math.sign(zoomSpeed);
     }
     state = { cx, cy, z: Math.exp(lz) };
-    if (activeBeat) {
-      const decision = decisions.get(activeBeat.id);
-      const subject = activeBeat.zones.find((zone) => zone.name === decision?.A);
-      if (subject) {
-        state = containFollowedSubject(state, followFocus(subject, pointerAt(activeBeat, time)), width, height, d);
-      }
-    }
     previousFiltered = state;
     previousTime = time;
     frames.push({ ...toFrame(state, width, height, d), t: time - start });
