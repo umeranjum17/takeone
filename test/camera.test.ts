@@ -669,12 +669,17 @@ test("Tidewater holds whole cards, retains enclosing context and balances the vi
 
 test("a dialog close reveals its result despite dwell, shot suppression and pointer follow", () => {
   const board = new Uint8Array(160 * 90).fill(230);
-  const dialog = board.map((value) => value - 80);
+  const fadeOut = [222, 214, 206, 198, 190].map((level) => board.map(() => level));
   const created = board.slice();
   for (let y = 10; y < 25; y++) created.fill(90, y * 160 + 10, y * 160 + 40);
-  const results = dialogResults([board, dialog, created], [0, 1000, 2200], [],
+  const fadeIn = [198, 206, 214, 222].map((level) => board.map(() => level));
+  for (let y = 10; y < 25; y++) fadeIn.at(-1)!.fill(90, y * 160 + 10, y * 160 + 40);
+  const dialogFrames = [board, ...fadeOut, ...fadeIn, created];
+  const times = dialogFrames.map((_, index) => 1300 + index * 100);
+  const results = dialogResults(dialogFrames, times, [],
     { w: 160, h: 90, streamW: 3840, streamH: 2160 });
   assert.equal(results.length, 1);
+  assert.equal(results[0]!.t, 2300);
   const modal = beat("modal", 1, 2200);
   modal.t1 = 4;
   const close = beat("close", 1.2, 2200, "drag");
@@ -689,5 +694,5 @@ test("a dialog close reveals its result despite dwell, shot suppression and poin
       `result cropped at ${f.t}`);
   }
   const warped = warpBeats([close], 0, [{ a: 0, b: 1 }], 4)[0]!;
-  assert.ok(Math.abs(warped.dialog_results![0]!.t - 1.45) < 1e-9);
+  assert.ok(Math.abs(warped.dialog_results![0]!.t - 1.55) < 1e-9);
 });
