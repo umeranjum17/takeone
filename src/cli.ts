@@ -2,13 +2,14 @@
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { existsSync, readFileSync, unlinkSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 import { setKeyFromStdin } from "./secrets.ts";
 import { runCapture } from "./capture.ts";
 import { makeTake, PreflightRefusal, TakeInputError } from "./make.ts";
 import { renderTake } from "./render/render.ts";
 import { resolveTheme } from "./themes.ts";
-import type { CameraDefaults, Overrides } from "./camera/defaults.ts";
+import { applyOverrides, type CameraDefaults, type Overrides } from "./camera/defaults.ts";
 
 export function takesDir(): string {
   return process.env["TAKEONE_DIR"] ?? join(homedir(), "Videos", "takeone");
@@ -142,15 +143,53 @@ export async function main(argv: string[]): Promise<number> {
     try {
       const pairs: string[] = [];
       let theme: string | undefined;
+      let aspect: string | undefined;
+      let resolution: string | undefined;
+      let format = "mp4";
       for (let i = 0; i < args.length; i++) {
         const option = args[i];
-        if (option !== "--set" && option !== "--theme") throw Error(`unknown option ${option}`);
         const value = args[++i];
-        if (!value || value.startsWith("--")) throw Error(`${option} needs ${option === "--set" ? "key=value" : "a theme name"}`);
+        if (value === undefined || value.startsWith("--")) throw Error(`${option} needs a value`);
         if (option === "--set") pairs.push(value);
-        else theme = value;
+        else if (option === "--theme") theme = value;
+        else if (option === "--aspect") aspect = value;
+        else if (option === "--resolution") resolution = value;
+        else if (option === "--format") format = value;
+        else throw Error(`unknown option ${option}`);
       }
-      console.log((await renderTake(dir, resolveCamera(dir, pairs, theme))).out);
+      const dimensions: Record<string, [number, number]> = {};
+      if (aspect !== undefined) {
+        const aspects: Record<string, [number, number]> = {
+          landscape: [1920, 1080], portrait: [1080, 1920], square: [1080, 1080],
+        };
+        const size = aspects[aspect];
+        if (!size) throw Error(`unknown aspect ${aspect}; use landscape, portrait or square`);
+        dimensions.out_w = size[0]; dimensions.out_h = size[1];
+      }
+      if (resolution !== undefined) {
+        if (resolution !== "4k") throw Error(`unknown resolution ${resolution}; use 4k`);
+        const portrait = aspect === "portrait" || (aspect === undefined && isPortraitTake(dir));
+        dimensions.out_w = portrait ? 2160 : 3840;
+        dimensions.out_h = portrait ? 3840 : 2160;
+      }
+      if (!["mp4", "gif", "webm", "prores4444"].includes(format)) {
+        throw Error(`unknown format ${format}; use mp4, gif, webm or prores4444`);
+      }
+      const camera = resolveCamera(dir, pairs, theme);
+      const rendered = (await renderTake(dir, applyOverrides(dimensions, camera))).out;
+      if (format === "mp4") console.log(rendered);
+      else {
+        const suffix = format === "prores4444" ? "mov" : format;
+        const output = rendered.replace(/\.mp4$/, `.${suffix}`);
+        if (format === "gif") {
+          execFileSync("ffmpeg", ["-y", "-i", rendered, "-vf", "fps=15,scale='min(1080,iw)':-2:flags=lanczos,split[s0][s1];[s0]palettegen[p];[s1][p]paletteuse", output], { stdio: "ignore" });
+        } else if (format === "webm") {
+          execFileSync("ffmpeg", ["-y", "-i", rendered, "-c:v", "libvpx-vp9", "-b:v", "0", "-crf", "32", output], { stdio: "ignore" });
+        } else {
+          execFileSync("ffmpeg", ["-y", "-i", rendered, "-c:v", "prores_ks", "-profile:v", "4", "-pix_fmt", "yuva444p10le", output], { stdio: "ignore" });
+        }
+        console.log(output);
+      }
       return 0;
     } catch (e) {
       console.error(e instanceof Error ? e.message : e);
