@@ -2,6 +2,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, extname, join, resolve } from "node:path";
 import { renderMotion } from "./motion.ts";
+import { validateStateNames } from "./ingest.ts";
 import { installShell } from "./shell.ts";
 import { validateStoryboard } from "./storyboard.ts";
 import type { Device, PatternName, Region, Scene } from "./types.ts";
@@ -47,6 +48,7 @@ export function parseMotionArgs(argv: string[]): MotionArgs {
     else if (s === "--state") {
       const m = /^([A-Za-z0-9_-]{1,64})=(.*)$/s.exec(v);
       if (!m) throw new Error(`--state expects NAME=ops, got ${v}`);
+      validateStateNames([...a.states.map(([name]) => name), m[1]!]);
       a.states.push([m[1]!, m[2]!]);
     } else if (s === "--workers") a.workers = Number(v);
     else if (s === "--blur") a.blur = Number(v);
@@ -81,6 +83,7 @@ export function splitStateOps(text: string): string[] {
 
 /** The local planner: pattern defaults, regions in the order given, copy from flags. */
 export function planStoryboard(a: MotionArgs, id: string): unknown {
+  validateStateNames(a.states.map(([name]) => name));
   const first = a.inputs[0]!;
   const kind = /^https?:\/\//.test(first) ? "url" : /\.html?$/i.test(first) ? "html" : "image";
   if (kind !== "image" && a.inputs.length > 1) throw new Error("html and url sources take one input; use --state for more screens");

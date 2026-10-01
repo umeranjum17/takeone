@@ -15,8 +15,9 @@ import { motionTokens } from "../src/motion/theme.ts";
 import { fontFile } from "../src/motion/theme.ts";
 import { planSpeeds } from "../src/motion/blur.ts";
 import { averageRaw, decodePng, encodePng } from "../src/motion/png.ts";
-import { parseStateOp } from "../src/motion/ingest.ts";
+import { ingest, parseStateOp } from "../src/motion/ingest.ts";
 import { sceneCameras } from "../src/motion/camera.ts";
+import type { Storyboard } from "../src/motion/types.ts";
 
 const board=()=>({version:1,source:{kind:"image",files:["board.png"]},theme:{name:"editorial"},screens:{S1:{file:"board.png",width:2560,height:1440}},scenes:[{pattern:"hero-reveal",d:3,screen:"S1",title:"Launch"}],regions:[]});
 test("validator rejects off-beat cuts and snaps a one-frame drift",()=>{
@@ -236,4 +237,27 @@ test("effective bento windows preserve required reveals and holds",()=>{
   assert.throws(()=>validateStoryboard({...board(),regions,layout:{...layout,master:{d:5,scenes:[tour]}}}),/truncates camera/);
   assert.throws(()=>validateStoryboard({...board(),regions,layout:{...layout,master:{d:6,scenes:[tour]},tiles:tiles.map((tile,i)=>({...tile,offset_s:i*.5}))}}),/truncates camera/);
   validateStoryboard({...board(),regions,layout:{...layout,master:{d:6,scenes:[tour]}}});
+});
+
+
+test("state names preserve capture order and reject overwritten operations", async()=>{
+  for (const input of ["page.html", "https://example.com"]) {
+    for (const name of ["0", "1", "2", "4294967294"]) {
+      assert.throws(()=>parseMotionArgs([input,"--state",`${name}=click #newTask`]),/non-index name/);
+      const raw={...board(),source:{kind:input==="page.html"?"html":"url",file:input,url:input,states:{[name]:["click #newTask"]}}};
+      assert.throws(()=>validateStoryboard(raw),/non-index name/);
+      await assert.rejects(()=>ingest("unused-state-proof",raw as unknown as Storyboard),/non-index name/);
+    }
+    assert.throws(()=>parseMotionArgs([input,"--state","Draft=click #newTask","--state",'Draft=type #title "Draft"']),/duplicate screen id/);
+    const args=parseMotionArgs([input,"--state","Second=click #newTask","--state",'First=type #title "Draft; launch"; wait 300']);
+    const story=validateStoryboard(planStoryboard(args,"ordered"));
+    assert.deepEqual(Object.entries(story.source.states!).map(([name,ops])=>[name,ops.map(parseStateOp)]),[
+      ["Second",[["click","#newTask"]]],
+      ["First",[["type","#title","Draft; launch"],["wait",300]]]
+    ]);
+    assert.throws(()=>planStoryboard({...args,states:[["Second","click #newTask"],["Second","wait 300"]]},"duplicate"),/duplicate screen id/);
+    assert.throws(()=>planStoryboard({...args,states:[["2","click #newTask"],["1","wait 300"]]},"numeric"),/non-index name/);
+    const stable=parseMotionArgs([input,"--state","01=wait 100","--state","4294967295=wait 200","--state","S1=wait 300"]);
+    assert.deepEqual(Object.keys(validateStoryboard(planStoryboard(stable,"stable")).source.states!),["01","4294967295","S1"]);
+  }
 });
