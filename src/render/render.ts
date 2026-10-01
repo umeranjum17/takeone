@@ -86,7 +86,7 @@ export async function renderTake(dir: string, d?: CameraDefaults): Promise<{ out
     : meta.zooms?.map(z => ({ ...z, t0: trimStart + outTime(z.t0), t1: trimStart + outTime(z.t1) }));
   const tapShots = meta.device === "android" ? phoneTapShots(outBeats, meta.width, meta.height) : null;
   const solved = solveCamera(tapShots?.beats ?? outBeats, tapShots?.decisions ?? outDecisions, { ...meta, zooms, trim_end: trimStart + duration },
-    { ...d, min_shot: d.min_shot * d.pace, dwell: d.dwell * d.pace, dwell_k2: d.dwell_k2 * d.pace });
+    edited ? d : { ...d, min_shot: d.min_shot * d.pace, dwell: d.dwell * d.pace, dwell_k2: d.dwell_k2 * d.pace });
   // A handset's controls span its narrow screen. Keep that entire width while
   // pushing in and following the tapped row; horizontal pans slice labels.
   const frames = phone ? solved.map(f => {
