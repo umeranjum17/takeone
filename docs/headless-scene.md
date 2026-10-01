@@ -15,10 +15,11 @@ node bin/takeone.mjs render tmp/board-demo --set fps=60
 ```
 
 The output directory must be new; missing parent directories are created. The installer fetches
-Chrome for Testing's headless shell **151.0.7922.34**, verifies the pinned archive
+the pinned Chrome for Testing headless shell, verifies the archive
 SHA-256, and stores it in the gitignored `.cache/headless-shell/` directory. Each
 capture verifies the executable's SHA-256 and version. There are no new npm
-dependencies. The pin and download URL live in `scripts/headless/shell.mjs`.
+dependencies. The pin, checksums and download URL are owned by
+[`scripts/headless/shell.mjs`](../scripts/headless/shell.mjs).
 Ubuntu's required shared libraries are listed in the `headless-scene` CI job.
 
 The existing board and desktop driver use 2560×1440 layout coordinates. Headless
@@ -35,9 +36,9 @@ is synchronous to avoid the browser's asynchronous wheel queue. The cursor is
 baked into the source, matching existing recordings. PNG frames are streamed to
 ffmpeg with backpressure, and encoded as lossless VP9 in yuv420p at constant 60 fps.
 
-The four durable outputs are `screen.webm`, `frames.tsv`, `events.jsonl` and
-`take.json`. Each frame has one TSV row: a 90 kHz capture timestamp and virtual
-receive time as integral nanoseconds. RTP ticks are 90 kHz and offset is zero.
+The output follows the [take directory format](../README.md#files-of-a-take).
+Each captured frame has one TSV row, with a virtual receive time as integral
+nanoseconds and zero clock offset.
 Wheel deltas preserve the recorder's sign convention: negative scrolls down.
 Pointer coordinates and window rectangles use stream pixels, buttons use the recorder schema, and keys contain
 only classes and down/up state, never typed characters. Metadata carries the
