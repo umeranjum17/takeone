@@ -8,10 +8,8 @@ import { launchBrowser } from './headless/browser.mjs';
 import { VERSION, BINARY_SHA256 } from './headless/shell.mjs';
 import { choreography, inputEvents, frameClock, FPS, CSS_SCALE } from './headless/drive.mjs';
 
-export async function captureScene(output, { maxFrames } = {}) {
-  const { steps, frames: fullFrames } = choreography();
-  const frames = maxFrames ?? fullFrames;
-  if (!Number.isInteger(frames) || frames < 1 || frames > fullFrames) throw new Error(`frames must be an integer in 1..${fullFrames}`);
+export async function captureScene(output) {
+  const { steps, frames } = choreography();
   // Refuse to overwrite existing data. Metadata is published only after encoding.
   const dir = resolve(output);
   await mkdir(dirname(dir), { recursive: true });

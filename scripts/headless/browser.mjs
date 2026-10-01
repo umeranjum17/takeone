@@ -10,7 +10,7 @@ export async function launchBrowser() {
   const child = spawn(binary, [
     '--headless', '--no-sandbox', '--disable-gpu', '--disable-background-networking',
     '--disable-threaded-animation', '--disable-threaded-scrolling', '--disable-features=Translate',
-    '--font-render-hinting=none', '--force-color-profile=srgb', '--force-device-scale-factor=2',
+    '--font-render-hinting=none', '--disable-lcd-text', '--force-color-profile=srgb', '--force-device-scale-factor=2',
     '--run-all-compositor-stages-before-draw', '--hide-scrollbars', '--window-size=1920,1080',
     '--remote-debugging-address=127.0.0.1', '--remote-debugging-port=0', `--user-data-dir=${profile}`, 'about:blank',
   ], { stdio: ['ignore', 'ignore', 'pipe'] });
