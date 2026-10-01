@@ -68,10 +68,15 @@ function toFrame(
   // Keep the viewport at the output aspect; padded overscan shrinks with zoom.
   const w = nonWide ? baseWidth(width, height, d) / z : Math.min(width / z, height * aspect);
   const h = w / aspect;
-  // An axis wider than the screen centres it (a phone card in a 16:9 frame);
-  // an axis inside it clamps, so the shot never shows past the screen's edge.
-  const place = (centre: number, view: number, size: number) =>
-    nonWide && view > size ? (size - view) / 2 : clamp(centre - view / 2, 0, Math.max(0, size - view));
+  // Overscan remains centred until the requested crop fits; pan eases into the
+  // newly available margin to avoid a one-frame jump at the source boundary.
+  const place = (centre: number, view: number, size: number) => {
+    if (!nonWide) return clamp(centre - view / 2, 0, Math.max(0, size - view));
+    const u = smooth(clamp((size - view) / (size * 0.75), 0, 1));
+    const effectiveCentre = size / 2 + (centre - size / 2) * u;
+    return view > size ? (size - view) / 2
+      : clamp(effectiveCentre - view / 2, 0, Math.max(0, size - view));
+  };
   const x = place(state.cx, w, width);
   const y = place(state.cy, h, height);
   return { t: 0, x, y, w, h };

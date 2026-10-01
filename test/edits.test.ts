@@ -170,3 +170,22 @@ test("deep manual zooms obey the zoom speed and acceleration budgets", () => {
     previousSpeed=speed;
   }
 });
+
+test("square manual zoom bounds full-path pan acceleration", () => {
+  const square = { ...DEFAULTS, out_w: 1080, out_h: 1080 };
+  const take: TakeMeta = { width: 2560, height: 1440, trim_end: 15,
+    zooms: [{ t0: 1, t1: 8, bbox: [940, 430, 680, 640], level: 3 }] };
+  const frames = solveCamera([], [], take, square);
+  let previous: { x: number; y: number } | undefined;
+  let peak = 0;
+  for (let i = 1; i < frames.length; i++) {
+    const a = frames[i - 1]!, b = frames[i]!, dt = b.t - a.t;
+    const velocity = {
+      x: (b.x + b.w / 2 - a.x - a.w / 2) / dt * square.out_w / b.w,
+      y: (b.y + b.h / 2 - a.y - a.h / 2) / dt * square.out_w / b.w,
+    };
+    if (previous) peak = Math.max(peak, Math.hypot(velocity.x - previous.x, velocity.y - previous.y) / dt);
+    previous = velocity;
+  }
+  assert.ok(peak <= 9000, `square pan acceleration ${peak} px/s²`);
+});
