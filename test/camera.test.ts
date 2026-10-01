@@ -634,6 +634,8 @@ test("opposite zooms hold for min_shot, including result targets", () => {
 });
 
 test("Tidewater holds whole cards, retains enclosing context and balances the visible cluster", () => {
+  // Tight composition requires explicit enlargement at this source/output size.
+  const contextDefaults = { ...DEFAULTS, max_upscale: 1.5 };
   const boxes: Zone['bbox'][] = [
     [336, 200, 488, 132], [336, 348, 488, 132], [336, 496, 488, 132],
     [888, 200, 488, 132], [888, 348, 488, 132],
@@ -642,7 +644,7 @@ test("Tidewater holds whole cards, retains enclosing context and balances the vi
   ];
   const b: Beat = { id: 'board', kind: 'click', t0: 2, t1: 10, anchor_t: 3, actions: [],
     zones: [{ ...zone('focus', [1080, 375, 80, 56]), boxes }] };
-  const frames = solveCamera([b], [decision(b)], { width: 2560, height: 1440, trim_end: 10 });
+  const frames = solveCamera([b], [decision(b)], { width: 2560, height: 1440, trim_end: 10 }, contextDefaults);
   for (const crop of frames.filter(f => f.t >= 4 && f.t <= 7)) {
     assert.ok(clippedFractions(crop, boxes).every(f => f === 0 || f >= HIGH_CLIP_FRACTION), `half card at ${crop.t}`);
     const panel = boxes[4]!;
@@ -653,14 +655,14 @@ test("Tidewater holds whole cards, retains enclosing context and balances the vi
     assert.ok(Math.abs(crop.x + crop.w / 2 - (336 + 1928) / 2) < crop.w * .06);
   }
   const modal: Zone = { ...zone('field', [944, 450, 200, 56]), type: 'txt', boxes: [[900, 340, 760, 620]] };
-  const state = frame(modal, 3, 2560, 1440);
+  const state = frame(modal, 3, 2560, 1440, undefined, contextDefaults);
   const w = 2560 / state.z;
   const crop = { x: state.cx - w / 2, y: state.cy - w * 9 / 32, w, h: w * 9 / 16 };
   assert.equal(clippedFractions(crop, modal.boxes!)[0], 0);
   assert.ok(crop.h >= 620 * DEFAULTS.hold_pad, 'zoom relaxes to fit the enclosing dialog');
   // A panel taller than the minimum crop forces a wider hold, including at screen edges.
   const tall: Zone = { ...zone('edge-field', [2400, 250, 80, 56]), boxes: [[1984, 128, 544, 1272]] };
-  const edgeState = frame(tall, 3, 2560, 1440);
+  const edgeState = frame(tall, 3, 2560, 1440, undefined, contextDefaults);
   const edgeW = 2560 / edgeState.z;
   assert.equal(clippedFractions({ x: Math.min(2560 - edgeW, edgeState.cx - edgeW / 2),
     y: Math.max(0, edgeState.cy - edgeW * 9 / 32), w: edgeW, h: edgeW * 9 / 16 }, tall.boxes!)[0], 0);
