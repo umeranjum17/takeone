@@ -115,11 +115,3 @@ measurement debugging, still rerendering and checking determinism. Normal CI
 always regenerates both fixtures. When renderer changes are being evaluated,
 use the normal command so the first encode and deterministic rerender come
 from the same candidate.
-
-### Sharpness qualification and motion baseline
-
-The native sampler keeps RGB at 16 bits until final colour conversion and
-uses one transform, including moving frames. See [native-pixel sharpness
-qualification](sharpness.md) for the complete measurements and capture limitations.
-The sharpness and noise gates are absolute; numeric ratchet limits remain in
-force and cannot be loosened by golden acceptance.
