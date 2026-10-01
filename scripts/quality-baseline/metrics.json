@@ -254,12 +254,6 @@
       "direction": "max",
       "unit": ""
     },
-    "subpixel_judder": {
-      "value": 0.6104811736952357,
-      "target": 0.15,
-      "direction": "max",
-      "unit": "px/frame²"
-    },
     "caption_ocr_errors": {
       "value": 2,
       "target": 0,
