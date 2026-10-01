@@ -37,6 +37,17 @@ The former renderer-`87d4717` outputs and their report are preserved under
 [previous-87d-render](previous-87d-render/); current-candidate conclusions use
 the files linked above.
 
+The evidence-only commits after that render preserve the output-producing
+inputs: the digest recomputed at HEAD
+`ffb60af3d73a5095e59b133417e73fe77a309b04` is
+`090109f3eeaa7d54a7dd233b94343ca7536ccc8ceffc8919f6fc11cc3e7debe3`, matching
+the renderer report, and `package-lock.json` remains at the reported SHA-256.
+The root-level `acme-after-half-sheet.png`, `acme-after.mp4`,
+`acme-before.mp4`, `tidewater-real-after.mp4`, `tidewater-real-strip.png`,
+`output-report.txt`, and `beat-results.txt` are superseded historical evidence.
+They are retained for context and are not used for the current-candidate
+conclusions above. The `previous-87d-render/` directory is also historical.
+
 ## Reproduce
 
 Run every media render under the shared lock. Dependencies are specified in
