@@ -103,14 +103,22 @@ export function stageFrames(frames: CameraFrame[], width: number, height: number
     const portraitMargin = portraitCrop
       ? clamp((f.w - portraitFillWidth) / (st.baseW - portraitFillWidth), 0, 1)
       : 1;
-    const w = Math.min(st.w, f.w * (1 + 2 * d.stage_margin * keep * portraitMargin));
-    const h = Math.min(st.h, w / aspect);
+    let w = Math.min(st.w, f.w * (1 + 2 * d.stage_margin * keep * portraitMargin));
+    let h = Math.min(st.h, w / aspect);
+    // Once a portrait crop fits inside the source screen, stage padding must
+    // not push its visible window back outside that screen.
+    if (portraitCrop && f.w <= portraitFillWidth * 1.1) {
+      w = portraitFillWidth;
+      h = height;
+    }
     const cx = f.x + f.w / 2 + st.screenX;
     const cy = f.y + f.h / 2 + st.screenY;
     return {
       t: f.t,
-      x: clamp(cx - w / 2, 0, st.w - w),
-      y: clamp(cy - h / 2, 0, st.h - h),
+      x: portraitCrop && w <= width ? clamp(cx - w / 2, st.screenX, st.screenX + width - w)
+        : clamp(cx - w / 2, 0, st.w - w),
+      y: portraitCrop && h <= height ? clamp(cy - h / 2, st.screenY, st.screenY + height - h)
+        : clamp(cy - h / 2, 0, st.h - h),
       w,
       h,
     };
