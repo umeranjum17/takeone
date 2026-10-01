@@ -74,7 +74,7 @@ export function cornerSize(st: Stage, d: CameraDefaults): number {
  * card's shadow, and [holes], the same image with the card cut out as alpha. The
  * screen is opaque, so the render only needs the four corners of [holes] on top.
  */
-export function stageImageFilter(width: number, height: number, st: Stage, d: CameraDefaults): string {
+export function stageImageFilter(width: number, height: number, st: Stage, d: CameraDefaults, phone = false): string {
   const radius = d.corner_radius / st.restScale;
   const shadowY = Math.round(d.shadow_y / st.restScale);
   const blur = (d.shadow_blur / st.restScale).toFixed(1);
@@ -101,10 +101,32 @@ export function stageImageFilter(width: number, height: number, st: Stage, d: Ca
       `[accent][accentmask]alphamerge[edge]`,
       `[base][edge]overlay=format=auto[look]`,
     ] : [`[base]null[look]`]),
-    `[look]format=rgb24,split[stage][cut]`,
+    ...(phone ? phoneFrameFilter(width, height, st, radius) : []),
+    `[${phone ? "framed" : "look"}]format=rgb24,split[stage][cut]`,
     `[m2]negate,pad=${st.w}:${st.h}:${st.screenX}:${st.screenY}:white[hole]`,
     `[cut][hole]alphamerge[holes]`,
   ].join(";");
+}
+
+/** Graphite handset: a fine metal rim, dark bezel and physical side controls.
+ * Drawn behind the source so app pixels and touch coordinates remain unchanged. */
+function phoneFrameFilter(width: number, height: number, st: Stage, radius: number): string[] {
+  const bezel = 12 / st.restScale;
+  const cx = st.screenX + width / 2;
+  const cy = st.screenY + height / 2;
+  const mask = (edge: number) => `geq=lum='255*clip(${radius + edge}+0.5-hypot(max(abs(X+0.5-${cx})-(${width / 2 - radius}),0),max(abs(Y+0.5-${cy})-(${height / 2 - radius}),0)),0,1)'`;
+  const buttonW = Math.max(2, Math.round(3 / st.restScale));
+  const x = Math.round(st.screenX + width + bezel - 1);
+  return [
+    `color=0x777d88:s=${st.w}x${st.h}:d=1,format=rgba[rim]`,
+    `color=black:s=${st.w}x${st.h}:d=1,format=gray,${mask(bezel)}[rimMask]`,
+    `[rim][rimMask]alphamerge[rimAlpha]`,
+    `[look][rimAlpha]overlay=format=auto[metal]`,
+    `color=0x171a20:s=${st.w}x${st.h}:d=1,format=rgba[bezel]`,
+    `color=black:s=${st.w}x${st.h}:d=1,format=gray,${mask(bezel - 1.5 / st.restScale)}[bezelMask]`,
+    `[bezel][bezelMask]alphamerge[bezelAlpha]`,
+    `[metal][bezelAlpha]overlay=format=auto,drawbox=x=${x}:y=${Math.round(st.screenY + height * .24)}:w=${buttonW}:h=${Math.round(height * .08)}:color=0x626975:t=fill,drawbox=x=${Math.round(st.screenX - bezel - buttonW + 1)}:y=${Math.round(st.screenY + height * .18)}:w=${buttonW}:h=${Math.round(height * .1)}:color=0x626975:t=fill[framed]`,
+  ];
 }
 
 /** Main-graph filters that lay the opaque [screen] on the looped [stage] and round its corners. */
@@ -237,7 +259,7 @@ export function clickAss(clicks: Click[], width: number, height: number, start: 
   return out;
 }
 
-export interface Caption { t0: number; t1: number; text: string; title: boolean }
+export interface Caption { t0: number; t1: number; text: string; title: boolean; position?: "top" | "bottom" }
 
 /**
  * Title plus captions from take.json, sanitised for ASS. `at` maps a video time to
@@ -254,7 +276,7 @@ export function takeCaptions(meta: TakeMeta, at: (t: number) => number, duration
     const d = Number.isFinite(caption.d) && caption.d! > 0 ? caption.d! : 3;
     const t0 = Math.max(0, at(caption.t));
     const t1 = Math.min(duration, at(caption.t) + d);
-    if (text && t1 > t0) out.push({ t0, t1, text, title: false });
+    if (text && t1 > t0) out.push({ t0, t1, text, title: false, position: caption.position });
   }
   const body = out.filter(c => !c.title).sort((a, b) => a.t0 - b.t0);
   for (let i = 0; i + 1 < body.length; i++) body[i]!.t1 = Math.min(body[i]!.t1, body[i + 1]!.t0);
@@ -272,7 +294,7 @@ function captionMargin(size: number, d: CameraDefaults): number {
 }
 
 /** Shared geometry keeps keycap collision avoidance identical to caption placement. */
-export function captionLayouts(captions: Caption[], widths: (number | CaptionInk)[], d: CameraDefaults) {
+export function captionLayouts(captions: Caption[], widths: (number | CaptionInk)[], d: CameraDefaults, widePhone = false) {
   const heights = captions.map((caption, index) => {
     const size = caption.title ? Math.round(d.caption_size * 1.4) : d.caption_size;
     const ink = widths[index] ?? 0;
@@ -285,17 +307,19 @@ export function captionLayouts(captions: Caption[], widths: (number | CaptionInk
     const ink = widths[index] ?? 0;
     const w = Math.min(d.out_w * 0.9, (typeof ink === "number" ? ink : ink.w) + 2 * size * 0.75);
     const h = heights[index]!;
-    const below = caption.title ? Math.max(0, ...captions.map((other, i) =>
+    const below = caption.title && !widePhone ? Math.max(0, ...captions.map((other, i) =>
       !other.title && other.t0 < caption.t1 && other.t1 > caption.t0 ? heights[i]! : 0)) : 0;
     const cx = d.out_w / 2;
-    const cy = d.out_h - d.out_h * 0.075 - h / 2 - (below ? below + size * 0.35 : 0);
+    const top = widePhone && !caption.title && caption.position !== "bottom";
+    const cy = top ? d.out_h * 0.035 + h / 2
+      : d.out_h - d.out_h * 0.075 - h / 2 - (below ? below + size * 0.35 : 0);
     return { cx, cy, w, h, size, rise: Math.round(size * 0.3) };
   });
 }
 
-export function captionAss(captions: Caption[], widths: (number | CaptionInk)[], d: CameraDefaults): string {
+export function captionAss(captions: Caption[], widths: (number | CaptionInk)[], d: CameraDefaults, widePhone = false): string {
   let out = assHeader(d.out_w, d.out_h, d.caption_font, d.caption_size);
-  const layouts = captionLayouts(captions, widths, d);
+  const layouts = captionLayouts(captions, widths, d, widePhone);
   captions.forEach((caption, index) => {
     const { cx, cy, w, h, size, rise } = layouts[index]!;
     const settle = Math.round(260 * 14 / d.spring_omega / d.spring_zeta);

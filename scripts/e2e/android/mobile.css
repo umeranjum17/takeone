@@ -1,0 +1,33 @@
+/* The same Tidewater board and interactions, arranged for a phone. */
+html, body { width: 100%; height: 100%; font-size: 15px; }
+header { width:100%; height:92px; }
+.logo { left:22px; top:23px; font-size:26px; }
+.search, nav, #more, #activity, #col1, #col2 { display:none; }
+#newTask { left:auto; right:22px; top:24px; width:110px; height:40px; font-size:14px; }
+.col { left:18px !important; top:130px; width:calc(100% - 36px); height:auto; }
+.col h2 { font-size:20px; margin-bottom:18px; }
+.col h2 span { font-size:15px; }
+.lane { top:42px; width:100%; height:auto; padding:0; }
+.card { width:100%; height:124px; padding:22px; margin-bottom:14px; border-radius:18px; }
+.card .t { font-size:18px; }
+.card .m { font-size:14px; margin-top:16px; }
+.tag { font-size:12px; padding:3px 10px; }
+#modal { left:18px; top:180px; width:calc(100% - 36px); height:470px; padding:26px; border-radius:24px; }
+#modal h3 { font-size:24px; margin-bottom:24px; }
+label { font-size:13px; }
+.field { width:100%; height:48px; font-size:15px; padding:12px; margin-bottom:18px; }
+textarea.field { height:72px; }
+#prio { width:100%; }
+#create { left:auto; right:44px; top:582px; width:145px; height:42px; font-size:14px; }
+#cancel { left:44px; top:582px; width:100px; height:42px; font-size:14px; }
+#menu { left:44px; top:472px; width:calc(100% - 88px); }
+.opt { height:42px; padding:10px 14px; font-size:15px; }
+#toast { left:36px; top:auto; bottom:28px; width:calc(100% - 72px); height:52px; font-size:15px; }
+#activity { display:block; left:18px; top:610px; width:calc(100% - 36px); height:268px; border-radius:18px; }
+#activity h2 { font-size:18px; padding:16px 20px; }
+#feed { top:58px; padding:0 20px; }
+.ev { padding:12px 0; font-size:13px; }
+.ev i { font-size:11px; margin-top:5px; }
+/* Keep four tasks above Activity after adding the launch brief. */
+.lane:has(.new) .card { height:96px; padding:16px 20px; margin-bottom:12px; }
+.lane:has(.new) .card .m { margin-top:10px; }

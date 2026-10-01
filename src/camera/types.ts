@@ -54,6 +54,8 @@ export interface Decision {
 }
 
 export interface TakeMeta {
+  /** Mobile capture renders inside a handset frame. */
+  device?: "android" | "ios";
   theme?: string;
   id?: string;
   width: number;
@@ -72,7 +74,7 @@ export interface TakeMeta {
   /** Optional opening title, drawn over the first seconds of the render. */
   title?: string;
   /** Optional captions in video-relative seconds; `d` defaults to 3. */
-  captions?: { t: number; d?: number; text: string }[];
+  captions?: { t: number; d?: number; text: string; position?: "top" | "bottom" }[];
 }
 
 export interface CameraFrame {

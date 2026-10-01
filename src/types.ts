@@ -150,6 +150,8 @@ export interface Decision {
 
 /** Take metadata (take.json), the subset the planner reads. */
 export interface TakeMeta {
+  /** Mobile capture renders inside a handset frame. */
+  device?: "android" | "ios";
   theme?: string;
   id: string;
   /** stream (video) pixel size */

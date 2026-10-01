@@ -3,7 +3,7 @@
  *
  * The server streams raw H.264 NAL units with per-frame PTS over an adb
  * forward. Unlike a plain Annex-B pipe (which loses timing), this module
- * keeps each frame's PTS and paces the bytes into ffmpeg so the muxed MP4
+ * keeps each frame's PTS in a Matroska transport so the muxed MP4
  * carries real frame timing from 0 — the same real-time alignment the
  * take directory needs for `screen.webm`.
  *
@@ -15,6 +15,7 @@ import { connect, createServer, type Socket } from "node:net";
 import { dirname, join, resolve } from "node:path";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { AndroidVideoMux } from "./mux.ts";
 
 export const SCRCPY_SERVER_VERSION = "4.0";
 const SCRCPY_JAR = "scrcpy-server-v4.0";
@@ -308,10 +309,8 @@ export async function captureAndroidVideo(
         "-loglevel",
         "error",
         "-y", // never prompt: stdin is the video pipe, not a terminal
-        "-use_wallclock_as_timestamps",
-        "1",
         "-f",
-        "h264",
+        "matroska",
         "-i",
         "pipe:0",
         "-c:v",
@@ -332,6 +331,7 @@ export async function captureAndroidVideo(
     });
 
     const parser = new ScrcpyVideoParser();
+    const mux = new AndroidVideoMux();
     const log: Array<[number, bigint]> = [];
     let width = 0;
     let height = 0;
@@ -374,7 +374,7 @@ export async function captureAndroidVideo(
         // thousands of seconds late, so only real frames set pts0.
         // Config still goes to the muxer first: the IDR needs it.
         if (event.config) {
-          if (!stopping) await writeUnit(toAccessUnit(event.payload));
+          mux.configure(event.payload);
           continue;
         }
         if (pts0 === undefined) {
@@ -383,13 +383,7 @@ export async function captureAndroidVideo(
           deadline = startWall + seconds * 1000;
         }
         log.push([recvMs, event.pts]);
-        // Pace the pipe by PTS so ffmpeg's wallclock timestamps carry the
-        // real frame timing instead of USB arrival bursts. The wait is
-        // capped: a PTS discontinuity (encoder reset) must never stall the
-        // capture past its deadline — wallclock still advances monotonically.
-        const target = startWall + Number(event.pts - pts0) / 1000;
-        if (target > recvMs) await sleep(Math.min(target - recvMs, 2_000));
-        if (!stopping) await writeUnit(toAccessUnit(event.payload));
+        if (!stopping) await writeUnit(mux.frame(event.pts, event.keyframe, event.payload, width, height));
       }
     };
     const queue = Promise.resolve();
@@ -432,13 +426,14 @@ export async function captureAndroidVideo(
       socketClosed.then(() => (Date.now() < deadline ? (true as const) : ("done" as const))),
       ffmpegDead,
     ]);
+    const elapsedMs = Math.max(0, Date.now() - startWall);
     stopping = true;
     socket?.destroy();
     await Promise.race([pending, sleep(5_000)]);
     if (pipelineError !== undefined) throw pipelineError;
     if (runEnd === true) throw withLog(new Error("video socket closed mid-capture"));
     try {
-      ffmpeg?.stdin?.end();
+      ffmpeg?.stdin?.end(mux.finish(elapsedMs));
     } catch {
       /* already gone */
     }

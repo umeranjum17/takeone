@@ -1,0 +1,65 @@
+{
+  "acceptance": "t1-pm-7 real Android app recording and polished portrait and landscape renders",
+  "recording": {
+    "device": "Android emulator emulator-5672, API 35, 1080x2400, density 420",
+    "app": "design.takeone.tidewater, offline Tidewater test fixture; no accounts, network access, or personal apps",
+    "capture_commit": "791dd7e09ecba3a0e405fc256d9ff2c335d6004c",
+    "capture_source": "scripts/e2e/android/record.ts and src/android/*; unchanged between capture_commit and render_commit",
+    "render_base_commit": "c5c4d516b0151d97c9f3fe311e7aa88a2eb151a3",
+    "render_worktree_change": "wide-phone cues keep the title lane at top and place priority cues below the modal",
+    "take_id": "20261001-114145",
+    "take_metadata_sha256": "b4f1b7ee61d69150899a7eff920a178674320dc2bb062844cf5b704608776366",
+    "source_video": {
+      "file": "recording-raw.mp4",
+      "original": "screen.webm from the real take directory",
+      "sha256": "e47047c0758041ff239be7fa460a42f1a484d6814574fedcbf63bb41c8438f08",
+      "dimensions": "920x2048",
+      "duration_seconds": 19.837
+    }
+  },
+  "renders": {
+    "portrait": {
+      "file": "portrait.mp4",
+      "dimensions": "1080x1920",
+      "fps": 60,
+      "duration_seconds": 17.7,
+      "sha256": "78c7d922545d6403a71b5c112eb1855cd04260c6375bfeffb2ae922aa9980e99",
+      "contact_sheet": "portrait-contact-sheet.png",
+      "contact_sheet_sha256": "0abe93e37824c13b0b18d4aebc5d7656af32ff83e6b40ecec3bcb4d07c8c6dc0"
+    },
+    "wide": {
+      "file": "wide.mp4",
+      "dimensions": "1920x1080",
+      "fps": 60,
+      "duration_seconds": 17.7,
+      "sha256": "e9a1f77922ea7fff6b1a3cc588f0e648b44435fd24f05b7d2145656109580255",
+      "contact_sheet": "wide-contact-sheet.png",
+      "contact_sheet_sha256": "5f3dedb12ddbd36e03595061d48a967e40bb5ebf2bde566f4608ef877f43b278"
+    },
+    "raw_vs_render_first_10_seconds": {
+      "file": "raw-vs-render-first-10s.mp4",
+      "dimensions": "1080x1080",
+      "fps": 30,
+      "duration_seconds": 10,
+      "source_trim_start_seconds": 2.1,
+      "sha256": "afdd1167f62e0ee2d1a247b6cbe6ae27e1e80e7b67bde29ca72b5eec22f9c227"
+    }
+  },
+  "reproduction": {
+    "capture": [
+      "scripts/e2e/android/build.sh",
+      "adb -s emulator-5672 root",
+      "adb -s emulator-5672 install --no-incremental -r tmp/android-fixture/tidewater.apk",
+      "node scripts/e2e/android/record.ts emulator-5672 \"$PWD/tmp/android-takes\""
+    ],
+    "render_from_same_take": [
+      "node bin/takeone.mjs make <absolute-take-path> --no-jev --set idle_speed=1",
+      "node bin/takeone.mjs make <absolute-take-path> --no-jev --set idle_speed=1 --set out_w=1920 --set out_h=1080"
+    ],
+    "derivatives": [
+      "ffmpeg -y -v error -i portrait.mp4 -vf 'fps=1/3,scale=320:-1,tile=3x2' -frames:v 1 portrait-contact-sheet.png",
+      "ffmpeg -y -v error -i wide.mp4 -vf 'fps=1/3,scale=480:270,tile=3x2' -frames:v 1 wide-contact-sheet.png",
+      "ffmpeg -y -v error -i recording-raw.mp4 -i portrait.mp4 -filter_complex '[0:v]trim=start=2.1:duration=10,setpts=PTS-STARTPTS,scale=540:1080:force_original_aspect_ratio=decrease,pad=540:1080:(ow-iw)/2:(oh-ih)/2[raw];[1:v]trim=duration=10,setpts=PTS-STARTPTS,scale=540:960,pad=540:1080:0:60[render];[raw][render]hstack=inputs=2,fps=30,format=yuv420p[v]' -map '[v]' -t 10 -an -c:v libx264 -crf 20 -preset veryfast raw-vs-render-first-10s.mp4"
+    ]
+  }
+}

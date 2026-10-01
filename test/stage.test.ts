@@ -50,11 +50,11 @@ test("captions stop at the next mapped start in chronological order", () => {
 });
 
 // Inspect rendered white ink, rather than ASS source, for layout regressions.
-function inkBands(captions: Parameters<typeof captionAss>[0], widths: number[]) {
+function inkBands(captions: Parameters<typeof captionAss>[0], widths: number[], widePhone = false) {
   const dir = mkdtempSync(`${process.cwd()}/tmp-caption-`);
   const d = { ...DEFAULTS, out_w: 640, out_h: 360, caption_size: 28 };
   try {
-    writeFileSync(`${dir}/captions.ass`,captionAss(captions,widths,d));
+    writeFileSync(`${dir}/captions.ass`,captionAss(captions,widths,d,widePhone));
     const pixels = execFileSync("ffmpeg",["-v","error","-f","lavfi","-i","color=black:s=640x360:r=10:d=2",
       "-vf",`ass=${dir}/captions.ass,select=gte(t\\,1),format=gray`,"-frames:v","1","-f","rawvideo","-"], {maxBuffer:1_000_000});
     const rows: number[] = [];
@@ -69,6 +69,14 @@ function inkBands(captions: Parameters<typeof captionAss>[0], widths: number[]) 
     return {bands,left,right};
   } finally {rmSync(dir,{recursive:true,force:true});}
 }
+test("wide phone captions can use a lower lane when the upper lane covers app content", {skip:!hasFfmpeg()}, () => {
+  const captions = takeCaptions({ width: 920, height: 2048,
+    captions: [{ t: 0.5, text: "Choose a priority", position: "bottom" }],
+  }, t => t, 3);
+  assert.equal(captions[0]!.position, "bottom");
+  const ink = inkBands(captions, [200], true);
+  assert.ok(ink.bands[0]! > 250, `caption ink begins at ${ink.bands[0]}`);
+});
 test("long captions wrap within the output safe width", {skip:!hasFfmpeg()}, () => {
   const ink = inkBands([{t0:0,t1:2,text:"Move this card into the next column and review the result",title:false}],[850]);
   assert.ok(ink.bands.length>=2, `lines=${ink.bands.length}`);

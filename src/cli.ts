@@ -346,6 +346,7 @@ async function recordAndroid(flags: Flags): Promise<void> {
   try {
     const result = await runAndroidRecord({
       serial: flags.android!,
+      onReady: (dir) => console.error(`recording: ${dir}; Ctrl-C or takeone stop to finish`),
       ...(flags.touchOffsetMs === undefined ? {} : { touchOffsetMs: flags.touchOffsetMs }),
       ...(flags.root === undefined ? {} : { takesRoot: flags.root }),
       ...(flags.state === undefined ? {} : { stateDirPath: flags.state }),

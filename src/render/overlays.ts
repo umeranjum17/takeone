@@ -28,7 +28,7 @@ export interface KeycapCue {
 
 /** Project focus targets through the same camera as the footage; reserve actual caption pills. */
 export function keycapObstacles(beats: Beat[], decisions: Decision[], frames: CameraFrame[], st: Stage,
-  start: number, captions: Caption[], ink: CaptionInk[], d: CameraDefaults): KeycapObstacle[] {
+  start: number, captions: Caption[], ink: CaptionInk[], d: CameraDefaults, widePhone = false): KeycapObstacle[] {
   const out: KeycapObstacle[] = [];
   const byBeat = new Map(decisions.map(decision => [decision.beat, decision]));
   for (const frame of frames) {
@@ -46,7 +46,7 @@ export function keycapObstacles(beats: Beat[], decisions: Decision[], frames: Ca
       }
     }
   }
-  const layouts = captionLayouts(captions, ink, d);
+  const layouts = captionLayouts(captions, ink, d, widePhone);
   captions.forEach((caption, i) => {
     const { cx, cy, w, h, rise } = layouts[i]!;
     out.push({ t0: caption.t0, t1: caption.t1, rect: [cx - w / 2, cy - h / 2, w, h + rise] });

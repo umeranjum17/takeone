@@ -18,6 +18,8 @@ import { captureAndroidVideo } from "./video.ts";
 
 export interface AndroidRecordOptions {
   serial: string;
+  /** Called only once video is flowing; callers can safely start demonstrating. */
+  onReady?: (takeDir: string) => void;
   /** Calibration knob: added to every touch timestamp (ms). */
   touchOffsetMs?: number;
   takesRoot?: string;
@@ -25,6 +27,7 @@ export interface AndroidRecordOptions {
 }
 
 export interface AndroidTakeJson {
+  device: "android";
   id: string;
   stream: { w: number; h: number };
   scale: number;
@@ -230,17 +233,23 @@ export async function runAndroidRecord(options: AndroidRecordOptions): Promise<A
       });
       let touchLog = "";
       let pending = "";
-      let firstTouchArrival = 0;
+      let firstTouchStamp: number | undefined;
+      let touchClockShift = Number.POSITIVE_INFINITY;
       getevent.stdout?.on("data", (chunk: Buffer) => {
-        // Stamp the arrival of the first real event line: getevent prints
-        // non-event chatter (device list) before the first touch arrives,
-        // and stamping that would shift every touch to take start.
+        // Fit the event clock to the least-delayed host arrival, as video
+        // does below. A buffered first batch must not shift every later tap.
+        // Device-list chatter has no timestamp and cannot anchor the clock.
         pending += chunk.toString();
         const lines = pending.split("\n");
         pending = lines.pop() ?? "";
         for (const line of lines) {
           touchLog += `${line}\n`;
-          if (!firstTouchArrival && /^\[\s*\d+\.\d+\]/.test(line)) firstTouchArrival = Date.now();
+          const stamp = line.match(/^\[\s*(\d+\.\d+)\]/);
+          if (stamp) {
+            const deviceMs = Number(stamp[1]) * 1000;
+            firstTouchStamp ??= deviceMs;
+            touchClockShift = Math.min(touchClockShift, Date.now() - (deviceMs - firstTouchStamp));
+          }
         }
       });
       const geteventDone = new Promise<never>((_, rej) => {
@@ -270,6 +279,7 @@ export async function runAndroidRecord(options: AndroidRecordOptions): Promise<A
         stop,
         onFirstFrame: (wallMs) => {
           firstFrameWall = wallMs;
+          options.onReady?.(takeDir);
         },
       });
       let summary;
@@ -296,11 +306,12 @@ export async function runAndroidRecord(options: AndroidRecordOptions): Promise<A
         H: summary.height,
         flingTailMs: FLING_TAIL_MS,
       });
-      const shift = (firstTouchArrival || firstFrameWall || t0) - t0 + touchOffsetMs;
+      const shift = (Number.isFinite(touchClockShift) ? touchClockShift : firstFrameWall || t0) - t0 + touchOffsetMs;
       const events = raw
         .map((e) => ({ ...e, t: Math.max(0, Math.round(e.t + shift)) }))
         .sort((a, b) => a.t - b.t);
       const takeJson: AndroidTakeJson = {
+        device: "android",
         id: basename(takeDir),
         stream: { w: summary.width, h: summary.height },
         scale: androidScale(density, display.w, summary.width),
