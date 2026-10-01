@@ -11,11 +11,10 @@ import { choreography, FPS } from './headless/drive.mjs';
 const root = resolve(process.argv[2] ?? 'tmp/headless-validation');
 await mkdir(root, { recursive: true });
 const run = await mkdtemp(join(root, 'run-'));
-const [existingA, existingB] = process.argv.slice(3);
-const a = existingA ? resolve(existingA) : join(run, 'a');
-const b = existingB ? resolve(existingB) : join(run, 'b');
-if (!existingA) await captureScene(a);
-if (!existingB) await captureScene(b);
+const a = join(run, 'a');
+const b = join(run, 'b');
+await captureScene(a);
+await captureScene(b);
 const expected = choreography().frames;
 const decode = dir => execFileSync('ffmpeg', ['-v','error','-i',join(dir,'screen.webm'),'-f','framemd5','-'], { encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 });
 const probe = dir => JSON.parse(execFileSync('ffprobe', ['-v','error','-select_streams','v:0','-count_frames',
