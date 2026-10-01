@@ -116,11 +116,20 @@ export function stageFrames(frames: CameraFrame[], width: number, height: number
     }
     const cx = f.x + f.w / 2 + st.screenX;
     const cy = f.y + f.h / 2 + st.screenY;
+    const relaxX = smooth(clamp((w - width + st.screenX * 2) / (st.screenX * 4), 0, 1));
+    const relaxY = smooth(clamp((h - height + st.screenY * 2) / (st.screenY * 4), 0, 1));
+    // The source-bounded and stage-bounded clamp ranges meet at the source
+    // dimensions. Switching between them there can move an edge-tracked view
+    // by an entire stage margin in one frame. Expand the allowed range smoothly.
+    const halfX = Math.max(0, (width - w) / 2 + relaxX * st.screenX);
+    const halfY = Math.max(0, (height - h) / 2 + relaxY * st.screenY);
+    const centerX = st.w / 2;
+    const centerY = st.h / 2;
     return {
       t: f.t,
-      x: portraitCrop && w <= width ? clamp(cx - w / 2, st.screenX, st.screenX + width - w)
+      x: portraitCrop ? clamp(cx, centerX - halfX, centerX + halfX) - w / 2
         : clamp(cx - w / 2, 0, st.w - w),
-      y: portraitCrop && h <= height ? clamp(cy - h / 2, st.screenY, st.screenY + height - h)
+      y: portraitCrop ? clamp(cy, centerY - halfY, centerY + halfY) - h / 2
         : clamp(cy - h / 2, 0, st.h - h),
       w,
       h,
