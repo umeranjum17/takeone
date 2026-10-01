@@ -7,9 +7,10 @@ import type {
   TakeMeta,
 } from "./types.ts";
 import { perceiveRegions } from "./perceive/regions.ts";
+import { analyzeUiBoxes } from "./perceive/boxes.ts";
 import { actionsFromEvents } from "./perceive/actions.ts";
 import { decodeAnalysisFrames, firstFrameTimeMs, readEvents } from "./perceive/decode.ts";
-import { segmentBeats } from "./beats/segment.ts";
+import { segmentBeats, actStart, resultTime } from "./beats/segment.ts";
 import { zonesForBeat, OCR_MAX_AREA } from "./beats/zones.ts";
 import { buildRequest, PRICE_PER_MTOK, REQUEST_TOKEN_CAP, RequestTooLarge } from "./decide/request.ts";
 import type { Question } from "@byokit/decide";
@@ -195,6 +196,10 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
 
   // 2 segment -------------------------------------------------------------
   const beats = segmentBeats(actions, scopedFrames, { stream: take.stream, takeMs, startMs, endMs });
+  const uiBoxes = analyzeUiBoxes(dec, take.stream, startMs, endMs, beats.flatMap(b =>
+    [b.anchor_t, ...b.actions.map(actStart), resultTime(b, scopedFrames) ?? b.anchor_t]));
+  writeFileSync(join(analysisDir, "ui-boxes.json"), JSON.stringify(uiBoxes, null, 1));
+  log(`UI boxes: ${uiBoxes.cost.references} references; ${uiBoxes.cost.analysis_ms_per_minute.toFixed(1)} ms/min; zero model calls`);
   for (const b of beats) {
     const win = winFor(b.anchor_t);
     b.zones = zonesForBeat(b, {
@@ -202,6 +207,7 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
       stream: take.stream,
       scale: take.scale ?? 1,
       frames: scopedFrames,
+      uiBoxes: uiBoxes.frames,
     });
     if (opts.screenText) await addScreenText(b, opts.capture ? null : win, webm, videoStartMs);
   }

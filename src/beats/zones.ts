@@ -4,6 +4,7 @@
 import type { Action, Beat, BBox, FrameRegions, Region, TakeMeta, Zone, ZoneDesc, ZoneKind } from "../types.ts";
 import { bboxArea, bboxIoU, clampBBox, screenArea, unionBBox } from "../types.ts";
 import { actEnd, actStart, resultBBox, resultTime } from "./segment.ts";
+import { uiBoxesAt, type BoxFrame } from "../perceive/boxes.ts";
 
 export const ACT_PAD_LOGICAL: [number, number] = [40, 28]; // logical px, x scale
 export const MAX_ZONES = 6;
@@ -25,7 +26,7 @@ export const OCR_MAX_AREA = 0.25; // screen text only read for zones under 25%
  */
 export function zonesForBeat(
   beat: Beat,
-  o: { winRect: BBox | null; stream: { w: number; h: number }; scale: number; frames: FrameRegions[] },
+  o: { winRect: BBox | null; stream: { w: number; h: number }; scale: number; frames: FrameRegions[]; uiBoxes?: BoxFrame[] },
 ): Zone[] {
   const screen = screenArea(o.stream);
   const cands: { kind: ZoneKind; bbox: BBox; t?: number }[] = [];
@@ -80,25 +81,27 @@ export function zonesForBeat(
 /** Keep individual nearby change boxes: their union loses the edges we can frame around. */
 function contextBoxes(
   beat: Beat,
-  o: { stream: { w: number; h: number }; frames: FrameRegions[] },
+  o: { stream: { w: number; h: number }; frames: FrameRegions[]; uiBoxes?: BoxFrame[] },
   at: number,
   kind: ZoneKind,
 ): BBox[] {
   const nearby = o.frames.filter((f) => !f.cut && f.t >= beat.t0
     && f.t <= beat.t1 && f.t >= at - ACT_REGION_MS && f.t <= at + ACT_REGION_MS);
-  const regions = [...nearby.flatMap((f) => f.regions), ...(kind === "res" ? beat.results ?? [] : [])];
+  const regions = [...uiBoxesAt(o.uiBoxes ?? [], o.frames, at).map(bbox => ({ bbox })),
+    ...nearby.flatMap((f) => f.regions), ...(kind === "res" ? beat.results ?? [] : [])];
   const boxes = new Map<string, BBox>();
   for (const r of regions) {
     const box = clampBBox(r.bbox, o.stream.w, o.stream.h);
     // Whole-screen redraws and modal scrims provide no local UI boundary.
-    if (box && bboxArea(box) <= screenArea(o.stream) * PANEL_MAX_AREA) boxes.set(box.join(","), box);
+    if (box && bboxArea(box) <= screenArea(o.stream) * PANEL_MAX_AREA
+      && ![...boxes.values()].some(b => bboxIoU(b, box) > .9)) boxes.set(box.join(","), box);
   }
   return [...boxes.values()];
 }
 
 function actZone(
   beat: Beat,
-  o: { stream: { w: number; h: number }; scale: number; frames: FrameRegions[] },
+  o: { stream: { w: number; h: number }; scale: number; frames: FrameRegions[]; uiBoxes?: BoxFrame[] },
   screen: number,
 ): { bbox: BBox; t?: number } | null {
   const pts: [number, number][] = [];
@@ -132,6 +135,10 @@ function actZone(
     const pt = actPointOf(a);
     const at = actStart(a);
     if (!pt) continue;
+    for (const box of uiBoxesAt(o.uiBoxes ?? [], o.frames, at)) {
+      if (bboxArea(box) <= screen * PANEL_MAX_AREA && pt[0] >= box[0] && pt[0] <= box[0] + box[2]
+        && pt[1] >= box[1] && pt[1] <= box[1] + box[3]) u = unionBBox(u!, box);
+    }
     for (const f of o.frames) {
       if (f.cut || f.t < beat.t0 || f.t > beat.t1 || f.t < at - 100 || f.t > at + ACT_REGION_MS) continue;
       for (const r of f.regions) {
