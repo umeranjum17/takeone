@@ -4,9 +4,9 @@ import { cameraMetrics, edgePosition, regressions, reversals, widestRun, type Me
 
 test('ratchet preserves goals, rejects regression and missing measurements', () => {
   const baseline: Metrics = {
-    pan: { value: 74084, target: 9000, direction: 'max', unit: 'px/s²' },
-    hold: { value: 0.3, target: 1.2, direction: 'min', unit: 's' },
-    speed: { value: 0.82, target: 1, direction: 'max', unit: 'ln/s' },
+    pan: { value: 74084, target: 9000, direction: 'max', unit: 'px/s²', goalPassed: false },
+    hold: { value: 0.3, target: 1.2, direction: 'min', unit: 's', goalPassed: false },
+    speed: { value: 0.82, target: 1, direction: 'max', unit: 'ln/s', goalPassed: true },
   };
   const candidate = structuredClone(baseline);
   candidate.pan!.value = 50000; candidate.hold!.value = 0.6; candidate.speed!.value = 0.95;
@@ -26,9 +26,11 @@ test('camera gates distinguish a smooth move, an impulse and an unheld reversal'
   const smooth = cameraMetrics(frames, 60, 1920, 1080, 1.2);
   assert.equal(smooth.pan_acceleration!.value, 0);
   assert.equal(smooth.pan_bounce!.value, 0);
+  assert.equal(smooth.pan_acceleration!.goalPassed, true);
   const spike = structuredClone(frames); spike[60]!.x += 100;
   const bad = cameraMetrics(spike, 60, 1920, 1080, 1.2);
   assert.ok(bad.pan_acceleration!.value > 9000);
+  assert.equal(bad.pan_acceleration!.goalPassed, false);
   assert.ok(bad.pan_bounce!.value > 0);
   assert.deepEqual(reversals([1, 1, 0, 0, -1], 10, 0.005), [0.2]);
   assert.throws(() => cameraMetrics([], 60, 1920, 1080, 1.2));

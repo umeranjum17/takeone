@@ -12,9 +12,9 @@ import { renderTake } from '../src/render/render.ts';
 import { stageFrames, stageGeometry, takeCaptions } from '../src/render/stage.ts';
 import { idleSqueezes, warp } from '../src/render/pace.ts';
 
-export interface Metric { value: number; target: number; direction: 'max' | 'min'; unit: string }
+export interface Metric { value: number; target: number; direction: 'max' | 'min'; unit: string; goalPassed: boolean }
 export type Metrics = Record<string, Metric>;
-const metric = (value: number, target: number, unit = '', direction: 'max' | 'min' = 'max'): Metric => ({ value, target, direction, unit });
+const metric = (value: number, target: number, unit = '', direction: 'max' | 'min' = 'max'): Metric => ({ value, target, direction, unit, goalPassed: direction === 'max' ? value <= target : value >= target });
 const delta = (a: number[]) => a.slice(1).map((v, i) => v - a[i]!);
 const peak = (a: number[]) => a.reduce((m, v) => Math.max(m, Math.abs(v)), 0);
 const sign = (v: number, epsilon: number) => Math.abs(v) <= epsilon ? 0 : Math.sign(v);

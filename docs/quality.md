@@ -13,7 +13,9 @@ later demo-asset lane. Nothing here changes production rendering or planning.
 CI attaches `tmp/quality/metrics.json`, videos, caption crops and similarity logs
 to each pull request's workflow run, including failed quality runs. The JSON
 records the revision, tool versions, actual stream metadata, all measurements,
-OCR expected/actual text, every frame below 0.95 SSIM and failures.
+OCR expected/actual text, every frame below 0.95 SSIM and failures. Each metric
+includes `goalPassed`, evaluated against its absolute §4 target and direction;
+this reports goal status but does not change the baseline ratchet gate.
 
 ## Measurements
 
@@ -64,7 +66,9 @@ whether the production default has reached 60 fps; fixture renders always test
 ## Baselines and review
 
 `scripts/quality-baseline/metrics.json` stores today's measured failures rather
-than pretending all goals already pass. For a maximum metric the gate is
+than pretending all goals already pass. `goalPassed` makes absolute §4 status
+visible per metric, while CI continues to gate regressions against these stored
+baselines. For a maximum metric the gate is
 `value ≤ max(goal, baseline)`; for a minimum metric it is
 `value ≥ min(goal, baseline)`. Passing metrics keep their goal. Only 1e-6 relative
 round-off is tolerated. A missing, nonfinite or removed measurement fails.
