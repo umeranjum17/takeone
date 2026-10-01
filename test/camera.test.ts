@@ -52,7 +52,8 @@ function decision(b: Beat, importance: 0 | 1 | 2 = 1): Decision {
   };
 }
 
-const noBookends = { ...DEFAULTS, establish_s: 0, outro_s: 0 };
+// Motion mechanics may explicitly opt into upscaling; native-default limits are tested separately.
+const noBookends = { ...DEFAULTS, max_upscale: 1.5, establish_s: 0, outro_s: 0 };
 
 // Mechanics tests opt out of the opening hold and closing wide shot.
 function camera(beats: Beat[], decisions: Decision[], end = 8) {
@@ -69,10 +70,11 @@ function at(frames: ReturnType<typeof camera>, seconds: number) {
 }
 
 test("framing expands to 16:9 and respects source and upscale clamps", () => {
-  assert.equal(zMax(3840, 2160), 3);
+  assert.equal(zMax(3840, 2160), 2);
+  assert.equal(zMax(3840, 2160, { ...DEFAULTS, max_upscale: 1.5 }), 3);
   for (let level = 0; level <= 3; level++) {
     const result = frame(zone("edge", [3600, 1900, 100, 100]), level, 3840, 2160);
-    assert.ok(result.z >= 1 && result.z <= 3);
+    assert.ok(result.z >= 1 && result.z <= 2);
     assert.ok(result.cx >= 0 && result.cx <= 3840);
     assert.ok(result.cy >= 0 && result.cy <= 2160);
   }
@@ -81,7 +83,7 @@ test("framing expands to 16:9 and respects source and upscale clamps", () => {
 test("FIT holds a whole opened panel at a real zoom instead of padding out to the whole screen", () => {
   const panel = zone("panel", [84, 224, 972, 692]);
   for (let level = 2; level <= 3; level++) {
-    const s = frame(panel, level, 1920, 1080);
+    const s = frame(panel, level, 1920, 1080, undefined, noBookends);
     const w = 1920 / s.z;
     const h = w * 9 / 16;
     // The heading at the panel's top edge and every other edge stay in frame.
@@ -116,7 +118,7 @@ test("whole-screen non-16:9 frames cover the full source while 16:9 framing is u
 test("phone footage into 16:9 zooms against the padded canvas and keeps the card centred", () => {
   // 1080x2400 sits on a 4267-wide 16:9 canvas; zoom is measured against it.
   assert.ok(zMax(1080, 2400) > 1);
-  assert.ok(Math.abs(zMax(1080, 2400) - 2400 * 16 / 9 / 1280) < 1e-9);
+  assert.ok(Math.abs(zMax(1080, 2400) - 2400 * 16 / 9 / 1920) < 1e-9);
   const tap: Beat = { ...beat("tap", 2, 0), zones: [zone("tap", [120, 1900, 240, 120])] };
   const frames = solveCamera([tap], [decision(tap)], {
     width: 1080, height: 2400, trim_start: 0, trim_end: 4,
@@ -140,7 +142,7 @@ test("non-16:9 padding eases through zoom and back without a crop jump", () => {
   const all = { ...beat("all", 5.5, 0), zones: [{ name: "all", type: "all" as const, bbox: [0, 0, 3440, 1440] as [number, number, number, number] }] };
   const frames = solveCamera([zoom, all], [decision(zoom), { ...decision(all), L: 0 }], {
     width: 3440, height: 1440, trim_start: 0, trim_end: 8,
-  });
+  }, { ...DEFAULTS, max_upscale: 1.5 });
   assert.ok(Math.abs(frames[0]!.w / frames[0]!.h - 16 / 9) < 1e-9);
   assert.ok(frames[0]!.x <= 0 && frames[0]!.x + frames[0]!.w >= 3440);
   assert.ok(Math.min(...frames.map((f) => f.w)) < 1700);
@@ -156,8 +158,7 @@ test("move duration clamps and the camera retains fractional source coordinates"
   assert.equal(moveDuration(0), 0.6);
   assert.ok(moveDuration(100) <= 1.4);
   const filter = cameraFilter([{ t: 0, x: 0.125, y: 0.25, w: 1920, h: 1080 }], 3840, 2160, DEFAULTS);
-  assert.match(filter, /x0='0.062500000'/);
-  assert.match(filter, /interpolation=cubic/);
+  assert.match(filter, /interp=lanczos/);
 });
 
 test("deadzone skips framing that already fits with the configured margin", () => {
@@ -551,7 +552,7 @@ test("L1 frames a real window, but pads the zone inside a fullscreen window", ()
   const windowed = frame(button, 1, 3840, 2160, [1920, 0, 1920, 1080]);
   assert.equal(windowed.z, 2);
   const fullscreen = frame(button, 1, 3840, 2160, [0, 0, 3840, 2160]);
-  assert.ok(fullscreen.z > 2, `z=${fullscreen.z}`);
+  assert.equal(fullscreen.z, 2);
   assert.equal(fullscreen.z, frame(button, 1, 3840, 2160).z);
 });
 

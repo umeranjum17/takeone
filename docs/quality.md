@@ -9,7 +9,8 @@ production-font fallback; the production font default is unchanged.
 The portrait fixture uses the existing test pattern, with demo title and
 caption metadata added by the harness. It does not exercise Android phone
 rendering; see the [Tidewater recording evidence](../README.md#3b-record-a-phone-instead-android-hand-driven-on-the-device)
-for real-app output. Nothing here changes production rendering or planning.
+for real-app output. The sharpness fixture additionally exercises the production
+camera sampler and encoder on a frozen native 4K Tidewater browser capture.
 
 CI attaches `tmp/quality/metrics.json`, videos, caption crops and similarity logs
 to each pull request's workflow run, including failed quality runs. The JSON
@@ -27,8 +28,10 @@ this reports goal status but does not change the baseline ratchet gate.
 - Hitches: repeated decoded framemd5 while the stage camera changes by >0.01
   source pixels. Rest frames are excluded.
 - Determinism: SHA-256 of two actual MP4 encodes, not just camera JSON.
-- Upscale: maximum output width / stage viewport width, hard goal 1.5.
-  These fixtures are not hero assets (hero goal 1.0).
+- Upscale: maximum output width / stage viewport width, goal 1.0.
+  Production defaults cap zoom at native source pixels; `--set max_upscale=1.5`
+  explicitly opts into enlarging them. Lower-resolution whole-screen footage
+  cannot gain detail from export resolution.
 - Zoom speed/acceleration: first and second differences of ln(viewport width),
   converted to ln/s and ln/s²; goals 1 and 4.
 - Opposite zooms: shortest contiguous hold between opposite signed zoom
@@ -41,7 +44,8 @@ this reports goal status but does not change the baseline ratchet gate.
   measured near the predicted projection at mid-height. RMS second differences
   of measured-minus-ideal positions, goal 0.15 px/frame². Fade and rest frames,
   offscreen edges and low-contrast samples are excluded. Sample count is
-  reported; zero moving visible samples is an error, never a passing zero.
+  reported; zero samples on a moving camera is an error. With no camera motion
+  at the native cap, the report explicitly marks judder not applicable.
 - Caption OCR: midpoint of every active interval between caption boundaries
   (including overlaps), excluding intervals shorter than 0.5 s for fades.
   Tesseract reads the decoded pill bounds from the emitted `captions.ass`
@@ -49,6 +53,22 @@ this reports goal status but does not change the baseline ratchet gate.
   whitespace normalization, exactly against the expected take captions mapped
   through the output time warp. OCR mismatches and times remain in the JSON. Each input caption also has
   its own mismatch metric, so fixing one cannot conceal breaking another.
+- Zoom sharpness: the native 3840×2160 Tidewater PNG supplies an 800×160
+  text reference crop. A 1920×1080 viewport with fractional x/y offsets goes
+  through the real camera filter and standard/master encoders. Decode its
+  corresponding crop and divide mean squared luma gradient energy by the
+  reference energy. Each tier must retain ≥0.75; this absolute check cannot
+  be relaxed by baseline ratchets or `--accept-golden`. Source geometry, hash,
+  reference/candidate energy, ratios, crops and short encoded clips are recorded.
+  The previous standard pipeline scored 0.489; the direct Lanczos sampler
+  scores 0.777 (standard) and 0.776 (master). A decoded Gaussian-blurred
+  candidate fails the same threshold in the regression test.
+- Flat-card noise: a native uniform 160×30 white patch passes through a
+  stage-sized padded surface and the same sampler/encoder at an integer native
+  crop. Decoded luma variance must be ≤0.05 and mean drift ≤4 code values. This
+  catches sampler rounding amplified by encoding; blur cannot improve the
+  independent text sharpness requirement. Both tiers currently measure zero
+  variance. Noise injection fails this limit in the regression test.
 - Banding: longest equal-luma run across a decoded rest-frame background row,
   10 pixels from the top at ≥0.7 s, goal ≤64 px.
 - Regression: ffmpeg SSIM for every aligned frame versus committed golden
@@ -96,3 +116,10 @@ measurement debugging, still rerendering and checking determinism. Normal CI
 always regenerates both fixtures. When renderer changes are being evaluated,
 use the normal command so the first encode and deterministic rerender come
 from the same candidate.
+
+### Sharpness qualification and motion baseline
+
+See [native-pixel export sharpness](sharpness.md) for the complete sampler,
+encoder, flat-card noise and motion qualification, including capture limitations.
+The sharpness and noise gates are absolute; numeric ratchet limits remain in
+force and cannot be loosened by golden acceptance.

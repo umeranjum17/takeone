@@ -63,3 +63,32 @@ test('golden comparison executes ffmpeg and flags visibly degraded frames', asyn
     assert.ok(degraded.mode.includes('SSIM only'));
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
+
+test('native Tidewater text stays sharp through the camera and both production encoders', async () => {
+  const { execFileSync } = await import('node:child_process');
+  const { mkdirSync, mkdtempSync, rmSync } = await import('node:fs');
+  const { resolve, join } = await import('node:path');
+  const { zoomSharpness, zoomAcceptance, lumaStats } = await import('../scripts/quality.ts');
+  mkdirSync(resolve('tmp'), { recursive: true });
+  const dir = mkdtempSync(resolve('tmp/sharpness-test-'));
+  try {
+    const results = zoomSharpness(resolve('scripts/quality-baseline/tidewater-4k.png'), dir);
+    assert.ok(results.every(m => m.passed), JSON.stringify(results));
+    const ff = (args: string[]) => execFileSync('ffmpeg', ['-nostdin', '-v', 'error', ...args]);
+    const ref = ff(['-i', resolve('scripts/quality-baseline/tidewater-4k.png'), '-vf', 'crop=800:160:530:310:exact=1', '-frames:v', '1', '-pix_fmt', 'gray', '-f', 'rawvideo', '-']);
+    const crop = (video: string, bounds: string) => ff(['-i', video, '-vf', `crop=${bounds}:exact=1`, '-frames:v', '1', '-pix_fmt', 'gray', '-f', 'rawvideo', '-']);
+    const decoded = crop(results[0]!.video, '800:160:10:40');
+    const flat = results[0]!.flat;
+    const softVideo = join(dir, 'deliberately-soft.mp4');
+    const grainVideo = join(dir, 'deliberately-grainy.mp4');
+    ff(['-y', '-i', results[0]!.video, '-vf', 'gblur=sigma=1.5', '-c:v', 'libx264', '-crf', '12', softVideo]);
+    ff(['-y', '-i', results[0]!.flatVideo, '-vf', 'noise=alls=8:allf=u:all_seed=7', '-c:v', 'libx264', '-crf', '12', grainVideo]);
+    const soft = zoomAcceptance(ref, crop(softVideo, '800:160:10:40'), results[0]!.flatReference, flat);
+    const grain = zoomAcceptance(ref, decoded, results[0]!.flatReference, lumaStats(crop(grainVideo, '160:30:850:450')));
+    assert.equal(soft.sharpnessPassed, false, 'a deliberately soft encoded render must fail');
+    assert.equal(soft.passed, false);
+    assert.equal(grain.flatPassed, false, 'a deliberately grainy encoded render must fail');
+    assert.equal(grain.passed, false);
+
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});

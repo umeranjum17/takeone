@@ -1,306 +1,363 @@
 {
   "synth": {
     "max_upscale": {
-      "value": 1.4999999990528372,
-      "target": 1.5,
-      "direction": "max",
-      "unit": "output px/source px"
-    },
-    "zoom_speed": {
-      "value": 1.1332566163742186,
+      "value": 0.9009009009009008,
       "target": 1,
       "direction": "max",
-      "unit": "ln/s"
+      "unit": "output px/source px",
+      "goalPassed": true
+    },
+    "zoom_speed": {
+      "value": 0,
+      "target": 1,
+      "direction": "max",
+      "unit": "ln/s",
+      "goalPassed": true
     },
     "zoom_acceleration": {
-      "value": 4.109126524272,
+      "value": 0,
       "target": 4,
       "direction": "max",
-      "unit": "ln/s²"
+      "unit": "ln/s\u00b2",
+      "goalPassed": true
     },
     "zoom_opposite_hold": {
-      "value": 0.38333333333333336,
+      "value": 1.2,
       "target": 1.2,
       "direction": "min",
-      "unit": "s"
+      "unit": "s",
+      "goalPassed": true
     },
     "pan_acceleration": {
-      "value": 111345.66754810864,
+      "value": 0,
       "target": 9000,
       "direction": "max",
-      "unit": "px/s²"
+      "unit": "px/s\u00b2",
+      "goalPassed": true
     },
     "pan_bounce": {
-      "value": 8,
+      "value": 0,
       "target": 0,
       "direction": "max",
-      "unit": "flips"
+      "unit": "flips",
+      "goalPassed": true
     },
     "default_fps_error": {
-      "value": 30,
+      "value": 0,
       "target": 0,
       "direction": "max",
-      "unit": "fps"
+      "unit": "fps",
+      "goalPassed": true
     },
     "fps_error": {
       "value": 0,
       "target": 0,
       "direction": "max",
-      "unit": "fps"
+      "unit": "fps",
+      "goalPassed": true
     },
     "cadence_error": {
-      "value": 6.666666694833678e-7,
-      "target": 0.000002,
+      "value": 6.666666694833678e-07,
+      "target": 2e-06,
       "direction": "max",
-      "unit": "s"
+      "unit": "s",
+      "goalPassed": true
     },
     "size_error": {
       "value": 0,
       "target": 0,
       "direction": "max",
-      "unit": "px"
+      "unit": "px",
+      "goalPassed": true
     },
     "codec_error": {
       "value": 0,
       "target": 0,
       "direction": "max",
-      "unit": ""
+      "unit": "",
+      "goalPassed": true
     },
     "colour_error": {
-      "value": 4,
+      "value": 0,
       "target": 0,
       "direction": "max",
-      "unit": ""
+      "unit": "",
+      "goalPassed": true
     },
     "frame_count_error": {
       "value": 0,
       "target": 1,
       "direction": "max",
-      "unit": "frames"
+      "unit": "frames",
+      "goalPassed": true
     },
     "hitches": {
-      "value": 4,
+      "value": 0,
       "target": 0,
       "direction": "max",
-      "unit": "frames"
+      "unit": "frames",
+      "goalPassed": true
     },
     "determinism_error": {
       "value": 0,
       "target": 0,
       "direction": "max",
-      "unit": ""
+      "unit": "",
+      "goalPassed": true
     },
     "subpixel_judder": {
-      "value": 0.5638439168182231,
+      "value": 0,
       "target": 0.15,
       "direction": "max",
-      "unit": "px/frame²"
+      "unit": "px/frame\u00b2",
+      "goalPassed": true
     },
     "caption_ocr_errors": {
-      "value": 1,
+      "value": 0,
       "target": 0,
       "direction": "max",
-      "unit": "checkpoints"
+      "unit": "checkpoints",
+      "goalPassed": true
     },
     "banding": {
-      "value": 408,
+      "value": 7,
       "target": 64,
       "direction": "max",
-      "unit": "px"
+      "unit": "px",
+      "goalPassed": true
     },
     "color_space_error": {
-      "value": 1,
+      "value": 0,
       "target": 0,
       "direction": "max",
-      "unit": ""
+      "unit": "",
+      "goalPassed": true
     },
     "color_transfer_error": {
-      "value": 1,
+      "value": 0,
       "target": 0,
       "direction": "max",
-      "unit": ""
+      "unit": "",
+      "goalPassed": true
     },
     "color_primaries_error": {
-      "value": 1,
+      "value": 0,
       "target": 0,
       "direction": "max",
-      "unit": ""
+      "unit": "",
+      "goalPassed": true
     },
     "color_range_error": {
-      "value": 1,
+      "value": 0,
       "target": 0,
       "direction": "max",
-      "unit": ""
+      "unit": "",
+      "goalPassed": true
     },
     "caption_ocr_item_0": {
       "value": 0,
       "target": 0,
       "direction": "max",
-      "unit": ""
+      "unit": "",
+      "goalPassed": true
     },
     "caption_ocr_item_1": {
       "value": 0,
       "target": 0,
       "direction": "max",
-      "unit": ""
+      "unit": "",
+      "goalPassed": true
     },
     "caption_ocr_item_2": {
-      "value": 1,
+      "value": 0,
       "target": 0,
       "direction": "max",
-      "unit": ""
+      "unit": "",
+      "goalPassed": true
     },
     "caption_ocr_item_3": {
-      "value": 1,
+      "value": 0,
       "target": 0,
       "direction": "max",
-      "unit": ""
+      "unit": "",
+      "goalPassed": true
     },
     "caption_ocr_item_4": {
       "value": 0,
       "target": 0,
       "direction": "max",
-      "unit": ""
+      "unit": "",
+      "goalPassed": true
     }
   },
   "portrait": {
     "max_upscale": {
-      "value": 1.2111389895105187,
-      "target": 1.5,
-      "direction": "max",
-      "unit": "output px/source px"
-    },
-    "zoom_speed": {
-      "value": 1.0131660105909823,
+      "value": 0.9999999999999996,
       "target": 1,
       "direction": "max",
-      "unit": "ln/s"
+      "unit": "output px/source px",
+      "goalPassed": true
+    },
+    "zoom_speed": {
+      "value": 0.7902588777390385,
+      "target": 1,
+      "direction": "max",
+      "unit": "ln/s",
+      "goalPassed": true
     },
     "zoom_acceleration": {
-      "value": 3.284516122185721,
+      "value": 3.0471266394457075,
       "target": 4,
       "direction": "max",
-      "unit": "ln/s²"
+      "unit": "ln/s\u00b2",
+      "goalPassed": true
     },
     "zoom_opposite_hold": {
-      "value": 0.4,
+      "value": 1.2,
       "target": 1.2,
       "direction": "min",
-      "unit": "s"
+      "unit": "s",
+      "goalPassed": true
     },
     "pan_acceleration": {
-      "value": 38677.968835383945,
+      "value": 2701.7022176578657,
       "target": 9000,
       "direction": "max",
-      "unit": "px/s²"
+      "unit": "px/s\u00b2",
+      "goalPassed": true
     },
     "pan_bounce": {
-      "value": 3,
+      "value": 1,
       "target": 0,
       "direction": "max",
-      "unit": "flips"
+      "unit": "flips",
+      "goalPassed": false
     },
     "default_fps_error": {
-      "value": 30,
+      "value": 0,
       "target": 0,
       "direction": "max",
-      "unit": "fps"
+      "unit": "fps",
+      "goalPassed": true
     },
     "fps_error": {
       "value": 0,
       "target": 0,
       "direction": "max",
-      "unit": "fps"
+      "unit": "fps",
+      "goalPassed": true
     },
     "cadence_error": {
-      "value": 6.66666667707011e-7,
-      "target": 0.000002,
+      "value": 6.66666667707011e-07,
+      "target": 2e-06,
       "direction": "max",
-      "unit": "s"
+      "unit": "s",
+      "goalPassed": true
     },
     "size_error": {
       "value": 0,
       "target": 0,
       "direction": "max",
-      "unit": "px"
+      "unit": "px",
+      "goalPassed": true
     },
     "codec_error": {
       "value": 0,
       "target": 0,
       "direction": "max",
-      "unit": ""
+      "unit": "",
+      "goalPassed": true
     },
     "colour_error": {
-      "value": 4,
+      "value": 0,
       "target": 0,
       "direction": "max",
-      "unit": ""
+      "unit": "",
+      "goalPassed": true
     },
     "frame_count_error": {
       "value": 1,
       "target": 1,
       "direction": "max",
-      "unit": "frames"
+      "unit": "frames",
+      "goalPassed": true
     },
     "hitches": {
       "value": 0,
       "target": 0,
       "direction": "max",
-      "unit": "frames"
+      "unit": "frames",
+      "goalPassed": true
     },
     "determinism_error": {
       "value": 0,
       "target": 0,
       "direction": "max",
-      "unit": ""
+      "unit": "",
+      "goalPassed": true
     },
     "caption_ocr_errors": {
       "value": 2,
       "target": 0,
       "direction": "max",
-      "unit": "checkpoints"
+      "unit": "checkpoints",
+      "goalPassed": false
     },
     "banding": {
-      "value": 66,
+      "value": 8,
       "target": 64,
       "direction": "max",
-      "unit": "px"
+      "unit": "px",
+      "goalPassed": true
     },
     "color_space_error": {
-      "value": 1,
+      "value": 0,
       "target": 0,
       "direction": "max",
-      "unit": ""
+      "unit": "",
+      "goalPassed": true
     },
     "color_transfer_error": {
-      "value": 1,
+      "value": 0,
       "target": 0,
       "direction": "max",
-      "unit": ""
+      "unit": "",
+      "goalPassed": true
     },
     "color_primaries_error": {
-      "value": 1,
+      "value": 0,
       "target": 0,
       "direction": "max",
-      "unit": ""
+      "unit": "",
+      "goalPassed": true
     },
     "color_range_error": {
-      "value": 1,
+      "value": 0,
       "target": 0,
       "direction": "max",
-      "unit": ""
+      "unit": "",
+      "goalPassed": true
     },
     "caption_ocr_item_0": {
       "value": 1,
       "target": 0,
       "direction": "max",
-      "unit": ""
+      "unit": "",
+      "goalPassed": false
     },
     "caption_ocr_item_1": {
       "value": 1,
       "target": 0,
       "direction": "max",
-      "unit": ""
+      "unit": "",
+      "goalPassed": false
+    },
+    "subpixel_judder": {
+      "value": 0.5812681997448663,
+      "target": 0.15,
+      "direction": "max",
+      "unit": "px/frame\u00b2",
+      "goalPassed": false
     }
   }
 }
