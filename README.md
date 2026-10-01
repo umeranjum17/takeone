@@ -203,20 +203,25 @@ adb -s emulator-PORT root
 adb -s emulator-PORT install --no-incremental -r tmp/android-fixture/tidewater.apk
 node scripts/e2e/android/record.ts emulator-PORT "$PWD/tmp/android-takes"
 # Prints the real take path; four kernel taps create a high-priority launch brief.
-takeone make <absolute-take-path> --no-jev --set idle_speed=1
-# Save that portrait MP4 before generating the wide export at the same path.
-takeone make <absolute-take-path> --no-jev --set idle_speed=1 --set out_w=1920 --set out_h=1080
+take_path=/absolute/path/to/take
+take_id=$(basename "$take_path")
+mkdir -p tmp/android-renders
+takeone make "$take_path" --no-jev --set idle_speed=1
+cp "$take_path/out/$take_id.mp4" tmp/android-renders/portrait.mp4
+takeone make "$take_path" --no-jev --set idle_speed=1 --set out_w=1920 --set out_h=1080
+cp "$take_path/out/$take_id.mp4" tmp/android-renders/wide.mp4
 ```
 
 Committed real-device evidence for this flow is in
 [`docs/evidence/t1-pm-7/`](docs/evidence/t1-pm-7/), with capture provenance,
 render commands, dimensions and SHA-256 hashes in its
 [`manifest.json`](docs/evidence/t1-pm-7/manifest.json). It includes the raw
-Tidewater recording, target-commit portrait and wide renders, a contact sheet
+Tidewater recording, portrait and wide renders, a contact sheet
 for each render, and a side-by-side comparison of the first ten seconds.
 The recording was made on a dedicated API 35 emulator using the offline
-Tidewater fixture; the committed renders were regenerated from that recording
-with this change. Review the actual media files when assessing output quality.
+Tidewater fixture. The committed wide render reflects the caption placement
+change recorded in the manifest; the portrait render and raw comparison use the
+same source recording. Review the actual media files when assessing output quality.
 
 `scripts/synth-portrait.ts` remains an offline colour-pattern timing fixture.
 It is not an Android app recording or product demo.

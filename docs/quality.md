@@ -6,9 +6,10 @@ It uses no desktop, device, credentials or model service. Dependencies are the
 existing ffmpeg/ffprobe tools plus tesseract (English) and Liberation fonts.
 Harness captions explicitly use Liberation Sans to avoid machine-specific
 production-font fallback; the production font default is unchanged.
-The portrait fixture currently uses the existing test pattern, with demo title
-and caption metadata added by the harness; a real portrait UI belongs to the
-later demo-asset lane. Nothing here changes production rendering or planning.
+The portrait fixture uses the existing test pattern, with demo title and
+caption metadata added by the harness. It does not exercise Android phone
+rendering; see the [Tidewater recording evidence](../README.md#3b-record-a-phone-instead-android-hand-driven-on-the-device)
+for real-app output. Nothing here changes production rendering or planning.
 
 CI attaches `tmp/quality/metrics.json`, videos, caption crops and similarity logs
 to each pull request's workflow run, including failed quality runs. The JSON
