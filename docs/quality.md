@@ -56,8 +56,9 @@ this reports goal status but does not change the baseline ratchet gate.
   ffmpeg may lack libvmaf;
   that run explicitly reports **SSIM only** rather than claiming a VMAF pass.
   Candidate and golden frame counts must match; changed duration requires review.
-- Motion blur ghosting: explicitly not applicable until blur exists. No
-  fabricated value is recorded for a missing rendering feature.
+- Motion blur ghosting: explicitly not applicable; timed region blur is a
+  separate rendering feature and does not create motion trails. No fabricated
+  value is recorded for an unmeasured effect.
 
 Camera measurements use `stageFrames` so they include the rendered stage clamp,
 not only the solver's unclamped path. `default_fps_error` additionally exposes

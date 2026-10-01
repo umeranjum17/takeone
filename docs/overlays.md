@@ -10,9 +10,6 @@ them in; the last 250 ms fade out. Their size stays constant during camera motio
 Placement clears the selected focus targets and the measured title/caption pills
 throughout the entire hold. If no safe position exists, that keycap is omitted.
 
-Linux modifier words are the default. Use `--set keycap_style=mac` for
-`⌃`, `⌥`, `⇧` and `⌘`, or `--set keycap_style=linux` for modifier words.
-
 Add timed source regions to `take.json`:
 
 ```json
