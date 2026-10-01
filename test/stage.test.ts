@@ -5,7 +5,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { hasFfmpeg } from "./helpers.ts";
 import { applyOverrides, DEFAULTS } from "../src/camera/defaults.ts";
 import type { Beat } from "../src/camera/types.ts";
-import { idleSqueezes, purposefulEnd, setptsExpr, warp } from "../src/render/pace.ts";
+import { idleSqueezes, OUTRO_TAIL_S, purposefulEnd, setptsExpr, warp } from "../src/render/pace.ts";
 import { bandEligible, bandLayout, bandText, captionAss, captionLayouts, takeCaptions } from "../src/render/stage.ts";
 import { measureCaptions } from "../src/render/render.ts";
 import { THEMES, resolveTheme } from "../src/themes.ts";
@@ -246,11 +246,11 @@ test("a simultaneous title stacks above the caption", {skip:!hasFfmpeg()}, () =>
 });
 
 
-test("export preserves a full output-clock outro after results and cut settling", () => {
+test("export ends within 1.5 seconds of the last result or cut, ignoring resting pointers", () => {
   const action = clickAt(5);
   action.zones = [{name:"result",type:"res",bbox:[0,0,100,100],t_change:5.7}];
   const idle: Beat = { ...clickAt(10), kind:"idle", actions:[{k:"ptr",t:10000,x:10,y:10}] };
-  assert.equal(purposefulEnd([action,idle],0,12,DEFAULTS),7.3);
+  assert.equal(purposefulEnd([action,idle],0,12,DEFAULTS),7.2);
   const cut: Beat = { ...clickAt(5), kind:"cut", t1:7.3, actions:[{k:"cut",t:5000}] };
   for (const beats of [[action,idle], [cut,idle]]) {
     const start = 2;
@@ -258,7 +258,7 @@ test("export preserves a full output-clock outro after results and cut settling"
     const squeezes = idleSqueezes(beats,start,end,DEFAULTS);
     const result = beats[0] === cut ? cut.t1 : 5.7;
     assert.ok(Math.abs(warp(end-start,squeezes,DEFAULTS.idle_speed)
-      - warp(result-start,squeezes,DEFAULTS.idle_speed) - DEFAULTS.outro_s) < 1e-9);
+      - warp(result-start,squeezes,DEFAULTS.idle_speed) - OUTRO_TAIL_S) < 1e-9);
     assert.ok(squeezes.every(s => s.a >= DEFAULTS.establish_s));
     if (beats[0] === cut) assert.ok(squeezes.every(s => s.b <= cut.t0-start || s.a >= cut.t1-start));
   }
