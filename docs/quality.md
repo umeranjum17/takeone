@@ -60,9 +60,8 @@ this reports goal status but does not change the baseline ratchet gate.
   reference energy. Each tier must retain ≥0.75; this absolute check cannot
   be relaxed by baseline ratchets or `--accept-golden`. Source geometry, hash,
   reference/candidate energy, ratios, crops and short encoded clips are recorded.
-  The previous standard pipeline scored 0.489; the direct Lanczos sampler
-  scores 0.777 (standard) and 0.776 (master). A decoded Gaussian-blurred
-  candidate fails the same threshold in the regression test.
+  See [native-pixel sharpness qualification](sharpness.md) for measurements and
+  the regression evidence.
 - Flat-card noise: a native uniform 160×30 white patch passes through a
   stage-sized padded surface and the same sampler/encoder at an integer native
   crop. Decoded luma variance must be ≤0.05 and mean drift ≤4 code values. This
@@ -119,7 +118,8 @@ from the same candidate.
 
 ### Sharpness qualification and motion baseline
 
-See [native-pixel export sharpness](sharpness.md) for the complete sampler,
-encoder, flat-card noise and motion qualification, including capture limitations.
+The native sampler keeps RGB at 16 bits until final colour conversion and
+uses one transform, including moving frames. See [native-pixel sharpness
+qualification](sharpness.md) for the complete measurements and capture limitations.
 The sharpness and noise gates are absolute; numeric ratchet limits remain in
 force and cannot be loosened by golden acceptance.
