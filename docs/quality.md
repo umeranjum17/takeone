@@ -125,15 +125,18 @@ Drag framing has a separate visibility check. On two camera paths with the
 same output clock, run:
 
 ```sh
-node scripts/check-framing.ts output-clock-beats.json before-camera.json after-camera.json
+node scripts/check-framing.ts output-clock-beats.json trim-start-seconds before-camera.json after-camera.json
 ```
 
-The beat actions use milliseconds, as consumed by `solveCamera`; when idle
-pacing is enabled, pass beats from `warpBeats`. The check compares every frame
-of every beat and fails if the after crop loses an acted-on region the before
-crop contained. It also checks the recorded cursor path and moving grab
-footprint throughout each drag, including the release frame. Its table reports
-how many before frames contained the region, so an untested region is visible.
+Camera timestamps are relative to the trimmed output, so provide the trim start
+in seconds to align them with the beat timestamps. The beat actions use
+milliseconds, as consumed by `solveCamera`; when idle pacing is enabled, pass
+beats from `warpBeats`. The check compares every frame of every beat and fails
+if the after crop loses an acted-on region the before crop contained or a beat
+has no frames to compare. It also checks the recorded cursor path and moving
+grab footprint throughout each drag, including the release frame. Its table
+reports how many before frames contained the region, so an untested region is
+visible.
 
 Drag actions preserve the sampled pointer path through planning and pacing.
 The camera reserves the object's swept footprint ahead of the drag, rather

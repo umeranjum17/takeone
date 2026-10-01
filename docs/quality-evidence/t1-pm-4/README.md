@@ -60,8 +60,8 @@ The committed output-clock beat files and before/after camera paths can be
 checked through the project's executable checker:
 
 ```sh
-node scripts/check-framing.ts docs/quality-evidence/t1-pm-4/tidewater-output-clock-beats.json docs/quality-evidence/t1-pm-4/tidewater-main-before-camera.json docs/quality-evidence/t1-pm-4/tidewater-candidate-camera.json
-node scripts/check-framing.ts docs/quality-evidence/t1-pm-4/acme-output-clock-beats.json docs/quality-evidence/t1-pm-4/acme-main-before-camera.json docs/quality-evidence/t1-pm-4/acme-candidate-camera.json
+node scripts/check-framing.ts docs/quality-evidence/t1-pm-4/tidewater-output-clock-beats.json 0 docs/quality-evidence/t1-pm-4/tidewater-main-before-camera.json docs/quality-evidence/t1-pm-4/tidewater-candidate-camera.json
+node scripts/check-framing.ts docs/quality-evidence/t1-pm-4/acme-output-clock-beats.json 0 docs/quality-evidence/t1-pm-4/acme-main-before-camera.json docs/quality-evidence/t1-pm-4/acme-candidate-camera.json
 ```
 
 `candidate-output-report.txt` records the raw source and plan hashes, exact
