@@ -33,7 +33,7 @@ for (const dir of [a,b]) {
   assert.equal(rows.length,expected);
   rows.forEach((row,i) => {
     const [rtp,recv] = row.split('\t').map(Number);
-    assert.equal(rtp,i*1500); assert.equal(recv,Math.round(i*1000/FPS));
+    assert.equal(rtp,i*1500); assert.equal(recv,Math.round(i*1_000_000_000/FPS));
   });
   const events = (await readFile(join(dir,'events.jsonl'),'utf8')).trim().split('\n').map(JSON.parse);
   let last = -1;
@@ -47,6 +47,10 @@ for (const dir of [a,b]) {
     }
   }
   assert.equal(events.filter(e => e.k === 'ptr').length,expected);
+  const wheelEvents = events.filter(e => e.k === 'wheel');
+  assert.ok(wheelEvents.length > 0);
+  assert.ok(wheelEvents.some(e => e.dy < 0), 'downward feed movement must serialize as negative wheel delta');
+  assert.ok(wheelEvents.some(e => e.dy > 0), 'upward feed movement must serialize as positive wheel delta');
 }
 const md5A = decode(a), md5B = decode(b);
 const decodedHash = text => createHash('sha256').update(text).digest('hex');

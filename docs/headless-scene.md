@@ -37,8 +37,9 @@ ffmpeg with backpressure, and encoded as lossless VP9 in yuv420p at constant 60 
 
 The four durable outputs are `screen.webm`, `frames.tsv`, `events.jsonl` and
 `take.json`. Each frame has one TSV row: a 90 kHz capture timestamp and virtual
-receive time rounded to integral milliseconds, matching the recorder. Offset is zero. Pointer coordinates and window
-rectangles use stream pixels, buttons use the recorder schema, and keys contain
+receive time as integral nanoseconds. RTP ticks are 90 kHz and offset is zero.
+Wheel deltas preserve the recorder's sign convention: negative scrolls down.
+Pointer coordinates and window rectangles use stream pixels, buttons use the recorder schema, and keys contain
 only classes and down/up state, never typed characters. Metadata carries the
 browser pin and a deterministic start time. Capture failure removes its partial
 take and closes its browser and encoder.

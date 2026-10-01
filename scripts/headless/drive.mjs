@@ -54,14 +54,14 @@ export function inputEvents(steps, frames) {
     events.push({ t, k: 'ptr', x: x * CSS_SCALE * 2, y: y * CSS_SCALE * 2 });
     for (const a of steps.get(frame) ?? []) {
       if (a.k === 'button') events.push({ t, k: 'btn', b: 'left', down: a.down });
-      if (a.k === 'wheel') events.push({ t, k: 'wheel', dx: 0, dy: a.dy });
+      if (a.k === 'wheel') events.push({ t, k: 'wheel', dx: 0, dy: -a.dy });
       if (a.k === 'key') events.push({ t, k: 'key', cls: a.ch === ' ' ? 'space' : 'char', down: a.down });
     }
   }
   return events;
 }
 
-// The recorder's TSV reader requires integral receive timestamps in ms.
+// Virtual receive time follows the recorder's monotonic nanosecond field.
 export function frameClock(frames) {
-  return Array.from({ length: frames }, (_, i) => `${i * 1500}\t${Math.round(i * 1000 / FPS)}`).join('\n') + '\n';
+  return Array.from({ length: frames }, (_, i) => `${i * 1500}\t${Math.round(i * 1_000_000_000 / FPS)}`).join('\n') + '\n';
 }
