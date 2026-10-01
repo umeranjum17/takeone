@@ -68,6 +68,19 @@ function withContext(zone: Zone, boxes: Box[], width: number, height: number): Z
       && x + w / 2 <= box[0] + box[2] && y + h / 2 <= box[1] + box[3];
     if (contains || containsClick) subject = mergeZones(subject, { ...zone, bbox: box });
   }
+  // A whole card alone can still leave a mostly empty shot. Keep its closest
+  // separate surface when the gap is smaller than the focused surface itself.
+  const [sx, sy, sw, sh] = subject.bbox;
+  let neighbor: Box | undefined;
+  let nearest = Infinity;
+  for (const box of boxes) {
+    const dx = Math.max(sx - box[0] - box[2], box[0] - sx - sw, 0);
+    const dy = Math.max(sy - box[1] - box[3], box[1] - sy - sh, 0);
+    if (dx === 0 && dy === 0) continue; // enclosed or overlapping surfaces
+    const gap = Math.hypot(dx, dy);
+    if (gap <= Math.min(sw, sh) && gap < nearest) { neighbor = box; nearest = gap; }
+  }
+  if (neighbor) subject = mergeZones(subject, { ...zone, bbox: neighbor });
   return subject;
 }
 

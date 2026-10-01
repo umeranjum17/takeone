@@ -38,12 +38,14 @@ const cards: BBox[] = [[336, 200, 488, 132], [336, 348, 488, 132], [336, 496, 48
   [888, 200, 488, 132], [888, 348, 488, 132], [1440, 200, 488, 132], [1440, 348, 488, 132], [1984, 128, 544, 1272]];
 const dialog: BBox = [900, 340, 760, 620];
 const holds = [cards[4]!, cards[2]!, cards[7]!, dialog].map((box, i) => [clicks[i]![0]! / 1000 + 2, box] as [number, BBox]);
-const quality = holds.map(([t, subject]) => {
+const quality = holds.map(([t, subject], i) => {
   const shot = afterFrames.filter(f => f.t >= t - .2 && f.t <= t + .2);
   assert.ok(shot.length);
   const boxes = t < holds[3]![0] - 2 ? cards : [dialog];
   for (const f of shot) {
     assert.equal(clippedFractions(f, [subject])[0], 0, `focused surface clipped at ${f.t}`);
+    if (i < 2) assert.equal(clippedFractions(f, [cards[i === 0 ? 3 : 1]!])[0], 0,
+      `nearby card context excluded at ${f.t}`);
     assert.ok(clippedFractions(f, boxes).every(c => c === 0 || c >= .9), `neighbor clipped at ${f.t}`);
   }
   return { t, subject, frames: shot.length, crop: shot[Math.floor(shot.length / 2)], clips: clippedFractions(shot[0]!, boxes) };

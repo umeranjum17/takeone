@@ -154,3 +154,24 @@ test("one reference per second covers separated unchanged-surface clicks through
     }
   }
 });
+
+test("lower Tidewater card hold includes nearby context instead of empty board", () => {
+  // Static boundaries measured from the real recorded Tidewater frame.
+  const boxes: BBox[] = [[1980, 200, 552, 1204], [0, 84, 288, 1356], [0, 0, 2560, 92],
+    [332, 196, 496, 140], [884, 196, 496, 140], [1436, 196, 496, 140],
+    [332, 344, 496, 140], [884, 344, 496, 140], [1436, 344, 496, 140],
+    [332, 492, 496, 140], [1980, 124, 552, 88], [12, 116, 252, 64]];
+  const b: Beat = { id: "pricing", kind: "click", t0: 7425, t1: 7425, anchor_t: 7425,
+    window_cls: "chromium", zones: [],
+    actions: [{ k: "click", t: 7425, x: 580, y: 530, window_cls: "chromium" }] };
+  const act = zonesForBeat(b, { winRect: null, scale: 1, stream: { w: 2560, h: 1440 },
+    frames: [{ t: 7400, regions: [], cut: false, changed_frac: 0 }],
+    uiBoxes: [{ t: 7400, boxes }] }).find(z => z.kind === "act")!;
+  const state = frame({ name: act.name, type: act.kind, bbox: act.bbox, boxes: act.boxes }, 3, 2560, 1440);
+  const w = 2560 / state.z;
+  const crop = { x: state.cx - w / 2, y: state.cy - w * 9 / 32, w, h: w * 9 / 16 };
+  assert.equal(clippedFractions(crop, [boxes[9]!])[0], 0);
+  assert.equal(clippedFractions(crop, [boxes[6]!])[0], 0, "retain the adjacent card above pricing");
+  assert.ok(clippedFractions(crop, boxes).every(f => f === 0 || f >= .9));
+  assert.ok(crop.w < 1800, "keep the card context readable");
+});
