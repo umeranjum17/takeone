@@ -17,8 +17,10 @@ const ff = (args: string[]) => execFileSync("ffmpeg", ["-nostdin", "-y", "-v", "
 const text = (s: string, x: number, y: number, size: number, enable?: string) =>
   `drawtext=fontfile=${font}:text='${s}':x=${x}:y=${y}:fontsize=${size}:fontcolor=0x202124${enable ? `:enable='${enable}'` : ""}`;
 const source = join(root, "source.webm");
+const titleFile = join(root, "title.txt");
+writeFileSync(titleFile, "TakeOne   /   Umer's demo workspace\n");
 const sourceGraph = [
-  "drawbox=x=0:y=0:w=1920:h=80:color=white:t=fill", text("TakeOne   /   Umer's demo workspace".replace("'", ""), 64, 24, 28),
+  "drawbox=x=0:y=0:w=1920:h=80:color=white:t=fill", `drawtext=fontfile=${font}:textfile=${titleFile}:x=64:y=24:fontsize=28:fontcolor=0x202124`,
   "drawbox=x=0:y=80:w=300:h=1000:color=0xe9eef5:t=fill", text("Reports",60,160,28), text("Overview",60,240,24), text("Members",60,320,24),
   text("Quarterly reports",400,200,48), text("Find the report, then export",400,275,28),
   "drawbox=x=400:y=350:w=1200:h=90:color=white:t=fill", text("Search",430,380,28,"lt(t,3)"),

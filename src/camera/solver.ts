@@ -27,7 +27,7 @@ interface Target {
   /** A long-idle widen: quiet by definition, so exempt from the rate cap. */
   breathe?: boolean;
   /** An edit takes precedence over automatic shot suppression and FOLLOW. */
-  manual?: boolean;
+  manual?: "zoom" | "resume";
 }
 
 interface Move {
@@ -471,13 +471,13 @@ function sampleCamera(
     // and breathe targets obey it too, so no shot flashes by unread.
     const settle = move ? move.end + 2 / d.lowpass_omega : 0;
     const heldUntil = move ? settle + d.dwell : 0;
-    const dueEdit = targets.findIndex((target, i) => i >= targetIndex && target.manual && target.t <= time);
+    const dueEdit = targets.findIndex((target, i) => i >= targetIndex && target.manual === "resume" && target.t <= time);
     if (dueEdit >= 0) targetIndex = dueEdit;
     while (targetIndex < targets.length) {
       const target = targets[targetIndex]!;
       // A manual edit begins at its exact boundary and interrupts any auto move.
-      const manualDue = target.manual && time >= target.t;
-      if (target.manual && !manualDue) break;
+      const manualDue = target.manual !== undefined && time >= target.t;
+      if (target.manual === "resume" && !manualDue) break;
       if (!manualDue && zooms.some(z => time >= z.t0 && time < z.t1)) break;
       if (!manualDue && move && previousTime < heldUntil) break;
       const reversing = lastZoomDirection !== 0
@@ -486,7 +486,8 @@ function sampleCamera(
       // a visible hold between opposite zooms once the spring settles.
       const zoomHold = reversing ? Math.max(heldUntil, lastZoomMotion + d.min_shot) : heldUntil;
       const candidateMove = createMove(state, target.state, target.t, baseW, d,
-        manualDue ? target.t : Math.max(target.startAfter ?? 0, zoomHold, previousTime), Boolean(target.manual));
+        target.manual === "zoom" ? 0
+          : manualDue ? target.t : Math.max(target.startAfter ?? 0, zoomHold, previousTime), Boolean(target.manual));
       if (candidateMove.start > time) break;
       targetIndex++;
       if (!target.manual && isDeadzone(state, target.state, baseW, d)) continue;
@@ -626,14 +627,14 @@ export function solveCamera(
     const region: Zone = { name: "manual", type: "act", bbox: zoom.bbox };
     const requested = frame(region, zoom.level ?? 2, width, height, undefined, d);
     const viewport = toFrame(requested, width, height, d);
-    targets.push({ t: zoom.t0, startAfter: zoom.t0, manual: true, importance: 2,
+    targets.push({ t: Math.max(start, zoom.t0 - 2 / d.lowpass_omega), manual: "zoom", importance: 2,
       state: { cx: viewport.x + viewport.w / 2, cy: viewport.y + viewport.h / 2, z: baseWidth(width, height, d) / viewport.w } });
     // Resume the latest automatic framing, even if its target fell inside the edit.
     if (zoom.t1 < end && !zooms.some(z => z.t0 === zoom.t1)) targets.push({
-      t: zoom.t1, startAfter: zoom.t1, manual: true, importance: 2,
+      t: zoom.t1, startAfter: zoom.t1, manual: "resume", importance: 2,
       state: automatic.filter(t => t.t <= zoom.t1).at(-1)?.state ?? { cx: width / 2, cy: height / 2, z: 1 },
     });
   }
-  targets.sort((a, b) => a.t - b.t || Number(Boolean(a.manual)) - Number(Boolean(b.manual)));
+  targets.sort((a, b) => a.t - b.t || Number(a.manual !== undefined) - Number(b.manual !== undefined));
   return sampleCamera(targets, quietShots.map((shot) => shot.beat), decisionMap, width, height, start, end, d, zooms);
 }
