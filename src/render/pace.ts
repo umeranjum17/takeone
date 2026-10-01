@@ -11,7 +11,7 @@ export interface Squeeze { a: number; b: number }
 function activity(beats: Beat[]): [number, number][] {
   const spans: [number, number][] = [];
   for (const beat of beats) {
-    spans.push([beat.anchor_t, beat.anchor_t]);
+    if (!["idle", "dwell", "travel"].includes(beat.kind)) spans.push([beat.anchor_t, beat.anchor_t]);
     for (const result of beat.dialog_results ?? []) spans.push([result.t, result.t]);
     // Video-only screen changes have no input-action spans. Their observed
     // result hold is activity, so pacing must not compress it as dead air.
@@ -80,4 +80,16 @@ export function warpBeats(beats: Beat[], start: number, squeezes: Squeeze[], spe
       };
     }),
   }));
+}
+
+/** End on the final action/result, rather than the recorder's trailing inactivity.
+ * Input actions use the solver clock (milliseconds), results use seconds.
+ * Keep enough opening footage for an establishing shot on very short takes.
+ */
+export function purposefulEnd(beats: Beat[], start: number, end: number, d: CameraDefaults): number {
+  if (d.outro_s <= 0) return end;
+  const spans = activity(beats).filter(([a, b]) => a <= end && b >= start);
+  if (!spans.length) return end;
+  const result = Math.max(start, ...spans.map(([, b]) => Math.min(end, b)));
+  return Math.min(end, Math.max(start + d.establish_s, result + 1.5));
 }

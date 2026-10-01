@@ -5,7 +5,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { hasFfmpeg } from "./helpers.ts";
 import { applyOverrides, DEFAULTS } from "../src/camera/defaults.ts";
 import type { Beat } from "../src/camera/types.ts";
-import { idleSqueezes, setptsExpr, warp } from "../src/render/pace.ts";
+import { idleSqueezes, purposefulEnd, setptsExpr, warp } from "../src/render/pace.ts";
 import { bandEligible, bandLayout, bandText, captionAss, captionLayouts, takeCaptions } from "../src/render/stage.ts";
 import { measureCaptions } from "../src/render/render.ts";
 import { THEMES, resolveTheme } from "../src/themes.ts";
@@ -243,4 +243,14 @@ test("a simultaneous title stacks above the caption", {skip:!hasFfmpeg()}, () =>
   const ink=inkBands([{t0:0,t1:2,text:"TakeOne demo",title:true},{t0:0,t1:2,text:"Select a card",title:false}],[260,180]);
   assert.equal(ink.bands.length,2, `ink rows=${ink.bands}`);
   assert.ok(ink.bands[1]!-ink.bands[0]!>45, `ink rows=${ink.bands}`);
+});
+
+
+test("export ends within 1.5 seconds of the last result, ignoring resting pointers", () => {
+  const action = clickAt(5);
+  action.zones = [{name:"result",type:"res",bbox:[0,0,100,100],t_change:5.7}];
+  const idle: Beat = { ...clickAt(10), kind:"idle", actions:[{k:"ptr",t:10000,x:10,y:10}] };
+  assert.equal(purposefulEnd([action,idle],0,12,DEFAULTS),7.2);
+  assert.equal(purposefulEnd([action,idle],0,12,{...DEFAULTS,outro_s:0}),12);
+  assert.equal(purposefulEnd([action],0,6,DEFAULTS),6);
 });

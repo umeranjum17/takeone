@@ -484,10 +484,6 @@ function buildTargets(
       breathe: true,
     });
   }
-  // OUTRO rule: settle back to the whole stage for the closing seconds.
-  if (d.outro_s > 0 && end - d.outro_s > start + d.establish_s) {
-    targets.push({ t: end - d.outro_s, state: { cx: width / 2, cy: height / 2, z: 1 }, importance: 0 });
-  }
   return targets.filter((target) => target.t >= start && target.t < end
     && (target.startAfter ?? start) < end).sort((a, b) => a.t - b.t);
 }
@@ -718,7 +714,8 @@ function sampleCamera(
       // a visible hold between opposite zooms once the spring settles.
       const zoomHold = reversing ? Math.max(heldUntil, lastZoomMotion + d.min_shot) : heldUntil;
       const candidateMove = createMove(state, target.state, target.t, baseW, d,
-        urgent ? Math.max(start, target.startAfter ?? start, previousTime) : Math.max(target.startAfter ?? 0, zoomHold, previousTime));
+        urgent ? Math.max(start + d.establish_s, target.startAfter ?? start, previousTime)
+          : Math.max(start + d.establish_s, target.startAfter ?? 0, zoomHold, previousTime));
       let preparation = preparations.get(target);
       const subject = target.subject;
       // A whole-span focus cannot enter from a tight hold already cut. Prepare
@@ -915,10 +912,28 @@ export function solveCamera(
   const shots = buildShots(beats.filter(beat => !beat.camera_suppressed), decisions, start, d)
     .filter((shot) => visibleBeats.includes(shot.beat));
   const quietShots = applyDwellAndShotLength(shots, d).filter((shot) => shot.arrival < end);
-  const targets = applyMoveRateLimit(buildTargets(quietShots, visibleBeats.filter(beat => !beat.camera_suppressed), width, height, start, end, d), width, height, d);
-  const frames = sampleCamera(targets, visibleBeats.map((beat) => ({ ...beat,
+const targets = applyMoveRateLimit(buildTargets(quietShots, visibleBeats.filter(beat => !beat.camera_suppressed), width, height, start, end, d), width, height, d);
+  const sampled = sampleCamera(targets, visibleBeats.map((beat) => ({ ...beat,
     kind: quietShots.some((shot) => shot.beat === beat) ? beat.kind : "idle",
     actions: quietShots.some((shot) => shot.beat === beat) ? beat.actions : [],
   })), decisionMap, width, height, start, end, d, project);
-  return applyDragVisibility(frames, visibleBeats, width, height, start, d);
+  const frames = applyDragVisibility(sampled, visibleBeats, width, height, start, d);
+  if (d.outro_s <= 0) return frames;
+  // Bookends are editorial boundaries, independent of action dwell, move caps
+  // and pointer follow. Ease out before the outro, then hold the exact stage.
+  const wide = toFrame({ cx: width / 2, cy: height / 2, z: 1 }, width, height, d);
+  const arrival = Math.max(0, end - start - d.outro_s);
+  const moveStart = arrival - d.move_t_max;
+  if (moveStart <= d.establish_s) return frames.map(f => ({ ...wide, t: f.t }));
+  const origin = frames[Math.floor(moveStart * d.fps)]!;
+  return frames.map(f => {
+    if (f.t < moveStart) return f;
+    if (f.t >= arrival) return { ...wide, t: f.t };
+    const u = smooth((f.t - moveStart) / (arrival - moveStart));
+    const w = Math.exp(lerp(Math.log(origin.w), Math.log(wide.w), u));
+    const h = w * d.out_h / d.out_w;
+    return { t: f.t, w, h,
+      x: lerp(origin.x + origin.w / 2, wide.x + wide.w / 2, u) - w / 2,
+      y: lerp(origin.y + origin.h / 2, wide.y + wide.h / 2, u) - h / 2 };
+  });
 }
