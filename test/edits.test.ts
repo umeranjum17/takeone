@@ -131,6 +131,18 @@ test("portrait stage mapping stays continuous as the crop reaches screen fill", 
   assert.ok(metrics.zoom_acceleration.value <= 4, `stage zoom acceleration ${metrics.zoom_acceleration.value}`);
 });
 
+test("stage edge clamp eases across the source-to-card boundary", () => {
+  const portrait = { ...d, out_w: 180, out_h: 320 };
+  const stage = stageGeometry(640, 360, portrait);
+  const frames = Array.from({ length: 81 }, (_, i) => {
+    const w = 600 + i;
+    return { t: i / d.fps, x: -w / 2, y: 0, w, h: 180 };
+  });
+  const mapped = stageFrames(frames, 640, 360, stage, portrait);
+  const jumps = mapped.slice(1).map((frame, i) => Math.abs(frame.x - mapped[i]!.x));
+  assert.ok(Math.max(...jumps) < 10, `source-to-card edge jump ${Math.max(...jumps)}px`);
+});
+
 test("ffmpeg applies cuts and speed to actual pixels and timestamps", { skip: !hasFfmpeg() }, () => {
   const clock = editTimeline({ ...meta, cuts: [{t0:4,t1:6}], speed: [{t0:6,t1:10,rate:2}] }, [], 1, 11, d);
   // Source frames encode the absolute source second in their luma. At output
