@@ -1,10 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { analyzeUiBoxes, detectUiBoxes, uiBoxesAt } from "../src/perceive/boxes.ts";
+import { actStart, resultTime, segmentBeats } from "../src/beats/segment.ts";
 import { zonesForBeat } from "../src/beats/zones.ts";
 import { frame, clippedFractions } from "../src/camera/solver.ts";
 import { DEFAULTS } from "../src/camera/defaults.ts";
-import type { BBox, Beat } from "../src/types.ts";
+import type { Action, BBox, Beat, FrameRegions } from "../src/types.ts";
 
 function surface(dark = false): Uint8Array {
   const data = new Uint8Array(320 * 180).fill(dark ? 25 : 240);
@@ -31,7 +32,7 @@ test("reference budget is bounded, action frames preferred, trim respected", () 
   const dec = { w: 320, h: 180, frames: Array.from({ length: 650 }, (_, i) => ({ t: i * 100, data })) };
   const result = analyzeUiBoxes(dec, { w: 1280, h: 720 }, 2100, 62100, [2500, 2700, 33200]);
   assert.equal(result.frames.length, 60);
-  assert.equal(result.frames[0]!.t, 2500);
+  for (const t of [2500, 2700, 33200]) assert.ok(uiBoxesAt(result.frames, [], t).length);
   assert.ok(result.frames.every(f => f.t >= 2100 && f.t < 62100));
   assert.equal(result.cost.references_per_minute, 60);
   assert.equal(result.cost.model_calls, 0);
@@ -81,5 +82,68 @@ test("empty change perception frames whole cards, panels and dialogs through sha
     const crop = { x: state.cx - width / 2, y: state.cy - width / (16 / 9) / 2, w: width, h: width / (16 / 9) };
     assert.equal(clippedFractions(crop, [subject])[0], 0);
     assert.ok(clippedFractions(crop, boxes).every(f => f === 0 || f >= .9));
+  }
+});
+
+
+test("focus and context choose valid references on either side of cuts and redraws", () => {
+  const subject: BBox = [900, 340, 760, 620];
+  const neighbor: BBox = [1800, 340, 500, 620];
+  const stale: BBox = [400, 200, 500, 200];
+  const at = 1900;
+  const beat: Beat = { id: "dialog", kind: "click", t0: 1850, t1: 2200,
+    anchor_t: at, window_cls: "chromium", zones: [],
+    actions: [{ k: "click", t: at, x: 1200, y: 560, window_cls: "chromium" }] };
+  for (const cut of [true, false]) {
+    for (const futureValid of [true, false]) {
+      for (const staleDistance of [150, 200]) {
+        const validTime = futureValid ? 2100 : 1700;
+        const staleTime = at + (futureValid ? -staleDistance : staleDistance);
+        const uiBoxes = [{ t: staleTime, boxes: [stale] }, { t: validTime, boxes: [subject, neighbor] }]
+          .sort((a, b) => a.t - b.t);
+        const changes: FrameRegions[] = [{ t: futureValid ? 1800 : 2000,
+          cut, changed_frac: cut ? 0 : .015, regions: [] }];
+        const act = zonesForBeat(beat, { winRect: null, scale: 1, stream: { w: 2560, h: 1440 },
+          frames: changes, uiBoxes }).find(z => z.kind === "act")!;
+        assert.deepEqual(act.bbox, subject);
+        assert.deepEqual(act.boxes, [subject, neighbor]);
+      }
+    }
+  }
+});
+
+test("one reference per second covers separated unchanged-surface clicks through zones", () => {
+  const stream = { w: 2560, h: 1440 };
+  const data = new Uint8Array(320 * 180).fill(240);
+  for (const [x, y, w, h] of [[42, 25, 61, 16], [42, 44, 61, 16], [248, 16, 68, 159], [180, 44, 61, 16]]) {
+    for (let row = y!; row < y! + h!; row++) data.fill(255, row * 320 + x!, row * 320 + x! + w!);
+  }
+  const clicks: Action[] = [[250, 580, 250], [1100, 580, 400], [1900, 2250, 400], [2900, 1680, 400]]
+    .map(([t, x, y]) => ({ k: "click", t: t!, x: x!, y: y!, window_cls: "chromium" }));
+  const dec = { w: 320, h: 180, frames: Array.from({ length: 600 }, (_, i) => ({ t: i * 100, data })) };
+  const changes = dec.frames.map(f => ({ t: f.t, cut: false, changed_frac: 0, regions: [] }));
+  const beats = segmentBeats(clicks, changes, { stream, takeMs: 60000, startMs: 0, endMs: 60000 });
+  const anchors = beats.flatMap(b => [b.anchor_t, ...b.actions.map(actStart), resultTime(b, changes) ?? b.anchor_t]);
+  const boxes = detectUiBoxes(data, dec.w, dec.h, stream.w, stream.h);
+  for (const times of [anchors, [...anchors].reverse()]) {
+    const refs = analyzeUiBoxes(dec, stream, 0, 60000, times);
+    assert.equal(refs.frames.length, 60);
+    assert.equal(new Set(refs.frames.map(f => Math.floor(f.t / 1000))).size, 60);
+    assert.ok(refs.frames.every(f => f.boxes.length <= 24));
+    assert.equal(refs.cost.model_calls, 0);
+    for (const beat of beats.filter(b => b.actions.some(a => a.k === "click"))) {
+      const act = zonesForBeat(beat, { winRect: null, scale: 1, stream, frames: changes,
+        uiBoxes: refs.frames }).find(z => z.kind === "act")!;
+      assert.deepEqual(act.boxes, boxes);
+      for (const action of beat.actions) {
+        if (action.k !== "click") continue;
+        const subject = boxes.find(([x, y, w, h]) => action.x >= x && action.x <= x + w
+          && action.y >= y && action.y <= y + h)!;
+        assert.ok(subject);
+        const [x, y, w, h] = act.bbox;
+        assert.ok(x <= subject[0] && y <= subject[1]
+          && x + w >= subject[0] + subject[2] && y + h >= subject[1] + subject[3]);
+      }
+    }
   }
 });

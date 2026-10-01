@@ -62,17 +62,19 @@ export function analyzeUiBoxes(dec: Decoded, stream: { w: number; h: number }, s
     elapsed_ms: number; analysis_ms_per_minute: number; model_calls: number; usd_per_minute: number } } {
   const began = performance.now();
   const frames: BoxFrame[] = [];
-  const preferred = new Map<number, number>();
+  const preferred = new Map<number, [number, number]>();
   for (const t of anchors) {
     if (t >= start && t < end) {
       const bucket = Math.floor((t - start) / BOX_INTERVAL_MS);
-      if (!preferred.has(bucket)) preferred.set(bucket, t);
+      const range = preferred.get(bucket);
+      preferred.set(bucket, range ? [Math.min(range[0], t), Math.max(range[1], t)] : [t, t]);
     }
   }
   let cursor = 0;
   for (let from = start; from < end; from += BOX_INTERVAL_MS) {
     const until = Math.min(end, from + BOX_INTERVAL_MS);
-    const target = preferred.get(Math.floor((from - start) / BOX_INTERVAL_MS)) ?? from;
+    const range = preferred.get(Math.floor((from - start) / BOX_INTERVAL_MS));
+    const target = range ? (range[0] + range[1]) / 2 : from;
     while (cursor < dec.frames.length && dec.frames[cursor]!.t < from) cursor++;
     let selected = cursor;
     for (let i = cursor; i < dec.frames.length && dec.frames[i]!.t < until; i++) {
@@ -92,10 +94,10 @@ export function analyzeUiBoxes(dec: Decoded, stream: { w: number; h: number }, s
 export function uiBoxesAt(frames: BoxFrame[], changes: FrameRegions[], at: number): BBox[] {
   let nearest: BoxFrame | undefined;
   for (const frame of frames) {
-    if (Math.abs(frame.t - at) <= 500 && (!nearest || Math.abs(frame.t - at) < Math.abs(nearest.t - at))) nearest = frame;
+    if (Math.abs(frame.t - at) > 500) continue;
+    const from = Math.min(at, frame.t), to = Math.max(at, frame.t);
+    if (changes.some(f => f.t > from && f.t <= to && (f.cut || f.changed_frac >= .015))) continue;
+    if (!nearest || Math.abs(frame.t - at) < Math.abs(nearest.t - at)) nearest = frame;
   }
-  if (!nearest) return [];
-  const from = Math.min(at, nearest.t), to = Math.max(at, nearest.t);
-  if (changes.some(f => f.t > from && f.t <= to && (f.cut || f.changed_frac >= .015))) return [];
-  return nearest.boxes;
+  return nearest?.boxes ?? [];
 }
