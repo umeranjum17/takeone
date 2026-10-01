@@ -14,10 +14,36 @@ import { test } from "node:test";
 import { installChildProcessCleanup } from "./child-process-cleanup.js";
 import { startCapture } from "../session.js";
 import { MediaRecorder } from "werift/nonstandard";
+import fsPromises from "node:fs/promises";
+import { syncBuiltinESMExports } from "node:module";
 
 const here = dirname(fileURLToPath(import.meta.url));
 
 installChildProcessCleanup();
+
+test("capture waits for the WebM writer before accepting video", { timeout: 30_000 }, async () => {
+  const { takeDir, stateDir } = await tempDirs();
+  const originalUnlink = fsPromises.unlink;
+  fsPromises.unlink = async (path) => {
+    if (String(path) === join(takeDir, "screen.webm")) {
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+    }
+    return originalUnlink(path);
+  };
+  syncBuiltinESMExports();
+  try {
+    const capture = await startCapture({
+      engine: { command: process.execPath, args: [join(here, "fake-engine.js")], origin: "configured" },
+      takeDir, stateDir, fps: 30, bitrateKbps: 40_000, savedToken: null,
+    });
+    await capture.stop();
+    assert.ok((await stat(join(takeDir, "screen.webm"))).size > 0);
+  } finally {
+    fsPromises.unlink = originalUnlink;
+    syncBuiltinESMExports();
+    await rm(dirname(takeDir), { recursive: true, force: true });
+  }
+});
 
 async function tempDirs(): Promise<{ takeDir: string; stateDir: string }> {
   const base = join(tmpdir(), `takeone-loopback-${process.pid}-${Math.random().toString(36).slice(2)}`);

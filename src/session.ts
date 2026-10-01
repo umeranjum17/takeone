@@ -261,14 +261,19 @@ export async function startCapture(options: CaptureOptions): Promise<Capture> {
   const trackReady = promiseWithCallbacks<true>();
   const firstPacket = (): void => trackReady.resolve(true);
   let recorder: MediaRecorder | null = null;
+  let recorderReady: Promise<void> | null = null;
   let recorderError: Error | null = null;
   pc.onTrack.subscribe((track) => {
     recorder = new MediaRecorder({
-      tracks: [track], path: `${takeDir}/screen.webm`,
+      numOfTracks: 1, path: `${takeDir}/screen.webm`,
       width: opened.geometry.encoded.width, height: opened.geometry.encoded.height,
       disableNtp: true, disableLipSync: true,
     });
     recorder.onError.subscribe((error) => { recorderError = error; });
+    // Constructor auto-start is asynchronous: await the writer's RTP
+    // subscription before the SDP answer lets the engine send its first frame.
+    recorderReady = recorder.addTrack(track);
+    void recorderReady.catch(() => undefined);
     track.onReceiveRtp.subscribe((packet) => {
       firstPacket();
       if (!packet.header.marker) return; // one marker-bit packet per frame
@@ -283,6 +288,7 @@ export async function startCapture(options: CaptureOptions): Promise<Capture> {
 
   try {
   await whileActive(pc.setRemoteDescription({ type: "offer", sdp: description.sdp }));
+  if (recorderReady !== null) await whileActive(recorderReady);
   remoteDescriptionReady = true;
   for (const buffered of engineCandidates.splice(0)) void addEngineCandidate(pc, buffered);
   await whileActive(pc.setLocalDescription(await whileActive(pc.createAnswer())));
@@ -308,6 +314,9 @@ export async function startCapture(options: CaptureOptions): Promise<Capture> {
   await whileActive(trackReady.promise);
   } catch (error) {
     clearTimeout(watchdog);
+    // Cancellation can win while the writer is initializing. Finish that
+    // initialization before tearing down its subscriptions and output.
+    await (recorderReady as Promise<void> | null)?.catch(() => undefined);
     if (recorder !== null) await (recorder as MediaRecorder).stop().catch(() => undefined);
     await chmod(`${takeDir}/screen.webm`, 0o600).catch(() => undefined);
     await pc.close().catch(() => undefined);

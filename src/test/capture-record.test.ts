@@ -11,7 +11,7 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import { chmod, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
-import { existsSync } from "node:fs";
+import type { Readable } from "node:stream";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -35,6 +35,21 @@ async function writeFakeWrapper(dir: string): Promise<string> {
   const wrapper = join(dir, "fake-engine-wrapper.sh");
   await writeFile(wrapper, `#!/bin/sh\nexec "${process.execPath}" "${join(here, "fake-engine.js")}" serve\n`);
   await chmod(wrapper, 0o755);
+  // Own-events control runs must not read the machine's real input devices.
+  // Log the discovery read so none/own prove both sides of the boundary.
+  await writeFile(`${wrapper}.mjs`, `
+import fs from "node:fs/promises";
+import { syncBuiltinESMExports } from "node:module";
+const readFile = fs.readFile.bind(fs);
+fs.readFile = async (path, ...args) => {
+  if (String(path) === "/proc/bus/input/devices") {
+    await fs.appendFile(${JSON.stringify(join(dir, "input-reads.log"))}, "evdev\\n");
+    return "";
+  }
+  return readFile(path, ...args);
+};
+syncBuiltinESMExports();
+`);
   return wrapper;
 }
 
@@ -45,7 +60,8 @@ interface Spawned {
 }
 
 function spawnRecord(args: string[], extraEnv: NodeJS.ProcessEnv): Spawned {
-  const child = spawn(process.execPath, [cli, ...args], {
+  const preload = extraEnv.MUXR_DESKLINK_ENGINE === undefined ? [] : ["--import", `${extraEnv.MUXR_DESKLINK_ENGINE}.mjs`];
+  const child = spawn(process.execPath, [...preload, cli, ...args], {
     env: { ...process.env, ...extraEnv },
     stdio: ["ignore", "pipe", "pipe"],
   });
@@ -82,7 +98,17 @@ function parseLine(line: string): CapLine {
 }
 
 function exitOf(child: ReturnType<typeof spawn>): Promise<number | null> {
-  return new Promise((resolveP) => child.on("exit", resolveP));
+  return new Promise((resolveP) => child.once("close", resolveP));
+}
+
+async function expectSuccess(rec: Spawned): Promise<void> {
+  assert.equal(await exitOf(rec.child), 0, [...rec.lines(), rec.stderr()].join("\n"));
+}
+
+async function stopWhenRecording(rec: Spawned): Promise<void> {
+  await waitFor(rec.lines, (l) => l.includes('"recording"'), "recording");
+  rec.child.kill("SIGINT");
+  await expectSuccess(rec);
 }
 
 test("capture record rejects bad flags on stdout with exit 2, before recording", async () => {
@@ -160,7 +186,7 @@ test("capture record emits consent-pending/recording/done and stops on SIGINT", 
     assert.ok(recording.take.startsWith(root), recording.take);
     assert.ok(!rec.stderr().includes('"event"'), "event lines belong on stdout, not stderr");
     rec.child.kill("SIGINT");
-    assert.equal(await exitOf(rec.child), 0, rec.stderr());
+    await expectSuccess(rec);
     const lines = rec.lines().map(parseLine);
     assert.deepEqual(lines.map((l) => l.event), ["consent-pending", "recording", "done"]);
     const done = lines[2]!;
@@ -188,15 +214,17 @@ test("capture record --max-seconds stops the take by itself", { timeout: 60_000 
   await mkdir(state, { recursive: true });
   const wrapper = await writeFakeWrapper(state);
   const rec = spawnRecord(
-    ["capture", "record", "--source", "screen", "--root", root, "--state-dir", state, "--events", "none", "--max-seconds", "2"],
-    { MUXR_DESKLINK_ENGINE: wrapper, HYPRLAND_INSTANCE_SIGNATURE: "unreachable", XDG_RUNTIME_DIR: base },
+    // The limit includes setup. Leave negotiation headroom on loaded runners
+    // and deliberately delay video beyond the old two-second assumption.
+    ["capture", "record", "--source", "screen", "--root", root, "--state-dir", state, "--events", "none", "--max-seconds", "10"],
+    { MUXR_DESKLINK_ENGINE: wrapper, HYPRLAND_INSTANCE_SIGNATURE: "unreachable", XDG_RUNTIME_DIR: base, FAKE_DELAY_FRAMES_MS: "2500" },
   );
   try {
-    assert.equal(await exitOf(rec.child), 0, rec.stderr());
+    await expectSuccess(rec);
     const lines = rec.lines().map(parseLine);
     assert.deepEqual(lines.map((l) => l.event), ["consent-pending", "recording", "done"]);
     const done = lines[2]!;
-    assert.ok(done.seconds >= 1.5 && done.seconds <= 4, `seconds=${done.seconds}`);
+    assert.ok(done.seconds >= 9.5 && done.seconds <= 12, `seconds=${done.seconds}`);
     await stat(join(done.take, "take.json"));
     await assert.rejects(stat(join(state, "recording.pid")), "pid file is gone after a clean stop");
   } finally {
@@ -225,7 +253,7 @@ test("capture stop prints {\"stopping\":true} and ends the take", { timeout: 60_
     });
     assert.equal(stop.status, 0, stop.stderr);
     assert.deepEqual(JSON.parse(stop.stdout), { stopping: true });
-    assert.equal(await exitOf(rec.child), 0, rec.stderr());
+    await expectSuccess(rec);
     assert.deepEqual(rec.lines().map((l) => parseLine(l).event), [
       "consent-pending",
       "recording",
@@ -245,11 +273,11 @@ test("capture record --source x11:<display> reaches the engine", { timeout: 60_0
   await mkdir(state, { recursive: true });
   const wrapper = await writeFakeWrapper(state);
   const rec = spawnRecord(
-    ["capture", "record", "--source", "x11::99", "--root", root, "--state-dir", state, "--events", "none", "--max-seconds", "2"],
+    ["capture", "record", "--source", "x11::99", "--root", root, "--state-dir", state, "--events", "none"],
     { MUXR_DESKLINK_ENGINE: wrapper, HYPRLAND_INSTANCE_SIGNATURE: "unreachable", XDG_RUNTIME_DIR: base },
   );
   try {
-    assert.equal(await exitOf(rec.child), 0, rec.stderr());
+    await stopWhenRecording(rec);
     const done = JSON.parse(rec.lines().at(-1)!) as { event: string; take: string };
     assert.equal(done.event, "done");
     await stat(join(done.take, "take.json"));
@@ -274,79 +302,114 @@ test("--events none never opens evdev or Hyprland", { timeout: 60_000 }, async (
   const readWarnings = async (take: string): Promise<string[]> =>
     (JSON.parse(await readFile(join(take, "take.json"), "utf8")) as { warnings: string[] }).warnings;
   const none = spawnRecord(
-    ["capture", "record", "--source", "screen", "--root", root, "--state-dir", state, "--events", "none", "--max-seconds", "2"],
+    ["capture", "record", "--source", "screen", "--root", root, "--state-dir", state, "--events", "none"],
     env,
   );
-  assert.equal(await exitOf(none.child), 0, none.stderr());
-  const noneTake = (JSON.parse(none.lines().at(-1)!) as { take: string }).take;
-  const noneWarnings = await readWarnings(noneTake);
-  assert.ok(
-    noneWarnings.every((w) => !/evdev|hyprland|monitor/i.test(w)),
-    `events:none must not mention taps at all: ${JSON.stringify(noneWarnings)}`,
-  );
-  none.child.kill("SIGKILL");
-
-  const own = spawnRecord(
-    ["capture", "record", "--source", "screen", "--root", root, "--state-dir", state, "--events", "own", "--max-seconds", "2"],
-    env,
-  );
+  let own: Spawned | undefined;
   try {
-    assert.equal(await exitOf(own.child), 0, own.stderr());
+    await stopWhenRecording(none);
+    const noneTake = (JSON.parse(none.lines().at(-1)!) as { take: string }).take;
+    const noneWarnings = await readWarnings(noneTake);
+    assert.ok(
+      noneWarnings.every((w) => !/evdev|hyprland|monitor/i.test(w)),
+      `events:none must not mention taps at all: ${JSON.stringify(noneWarnings)}`,
+    );
+    await assert.rejects(stat(join(state, "input-reads.log")), "none never discovers evdev devices");
+
+    own = spawnRecord(
+      ["capture", "record", "--source", "screen", "--root", root, "--state-dir", state, "--events", "own"],
+      env,
+    );
+    await stopWhenRecording(own);
     const ownTake = (JSON.parse(own.lines().at(-1)!) as { take: string }).take;
     const ownWarnings = await readWarnings(ownTake);
     assert.ok(
       ownWarnings.some((w) => /evdev|hyprland|monitor/i.test(w)),
       `control run should show tap warnings here, proving the seam: ${JSON.stringify(ownWarnings)}`,
     );
+    assert.equal(await readFile(join(state, "input-reads.log"), "utf8"), "evdev\n");
   } finally {
-    own.child.kill("SIGKILL");
+    none.child.kill("SIGKILL");
+    own?.child.kill("SIGKILL");
     await rm(base, { recursive: true, force: true });
   }
 });
 
-test("x11 acceptance: real engine records a throwaway Xvfb display", { timeout: 120_000 }, async () => {
-  if (spawnSync("which", ["Xvfb"], { encoding: "utf8" }).status !== 0) return; // no X server harness here
-  const display = ":97";
-  if (existsSync(`/tmp/.X11-unix/X${display.slice(1)}`)) return; // never steal a live display
+test("x11 acceptance: real engine records a throwaway Xvfb display", { timeout: 120_000 }, async (t) => {
+  if (spawnSync("which", ["Xvfb"], { encoding: "utf8" }).status !== 0) {
+    t.skip("Xvfb is not installed");
+    return;
+  }
   const base = await mkdtemp(join(tmpdir(), "takeone-cap-xvfb-"));
   const root = join(base, "takes");
   const state = join(base, "state");
   await mkdir(root, { recursive: true });
   await mkdir(state, { recursive: true });
-  const server = spawn("Xvfb", [display, "-screen", "0", "800x600x24"], { stdio: "ignore" });
+  // Let Xvfb reserve a free display, including its abstract socket. A fixed
+  // display can collide even when another fixture has a separate /tmp.
+  // This fixture needs only an ordinary framebuffer. Disable GLX so an
+  // installed GPU driver cannot try to initialize the owner's hardware.
+  const server = spawn("Xvfb", ["-displayfd", "3", "-screen", "0", "800x600x24", "-nolisten", "tcp", "-extension", "GLX"], {
+    stdio: ["ignore", "ignore", "pipe", "pipe"],
+  });
+  let serverError = "";
+  server.stderr!.on("data", (chunk: Buffer) => { serverError += chunk.toString(); });
   try {
-    const deadline = Date.now() + 10_000;
-    while (Date.now() < deadline && !existsSync(`/tmp/.X11-unix/X${display.slice(1)}`)) {
-      await new Promise((resolveP) => setTimeout(resolveP, 100));
-    }
-    assert.ok(existsSync(`/tmp/.X11-unix/X${display.slice(1)}`), "Xvfb did not publish its socket");
+    const display = await new Promise<string>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error(`Xvfb did not report a display: ${serverError}`)), 20_000);
+      let output = "";
+      (server.stdio[3] as Readable).on("data", (chunk: Buffer) => {
+        output += chunk.toString();
+        if (!output.includes("\n")) return;
+        clearTimeout(timer);
+        const number = output.trim();
+        if (!/^\d+$/.test(number)) reject(new Error(`invalid Xvfb display: ${output}`));
+        else resolve(`:${number}`);
+      });
+      server.once("error", (error) => { clearTimeout(timer); reject(error); });
+      server.once("exit", () => { clearTimeout(timer); reject(new Error(`Xvfb exited: ${serverError}`)); });
+    });
     // The real engine needs its native capture backends, which a machine
     // with Xvfb does not necessarily have; skip where x11 is unavailable
     // instead of failing on the environment's absence.
-    const { EngineClient, resolveEngine } = await import("@desklink/host");
+    const { EngineClient, EngineRefused, resolveEngine } = await import("@desklink/host");
     const engine = resolveEngine();
-    let x11 = false;
-    if (engine !== null) {
-      const probe = await EngineClient.start(engine.command, engine.args, undefined, {
-        ...process.env,
-        DISPLAY: display,
-        XDG_RUNTIME_DIR: base,
-      }).catch(() => null);
-      if (probe !== null) {
-        try {
-          x11 = (await probe.capabilities().catch(() => null))?.x11.available === true;
-        } finally {
-          await probe.stop().catch(() => undefined);
-        }
-      }
+    if (engine === null) {
+      t.skip("the desklink engine binary is not installed");
+      return;
     }
-    if (!x11) return;
+    let x11 = false;
+    let diagnostics = "";
+    const probe = await EngineClient.start(engine.command, engine.args, {
+      onDiagnostic: (line) => { diagnostics += `${line}\n`; },
+    }, {
+      ...process.env,
+      DISPLAY: display,
+      XDG_RUNTIME_DIR: base,
+    }).catch((error: unknown) => {
+      if ((error instanceof EngineRefused && error.code === "missing-system-library") ||
+          /error while loading shared libraries:/.test(diagnostics)) {
+        t.skip("the desklink engine is missing native shared libraries");
+        return null;
+      }
+      throw error;
+    });
+    if (probe === null) return;
+    try {
+      x11 = (await probe.capabilities()).x11.available;
+    } finally {
+      await probe.stop().catch(() => undefined);
+    }
+    if (!x11) {
+      t.skip("the engine reports its native x11 backend is unavailable");
+      return;
+    }
     const rec = spawnRecord(
-      ["capture", "record", "--source", `x11:${display}`, "--root", root, "--state-dir", state, "--events", "none", "--max-seconds", "3"],
+      ["capture", "record", "--source", `x11:${display}`, "--root", root, "--state-dir", state, "--events", "none"],
       { DISPLAY: display, HYPRLAND_INSTANCE_SIGNATURE: "unreachable", XDG_RUNTIME_DIR: base },
     );
     try {
-      assert.equal(await exitOf(rec.child), 0, rec.stderr());
+      await stopWhenRecording(rec);
       const done = JSON.parse(rec.lines().at(-1)!) as { event: string; take: string; seconds: number };
       assert.equal(done.event, "done");
       const meta = JSON.parse(await readFile(join(done.take, "take.json"), "utf8")) as {
