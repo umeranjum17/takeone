@@ -97,14 +97,18 @@ const master=validateStoryboard({...bentoSb,output:{...bentoSb.output,out_w:886,
 const mdir=join(work,"master");mkdirSync(mdir,{recursive:true});writeFileSync(join(mdir,"storyboard.json"),JSON.stringify(master));const mh=writePage(mdir,master).html;
 const bh=writePage(bento.dir,validateStoryboard(bentoSb)).html;
 const canon=[];
+const tilePositions:Record<string,[number,number]>={TL:[60,44],TR:[974,44],BL:[60,550],BR:[974,550]};
 for(const time of [.5,1,2,3]) {
- const bd=join(work,`b${time}`),md=join(work,`m${time}`);
+ const bd=join(work,`b${time}`);
  await renderFrames({html:bh,width:1920,height:1080,fps:60,frames:1,workers:1,firstFrame:Math.round(time*60),framesDir:bd});
- await renderFrames({html:mh,width:886,height:486,fps:60,frames:1,workers:1,firstFrame:Math.round((time+.5)*60),framesDir:md});
- const child = await import("node:child_process");
- const measure = child.spawnSync("ffmpeg",["-v","info","-i",join(bd,"000001.png"),"-i",join(md,"000001.png"),"-lavfi","[0:v]crop=886:486:974:44[a];[a][1:v]ssim","-f","null","-"],{encoding:"utf8"});
- const score=Number(/All:([\d.]+)/.exec(measure.stderr)?.[1]);if(measure.status!==0||!Number.isFinite(score)||score<.99)throw new Error(`canon SSIM failed ${score}`);
- canon.push({time,offset_s:.5,ssim:score});
+ for(const tile of bentoSb.layout.tiles) {
+  const [x,y]=tilePositions[tile.id]!,master_time=time+tile.offset_s,md=join(work,`m${time}-${tile.id}`);
+  await renderFrames({html:mh,width:886,height:486,fps:60,frames:1,workers:1,firstFrame:Math.round(master_time*60),framesDir:md});
+  const child = await import("node:child_process");
+  const measure = child.spawnSync("ffmpeg",["-v","info","-i",join(bd,"000001.png"),"-i",join(md,"000001.png"),"-lavfi",`[0:v]crop=886:486:${x}:${y}[a];[a][1:v]ssim`,"-f","null","-"],{encoding:"utf8"});
+  const score=Number(/All:([\d.]+)/.exec(measure.stderr)?.[1]);if(measure.status!==0||!Number.isFinite(score)||score<.99)throw new Error(`canon SSIM failed for ${tile.id} at ${time} s (master ${master_time} s): ${score}`);
+  canon.push({tile:tile.id,time,offset_s:tile.offset_s,master_time,crop:{x,y,width:886,height:486},ssim:score});
+ }
 }
 writeFileSync(join(root,"takeone-motion-canon.json"),JSON.stringify(canon,null,2));
 // Observable kerning positions: range advances and final letter placements share the same coordinates.
