@@ -72,6 +72,19 @@ test("manual region zoom interrupts FOLLOW, holds its framing, then resumes the 
   for (const f of frames) assert.ok(d.out_w / f.w <= d.max_upscale + 1e-8);
 });
 
+test("manual zoom pre-rolls to its region and rejects holds shorter than 0.5 seconds", () => {
+  const requested = { t0: 2, t1: 2.6, bbox: [250, 130, 140, 60] as [number,number,number,number], level: 3 as const };
+  const take = { ...meta, trim_start: 0, trim_end: 8, zooms: [requested] };
+  const frames = solveCamera([], [], take, d);
+  const requestedFrame = frames[Math.round(requested.t0 * d.fps)]!;
+  assert.ok(requestedFrame.w < 250, `requested region reached by t0: ${requestedFrame.w}`);
+  assert.ok(Math.abs(requestedFrame.x + requestedFrame.w / 2 - 320) < 2);
+  for (const frame of frames.slice(2 * d.fps, 2.6 * d.fps)) {
+    assert.ok(frame.w < 250, `manual framing held through t1: ${frame.w}`);
+  }
+  assert.throws(() => solveCamera([], [], { ...take, zooms: [{ ...requested, t1: 2.49 }] }, d), /0.5s hold/);
+});
+
 test("wide source in portrait establishes then crops to an active region within one second", () => {
   const action = { ...beat, t0: 0, t1: 8, anchor_t: 5 };
   const portrait = { ...d, out_w: 180, out_h: 320, establish_s: 2, outro_s: 0 };

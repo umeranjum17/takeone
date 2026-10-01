@@ -32,7 +32,7 @@ interface Target {
   /** A disappearing subject cannot wait behind ordinary shot holds. */
   reveal?: { t: number; bbox: Zone["bbox"] };
   /** An edit takes precedence over automatic shot suppression and FOLLOW. */
-  manual?: boolean;
+  manual?: "zoom" | "resume";
 }
 
 interface Move {
@@ -625,14 +625,14 @@ function sampleCamera(
       targetIndex = revealIndex;
       state = previousFiltered;
     }
-    const dueEdit = targets.findIndex((target, i) => i >= targetIndex && target.manual && target.t <= time);
+    const dueEdit = targets.findIndex((target, i) => i >= targetIndex && target.manual === "resume" && target.t <= time);
     if (dueEdit >= 0) targetIndex = dueEdit;
     while (targetIndex < targets.length) {
       const urgent = Boolean(targets[targetIndex]!.reveal);
       const target = targets[targetIndex]!;
       // A manual edit begins at its exact boundary and interrupts any auto move.
-      const manualDue = target.manual && time >= target.t;
-      if (target.manual && !manualDue) break;
+      const manualDue = target.manual !== undefined && time >= target.t;
+      if (target.manual === "resume" && !manualDue) break;
       if (!manualDue && zooms.some(z => time >= z.t0 && time < z.t1)) break;
       if (!manualDue && !urgent && move && previousTime < heldUntil) break;
       const reversing = lastZoomDirection !== 0
@@ -641,7 +641,7 @@ function sampleCamera(
       // a visible hold between opposite zooms once the spring settles.
       const zoomHold = reversing ? Math.max(heldUntil, lastZoomMotion + d.min_shot) : heldUntil;
       const candidateMove = createMove(state, target.state, target.t, baseW, d,
-        manualDue ? target.t : urgent ? Math.max(start, target.startAfter ?? start, previousTime)
+        target.manual === "zoom" ? 0 : manualDue ? target.t : urgent ? Math.max(start, target.startAfter ?? start, previousTime)
           : Math.max(target.startAfter ?? 0, zoomHold, previousTime), Boolean(target.manual));
       if (candidateMove.start > time) break;
       targetIndex++;
@@ -807,15 +807,15 @@ export function solveCamera(
     const region: Zone = { name: "manual", type: "act", bbox: zoom.bbox };
     const requested = frame(region, zoom.level ?? 2, width, height, undefined, d);
     const viewport = toFrame(requested, width, height, d);
-    targets.push({ t: zoom.t0, startAfter: zoom.t0, manual: true, importance: 2,
+    targets.push({ t: Math.max(start, zoom.t0 - 2 / d.lowpass_omega), manual: "zoom", importance: 2,
       state: { cx: viewport.x + viewport.w / 2, cy: viewport.y + viewport.h / 2, z: baseWidth(width, height, d) / viewport.w } });
     // Resume the latest automatic framing, even if its target fell inside the edit.
     if (zoom.t1 < end && !zooms.some(z => z.t0 === zoom.t1)) targets.push({
-      t: zoom.t1, startAfter: zoom.t1, manual: true, importance: 2,
+      t: zoom.t1, startAfter: zoom.t1, manual: "resume", importance: 2,
       state: automatic.filter(t => t.t <= zoom.t1).at(-1)?.state ?? { cx: width / 2, cy: height / 2, z: 1 },
     });
   }
-  targets.sort((a, b) => a.t - b.t || Number(Boolean(a.manual)) - Number(Boolean(b.manual)));
+  targets.sort((a, b) => a.t - b.t || Number(a.manual !== undefined) - Number(b.manual !== undefined));
   const frames = sampleCamera(targets, visibleBeats.map((beat) => ({ ...beat,
     kind: quietShots.some((shot) => shot.beat === beat) ? beat.kind : "idle",
     actions: quietShots.some((shot) => shot.beat === beat) ? beat.actions : [],

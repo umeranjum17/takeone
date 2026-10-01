@@ -59,6 +59,7 @@ export function validateZooms(zooms: unknown, width: number, height: number): vo
     range(v, `zooms[${i}]`);
     const z = v as ManualZoom;
     const b = z.bbox;
+    if (z.t1 - z.t0 < 0.5) fail(`zooms[${i}]: interval must allow a 0.5s hold`);
     if (!Array.isArray(b) || b.length !== 4 || !b.every(finite) || b[0] < 0 || b[1] < 0
       || b[2] <= 0 || b[3] <= 0 || b[0] + b[2] > width || b[1] + b[3] > height) fail(`zooms[${i}].bbox`);
     if (z.level !== undefined && (!Number.isInteger(z.level) || z.level < 0 || z.level > 3)) fail(`zooms[${i}].level`);
