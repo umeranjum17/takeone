@@ -17,8 +17,9 @@ on this particular 4K fixture, but not on higher-resolution sources.
 
 The old default allowed 1.5 output pixels per source pixel: a 1280×720 crop
 could fill a 1920×1080 export (2.25× area enlargement). The new default is 1.0:
-the minimum viewport is 1920×1080 source pixels. Users can still opt into
-`--set max_upscale=1.5`. No framing rules, themes or overlays change.
+the minimum viewport for a 1920×1080 export is 1920×1080 source pixels.
+See [render settings](../README.md#render-an-existing-take) for the upscale
+override. No framing rules, themes or overlays change.
 
 The before/after proof holds the native 1.0 cap constant to isolate the sampler;
 the before export uses the old camera filter and CRF 18.
@@ -95,11 +96,10 @@ capture and establishes export sharpness independently of this capture limit.
 
 ## Gate and evidence
 
-`npm run quality` requires a native 3840×2160 fixture and retains its hash in the
-report. Standard and master must each score at least 0.75 against the native
-crop, regardless of golden acceptance. The previous standard renderer fails
-this threshold; decoded blur also fails. Committed fixture pixels contain only
-the demo board. CI uploads the decoded crops and short clips alongside metrics.
+The [output quality gates](quality.md#measurements) own the fixture requirements,
+sharpness and flat-card limits, and CI evidence contract. The previous standard
+renderer and deliberately blurred decoded output fail the sharpness gate.
+Committed fixture pixels contain only the demo board.
 
 Development evidence lives in `tmp/sharpness`: `source.png`, `calibration.json`,
 `ablation.json`, `ablation-final.json`, the calibration recordings. Final product evidence is flat under
@@ -122,7 +122,8 @@ background and is not the cause. Lanczos normalizes kernel coefficients: the
 raw patch and actual 10-second encoded export both measure zero variance.
 The eight-bit Lanczos trial patch was uniformly 252 after colour conversion;
 the final RGB16 export and native patch are both uniformly 255. The independent integer-crop flat gate measures 255 with zero variance
-in both tiers. The new absolute noise gate rejects variance above 0.05.
+in both tiers. See the [flat-card noise gate](quality.md#measurements) for the
+reference-relative variance and mean-drift limits.
 
 The portrait motion comparison uses identical source footage, native cap 1.0,
 byte-identical camera paths and the same decoded-edge centroid metric. Fixed

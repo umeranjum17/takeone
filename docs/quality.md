@@ -29,8 +29,8 @@ this reports goal status but does not change the baseline ratchet gate.
   source pixels. Rest frames are excluded.
 - Determinism: SHA-256 of two actual MP4 encodes, not just camera JSON.
 - Upscale: maximum output width / stage viewport width, goal 1.0.
-  Production defaults cap zoom at native source pixels; `--set max_upscale=1.5`
-  explicitly opts into enlarging them. Lower-resolution whole-screen footage
+  See [render settings](../README.md#render-an-existing-take) for the native
+  default and explicit upscale override. Lower-resolution whole-screen footage
   cannot gain detail from export resolution.
 - Zoom speed/acceleration: first and second differences of ln(viewport width),
   converted to ln/s and ln/s²; goals 1 and 4.
@@ -64,10 +64,11 @@ this reports goal status but does not change the baseline ratchet gate.
   the regression evidence and capture limitations.
 - Flat-card noise: a native uniform 160×30 white patch passes through a
   stage-sized padded surface and the same sampler/encoder at an integer native
-  crop. Decoded luma variance must be ≤0.05 and mean drift ≤4 code values. This
+  crop. Decoded luma variance must be no more than the native reference variance
+  plus 0.05, and mean drift must be ≤4 code values. This
   catches sampler rounding amplified by encoding; blur cannot improve the
-  independent text sharpness requirement. Both tiers currently measure zero
-  variance. Noise injection fails this limit in the regression test.
+  independent text sharpness requirement. See [flat-card qualification](sharpness.md#flat-card-noise-and-motion-qualification)
+  for measurements. Noise injection fails this limit in the regression test.
 - Banding: longest equal-luma run across a decoded rest-frame background row,
   10 pixels from the top at ≥0.7 s, goal ≤64 px.
 - Regression: ffmpeg SSIM for every aligned frame versus committed golden

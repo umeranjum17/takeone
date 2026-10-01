@@ -2,9 +2,9 @@ import type { CameraDefaults } from "../camera/defaults.ts";
 import type { CameraFrame } from "../camera/types.ts";
 
 /**
- * ffmpeg reparses perspective expressions every frame. Keep a compact piecewise
- * linear path, with at most 0.001 working-pixel error at any sampled corner.
- * Balanced lookup also keeps parser depth logarithmic on long takes.
+ * Compact piecewise-linear lookup for shutter sample counts and exposure ends.
+ * Approximation stays within tolerance in the supplied values' units; balanced
+ * lookup keeps ffmpeg expression parser depth logarithmic on long takes.
  */
 export function frameExpr(values: number[], tolerance = 0.001): string {
   if (values.length === 1) return values[0]!.toFixed(9);
@@ -27,7 +27,7 @@ export function frameExpr(values: number[], tolerance = 0.001): string {
       const a = knots[lo]!;
       const b = knots[hi]!;
       const slope = (values[b]! - values[a]!) / (b - a);
-      // perspective's input frame counter starts at one.
+      // Callers replace the legacy one-based `in-1` token with their frame index.
       return `${values[a]!.toFixed(9)}+clip(in-1-${a},0,${b - a})*${slope.toFixed(9)}`;
     }
     const mid = Math.floor((lo + hi) / 2);
@@ -77,4 +77,3 @@ export function cameraFilter(frames: CameraFrame[], width: number, height: numbe
   return `format=gbrp16le,${control}v360=input=flat:output=flat:w=${d.out_w}:h=${d.out_h}:ih_fov=90:iv_fov=90:${settings}`
     + `:interp=${d.quality === "draft" ? "linear" : "lanczos"},setsar=1`;
 }
-
