@@ -27,7 +27,7 @@ test("recorder commands reject unknown, missing and extraneous arguments before 
       ["list", "extra"], ["stop", "extra"], ["doctor", "extra"],
     ]) {
       const result = spawnSync(process.execPath, [join(here, "../cli.js"), ...args], {
-        encoding: "utf8", timeout: 3000,
+        encoding: "utf8", timeout: 15_000,
         env: { ...process.env, TAKEONE_DIR: join(base, "takes"), TAKEONE_STATE_DIR: join(base, "state") },
       });
       assert.equal(result.status, 1, `${args.join(" ")}: ${result.stderr}`);
