@@ -231,6 +231,11 @@ For an existing planned take, render reads `screen.webm`, `take.json` (at least 
 
 `--set key=value` overrides camera settings defined in `src/camera/defaults.ts`; rerendering does not call the planner. Render writes `camera.json`, `camera.cmd`, `render.log` (including libass font selection), and a silent H.264 MP4 at `out/<id>.mp4` inside the take directory (default 1920×1080 at 60 fps, or 1080×1920 at 60 fps when the take stream is portrait and no `out_w`/`out_h` override is passed). `--set quality=draft|standard|master` selects CRF 23, 18 (default), or 14; `--set preset=...` independently controls encoder speed. Output uses limited-range bt709 colour conversion and tags. The camera uses a subpixel warp: draft trades smoothness for fast previews with bilinear interpolation, standard uses cubic interpolation at output resolution, and master uses cubic at twice output resolution followed by Lanczos downsampling. Master is the slow highest-quality tier, with a render-time budget of up to 8× the original 30 fps renderer; standard targets 2.5×. Whole-screen shots of non-16:9 sources are centred on the stage background rather than cropped; zooming can crop the screen. If `take.json` omits `id`, the directory name is used; if it omits `trim_end`, the latest beat end is used.
 
+Edit a planned recording through `take.json`: `cuts[]` removes sections,
+`speed[]` sets playback rates (including detected typing), and `zooms[]` holds
+manual source-pixel regions. Rerender to apply them without replanning. See
+[edit controls](docs/edit-controls.md) for the schema and synthetic fixtures.
+
 ## Cost per minute of video (measured)
 
 About **14–15k Jev input tokens, roughly $0.0006, per minute of video**, hard-bounded by the preflight in `src/make.ts` (~line 241-276): it refuses any take whose reserved total — planned request tokens plus a 1,200-token re-ask reserve per Jev job after the first — exceeds 40,000 estimated tokens per take minute (`DEFAULT_TOKENS_PER_MIN`), about $0.0017/min at the $0.042/Mtok estimate and about $0.0023/min worst billed given the measured ~1.34× estimate-to-billed gap.

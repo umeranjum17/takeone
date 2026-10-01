@@ -1,0 +1,76 @@
+# Editing a recording
+
+Add edits to `take.json`, then run `takeone render <take-dir>`. Edits are local,
+non-destructive, and cost no planner tokens. `make` also preserves and renders
+them. Times below are **seconds relative to the source video**, before trim or
+idle pacing. Recorder `trim.start` / `trim.end` still use milliseconds; the
+renderer writes `trim_start` / `trim_end` in source-video seconds.
+
+```json
+{
+  "cuts": [
+    { "t0": 4, "t1": 6 },
+    { "t0": 16, "t1": 18 }
+  ],
+  "speed": [
+    { "kind": "type_speed", "rate": 3 },
+    { "t0": 8, "t1": 12, "rate": 2 },
+    { "t0": 20, "t1": 24, "rate": 1 }
+  ],
+  "zooms": [
+    { "t0": 8, "t1": 14, "bbox": [400, 350, 1200, 90], "level": 3 }
+  ]
+}
+```
+
+- `cuts` removes the listed intervals. `t0` is included; `t1` is excluded.
+  Removed click effects, caption starts, and camera beats disappear too.
+- A timed `speed` region sets playback rate: `2` doubles it, `0.5` halves it.
+  Rates from `0.1` to `16` are accepted. A `rate: 1` region disables automatic
+  idle compression there. To apply a rate to the entire video, cover its full
+  source interval with one region.
+- `kind: "type_speed"` applies to detected typing action bursts, including when
+  the enclosing beat is classified as a click. It needs no timestamps. With
+  video-only input and no typing events, it has no effect.
+- `zooms` frames a source-pixel rectangle `[x, y, width, height]`. The transition
+  starts at `t0`; the region holds until `t1`, when automatic framing resumes.
+  `level` defaults to `2`: `1` retains more context, `3` uses tighter padding,
+  and `0` shows the whole screen. The output aspect and maximum pixel upscale
+  still apply. The camera eases through the existing critically damped spring,
+  and pointer-follow is suspended during the edit. Allow enough time for the
+  transition and a readable hold; about four seconds is a useful starting point.
+
+Precedence is cuts, timed speed, typing speed, then automatic idle speed.
+Within each array, timed intervals may touch but must not overlap; one typing
+rule is allowed. Arrays can be empty or omitted. Unsorted intervals work.
+Out-of-trim edits are ignored, and partially overlapping intervals are clipped.
+A cut that removes all footage is an error. Invalid edits name their field.
+The rectangle must lie inside the source image.
+
+Footage, camera, and click effects share one source-to-output map. Caption starts
+follow that map; their durations remain **output seconds** so speed-up never
+reduces reading time. Existing caption overlap rules still clamp a caption at
+the next caption's start. A caption whose start was cut disappears; a caption
+that started before a cut can finish afterward. A manual zoom entirely removed
+by a cut disappears too.
+
+To reproduce the synthetic fixtures and their visual proof:
+
+```sh
+node scripts/synth-edits.ts tmp/edit-proof
+```
+
+This generates separate takes for cuts, timed speed, typing speed, manual zooms,
+and a combined edit. Each has a 1080p60 render, a 4×4 contact sheet, aligned
+raw-vs-render footage, and 100% crops of captions and zoom arrivals. The combined
+before/after video is aligned through the edit map. `manifest.json` records
+frame counts, colour tags, maximum upscale, and frames below SSIM 0.95 for
+visual review. All input is a fictional UI with demo person Umer.
+
+For the realistic Tidewater board used in the README, run
+`node scripts/proof-board-edits.ts tmp/board-edit-proof` (also requires
+`chrome-devtools-axi`). It opens an isolated headless profile, stages the New
+task workflow, and renders a take made only from those demo DOM screenshots.
+It saves a real before/after frame, contact sheets, a ten-second output clip,
+and aligned raw/render and before/after comparison videos. This is a staged
+fixture with exact timestamps; it does not record a desktop.
