@@ -1,6 +1,6 @@
 # Camera motion blur
 
-Camera exposures use a centred half-frame shutter at `motion_blur=1`; lower values shorten the shutter, and `0` keeps the original single-warp path. Only exposures with more than 2 output pixels of stage movement need subframes. Each fast frame uses the minimum sample count meeting a 1.9 px spacing target, reserving room for subpixel expression approximation. Captions are composited after the exposure. Every exposure holds one source image, so adjacent UI changes never mix.
+Camera exposures use a centred half-frame shutter at `motion_blur=1`; lower values shorten the shutter, and `0` keeps the original single-warp path. Exposures with more than 2 output pixels of total path movement use subframes. The planner chooses the minimum count from that path length, then increases it as needed to keep adjacent samples at or below 2 px. Captions are composited after the exposure. Every exposure holds one source image, so adjacent UI changes never mix.
 
 The ffmpeg graph duplicates frames by reference, removes unused samples before warping, and averages each exposure with runtime weights. Samples from earlier exposures receive zero weight. A spare zero-weight history slot avoids the equal-weight running-sum shortcut while intermediate mixing is disabled. The graph remains one chronological stream rather than buffering separate velocity branches.
 
