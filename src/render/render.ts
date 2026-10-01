@@ -3,7 +3,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { availableParallelism } from "node:os";
 import { fileURLToPath } from "node:url";
 import { resolveTheme } from "../themes.ts";
-import { basename, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import type { CameraDefaults } from "../camera/defaults.ts";
 import { solveCamera } from "../camera/solver.ts";
 import type { Beat, CameraFrame, Decision, TakeMeta } from "../camera/types.ts";
@@ -85,7 +85,11 @@ function runFfmpeg(args: string[]): Promise<string> {
 }
 
 /** Read the take's durable inputs, write its camera path and render the silent MP4. */
-export async function renderTake(dir: string, d?: CameraDefaults): Promise<{ out: string; seconds: number }> {
+export async function renderTake(
+  dir: string,
+  d?: CameraDefaults,
+  options: { output?: string; lossless?: boolean } = {},
+): Promise<{ out: string; seconds: number }> {
   const meta = JSON.parse(await readFile(join(dir, "take.json"), "utf8")) as TakeMeta;
   d ??= resolveTheme(meta.theme);
   validateEdits(meta);
@@ -138,7 +142,8 @@ export async function renderTake(dir: string, d?: CameraDefaults): Promise<{ out
   if (typeof id !== "string" || !/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(id) || id === "..") {
     throw new Error(`invalid take id: ${id}`);
   }
-  const output = join(outputDir, `${id}.mp4`);
+  const output = options.output ?? join(outputDir, `${id}.mp4`);
+  await mkdir(dirname(output), { recursive: true });
 
   // Render intermediates live next to camera.cmd so a failed render can be rerun by hand.
   const stageFile = join(dir, "stage.png");
@@ -189,9 +194,10 @@ export async function renderTake(dir: string, d?: CameraDefaults): Promise<{ out
     "-filter_threads", threads, "-filter_complex_threads", threads,
     graphOption, commandFile,
     ...(clock ? ["-t", String(duration)] : []),
-    "-r", String(d.fps), "-an", "-c:v", "libx264", "-crf", String(crf),
+    "-r", String(d.fps), "-an", "-c:v", "libx264",
+    ...(options.lossless ? ["-qp", "0", "-preset", "ultrafast"] : ["-crf", String(crf), "-preset", d.preset]),
     "-color_primaries", "bt709", "-color_trc", "bt709", "-colorspace", "bt709", "-color_range", "tv",
-    "-preset", d.preset, "-movflags", "+faststart", output,
+    "-movflags", "+faststart", output,
   ]);
   await writeFile(join(dir, "render.log"), renderLog);
   return { out: output, seconds: duration };
