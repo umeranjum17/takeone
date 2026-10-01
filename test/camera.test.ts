@@ -9,6 +9,7 @@ import type { Beat, Decision, Zone } from "../src/camera/types.ts";
 import { renderTake } from "../src/render/render.ts";
 import { dialogResults } from "../src/perceive/dialogs.ts";
 import { warpBeats } from "../src/render/pace.ts";
+import { sourceViewport, stageGeometry } from "../src/render/stage.ts";
 import { hasFfmpeg } from "./helpers.ts";
 
 // Only tests pass a fast preset and tiny output: shipped output stays
@@ -742,4 +743,28 @@ test("master blur preserves full-resolution chroma through production rendering"
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
+});
+
+test("a selected whole header is prepared while the preceding Tidewater result stays whole", () => {
+  const result: Zone["bbox"] = [496, 292, 3056, 1800];
+  const close: Beat = { id: "close", kind: "click", t0: 12.4, t1: 28.7, anchor_t: 12.4,
+    actions: [], zones: [{ name: "all", type: "all", bbox: [0, 0, 3840, 2160] }],
+    dialog_results: [{ t: 13.6, bbox: result }] };
+  const header: Beat = { id: "header", kind: "click", t0: 35.03333333333333, t1: 40,
+    anchor_t: 35.03333333333333, actions: [], zones: [{ name: "header", type: "act",
+      bbox: [0, 0, 3840, 136], boxes: [[0, 0, 3840, 136], [24, 172, 372, 96]] }] };
+  const defaults = { ...DEFAULTS, outro_s: 0 };
+  const stage = stageGeometry(3840, 2160, defaults);
+  const project = (f: Parameters<typeof sourceViewport>[0]) => sourceViewport(f, 3840, 2160, stage, defaults);
+  const raw = solveCamera([close, header], [{ ...decision(close), L: 0 }, { ...decision(header), L: 1 }],
+    { width: 3840, height: 2160, trim_end: 40 }, defaults, project);
+  const frames = raw.map(project);
+  const deadline = 34.266666666666666;
+  for (const f of frames.filter(f => f.t >= 15 && f.t <= deadline)) {
+    assert.equal(clippedFractions(f, [result])[0], 0, `preceding result cut at ${f.t}`);
+  }
+  for (const f of frames.filter(f => f.t >= deadline)) {
+    assert.equal(clippedFractions(f, [[0, 0, 3840, 268]])[0], 0, `incoming header cut at ${f.t}`);
+  }
+  assert.ok(at(raw, 33).w < 3600, "retain the long readable result hold instead of parking wide");
 });

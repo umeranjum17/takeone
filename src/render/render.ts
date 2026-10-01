@@ -12,7 +12,7 @@ import { motionBlurGraph, shutterPlan } from "./motion-blur.ts";
 import { idleSqueezes, setptsExpr, warp, warpBeats } from "./pace.ts";
 import { phoneTapShots } from "./phone.ts";
 import {
-  beatClicks, captionAss, cardFilter, clickAss, measureAss, stageFrames, stageGeometry, stageImageFilter, takeCaptions,
+  beatClicks, captionAss, cardFilter, clickAss, measureAss, sourceViewport, stageFrames, stageGeometry, stageImageFilter, takeCaptions,
   type Caption, type CaptionInk,
 } from "./stage.ts";
 
@@ -71,8 +71,10 @@ export async function renderTake(dir: string, d?: CameraDefaults): Promise<{ out
   const spotlights = overlayRegions(meta, "spotlight", outTime, trimStart, trimEnd);
   const outBeats = warpBeats(beats, trimStart, squeezes, d.idle_speed);
   const tapShots = meta.device === "android" ? phoneTapShots(outBeats, meta.width, meta.height) : null;
+  const stage = stageGeometry(meta.width, meta.height, d);
   const solved = solveCamera(tapShots?.beats ?? outBeats, tapShots?.decisions ?? decisions, { ...meta, trim_end: trimStart + duration },
-    { ...d, min_shot: d.min_shot * d.pace, dwell: d.dwell * d.pace, dwell_k2: d.dwell_k2 * d.pace });
+    { ...d, min_shot: d.min_shot * d.pace, dwell: d.dwell * d.pace, dwell_k2: d.dwell_k2 * d.pace },
+    phone ? undefined : (frame) => sourceViewport(frame, meta.width, meta.height, stage, d));
   // A handset's controls span its narrow screen. Keep that entire width while
   // pushing in and following the tapped row; horizontal pans slice labels.
   const frames = phone ? solved.map(f => {
@@ -84,7 +86,6 @@ export async function renderTake(dir: string, d?: CameraDefaults): Promise<{ out
     return { t: f.t, x: (meta.width - w) / 2, y, w, h };
   }) : solved;
   await writeFile(join(dir, "camera.json"), JSON.stringify(frames));
-  const stage = stageGeometry(meta.width, meta.height, d);
   const commandFile = join(dir, "camera.cmd");
   const stageCamera = stageFrames(frames, meta.width, meta.height, stage, d);
   const shutter = shutterPlan(stageCamera, stage.w, stage.h, d);

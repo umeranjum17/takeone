@@ -37,6 +37,8 @@ interface Move {
   start: number;
   end: number;
   hop: boolean;
+  /** Viewport preparation retains the preceding focus, without creating a new shot. */
+  preparation?: boolean;
 }
 
 const clamp = (value: number, min: number, max: number) =>
@@ -423,9 +425,9 @@ function buildTargets(
     // The union gives the final spring room to settle without losing the card.
     const context = shot ? mergeZones(shot.zoneA, revealed) : revealed;
     targets.push({ t: Math.max(start, result.t - 0.3), state: frame(context, 1, width, height, undefined, d),
-      importance: 2, reveal: result });
+      importance: 2, subject: context, reveal: result });
     targets.push({ t: result.t + 1, startAfter: result.t,
-      state: frame(revealed, 2, width, height, undefined, d), importance: 2, reveal: result });
+      state: frame(revealed, 2, width, height, undefined, d), importance: 2, subject: revealed, reveal: result });
   }
 
   // BREATHE rule: widen during long idle gaps when the following beat is distant.
@@ -556,6 +558,45 @@ function followPointer(
   return { ...state, cx: nextX, cy: nextY };
 }
 
+/** The same constrained, critically damped step for sampling and preparation planning. */
+function filterState(requested: CameraState, previous: CameraState,
+  velocity: { cx: number; cy: number; lz: number }, dt: number,
+  width: number, height: number, d: CameraDefaults): [CameraState, number] {
+  const crop = toFrame(requested, width, height, d);
+  const [cx, vx] = spring(previous.cx, velocity.cx, crop.x + crop.w / 2, dt, d.lowpass_omega);
+  const [cy, vy] = spring(previous.cy, velocity.cy, crop.y + crop.h / 2, dt, d.lowpass_omega);
+  const [lz, vz] = spring(Math.log(previous.z), velocity.lz,
+    Math.log(baseWidth(width, height, d) / crop.w), dt, d.lowpass_omega);
+  Object.assign(velocity, { cx: vx, cy: vy, lz: vz });
+  return [{ cx, cy, z: Math.exp(lz) }, lz];
+}
+
+/** First whole-subject sample along the existing move/spring, with preceding focus retained. */
+function preparationTime(from: CameraState, to: CameraState, outgoing: Zone, incoming: Zone,
+  velocity: { cx: number; cy: number; lz: number }, width: number, height: number,
+  d: CameraDefaults, project: (frame: CameraFrame) => CameraFrame): number | undefined {
+  const move = createMove(from, to, 0, baseWidth(width, height, d), d);
+  const filteredVelocity = { ...velocity };
+  let previous = from;
+  let firstWhole: number | undefined;
+  // A fixed move bound plus a spring decay bound: cost never grows with take duration.
+  const limit = Math.ceil((d.move_t_max + Math.log(1e6) / d.lowpass_omega + 1) * d.fps);
+  for (let i = 1; i <= limit; i++) {
+    const time = i / d.fps;
+    const requested = time < move.end ? interpolateMove(move, time) : to;
+    [previous] = filterState(requested, previous, filteredVelocity, 1 / d.fps, width, height, d);
+    const crop = project(toFrame(previous, width, height, d));
+    if (clippedFractions(crop, [outgoing.bbox])[0] !== 0) return undefined;
+    const whole = clippedFractions(crop, [incoming.bbox])[0] === 0;
+    if (firstWhole !== undefined && !whole) return undefined;
+    if (firstWhole === undefined && whole) firstWhole = time;
+    if (time >= move.end + 2 / d.lowpass_omega && firstWhole !== undefined) {
+      return firstWhole + 1 / d.fps; // one output sample covers the live scheduling boundary
+    }
+  }
+  return undefined;
+}
+
 /** Sample HOLD/MOVE/FOLLOW/BREATHE camera states at output fps. */
 function sampleCamera(
   targets: Target[],
@@ -566,12 +607,15 @@ function sampleCamera(
   start: number,
   end: number,
   d: CameraDefaults,
+  project: (frame: CameraFrame) => CameraFrame,
 ): CameraFrame[] {
   const baseW = baseWidth(width, height, d);
   let state: CameraState = { cx: width / 2, cy: height / 2, z: 1 };
   let previousFiltered = state;
   let previousTime = start;
   let move: Move | undefined;
+  let focus: Zone | undefined;
+  const preparations = new Map<Target, { start: number; deadline: number }>();
   let targetIndex = 0;
   const velocity = { x: 0, y: 0 };
   const filterVelocity = { cx: 0, cy: 0, lz: 0 };
@@ -596,7 +640,7 @@ function sampleCamera(
     // (the spring trails the ideal path by about 2/omega): result
     // and breathe targets obey it too, so no shot flashes by unread.
     const settle = move ? move.end + 2 / d.lowpass_omega : 0;
-    const heldUntil = move ? settle + d.dwell : 0;
+    const heldUntil = move ? settle + (move.preparation ? 0 : d.dwell) : 0;
     // A close result preempts pending action targets, even when those targets
     // were delayed by dwell. Otherwise an old click can arrive after its dialog
     // has disappeared. Start from the visible camera to keep the move continuous.
@@ -607,9 +651,11 @@ function sampleCamera(
       state = previousFiltered;
     }
     while (targetIndex < targets.length) {
-      const urgent = Boolean(targets[targetIndex]!.reveal);
-      if (!urgent && move && previousTime < heldUntil) break;
       const target = targets[targetIndex]!;
+      const urgent = Boolean(target.reveal);
+      const prepared = preparations.get(target);
+      if (!urgent && move && previousTime < heldUntil
+        && !(move.preparation && prepared && time >= prepared.deadline)) break;
       const reversing = lastZoomDirection !== 0
         && Math.sign(Math.log(target.state.z / state.z)) === -lastZoomDirection;
       // Include result, breathe and outro targets: arrivals alone do not enforce
@@ -617,8 +663,37 @@ function sampleCamera(
       const zoomHold = reversing ? Math.max(heldUntil, lastZoomMotion + d.min_shot) : heldUntil;
       const candidateMove = createMove(state, target.state, target.t, baseW, d,
         urgent ? Math.max(start, target.startAfter ?? start, previousTime) : Math.max(target.startAfter ?? 0, zoomHold, previousTime));
+      let preparation = preparations.get(target);
+      const subject = target.subject;
+      // A whole-span focus cannot enter from a tight hold already cut. Prepare
+      // only that required viewport, while the preceding result remains focused.
+      const spansSource = subject && ((subject.bbox[0] === 0 && subject.bbox[2] === width)
+        || (subject.bbox[1] === 0 && subject.bbox[3] === height));
+      if (!preparation && !urgent && focus && spansSource && target.state.z === 1
+        && !["all", "win"].includes(subject.type)
+        && clippedFractions(project(toFrame(previousFiltered, width, height, d)), [subject.bbox])[0] !== 0) {
+        const duration = preparationTime(previousFiltered, target.state, focus, subject,
+          filterVelocity, width, height, d, project);
+        const deadline = Math.ceil(candidateMove.start * d.fps) / d.fps;
+        if (duration === undefined || deadline - duration < time) {
+          throw new Error(`whole incoming subject needs preparation before ${deadline}s; preceding hold cannot contain it`);
+        }
+        preparation = { start: deadline - duration, deadline };
+        preparations.set(target, preparation);
+      }
+      if (preparation && time >= preparation.start && !move?.preparation && time < preparation.deadline) {
+        move = { ...createMove(previousFiltered, target.state, 0, baseW, d, time), preparation: true };
+        break;
+      }
+      if (preparation && time >= preparation.deadline && subject
+        && clippedFractions(project(toFrame(previousFiltered, width, height, d)), [subject.bbox])[0] === 0) {
+        targetIndex++;
+        focus = subject;
+        continue;
+      }
       if (candidateMove.start > time) break;
       targetIndex++;
+      focus = subject && !["all", "win"].includes(subject.type) ? subject : undefined;
       if (!urgent && canHold(state, target, width, height, d)) continue;
       move = candidateMove;
       if (urgent) break;
@@ -646,15 +721,9 @@ function sampleCamera(
 
     // Constrain the requested viewport before filtering. Clamping the spring's
     // output instead turns a smooth edge arrival into an abrupt velocity stop.
-    const targetFrame = toFrame(state, width, height, d);
-    state = { cx: targetFrame.x + targetFrame.w / 2, cy: targetFrame.y + targetFrame.h / 2,
-      z: baseW / targetFrame.w };
-
     const dt = time - previousTime;
-    const [cx, vx] = spring(previousFiltered.cx, filterVelocity.cx, state.cx, dt, d.lowpass_omega);
-    const [cy, vy] = spring(previousFiltered.cy, filterVelocity.cy, state.cy, dt, d.lowpass_omega);
-    const [lz, vz] = spring(Math.log(previousFiltered.z), filterVelocity.lz, Math.log(state.z), dt, d.lowpass_omega);
-    Object.assign(filterVelocity, { cx: vx, cy: vy, lz: vz });
+    const [filtered, lz] = filterState(state, previousFiltered, filterVelocity, dt, width, height, d);
+    state = filtered;
     const zoomSpeed = dt > 0 ? (lz - Math.log(previousFiltered.z)) / dt : 0;
     // A hold begins when visible zoom falls below 1% per second. Remember the
     // direction through pan-only targets, so they cannot bypass the guard.
@@ -662,7 +731,6 @@ function sampleCamera(
       lastZoomMotion = time;
       lastZoomDirection = Math.sign(zoomSpeed);
     }
-    state = { cx, cy, z: Math.exp(lz) };
     previousFiltered = state;
     previousTime = time;
     frames.push({ ...toFrame(state, width, height, d), t: time - start });
@@ -731,6 +799,7 @@ export function solveCamera(
   decisions: Decision[],
   take: TakeMeta,
   d: CameraDefaults = DEFAULTS,
+  project: (frame: CameraFrame) => CameraFrame = (frame) => frame,
 ): CameraFrame[] {
   validateCameraInputs(beats, decisions, take);
   const start = take.trim_start ?? 0;
@@ -747,5 +816,5 @@ export function solveCamera(
   return sampleCamera(targets, visibleBeats.map((beat) => ({ ...beat,
     kind: quietShots.some((shot) => shot.beat === beat) ? beat.kind : "idle",
     actions: quietShots.some((shot) => shot.beat === beat) ? beat.actions : [],
-  })), decisionMap, width, height, start, end, d);
+  })), decisionMap, width, height, start, end, d, project);
 }

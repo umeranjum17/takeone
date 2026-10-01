@@ -64,6 +64,13 @@ export function stageFrames(frames: CameraFrame[], width: number, height: number
   });
 }
 
+/** The rendered viewport in source coordinates, shared with whole-subject preparation. */
+export function sourceViewport(frame: CameraFrame, width: number, height: number, st: Stage,
+  d: CameraDefaults): CameraFrame {
+  const view = stageFrames([frame], width, height, st, d)[0]!;
+  return { ...view, x: view.x - st.screenX, y: view.y - st.screenY };
+}
+
 /** Side of the square corner patches that round the card, in stage px. */
 export function cornerSize(st: Stage, d: CameraDefaults): number {
   return even(d.corner_radius / st.restScale + 2);
