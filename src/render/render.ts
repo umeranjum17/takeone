@@ -125,7 +125,7 @@ export async function renderTake(dir: string, d?: CameraDefaults): Promise<{ out
   await writeFile(commandFile, filter);
   const crf = { draft: 23, standard: 18, master: 14 }[d.quality];
 
-  const threads = String(Math.min(32, availableParallelism()));
+  const threads = String(Math.min(8, availableParallelism()));
   const ffmpegMajor = Number(execFileSync("ffmpeg", ["-version"], { encoding: "utf8" })
     .match(/ffmpeg version (?:n)?(\d+)/)?.[1] ?? 0);
   // ffmpeg 7 introduced file-valued options; older releases use the script flag.
