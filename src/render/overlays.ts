@@ -181,7 +181,7 @@ export function spotlightAss(regions: TimedRegion[], w: number, h: number, d: Ca
 }
 
 /** Blur only the selected source rectangle, before card/camera transforms. */
-export function blurGraph(regions: TimedRegion[]): string {
+export function blurGraph(regions: TimedRegion[], pixelFormat: "yuv420p" | "yuv444p" = "yuv420p"): string {
   const graph: string[] = [];
   regions.forEach((r, i) => {
     const [x,y,w,h] = r.rect;
@@ -190,8 +190,8 @@ export function blurGraph(regions: TimedRegion[]): string {
     const rw = Math.ceil((x+w)/2)*2-rx, rh = Math.ceil((y+h)/2)*2-ry;
     // Full-resolution RGB planes avoid narrow chroma-slice artifacts with many threads.
     graph.push(`[region${i}]split[base${i}][patch${i}]`,
-      `[patch${i}]crop=${rw}:${rh}:${rx}:${ry},format=gbrp,gblur=sigma=20,format=yuv420p[blur${i}]`,
-      `[base${i}][blur${i}]overlay=${rx}:${ry}:enable='gte(t,${r.t0})*lt(t,${r.t1})'[region${i+1}]`);
+      `[patch${i}]crop=${rw}:${rh}:${rx}:${ry},format=gbrp,gblur=sigma=20,format=${pixelFormat}[blur${i}]`,
+      `[base${i}][blur${i}]overlay=${rx}:${ry}:format=${pixelFormat.slice(0, -1)}:enable='gte(t,${r.t0})*lt(t,${r.t1})'[region${i+1}]`);
   });
   return graph.join(";");
 }

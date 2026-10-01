@@ -8,7 +8,8 @@ import { pathToFileURL } from 'node:url';
 import { DEFAULTS } from '../src/camera/defaults.ts';
 import type { CameraFrame, Beat, TakeMeta } from '../src/camera/types.ts';
 import { makeTake } from '../src/make.ts';
-import { cameraFilter, encodingOptions, renderTake } from '../src/render/render.ts';
+import { encodingOptions, renderTake } from '../src/render/render.ts';
+import { cameraFilter } from '../src/render/camera-filter.ts';
 import { stageFrames, stageGeometry, takeCaptions } from '../src/render/stage.ts';
 import { idleSqueezes, warp } from '../src/render/pace.ts';
 

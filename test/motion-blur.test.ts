@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import test from "node:test";
 import { applyOverrides, DEFAULTS } from "../src/camera/defaults.ts";
+import { cameraFilter } from "../src/render/camera-filter.ts";
 import { motionBlurGraph, shutterFrame, shutterPlan } from "../src/render/motion-blur.ts";
 import { hasFfmpeg } from "./helpers.ts";
 
@@ -73,4 +74,18 @@ test("a fast-camera thin line becomes a continuous centred streak, with sharp ho
   const sharpArgs = args.map((arg) => arg === graph ? off : arg);
   const sharp = execFileSync("ffmpeg", sharpArgs, { maxBuffer: 1000000 });
   assert.deepEqual(raw.subarray(0, 160 * 90), sharp.subarray(0, 160 * 90), "hold matches original single warp");
+});
+
+
+test("fractional camera positions move decoded edges on both axes", { skip: !hasFfmpeg() }, () => {
+  const decode = (x: number, y: number) => execFileSync("ffmpeg", ["-v", "error", "-f", "lavfi", "-i",
+    "nullsrc=s=320x180,geq=lum='if(gte(X,100)*gte(Y,50),235,16)':cb=128:cr=128",
+    "-filter_threads", "1", "-vf", cameraFilter([{ t: 0, x, y, w: 160, h: 90 }], 320, 180, d),
+    "-frames:v", "1", "-pix_fmt", "gray", "-f", "rawvideo", "-"], { maxBuffer: 100000 });
+  const base = decode(0, 0);
+  const horizontal = decode(0.25, 0);
+  const vertical = decode(0, 0.25);
+  const at = (pixels: Buffer, x: number, y: number) => pixels[y * 160 + x]!;
+  assert.ok(at(horizontal, 99, 70) > at(base, 99, 70) + 10);
+  assert.ok(at(vertical, 120, 49) > at(base, 120, 49) + 10);
 });

@@ -6,7 +6,7 @@ import test from "node:test";
 import { applyOverrides, DEFAULTS } from "../src/camera/defaults.ts";
 import { clippedFractions, HIGH_CLIP_FRACTION, frame, moveDuration, solveCamera, zMax } from "../src/camera/solver.ts";
 import type { Beat, Decision, Zone } from "../src/camera/types.ts";
-import { renderTake, cameraFilter } from "../src/render/render.ts";
+import { renderTake } from "../src/render/render.ts";
 import { dialogResults } from "../src/perceive/dialogs.ts";
 import { warpBeats } from "../src/render/pace.ts";
 import { hasFfmpeg } from "./helpers.ts";
@@ -154,11 +154,9 @@ test("non-16:9 padding eases through zoom and back without a crop jump", () => {
   assert.ok(frames.every((f, i) => !i || Math.abs(f.w - frames[i - 1]!.w) < 200));
 });
 
-test("move duration clamps and the camera retains fractional source coordinates", () => {
+test("move duration clamps", () => {
   assert.equal(moveDuration(0), 0.6);
   assert.ok(moveDuration(100) <= 1.4);
-  const filter = cameraFilter([{ t: 0, x: 0.125, y: 0.25, w: 1920, h: 1080 }], 3840, 2160, DEFAULTS);
-  assert.match(filter, /interp=lanczos/);
 });
 
 test("deadzone skips framing that already fits with the configured margin", () => {
@@ -701,4 +699,45 @@ test("a dialog close reveals its result despite dwell, shot suppression and poin
   }
   const warped = warpBeats([close], 0, [{ a: 0, b: 1 }], 4)[0]!;
   assert.ok(Math.abs(warped.dialog_results![0]!.t - 1.55) < 1e-9);
+});
+
+
+test("master blur preserves full-resolution chroma through production rendering", { skip: needsFfmpeg }, async () => {
+  const dir = await mkdtemp(join(process.cwd(), "takeone-chroma-"));
+  try {
+    const width = 160, height = 90, plane = width * height;
+    const source = Buffer.alloc(plane * 3, 128);
+    for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
+      source[plane + y * width + x] = x % 2 ? 176 : 80;
+    }
+    const input = join(dir, "source.yuv");
+    await writeFile(input, source);
+    execFileSync("ffmpeg", ["-y", "-v", "error", "-stream_loop", "-1", "-f", "rawvideo",
+      "-pix_fmt", "yuv444p", "-s", "160x90", "-r", "10", "-i", input,
+      "-t", "0.6", "-c:v", "ffv1", "-f", "matroska", join(dir, "screen.webm")]);
+    await mkdir(join(dir, "analysis"));
+    await writeFile(join(dir, "analysis/beats.json"), "[]");
+    await writeFile(join(dir, "analysis/decisions.jsonl"), "");
+    await writeFile(join(dir, "take.json"), JSON.stringify({ id: "chroma", width, height,
+      trim_end: 0.6, blur: [{ t: 0.2, d: 0.2, rect: [10, 10, 30, 20] }] }));
+    const { out } = await renderTake(dir, { ...FAST, quality: "master", out_w: width, out_h: height,
+      fps: 10, stage_margin: 0, corner_radius: 0, motion_blur: 0 });
+    const format = execFileSync("ffprobe", ["-v", "error", "-select_streams", "v:0",
+      "-show_entries", "stream=pix_fmt", "-of", "default=nw=1:nk=1", out], { encoding: "utf8" });
+    assert.equal(format.trim(), "yuv444p");
+    const pixels = execFileSync("ffmpeg", ["-v", "error", "-i", out,
+      "-pix_fmt", "yuv444p", "-f", "rawvideo", "-"], { maxBuffer: 1_000_000 });
+    assert.equal(pixels.length, 6 * plane * 3);
+    const contrast = (frame: number, x: number, y: number) => {
+      const at = frame * plane * 3 + plane + y * width + x;
+      return Math.abs(pixels[at]! - pixels[at + 1]!);
+    };
+    for (let frame = 0; frame < 6; frame++) {
+      assert.ok(contrast(frame, 80, 45) > 60, `outside blur frame ${frame}`);
+      if (frame === 2 || frame === 3) assert.ok(contrast(frame, 20, 20) < 10, `active blur frame ${frame}`);
+      else assert.ok(contrast(frame, 20, 20) > 60, `inactive blur frame ${frame}`);
+    }
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 });

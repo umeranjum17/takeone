@@ -6,88 +6,15 @@ import { resolveTheme } from "../themes.ts";
 import { basename, join, resolve } from "node:path";
 import type { CameraDefaults } from "../camera/defaults.ts";
 import { solveCamera } from "../camera/solver.ts";
-import type { Beat, CameraFrame, Decision, TakeMeta } from "../camera/types.ts";
+import type { Beat, Decision, TakeMeta } from "../camera/types.ts";
 import { blurGraph, keycapAss, keycapObstacles, overlayRegions, spotlightAss } from "./overlays.ts";
-import { frameExpr } from "./camera-filter.ts";
-import { shutterFrame, shutterPlan } from "./motion-blur.ts";
+import { motionBlurGraph, shutterPlan } from "./motion-blur.ts";
 import { idleSqueezes, setptsExpr, warp, warpBeats } from "./pace.ts";
 import { phoneTapShots } from "./phone.ts";
 import {
   beatClicks, captionAss, cardFilter, clickAss, measureAss, stageFrames, stageGeometry, stageImageFilter, takeCaptions,
   type Caption, type CaptionInk,
 } from "./stage.ts";
-
-/** A flat-to-flat transform is an affine crop: no rotation or lens distortion.
- * v360 samples the native stage directly into export pixels with Lanczos.
- * RGB16 preserves fractional colour/edge precision until the final conversion.
- * Its normalized coordinates use (input size - 1) and output pixel centres.
- */
-export function cameraFilter(frames: CameraFrame[], width: number, height: number, d: CameraDefaults): string {
-  const degrees = (range: number) => 2 * Math.atan(range) * 180 / Math.PI;
-  const parameters = (f: CameraFrame) => ({
-    h_fov: degrees(f.w / (width - 1)),
-    v_fov: degrees(f.h / (height - 1)),
-    h_offset: 2 * (f.x + f.w / 2 - 0.5) / (width - 1) - 1,
-    v_offset: 2 * (f.y + f.h / 2 - 0.5) / (height - 1) - 1,
-  });
-  const first = frames[0];
-  if (!first || width < 2 || height < 2) throw new Error("invalid camera surface");
-  const initial = parameters(first);
-  let previous = first;
-  const commands: string[] = [];
-  for (const f of frames.slice(1)) {
-    // Ignore only sub-millipixel spring tails; no whole-pixel camera quantization.
-    const error = Math.max(Math.abs(f.x - previous.x), Math.abs(f.y - previous.y),
-      Math.abs(f.w - previous.w), Math.abs(f.h - previous.h)) * d.out_w / f.w;
-    if (error < 0.001) continue;
-    const values = parameters(f);
-    const updates = Object.entries(values).map(([key, value]) => `v360 ${key} ${value.toFixed(10)}`).join(",");
-    // Put updates between frame timestamps so decimal rounding cannot delay a move by one frame.
-    commands.push(`${Math.max(0, f.t - 0.5 / d.fps).toFixed(9)} ${updates}`);
-    previous = f;
-  }
-  const control = commands.length ? `sendcmd=commands='${commands.join(";")};',` : "";
-  const settings = Object.entries(initial).map(([key, value]) => `${key}=${value.toFixed(10)}`).join(":");
-  // Lanczos normalizes its kernel coefficients, preserving flat card colours.
-  return `format=gbrp16le,${control}v360=input=flat:output=flat:w=${d.out_w}:h=${d.out_h}:ih_fov=90:iv_fov=90:${settings}`
-    + `:interp=${d.quality === "draft" ? "linear" : "lanczos"},setsar=1`;
-}
-
-/** Duplicate source images by reference, discard unneeded samples before the
- * warp, and average only each exposure's samples. One chronological stream
- * avoids buffering whole shots across parallel velocity branches.
- */
-function motionBlurGraph(frames: CameraFrame[], plan: ReturnType<typeof shutterPlan>, width: number, height: number, d: CameraDefaults): string {
-  if (!plan.metrics.blurredFrames) return `[c4]${cameraFilter(frames, width, height, d)}[camera]`;
-  const counts = frames.map(() => 1);
-  for (const [count, indices] of plan.groups) for (const i of indices) counts[i] = count;
-  const sampled: CameraFrame[] = [];
-  const ends: number[] = [];
-  const commands: string[] = [];
-  let previous = 0;
-  for (let i = 0; i < frames.length; i++) {
-    const count = counts[i]!;
-    if (count !== previous) {
-      // tmix stores oldest first. Keep one extra zero-weight slot so its
-      // equal-weight running-sum shortcut cannot reuse skipped-frame sums.
-      // Zero every sample from earlier exposures.
-      const weights = Array.from({ length: plan.samples + 1 }, (_, j) => j < plan.samples + 1 - count ? 0 : 1).join("|");
-      commands.push(`${(Math.max(0, sampled.length - 0.5) / (d.fps * plan.samples)).toFixed(9)} tmix@shutter weights ${weights}`);
-      previous = count;
-    }
-    for (let j = 0; j < count; j++) {
-      sampled.push(count === 1 ? frames[i]! : shutterFrame(frames, i - plan.half + 2 * plan.half * j / (count - 1)));
-      ends.push(j === count - 1 ? 1 : 0);
-    }
-  }
-  const countExpr = frameExpr(counts).replaceAll("in-1", `floor(n/${plan.samples})`);
-  const endExpr = `eq(round(${frameExpr(ends).replaceAll("in-1", "n")}),1)`;
-  return `[c4]fps=${d.fps * plan.samples}:round=up:start_time=0,tpad=stop_mode=clone:stop=${plan.samples},`
-    + `trim=end_frame=${frames.length * plan.samples},select='lt(mod(n,${plan.samples}),round(${countExpr}))',`
-    + `setpts=N/(${d.fps * plan.samples}*TB),${cameraFilter(sampled.map((f, i) => ({ ...f, t: i / (d.fps * plan.samples) })), width, height, { ...d, fps: d.fps * plan.samples })},`
-    + `sendcmd=c='${commands.join(";")}',tmix@shutter=frames=${plan.samples + 1}:enable='${endExpr}',`
-    + `select='${endExpr}',settb=AVTB,setpts=N/(${d.fps}*TB)[camera]`;
-}
 
 /** Text-friendly production encoder settings, also exercised by the output gate. */
 export function encodingOptions(d: CameraDefaults): string[] {
@@ -209,7 +136,7 @@ export async function renderTake(dir: string, d?: CameraDefaults): Promise<{ out
   const captionsOverlay = hasDialogue(captionsAss) ? `,ass=${filterPath(captionsFile)}:fontsdir=${filterPath(FONTS_DIR)}` : "";
   const filter = [
     `[0:v]setpts='${setptsExpr(squeezes, d.idle_speed)}',fps=${d.fps}${clicksOverlay},scale=in_color_matrix=auto:out_color_matrix=bt601,format=${pixelFormat}[region0]`,
-    ...(blurs.length ? [blurGraph(blurs)] : []),
+    ...(blurs.length ? [blurGraph(blurs, pixelFormat)] : []),
     `[region${blurs.length}]null${spotlightOverlay}[screen]`,
     cardFilter(meta.width, meta.height, stage, d, still),
     `${camera};[camera]trim=end=${duration}${captionsOverlay}${keysOverlay}`
