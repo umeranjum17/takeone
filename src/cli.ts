@@ -2,6 +2,7 @@
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { existsSync, readFileSync, unlinkSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 import { setKeyFromStdin } from "./secrets.ts";
 import { runCapture } from "./capture.ts";
@@ -133,16 +134,55 @@ export async function main(argv: string[]): Promise<number> {
     if (!dir) { console.error("usage: takeone render <take-dir>"); return 2; }
     try {
       const pairs: string[] = [];
+      let aspect: string | undefined;
+      let resolution: string | undefined;
+      let format = "mp4";
       for (let i = 0; i < args.length; i++) {
-        if (args[i] !== "--set") throw Error(`unknown option ${args[i]}`);
-        pairs.push(args[++i]!);
+        const option = args[i];
+        const value = args[++i];
+        if (value === undefined) throw Error(`${option} needs a value`);
+        if (option === "--set") pairs.push(value);
+        else if (option === "--aspect") aspect = value;
+        else if (option === "--resolution") resolution = value;
+        else if (option === "--format") format = value;
+        else throw Error(`unknown option ${option}`);
       }
       const raw = parseSet(pairs);
+      if (aspect !== undefined) {
+        const sizes: Record<string, [number, number]> = {
+          landscape: [1920, 1080], portrait: [1080, 1920], square: [1080, 1080],
+        };
+        const size = sizes[aspect];
+        if (!size) throw Error(`unknown aspect ${aspect}; use landscape, portrait or square`);
+        raw.out_w = size[0]; raw.out_h = size[1];
+      }
+      if (resolution !== undefined) {
+        if (resolution !== "4k") throw Error(`unknown resolution ${resolution}; use 4k`);
+        const portrait = aspect === "portrait" || (aspect === undefined && isPortraitTake(dir));
+        raw.out_w = portrait ? 2160 : 3840;
+        raw.out_h = portrait ? 3840 : 2160;
+      }
+      if (!["mp4", "gif", "webm", "prores4444"].includes(format)) {
+        throw Error(`unknown format ${format}; use mp4, gif, webm or prores4444`);
+      }
       if (!("out_w" in raw) && !("out_h" in raw) && isPortraitTake(dir)) {
         raw.out_w = 1080;
         raw.out_h = 1920;
       }
-      console.log((await renderTake(dir, applyOverrides(raw))).out);
+      const rendered = (await renderTake(dir, applyOverrides(raw))).out;
+      if (format === "mp4") console.log(rendered);
+      else {
+        const suffix = format === "prores4444" ? "mov" : format;
+        const output = rendered.replace(/\.mp4$/, `.${suffix}`);
+        if (format === "gif") {
+          execFileSync("ffmpeg", ["-y", "-i", rendered, "-vf", "fps=15,scale='min(1080,iw)':-2:flags=lanczos,split[s0][s1];[s0]palettegen[p];[s1][p]paletteuse", output], { stdio: "ignore" });
+        } else if (format === "webm") {
+          execFileSync("ffmpeg", ["-y", "-i", rendered, "-c:v", "libvpx-vp9", "-b:v", "0", "-crf", "32", output], { stdio: "ignore" });
+        } else {
+          execFileSync("ffmpeg", ["-y", "-i", rendered, "-c:v", "prores_ks", "-profile:v", "4", "-pix_fmt", "yuva444p10le", output], { stdio: "ignore" });
+        }
+        console.log(output);
+      }
       return 0;
     } catch (e) {
       console.error(e instanceof Error ? e.message : e);
