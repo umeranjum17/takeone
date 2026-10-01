@@ -22,13 +22,19 @@ mkdirSync(join(take,"analysis"), { recursive: true });
 const ff = (...args:string[]) => execFileSync("ffmpeg", ["-nostdin","-hide_banner","-v","error","-y",...args], {maxBuffer:10_000_000});
 const names=Object.keys(THEMES);
 const font=join(FONTS_DIR,"Geist.ttf");
+const columns=4;
+const provenance=(source:string,realTake:boolean)=>{
+const hash=(file:string)=>createHash("sha256").update(readFileSync(file)).digest("hex");
+const fontManifest=JSON.parse(readFileSync(join(FONTS_DIR,"manifest.json"),"utf8")) as {file:string}[];
+const artifacts=realTake ? ["takeone-themes-grid.png",...names.flatMap(name=>[`${name}.png`,`${name}.mp4`])] : ["takeone-themes-grid.png","takeone-themes-cycle.mp4","takeone-themes-before.png","takeone-themes-after.png","takeone-themes-after.mp4","takeone-themes-side-by-side.mp4","metrics.json",...names.flatMap(name=>[`${name}.png`,`${name}.mp4`])];
+writeFileSync(join(dest,"provenance.json"),JSON.stringify({generator:"scripts/theme-proof.ts",generator_sha256:hash(fileURLToPath(import.meta.url)),source,source_sha256:hash(source),theme_sha256:hash(fileURLToPath(new URL("../src/themes.ts",import.meta.url))),fonts:Object.fromEntries(fontManifest.map(font=>[font.file,hash(join(FONTS_DIR,font.file))])),themes:names,grid:{columns,rows:Math.ceil(names.length/columns),width:columns*640,height:Math.ceil(names.length/columns)*756},artifacts:Object.fromEntries(artifacts.map(name=>[name,hash(join(dest,name))]))},null,2)+"\n");
+};
 /** Each cell stacks a title frame over a caption frame; the label is the theme, never on the video. */
 const grid=(source:string)=>{
- const columns=4,layout=names.map((_,i)=>`${(i%columns)*640}_${Math.floor(i/columns)*756}`).join("|");
+ const layout=names.map((_,i)=>`${(i%columns)*640}_${Math.floor(i/columns)*756}`).join("|");
  const inputs=names.flatMap(name=>["-i",join(dest,`${name}.png`)]);
  const cells=names.map((name,i)=>`[${i}:v]scale=640:720,pad=640:756:0:36:color=0x121319,drawtext=fontfile='${font}':text='${name}':x=20:y=9:fontsize=20:fontcolor=white[c${i}]`).join(";");
  ff(...inputs,"-filter_complex",`${cells};${names.map((_,i)=>`[c${i}]`).join("")}xstack=inputs=${names.length}:layout=${layout}[grid]`,"-map","[grid]","-frames:v","1","-update","1",join(dest,"takeone-themes-grid.png"));
- writeFileSync(join(dest,"provenance.json"),JSON.stringify({generator:"scripts/theme-proof.ts",generator_sha256:createHash("sha256").update(readFileSync(fileURLToPath(import.meta.url))).digest("hex"),source,source_sha256:createHash("sha256").update(readFileSync(source)).digest("hex"),themes:names,grid:{columns,rows:Math.ceil(names.length/columns),width:columns*640,height:Math.ceil(names.length/columns)*756},grid_sha256:createHash("sha256").update(readFileSync(join(dest,"takeone-themes-grid.png"))).digest("hex")},null,2)+"\n");
 };
 if(values.take!==undefined){
  // A real take at the default 1080p60 output: frames from its title and its first caption.
@@ -46,6 +52,7 @@ if(values.take!==undefined){
   console.log(`rendered ${name}`);
  }
  grid(join(resolve(values.take),"screen.webm"));
+ provenance(join(resolve(values.take),"screen.webm"),true);
  console.log(`proof saved in ${dest}`);
  process.exit(0);
 }
@@ -83,4 +90,5 @@ const quote=(s:string)=>s.replace(/'/g,"'\\''");
 writeFileSync(join(dest,"cycle.txt"),names.map(n=>`file '${quote(join(dest,`${n}.mp4`))}'`).join("\n")+"\n");
 ff("-f","concat","-safe","0","-i",join(dest,"cycle.txt"),"-c","copy","-movflags","+faststart",join(dest,"takeone-themes-cycle.mp4"));
 writeFileSync(join(dest,"metrics.json"),JSON.stringify(facts,null,2)+"\n");
+provenance(source,false);
 console.log(`proof saved in ${dest}`);
