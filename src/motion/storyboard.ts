@@ -47,7 +47,7 @@ export function sceneTexts(s: Scene): string[] {
   return (s.stops ?? []).map(x => x.caption ?? "").filter(Boolean);
 }
 
-function sceneReadingDuration(s: Scene, fps: number): number {
+function sceneRevealDuration(s: Scene): number {
   let reveal = 0;
   if (s.pattern === "hero-reveal") {
     const words = (s.title ?? "").trim().split(/\s+/).filter(Boolean).length;
@@ -59,8 +59,21 @@ function sceneReadingDuration(s: Scene, fps: number): number {
     reveal = .055 * (s.text ?? "Draft launch announcement").length;
   }
   if (s.pattern === "fragment" && s.kind === "counter") reveal = 1.5;
+  return reveal;
+}
+
+function validateVisibleScene(s: Scene, start: number, duration: number, fps: number, path: string): void {
+  const end = start + Math.round(duration * fps) / fps;
+  if (s.pattern === "zoom-tour") {
+    if (s.at! < start - 1e-9 || s.at! + s.d > end + 1e-9) throw new StoryboardError(path, "visible window truncates camera moves and reading holds");
+    return;
+  }
   const reading = readingFloor(sceneTexts(s).join(" "));
-  return reading ? Math.ceil(reveal * fps - 1e-9) / fps + reading + 1 / fps : 0;
+  if (!reading) return;
+  const readableAt = Math.max(start, s.at! + sceneRevealDuration(s));
+  const firstFrame = Math.ceil((readableAt - start) * fps - 1e-9);
+  const lastFrame = Math.min(Math.round(duration * fps) - 1, Math.ceil((s.at! + s.d - start) * fps - 1e-9) - 1);
+  if (lastFrame / fps + 1e-9 < firstFrame / fps + reading) throw new StoryboardError(path, "visible window is under reveal and reading-time floor");
 }
 
 function scene(raw: unknown, path: string): Scene {
@@ -69,7 +82,7 @@ function scene(raw: unknown, path: string): Scene {
   if (!PATTERNS.includes(pattern as never)) throw new StoryboardError(`${path}.pattern`, `unknown pattern ${String(pattern)}; choose ${PATTERNS.join(", ")}`);
   const s: Scene = { ...(raw as unknown as Scene) };
   s.d = num(raw["d"], `${path}.d`, 0.25, MAX_DURATION_S);
-  if (raw["at"] !== undefined) s.at = num(raw["at"], `${path}.at`, -MAX_DURATION_S, MAX_DURATION_S);
+  if (raw["at"] !== undefined) s.at = num(raw["at"], `${path}.at`, 0, MAX_DURATION_S);
   for (const k of ["title", "subtitle", "cta", "url", "logo", "text", "kind", "state"] as const) if (raw[k] !== undefined) s[k] = str(raw[k], `${path}.${k}`, k === "text" ? 400 : 120);
   for (const k of ["screen", "focus"] as const) if (raw[k] !== undefined && !ID.test(String(raw[k]))) throw new StoryboardError(`${path}.${k}`, "expected an id");
   if (raw["device"] !== undefined && !DEVICES.includes(String(raw["device"]))) throw new StoryboardError(`${path}.device`, `choose ${DEVICES.join(", ")}`);
@@ -213,12 +226,21 @@ export function validateStoryboard(raw: unknown): Storyboard {
   for (const list of allTimelines(layout, scenes)) for (const [i, s] of list.entries()) {
     if (s.focus && !regionIds.has(s.focus)) throw new StoryboardError(`scenes[${i}].focus`, "unknown region");
     if (s.screen && Object.keys(screens).length && !Object.hasOwn(screens, s.screen)) throw new StoryboardError(`scenes[${i}].screen`, "unknown screen");
-    if (s.pattern !== "zoom-tour" && s.d + 1e-9 < sceneReadingDuration(s, fps)) throw new StoryboardError(`scenes[${i}].d`, "under reveal and reading-time floor");
+    if (s.at! < 0) throw new StoryboardError(`scenes[${i}].at`, "negative scene starts are not supported");
     for (const stop of s.stops ?? []) if (!regionIds.has(stop.region)) throw new StoryboardError(`scenes[${i}].stops`, "unknown region");
     const owner = s.screen ?? Object.keys(screens)[0] ?? Object.keys((source["states"] ?? {}) as object)[0] ?? "S1";
     for (const id of [s.focus, ...(s.stops ?? []).map(stop => stop.region)].filter(Boolean)) {
       const region = (regions as Storyboard["regions"]).find(r => r.id === id)!;
       if (region.screen !== owner) throw new StoryboardError(`scenes[${i}]`, "regions must belong to the scene screen");
+    }
+  }
+  const duration = layoutDuration(layout, scenes);
+  for (const list of allTimelines(layout, scenes)) for (const [i, s] of list.entries()) validateVisibleScene(s, 0, duration, fps, `scenes[${i}].d`);
+  if (layout.kind === "bento" && layout.grid === "2x2") {
+    for (const tile of layout.tiles) for (const [i, s] of layout.master.scenes.entries()) {
+      const end = tile.offset_s + Math.round(layout.master.d * fps) / fps;
+      if (s.at! + s.d <= tile.offset_s || s.at! >= end) continue;
+      validateVisibleScene(s, tile.offset_s, layout.master.d, fps, `layout.tiles.${tile.id}.scenes[${i}]`);
     }
   }
   lintFonts(result);
