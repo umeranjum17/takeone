@@ -1,0 +1,29 @@
+{
+  "squeezes": [
+    {
+      "a": 1,
+      "b": 2.1
+    },
+    {
+      "a": 20.08,
+      "b": 21.5
+    },
+    {
+      "a": 27.2,
+      "b": 30.3
+    },
+    {
+      "a": 34.08,
+      "b": 44
+    }
+  ],
+  "candidate": "87d47178573488510efcff493c583f01e7b3b29c",
+  "interval": [
+    16,
+    30
+  ],
+  "frames": 841,
+  "cursorMiss": 0,
+  "thumbMiss": 0,
+  "firstMiss": null
+}
