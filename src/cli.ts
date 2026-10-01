@@ -11,7 +11,7 @@ import { renderTake } from "./render/render.ts";
 import { THEMES, resolveTheme } from "./themes.ts";
 import { isMotionTake, MOTION_USAGE, runMotion } from "./motion/cli.ts";
 import { renderMotion } from "./motion/motion.ts";
-import type { CameraDefaults, Overrides } from "./camera/defaults.ts";
+import { applyOverrides, type CameraDefaults, type Overrides } from "./camera/defaults.ts";
 
 export function takesDir(): string {
   return process.env["TAKEONE_DIR"] ?? join(homedir(), "Videos", "takeone");
@@ -170,40 +170,38 @@ export async function main(argv: string[]): Promise<number> {
       let format = "mp4";
       for (let i = 0; i < args.length; i++) {
         const option = args[i];
-        if (!["--set", "--aspect", "--resolution", "--format"].includes(option!)) {
+        if (!["--set", "--aspect", "--resolution", "--format", "--theme"].includes(option!)) {
           throw Error(`unknown option ${option}`);
         }
         const value = args[++i];
-        if (value === undefined) throw Error(`${option} needs a value`);
+        if (value === undefined || value.startsWith("--")) throw Error(`${option} needs a value`);
         if (option === "--set") pairs.push(value);
         else if (option === "--theme") theme = value;
         else if (option === "--aspect") aspect = value;
         else if (option === "--resolution") resolution = value;
         else if (option === "--format") format = value;
+        else throw Error(`unknown option ${option}`);
       }
-      const raw = parseSet(pairs);
+      const dimensions: Record<string, [number, number]> = {};
       if (aspect !== undefined) {
-        const sizes: Record<string, [number, number]> = {
+        const aspects: Record<string, [number, number]> = {
           landscape: [1920, 1080], portrait: [1080, 1920], square: [1080, 1080],
         };
-        const size = sizes[aspect];
+        const size = aspects[aspect];
         if (!size) throw Error(`unknown aspect ${aspect}; use landscape, portrait or square`);
-        raw.out_w = size[0]; raw.out_h = size[1];
+        dimensions.out_w = size[0]; dimensions.out_h = size[1];
       }
       if (resolution !== undefined) {
         if (resolution !== "4k") throw Error(`unknown resolution ${resolution}; use 4k`);
         const portrait = aspect === "portrait" || (aspect === undefined && isPortraitTake(dir));
-        raw.out_w = portrait ? 2160 : 3840;
-        raw.out_h = portrait ? 3840 : 2160;
+        dimensions.out_w = portrait ? 2160 : 3840;
+        dimensions.out_h = portrait ? 3840 : 2160;
       }
       if (!["mp4", "gif", "webm", "prores4444"].includes(format)) {
         throw Error(`unknown format ${format}; use mp4, gif, webm or prores4444`);
       }
-      if (!("out_w" in raw) && !("out_h" in raw) && isPortraitTake(dir)) {
-        raw.out_w = 1080;
-        raw.out_h = 1920;
-      }
-      const rendered = (await renderTake(dir, resolveCamera(dir, Object.entries(raw).map(([key, value]) => `${key}=${value}`), theme))).out;
+      const camera = resolveCamera(dir, pairs, theme);
+      const rendered = (await renderTake(dir, applyOverrides(dimensions, camera))).out;
       if (format === "mp4") console.log(rendered);
       else {
         const suffix = format === "prores4444" ? "mov" : format;
