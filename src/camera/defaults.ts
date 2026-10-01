@@ -16,6 +16,12 @@ export interface CameraDefaults {
   shadow_y: number;
   shadow_x: number;
   border: number;
+  border_color: string;
+  shadow_color: string;
+  bg_pattern: "none" | "grid" | "scanlines";
+  caption_rounding: number; // 0 square .. 1 pill
+  caption_opacity: number;
+  caption_border: number;
   glow: number;
   spring_omega: number; // overlay motion only
   spring_zeta: number;
@@ -86,6 +92,12 @@ export const DEFAULTS: CameraDefaults = {
   shadow_y: 18,
   shadow_x: 0,
   border: 0,
+  border_color: "#ffffff",
+  shadow_color: "#000000",
+  bg_pattern: "none",
+  caption_rounding: 1,
+  caption_opacity: 0.86,
+  caption_border: 0,
   glow: 0,
   spring_omega: 14,
   spring_zeta: 1,
@@ -140,7 +152,7 @@ export const DEFAULTS: CameraDefaults = {
   fade_s: 0.4,
 };
 
-const COLOURS = ["background", "background_to", "accent", "text", "card"];
+const COLOURS = ["background", "background_to", "accent", "text", "card", "border_color", "shadow_color"];
 
 export type Overrides = Partial<Record<keyof CameraDefaults, number | string>>;
 
@@ -151,6 +163,11 @@ export function applyOverrides(overrides: Overrides, base: CameraDefaults = DEFA
     "medium", "slow", "slower", "veryslow", "placebo"];
   for (const [k, v] of Object.entries(overrides)) {
     const key = k as keyof CameraDefaults;
+    if (key === "bg_pattern") {
+      if (typeof v !== "string" || !["none", "grid", "scanlines"].includes(v)) throw new Error(`unknown or invalid --set ${k}=${v}`);
+      out.bg_pattern = v as CameraDefaults["bg_pattern"];
+      continue;
+    }
     if (key === "bg_style") {
       if (!["linear", "solid", "radial", "mesh", "image"].includes(String(v))) throw new Error(`unknown or invalid --set ${k}=${v}`);
       out.bg_style = v as CameraDefaults["bg_style"];
@@ -198,7 +215,8 @@ export function applyOverrides(overrides: Overrides, base: CameraDefaults = DEFA
       || (k === "frame_max" && v > 1)
       || (k === "deadzone_margin" && v >= 0.5)
       || (k === "stage_margin" && v > 0.25)
-      || (["shadow", "glow"].includes(k) && v > 1)
+      || (["shadow", "glow", "caption_rounding", "caption_opacity"].includes(k) && v > 1)
+      || (["border", "caption_border"].includes(k) && v > 16)
       || (k === "grain" && v > 100)
       || (k === "spring_zeta" && (v < 0.75 || v > 2))
       || (k === "pace" && (v < 0.25 || v > 4))

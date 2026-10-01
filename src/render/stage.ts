@@ -87,15 +87,16 @@ export function stageImageFilter(width: number, height: number, st: Stage, d: Ca
   return [
     `color=black:s=${width}x${height}:d=1,format=gray,${card},split[m1][m2]`,
     `[m1]pad=${st.w}:${st.h}:${st.screenX + shadowX}:${st.screenY + shadowY}:black${d.shadow_blur > 0 ? `,gblur=sigma=${blur}` : ""},lutyuv=y=val*${d.shadow}[sa]`,
-    `color=black:s=${st.w}x${st.h}:d=1,format=rgba[sb]`,
+    `color=${d.shadow_color}:s=${st.w}x${st.h}:d=1,format=rgba[sb]`,
     `[sb][sa]alphamerge[shadow]`,
-    `${backgroundFilter(st, d)},format=yuv444p${d.grain > 0 ? `,noise=c0s=${d.grain}:c0f=u:c0_seed=7` : ""}[bg]`,
+    `${backgroundFilter(st, d)},format=yuv444p${backgroundPattern(d)}${d.grain > 0 ? `,noise=c0s=${d.grain}:c0f=u:c0_seed=7` : ""}[bg]`,
     `[bg][shadow]overlay=format=auto[base]`,
     ...(d.border > 0 || d.glow > 0 ? [
-      `color=${d.accent}:s=${st.w}x${st.h}:d=1,format=rgba[accent]`,
-      `color=black:s=${width}x${height}:d=1,format=gray,${card},pad=${st.w}:${st.h}:${st.screenX}:${st.screenY}:black`
-        + (d.glow > 0 ? `,gblur=sigma=${(18 / st.restScale).toFixed(1)},lutyuv=y=val*${d.glow}`
-          : `,dilation=coordinates=255`)
+      `color=${d.glow > 0 ? d.accent : d.border_color}:s=${st.w}x${st.h}:d=1,format=rgba[accent]`,
+      (d.glow > 0
+        ? `color=black:s=${width}x${height}:d=1,format=gray,${card},pad=${st.w}:${st.h}:${st.screenX}:${st.screenY}:black`
+          + `,gblur=sigma=${(24 / st.restScale).toFixed(1)},lutyuv=y=val*${d.glow}`
+        : `color=black:s=${st.w}x${st.h}:d=1,format=gray,geq=lum='255*clip(${radius + d.border / st.restScale}+0.5-hypot(max(abs(X+0.5-${st.screenX + width / 2})-(${width / 2 - radius}),0),max(abs(Y+0.5-${st.screenY + height / 2})-(${height / 2 - radius}),0)),0,1)'`)
         + `[accentmask]`,
       `[accent][accentmask]alphamerge[edge]`,
       `[base][edge]overlay=format=auto[look]`,
@@ -297,8 +298,8 @@ export function captionAss(captions: Caption[], widths: (number | CaptionInk)[],
     const y = -pillH / 2;
     const time = `${assTime(caption.t0)},${assTime(caption.t1)}`;
     // The pill is drawn around its own origin so \move animates it with the text.
-    out += `Dialogue: 2,${time},Default,,0,0,0,,{\\an7${move}${fade}\\bord0\\shad0\\blur0.6`
-      + `\\1c${assColour(d.card)}\\1a${assAlpha(0.14)}\\p1}${roundRect(x, y, pillW, pillH, pillH / 2)}\n`;
+    out += `Dialogue: 2,${time},Default,,0,0,0,,{\\an7${move}${fade}\\bord${d.caption_border}\\3c${assColour(d.text)}\\shad0\\blur0.6`
+      + `\\1c${assColour(d.card)}\\1a${assAlpha(1 - d.caption_opacity)}\\p1}${roundRect(x, y, pillW, pillH, pillH / 2 * d.caption_rounding)}\n`;
     const margin = captionMargin(size, d);
     out += `Dialogue: 3,${time},Default,,${margin},${margin},0,,{\\q0\\an5${move}${fade}\\fs${size}\\fn${caption.title ? d.display_font : d.caption_font}\\1c${assColour(d.text)}\\bord0\\shad0}${caption.text}\n`;
   });
@@ -338,4 +339,12 @@ export function backgroundFilter(st: Stage, d: CameraDefaults): string {
   return `gradients=s=${st.w}x${st.h}:d=1:${stops.map((c, i) => `c${i}=${hex(c)}`).join(":")}`
     + `:x0=${radial ? Math.round(st.w / 2) : 0}:y0=${radial ? Math.round(st.h / 2) : 0}:x1=${st.w}:y1=${st.h}`
     + `:nb_colors=${stops.length}:seed=0${radial ? ":type=radial" : ""}`;
+}
+
+/** Low-contrast stage texture; static coordinates keep rerenders deterministic. */
+function backgroundPattern(d: CameraDefaults): string {
+  if (d.bg_pattern === "none") return "";
+  const line = d.bg_pattern === "grid"
+    ? "max(lt(mod(X,48),1),lt(mod(Y,48),1))" : "lt(mod(Y,6),1)";
+  return `,geq=lum='lum(X,Y)+6*(${line})':cb='cb(X,Y)':cr='cr(X,Y)'`;
 }

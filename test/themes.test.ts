@@ -24,7 +24,7 @@ test("theme precedence and validation, including saved portrait takes", () => {
     assert.deepEqual(resolveTheme(undefined),resolveTheme("midnight"));
     assert.equal(parseSet(["caption_font=123"]).caption_font,"123");
     for (const name of ["invalid", "__proto__", "constructor", 42, null]) assert.throws(()=>resolveTheme(name), /unknown theme/);
-    for (const bad of [{bg_stops:"#ffffff"},{bg_stops:"#ffffff,red"},{bg_style:"url"},{display_font:"x,evil"},{grain:101},{shadow_blur:-1},{pace:0},{spring_zeta:0.5},{text:123}]) {
+    for (const bad of [{bg_stops:"#ffffff"},{bg_stops:"#ffffff,red"},{bg_style:"url"},{display_font:"x,evil"},{grain:101},{shadow_blur:-1},{pace:0},{spring_zeta:0.5},{text:123},{bg_pattern:"unknown"},{caption_rounding:2},{caption_opacity:2},{caption_border:17},{shadow_color:"red"}]) {
       assert.throws(()=>applyOverrides(bad), /invalid --set/);
     }
   } finally {rmSync(dir,{recursive:true,force:true});}
@@ -66,5 +66,21 @@ test("all eight themes render with bundled faces; midnight decoded frames equal 
     if (previousConfig === undefined) delete process.env["FONTCONFIG_FILE"];
     else process.env["FONTCONFIG_FILE"] = previousConfig;
     rmSync(dir,{recursive:true,force:true});
+  }
+});
+
+test("caption ink meets 4.5:1 contrast after compositing on any grey screen", () => {
+  const rgb=(colour:string)=>[1,3,5].map(i=>parseInt(colour.slice(i,i+2),16)/255);
+  const luminance=(channels:number[])=>channels.map(v=>v<=0.04045?v/12.92:((v+0.055)/1.055)**2.4)
+    .reduce((sum,v,i)=>sum+v*[0.2126,0.7152,0.0722][i]!,0);
+  for(const name of Object.keys(THEMES)) {
+    const d=resolveTheme(name);
+    const ink=luminance(rgb(d.text));
+    const card=rgb(d.card);
+    for(let grey=0;grey<=255;grey++) {
+      const background=luminance(card.map(v=>v*d.caption_opacity+grey/255*(1-d.caption_opacity)));
+      const contrast=(Math.max(ink,background)+.05)/(Math.min(ink,background)+.05);
+      assert.ok(contrast>=4.5,`${name} on ${grey}: ${contrast.toFixed(2)}:1`);
+    }
   }
 });

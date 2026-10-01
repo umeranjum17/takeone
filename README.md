@@ -284,13 +284,13 @@ changing that saved selection.
 | Theme | Look | Display / caption font |
 |---|---|---|
 | midnight | Dark diagonal gradient | Inter SemiBold / Inter SemiBold |
-| paper | Cream editorial canvas with orange accents | Instrument Serif / IBM Plex Sans |
+| paper | Cream paper, black hairline and ink | Instrument Serif / IBM Plex Sans |
 | aurora | Four radial colour pools with mint accents | Geist SemiBold / Geist |
 | mono | Black canvas with a white hairline | Geist SemiBold / Geist Mono |
-| neon | Violet vignette and pink glow | Space Grotesk Bold / Space Grotesk Medium |
+| neon | Violet vignette, visible pink glow and type | Space Grotesk Bold / Space Grotesk Medium |
 | brutalist | Yellow canvas, square corners, hard offset shadow | Archivo ExtraBold Expanded / IBM Plex Mono |
 | sand | Warm diagonal gradient and soft shadow | Fraunces SemiBold / Manrope Medium |
-| terminal | Dark canvas with green type | JetBrains Mono Bold / JetBrains Mono |
+| terminal | Green grid, square captions and mono type | JetBrains Mono Bold / JetBrains Mono |
 
 ![Eight recording themes on a fictional launch board](docs/assets/themes/takeone-themes-grid.png)
 
@@ -305,7 +305,9 @@ spaces, for example `--set "display_font=Inter Bold"`.
 
 Additional look tokens: `bg_style=linear|solid|radial|mesh|image`,
 `bg_stops=#RRGGBB,#RRGGBB,...` (2–8 colours), `grain=0..100`,
-`shadow_blur`, `shadow_x`, `shadow_y`, `border`, `glow=0..1`,
+`shadow_blur`, `shadow_x`, `shadow_y`, `shadow_color`, `border`, `border_color`, `glow=0..1`,
+`bg_pattern=none|grid|scanlines`, `caption_rounding=0..1`,
+`caption_opacity=0..1`, `caption_border=0..16`,
 `spring_omega`, `spring_zeta=0.75..2`, and `pace=0.25..4`.
 For `bg_style=image`, supply `background_image=/path/to/image.png` (relative
 paths resolve inside the take). Recording backgrounds are deterministic stills;
@@ -316,7 +318,12 @@ remains critically damped. Recording `pace` scales camera holds (`dwell`,
 
 Generate the synthetic eight-theme grid and a short comparison video with
 `node scripts/theme-proof.ts tmp/theme-proof`. The fixture is a fictional
-launch board owned by Umer, with no desktop capture.
+Tidewater launch board with Umer as its demo person, with no desktop capture.
+The captured 2560×1440 fixture comes from `scripts/e2e/scene.html`; the proof
+uses `stage_margin=0.16` so background treatment is visible at thumbnail size.
+Every theme meets 4.5:1 caption contrast, including compositing over a white
+or black screen. Paper uses opaque cream labels and black ink; terminal uses
+opaque dark labels and green monospace ink.
 
 ## End-to-end take with a staged scene
 
