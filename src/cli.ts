@@ -170,6 +170,9 @@ export async function main(argv: string[]): Promise<number> {
       let format = "mp4";
       for (let i = 0; i < args.length; i++) {
         const option = args[i];
+        if (!["--set", "--aspect", "--resolution", "--format"].includes(option!)) {
+          throw Error(`unknown option ${option}`);
+        }
         const value = args[++i];
         if (value === undefined) throw Error(`${option} needs a value`);
         if (option === "--set") pairs.push(value);
@@ -177,7 +180,6 @@ export async function main(argv: string[]): Promise<number> {
         else if (option === "--aspect") aspect = value;
         else if (option === "--resolution") resolution = value;
         else if (option === "--format") format = value;
-        else throw Error(`unknown option ${option}`);
       }
       const raw = parseSet(pairs);
       if (aspect !== undefined) {
