@@ -7,7 +7,8 @@ import { setKeyFromStdin } from "./secrets.ts";
 import { runCapture } from "./capture.ts";
 import { makeTake, PreflightRefusal, TakeInputError } from "./make.ts";
 import { renderTake } from "./render/render.ts";
-import { applyOverrides, type CameraDefaults, type Overrides } from "./camera/defaults.ts";
+import { resolveTheme } from "./themes.ts";
+import type { CameraDefaults, Overrides } from "./camera/defaults.ts";
 
 export function takesDir(): string {
   return process.env["TAKEONE_DIR"] ?? join(homedir(), "Videos", "takeone");
@@ -21,6 +22,7 @@ interface Args {
   maxTokens?: number;
   set: string[];
   camera?: CameraDefaults;
+  theme?: string;
 }
 
 /** Parse `--set key=value` pairs; numeric values stay numbers so that
@@ -32,21 +34,22 @@ export function parseSet(pairs: string[]): Overrides {
     if (!match) throw Error(`invalid --set ${pair}`);
     const [, k, v] = match;
     const n = Number(v);
-    overrides[k!] = k === "background" || !Number.isFinite(n) ? v! : n;
+    overrides[k!] = ["background", "background_to", "accent", "text", "card", "caption_font", "display_font", "bg_style", "bg_stops", "background_image"].includes(k!) || !Number.isFinite(n) ? v! : n;
   }
   return overrides as Overrides;
 }
 
-/** Camera overrides for a take dir from `--set` pairs; undefined without pairs.
+/** Resolve a take look from its saved theme, CLI selection and `--set` pairs.
  * Throws on malformed pairs. Portrait takes default to portrait output. */
-export function resolveCamera(dir: string, pairs: string[]): CameraDefaults | undefined {
-  if (pairs.length === 0) return undefined;
+export function resolveCamera(dir: string, pairs: string[], theme?: string): CameraDefaults {
   const raw = parseSet(pairs);
+  const meta = JSON.parse(readFileSync(join(dir, "take.json"), "utf8")) as { theme?: unknown };
+  const selected = theme ?? meta.theme;
   if (!("out_w" in raw) && !("out_h" in raw) && isPortraitTake(dir)) {
     raw.out_w = 1080;
     raw.out_h = 1920;
   }
-  return applyOverrides(raw);
+  return resolveTheme(selected, raw);
 }
 
 /** True when the take's stream is portrait (taller than wide). */
@@ -66,6 +69,11 @@ function parseArgs(argv: string[]): Args {
   for (let i = 0; i < argv.length; i++) {
     const s = argv[i]!;
     if (s === "--no-jev") a.noJev = true;
+    else if (s === "--theme") {
+      const value = argv[++i];
+      if (!value || value.startsWith("--")) throw Error("--theme needs a theme name");
+      a.theme = value;
+    }
     else if (s === "--about") a.about = argv[++i];
     else if (s === "--screen-text") a.screenText = true;
     else if (s === "--max-tokens") a.maxTokens = Number(argv[++i]);
@@ -88,8 +96,8 @@ function parseArgs(argv: string[]): Args {
 }
 
 function usage(code: number): never {
-  console.error(`takeone make <id> [--no-jev] [--about "<topic>"] [--screen-text] [--max-tokens N] [--set key=value]
-takeone render <take-dir> [--set key=value]
+  console.error(`takeone make <id> [--no-jev] [--about "<topic>"] [--screen-text] [--max-tokens N] [--theme midnight|paper|aurora|mono|neon|brutalist|sand|terminal] [--set key=value]
+takeone render <take-dir> [--theme midnight|paper|aurora|mono|neon|brutalist|sand|terminal] [--set key=value]
 takeone key set < stdin
 takeone [list|record|stop|doctor]
 
@@ -133,16 +141,16 @@ export async function main(argv: string[]): Promise<number> {
     if (!dir) { console.error("usage: takeone render <take-dir>"); return 2; }
     try {
       const pairs: string[] = [];
+      let theme: string | undefined;
       for (let i = 0; i < args.length; i++) {
-        if (args[i] !== "--set") throw Error(`unknown option ${args[i]}`);
-        pairs.push(args[++i]!);
+        const option = args[i];
+        if (option !== "--set" && option !== "--theme") throw Error(`unknown option ${option}`);
+        const value = args[++i];
+        if (!value || value.startsWith("--")) throw Error(`${option} needs ${option === "--set" ? "key=value" : "a theme name"}`);
+        if (option === "--set") pairs.push(value);
+        else theme = value;
       }
-      const raw = parseSet(pairs);
-      if (!("out_w" in raw) && !("out_h" in raw) && isPortraitTake(dir)) {
-        raw.out_w = 1080;
-        raw.out_h = 1920;
-      }
-      console.log((await renderTake(dir, applyOverrides(raw))).out);
+      console.log((await renderTake(dir, resolveCamera(dir, pairs, theme))).out);
       return 0;
     } catch (e) {
       console.error(e instanceof Error ? e.message : e);
@@ -168,7 +176,7 @@ export async function main(argv: string[]): Promise<number> {
     return 2;
   }
   try {
-    a.camera = resolveCamera(dir, a.set);
+    a.camera = resolveCamera(dir, a.set, a.theme);
   } catch (e) {
     console.error(`takeone make: ${e instanceof Error ? e.message : e}`);
     return 2;

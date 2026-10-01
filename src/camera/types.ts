@@ -50,6 +50,7 @@ export interface Decision {
 }
 
 export interface TakeMeta {
+  theme?: string;
   id?: string;
   width: number;
   height: number;

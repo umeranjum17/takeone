@@ -25,6 +25,7 @@ import {
 import { ocrZone } from "./decide/ocr.ts";
 import { redactText } from "./decide/redact.ts";
 import { renderTake } from "./render/render.ts";
+import { resolveTheme } from "./themes.ts";
 import { DEFAULTS, type CameraDefaults } from "./camera/defaults.ts";
 import type { Beat as RenderBeat, Decision as RenderDecision, TakeMeta as RenderMeta } from "./camera/types.ts";
 import { clampBBox, type BBox } from "./types.ts";
@@ -44,6 +45,8 @@ export interface MakeOptions {
   fetchImpl?: typeof fetch;
   /** camera defaults override for the render; tests pass a fast preset */
   camera?: CameraDefaults;
+  /** Named look; explicit make selections are saved with the take. */
+  theme?: string;
   /** stop after the preflight: no planner calls, no render; returns planned tokens */
   planOnly?: boolean;
   log?: (line: string) => void;
@@ -113,8 +116,10 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
   const take = readTakeMeta(dir);
   // Portrait takes (phone footage) default to a portrait output unless the
   // caller overrode the output size; desktop behaviour is unchanged.
+  const themed = resolveTheme(opts.theme ?? take.theme);
+  if (opts.theme !== undefined) take.theme = opts.theme;
   const camera = opts.camera
-    ?? (take.stream.h > take.stream.w ? { ...DEFAULTS, out_w: 1080, out_h: 1920 } : undefined);
+    ?? (take.stream.h > take.stream.w ? { ...themed, out_w: 1080, out_h: 1920 } : themed);
   const { out_w, out_h } = camera ?? DEFAULTS;
   const aspect = out_w / out_h; // the decide-side frame estimate shares the render's aspect
   const framesTsv = join(dir, "frames.tsv");

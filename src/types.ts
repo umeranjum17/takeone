@@ -148,6 +148,7 @@ export interface Decision {
 
 /** Take metadata (take.json), the subset the planner reads. */
 export interface TakeMeta {
+  theme?: string;
   id: string;
   /** stream (video) pixel size */
   stream: { w: number; h: number };

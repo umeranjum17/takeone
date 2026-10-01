@@ -217,8 +217,8 @@ takeone render ~/Videos/takeone/<id> --set background=#0B1220 --set idle_speed=3
 ## Plan and render
 
 ```sh
-node bin/takeone.mjs make <id> [--no-jev] [--about "topic"] [--screen-text] [--max-tokens N] [--set key=value]
-node bin/takeone.mjs render /path/to/take [--set fps=24]
+node bin/takeone.mjs make <id> [--no-jev] [--about "topic"] [--screen-text] [--max-tokens N] [--theme paper] [--set key=value]
+node bin/takeone.mjs render /path/to/take [--theme paper] [--set fps=24]
 ```
 
 `<id>` can also be an absolute take-directory path. `make` writes `analysis/regions.json`, `analysis/actions.json`, renderer-format `analysis/beats.json` (video-relative seconds), and one decision per line in `analysis/decisions.jsonl`; Jev responses are cached separately in `analysis/jev-cache.jsonl`. It updates `take.json` with usage and render metadata, then writes `camera.json`, `camera.cmd`, and `out/<id>.mp4`. Re-running `make` can reuse cached responses. A trim must overlap the video; only that overlap is planned. Beats are capped at 30 per minute, which may merge idle gaps.
@@ -274,7 +274,49 @@ Every render uses the same stage, all local ffmpeg/libass work at zero token cos
   "captions": [{ "t": 8.4, "text": "Search filters as you type" }, { "t": 22.6, "d": 3.6, "text": "Drag to adjust retention" }] }
 ```
 
-Colours take `--set key=#RRGGBB`; `caption_font` takes letters, digits and spaces (`--set "caption_font=Inter SemiBold"`); fontconfig substitutes a system sans when the font is missing.
+Both `make` and `render` accept `--theme midnight|paper|aurora|mono|neon|brutalist|sand|terminal`.
+`midnight` is the default and keeps the existing look. A saved `"theme": "paper"`
+in `take.json` applies on every rerender; an explicit `--theme` takes precedence,
+and `--set` overrides the selected theme's tokens. `make --theme` saves the
+selection in the take; `render --theme` previews a different look without
+changing that saved selection.
+
+| Theme | Look | Display / caption font |
+|---|---|---|
+| midnight | Dark diagonal gradient | Inter SemiBold / Inter SemiBold |
+| paper | Cream editorial canvas with orange accents | Instrument Serif / IBM Plex Sans |
+| aurora | Four radial colour pools with mint accents | Geist SemiBold / Geist |
+| mono | Black canvas with a white hairline | Geist SemiBold / Geist Mono |
+| neon | Violet vignette and pink glow | Space Grotesk Bold / Space Grotesk Medium |
+| brutalist | Yellow canvas, square corners, hard offset shadow | Archivo ExtraBold Expanded / IBM Plex Mono |
+| sand | Warm diagonal gradient and soft shadow | Fraunces SemiBold / Manrope Medium |
+| terminal | Dark canvas with green type | JetBrains Mono Bold / JetBrains Mono |
+
+![Eight recording themes on a fictional launch board](docs/assets/themes/takeone-themes-grid.png)
+
+Theme fonts are bundled under OFL 1.1 with their licence files in
+`resources/fonts/`. Caption measurement and final rendering use the same
+libass `fontsdir`; `render.log` records the selected faces. Custom fonts may
+still fall back through fontconfig if they are not installed or bundled.
+
+Colours (`background`, `background_to`, `accent`, `text`, `card`) take
+`--set key=#RRGGBB`. `caption_font` and `display_font` take letters, digits and
+spaces, for example `--set "display_font=Inter Bold"`.
+
+Additional look tokens: `bg_style=linear|solid|radial|mesh|image`,
+`bg_stops=#RRGGBB,#RRGGBB,...` (2–8 colours), `grain=0..100`,
+`shadow_blur`, `shadow_x`, `shadow_y`, `border`, `glow=0..1`,
+`spring_omega`, `spring_zeta=0.75..2`, and `pace=0.25..4`.
+For `bg_style=image`, supply `background_image=/path/to/image.png` (relative
+paths resolve inside the take). Recording backgrounds are deterministic stills;
+animated background drift and per-theme motion patterns belong to motion scenes.
+Overlay spring tokens adjust caption arrival time only; the recording camera
+remains critically damped. Recording `pace` scales camera holds (`dwell`,
+`dwell_k2`, `min_shot`) while keeping move durations and caption reading time.
+
+Generate the synthetic eight-theme grid and a short comparison video with
+`node scripts/theme-proof.ts tmp/theme-proof`. The fixture is a fictional
+launch board owned by Umer, with no desktop capture.
 
 ## End-to-end take with a staged scene
 

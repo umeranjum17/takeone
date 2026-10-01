@@ -1,0 +1,72 @@
+{
+  "midnight": {
+    "seconds": 5,
+    "fonts": [
+      "fontselect: (Inter SemiBold, 400, 0) -> InterSemiBold, 0, InterSemiBold",
+      "fontselect: (Inter SemiBold, 400, 0) -> InterSemiBold, 0, InterSemiBold"
+    ]
+  },
+  "paper": {
+    "seconds": 5,
+    "fonts": [
+      "fontselect: (IBM Plex Sans, 400, 0) -> IBMPlexSans, 0, IBMPlexSans",
+      "fontselect: (Instrument Serif, 400, 0) -> InstrumentSerif-Regular, 0, InstrumentSerif-Regular",
+      "fontselect: (IBM Plex Sans, 400, 0) -> IBMPlexSans, 0, IBMPlexSans"
+    ]
+  },
+  "aurora": {
+    "seconds": 5,
+    "fonts": [
+      "fontselect: (Geist, 400, 0) -> Geist, 0, Geist",
+      "fontselect: (Geist SemiBold, 400, 0) -> GeistSemiBold, 0, GeistSemiBold",
+      "fontselect: (Geist, 400, 0) -> Geist, 0, Geist"
+    ]
+  },
+  "mono": {
+    "seconds": 5,
+    "fonts": [
+      "fontselect: (Geist Mono, 400, 0) -> GeistMono, 0, GeistMono",
+      "fontselect: (Geist SemiBold, 400, 0) -> GeistSemiBold, 0, GeistSemiBold",
+      "fontselect: (Geist Mono, 400, 0) -> GeistMono, 0, GeistMono"
+    ]
+  },
+  "neon": {
+    "seconds": 5,
+    "fonts": [
+      "fontselect: (Space Grotesk Medium, 400, 0) -> SpaceGroteskMedium, 0, SpaceGroteskMedium",
+      "fontselect: (Space Grotesk Bold, 400, 0) -> SpaceGroteskBold, 0, SpaceGroteskBold",
+      "fontselect: (Space Grotesk Medium, 400, 0) -> SpaceGroteskMedium, 0, SpaceGroteskMedium"
+    ]
+  },
+  "brutalist": {
+    "seconds": 5,
+    "fonts": [
+      "fontselect: (IBM Plex Mono, 400, 0) -> IBMPlexMono-Regular, 0, IBMPlexMono-Regular",
+      "fontselect: (Archivo ExtraBold Expanded, 400, 0) -> ArchivoExtraBoldExpanded, 0, ArchivoExtraBoldExpanded",
+      "fontselect: (IBM Plex Mono, 400, 0) -> IBMPlexMono-Regular, 0, IBMPlexMono-Regular"
+    ]
+  },
+  "sand": {
+    "seconds": 5,
+    "fonts": [
+      "fontselect: (Manrope Medium, 400, 0) -> ManropeMedium, 0, ManropeMedium",
+      "fontselect: (Fraunces SemiBold, 400, 0) -> FrauncesSemiBold, 0, FrauncesSemiBold",
+      "fontselect: (Manrope Medium, 400, 0) -> ManropeMedium, 0, ManropeMedium"
+    ]
+  },
+  "terminal": {
+    "seconds": 5,
+    "fonts": [
+      "fontselect: (JetBrains Mono, 400, 0) -> JetBrainsMono, 0, JetBrainsMono",
+      "fontselect: (JetBrains Mono Bold, 400, 0) -> JetBrainsMonoBold, 0, JetBrainsMonoBold",
+      "fontselect: (JetBrains Mono, 400, 0) -> JetBrainsMono, 0, JetBrainsMono"
+    ]
+  },
+  "compatibility": {
+    "default_vs_explicit_midnight": "decoded framemd5 identical via CLI at 640x360, 60 fps",
+    "before_commit": "49d96df",
+    "before_vs_current_midnight_min_frame_ssim": 0.998803,
+    "frames_below_0_95": [],
+    "system_font_independence": "render tests pass with an empty fontconfig configuration"
+  }
+}
