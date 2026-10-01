@@ -31,7 +31,7 @@ export function shutterPlan(frames: CameraFrame[], width: number, height: number
   let samples = 1;
   for (let i = 0; i < frames.length; i++) {
     const span = displacement(shutterFrame(frames, i - half), shutterFrame(frames, i + half), width, height, d);
-    let count = span <= 2 ? 1 : Math.ceil(span / 1.9) + 1;
+    let count = span <= 2 ? 1 : Math.ceil(span / 2) + 1;
     const spacing = (n: number): number => {
       let max = 0;
       for (let j = 1; j < n; j++) {
@@ -42,8 +42,8 @@ export function shutterPlan(frames: CameraFrame[], width: number, height: number
     };
     if (count > 1023) throw new Error("camera shutter needs more than 1023 samples; reduce motion_blur or camera speed");
     let gap = spacing(count);
-    while (gap > 1.9 && count < 1023) gap = spacing(++count);
-    if (gap > 1.9) throw new Error("camera shutter needs more than 1023 samples; reduce motion_blur or camera speed");
+    while (gap > 2 && count < 1023) gap = spacing(++count);
+    if (gap > 2) throw new Error("camera shutter needs more than 1023 samples; reduce motion_blur or camera speed");
     maxSpacing = Math.max(maxSpacing, gap);
     const indices = groups.get(count) ?? [];
     indices.push(i);
