@@ -208,6 +208,16 @@ takeone make <absolute-take-path> --no-jev --set idle_speed=1
 takeone make <absolute-take-path> --no-jev --set idle_speed=1 --set out_w=1920 --set out_h=1080
 ```
 
+Committed real-device evidence for this flow is in
+[`docs/evidence/t1-pm-7/`](docs/evidence/t1-pm-7/), with capture provenance,
+render commands, dimensions and SHA-256 hashes in its
+[`manifest.json`](docs/evidence/t1-pm-7/manifest.json). It includes the raw
+Tidewater recording, target-commit portrait and wide renders, a contact sheet
+for each render, and a side-by-side comparison of the first ten seconds.
+The recording was made on a dedicated API 35 emulator using the offline
+Tidewater fixture; the committed renders were regenerated from that recording
+with this change. Review the actual media files when assessing output quality.
+
 `scripts/synth-portrait.ts` remains an offline colour-pattern timing fixture.
 It is not an Android app recording or product demo.
 
