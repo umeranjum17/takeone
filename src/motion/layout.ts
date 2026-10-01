@@ -6,7 +6,7 @@ export function timeline(raw: unknown, path: string, parse: (raw: unknown, path:
   return raw.map((r, i) => {
     const s = parse(r, `${path}[${i}]`);
     s.at ??= end;
-    if (i > 0 && s.at < end) throw new Error(`${path}[${i}].at: overlapping scenes`);
+    if (s.at < end) throw new Error(`${path}[${i}].at: overlapping scenes`);
     end = s.at + s.d;
     if (end > 120) throw new Error(`${path}: timeline exceeds 120 s`);
     return s;

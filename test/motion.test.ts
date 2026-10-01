@@ -7,7 +7,7 @@ import { readFileSync } from "node:fs";
 import { motionPage } from "../src/motion/page.ts";
 import { INGEST_CLOCK } from "../src/motion/ingest-clock.ts";
 import assert from "node:assert/strict";
-import { validateStoryboard } from "../src/motion/storyboard.ts";
+import { filmDuration, validateStoryboard } from "../src/motion/storyboard.ts";
 import { beatTime, fontCovers, lintCss } from "../src/motion/lint.ts";
 import { parseMotionArgs, planStoryboard } from "../src/motion/cli.ts";
 import { bitmapSize, heroSize } from "../src/motion/geometry.ts";
@@ -206,4 +206,34 @@ test("counter and device labels receive reveal and reading holds in every layout
   assert.equal(Object.hasOwn(normalized,"seed"),false);
   assert.equal(Object.hasOwn(normalized,"transitions"),false);
   assert.deepEqual(normalized.scenes.map((scene:{at:number})=>scene.at),[0,3]);
+});
+
+
+test("effective bento windows preserve required reveals and holds",()=>{
+  const spinner={pattern:"fragment",kind:"spinner",d:5};
+  const counter={pattern:"fragment",kind:"counter",d:2.7};
+  const tiles=["TL","TR","BL","BR"].map(id=>({id,offset_s:0}));
+  const layout={kind:"bento",grid:"2x2",master:{d:6,scenes:[spinner,counter]},tiles};
+  assert.throws(()=>validateStoryboard({...board(),layout}),/visible window.*reading-time/);
+  const qualified=validateStoryboard({...board(),layout:{...layout,master:{d:7.7,scenes:[spinner,counter]}}});
+  assert.equal(filmDuration(qualified),7.7);
+  const shifted={...layout,master:{d:6,scenes:[counter]}};
+  for(const id of ["TL","TR","BL","BR"]) {
+    assert.throws(()=>validateStoryboard({...board(),layout:{...shifted,tiles:tiles.map(tile=>({...tile,offset_s:tile.id===id?1.7:0}))}}),/visible window.*reading-time/);
+    assert.throws(()=>validateStoryboard({...board(),layout:{...shifted,tiles:tiles.map(tile=>({...tile,offset_s:tile.id===id?-4:0}))}}),/visible window.*reading-time/);
+  }
+  validateStoryboard({...board(),layout:{...shifted,tiles:tiles.map((tile,i)=>({...tile,offset_s:i*.5}))}});
+  const hero={pattern:"hero-reveal",d:8,title:"Make it move",screen:"S1"};
+  const canon=validateStoryboard({...board(),layout:{...layout,master:{d:6,scenes:[hero]},tiles:tiles.map((tile,i)=>({...tile,offset_s:i*.5}))}});
+  assert.deepEqual(canon.layout.kind==="bento" && canon.layout.grid==="2x2" && canon.layout.tiles.map(tile=>tile.offset_s),[0,.5,1,1.5]);
+  for(const at of [-1,-1/60]) {
+    assert.throws(()=>validateStoryboard({...board(),layout:{...shifted,master:{d:6,scenes:[{...counter,at}]}}}),/at/);
+    assert.throws(()=>validateStoryboard({...board(),layout:{kind:"bento",grid:"pinwheel-3x2",tiles:Object.fromEntries(["A","B","C","D"].map(id=>[id,[{...counter,at}]]))}}),/at/);
+  }
+  assert.throws(()=>validateStoryboard({...board(),tempo:{bpm:120,phase_s:-.01,snap:"beat"},layout:{...shifted,master:{d:6,scenes:[{...counter,d:3}]}}}),/negative scene starts/);
+  const tour={pattern:"zoom-tour",d:6,screen:"S1",stops:[{region:"r1",caption:"Focus"}]};
+  const regions=[{id:"r1",screen:"S1",rect:[900,300,760,620],from:"user"}];
+  assert.throws(()=>validateStoryboard({...board(),regions,layout:{...layout,master:{d:5,scenes:[tour]}}}),/truncates camera/);
+  assert.throws(()=>validateStoryboard({...board(),regions,layout:{...layout,master:{d:6,scenes:[tour]},tiles:tiles.map((tile,i)=>({...tile,offset_s:i*.5}))}}),/truncates camera/);
+  validateStoryboard({...board(),regions,layout:{...layout,master:{d:6,scenes:[tour]}}});
 });
