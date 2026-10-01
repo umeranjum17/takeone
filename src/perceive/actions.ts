@@ -204,6 +204,8 @@ export function actionsFromEvents(
         const p1: [number, number] = lastPtr ? [lastPtr.x, lastPtr.y] : p0;
         acts.push({
           k: "drag",
+          path: visiblePtr.filter(p => p.t >= e.t && p.t <= (visiblePtr.at(-1)?.t ?? e.t)).map(({ t, x, y }) => ({ t, x, y })),
+          subject: dragSubject(frames, e.t, p0),
           t0: e.t,
           t1: lastPtr?.t ?? e.t,
           from: p0,
@@ -222,6 +224,8 @@ export function actionsFromEvents(
         if (!endPoint) continue;
         acts.push({
           k: "drag",
+          path: visiblePtr.filter(p => p.t >= e.t && p.t <= up.t).map(({ t, x, y }) => ({ t, x, y })),
+          subject: dragSubject(frames, e.t, p0),
           t0: e.t,
           t1: up.t,
           from: p0,
@@ -366,4 +370,16 @@ function insideWindow(b: BBox, win: BBox): boolean {
 
 function bboxAreaOf(b: BBox): number {
   return b[2] * b[3];
+}
+
+/** A conservative grab footprint from the first visible object change. */
+function dragSubject(frames: FrameRegions[], t: number, point: [number, number]): BBox | undefined {
+  for (const f of frames) {
+    if (f.t < t || f.t > t + 300 || f.cut) continue;
+    const candidates = f.regions.filter(r => r.area_frac < 0.2
+      && point[0] >= r.bbox[0] && point[0] <= r.bbox[0] + r.bbox[2]
+      && point[1] >= r.bbox[1] && point[1] <= r.bbox[1] + r.bbox[3]);
+    if (candidates.length) return candidates.sort((a, b) => b.area_frac - a.area_frac)[0]!.bbox;
+  }
+  return undefined;
 }

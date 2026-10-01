@@ -664,3 +664,42 @@ test("Tidewater holds whole cards, retains enclosing context and balances the vi
   assert.equal(clippedFractions({ x: Math.min(2560 - edgeW, edgeState.cx - edgeW / 2),
     y: Math.max(0, edgeState.cy - edgeW * 9 / 32), w: edgeW, h: edgeW * 9 / 16 }, tall.boxes!)[0], 0);
 });
+
+test("a dwell before a curved drag cannot hide the object or regress the next action", async () => {
+  const { actionsFromEvents } = await import("../src/perceive/actions.ts");
+  const { gestures, gesturePointer } = await import("../src/camera/gesture.ts");
+  const { framingCoverage } = await import("../scripts/check-framing.ts");
+  const { warpBeats } = await import("../src/render/pace.ts");
+  const actions = actionsFromEvents([
+    { k: "ptr", t: 2000, x: 400, y: 900 },
+    { k: "btn", t: 2000, b: "left", down: true },
+    { k: "ptr", t: 2500, x: 400, y: 900 },
+    { k: "ptr", t: 3000, x: 1700, y: 1400 },
+    { k: "ptr", t: 4000, x: 3000, y: 900 },
+    { k: "btn", t: 4000, b: "left", down: false },
+  ], [{ t: 2100, changed_frac: 0.02, cut: false,
+    regions: [{ bbox: [200, 800, 500, 200], area_frac: 0.012 }] }],
+  { stream: { w: 3840, h: 2160 }, pointer: "mapped" });
+  const drag: Beat = { ...beat("drag-resolve", 1.5, 300, "drag"), t0: 1, t1: 5,
+    actions: [{ k: "dwell", t0: 1000, t1: 1900, x: 3500, y: 100 }, ...actions],
+    zones: [zone("object", [200, 800, 500, 200])] };
+  const g = gestures(drag)[0]!;
+  assert.deepEqual(g.subject, [200, 800, 500, 200]);
+  assert.deepEqual(gesturePointer(g, 2.5), [400, 900]);
+  assert.deepEqual(gesturePointer(g, 3), [1700, 1400]);
+  const warped = warpBeats([drag], 0, [{ a: 0, b: 1 }], 4)[0]!;
+  assert.deepEqual(gesturePointer(gestures(warped)[0]!, 2.25), [1700, 1400]);
+  const next = beat("handoff", 5.5, 3300);
+  next.t0 = 5.2;
+  next.t1 = 7;
+  const solved = camera([drag, next], [decision(drag), decision(next)], 8);
+  const rows = framingCoverage([drag, next], solved, solved);
+  assert.ok(rows.every(r => r.passed), JSON.stringify(rows));
+  assert.equal(rows[0]!.dragFrames, 121);
+  // Prove the check catches a lost acted-on control, not merely missing cursors.
+  const clipped = solved.map(f => f.t >= next.t0 && f.t <= next.t1
+    ? { ...f, x: 0, y: 0, w: 100, h: 100 } : f);
+  assert.ok(framingCoverage([drag, next], solved, clipped)[1]!.lost > 0);
+  const invalid = { ...drag, actions: [{ ...g, path: [{ t: 3000, x: NaN, y: 1400 }] }] };
+  assert.throws(() => camera([invalid], [decision(invalid)], 8), /invalid/);
+});

@@ -96,3 +96,25 @@ measurement debugging, still rerendering and checking determinism. Normal CI
 always regenerates both fixtures. When renderer changes are being evaluated,
 use the normal command so the first encode and deterministic rerender come
 from the same candidate.
+
+Drag framing has a separate visibility check. On two camera paths with the
+same output clock, run:
+
+```sh
+node scripts/check-framing.ts output-clock-beats.json before-camera.json after-camera.json
+```
+
+The beat actions use milliseconds, as consumed by `solveCamera`; when idle
+pacing is enabled, pass beats from `warpBeats`. The check compares every frame
+of every beat and fails if the after crop loses an acted-on region the before
+crop contained. It also checks the recorded cursor path and moving grab
+footprint throughout each drag, including the release frame. Its table reports
+how many before frames contained the region, so an untested region is visible.
+
+Drag actions preserve the sampled pointer path through planning and pacing.
+The camera reserves the object's swept footprint ahead of the drag, rather
+than following an earlier dwell. When available, the first changed region
+containing the grab point supplies a conservative object footprint; otherwise
+the action region and cursor path provide the framing context. The handoff to
+the following action retains that context, including when a shot is omitted
+by the camera's movement budget.

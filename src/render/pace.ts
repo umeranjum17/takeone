@@ -65,12 +65,13 @@ export function warpBeats(beats: Beat[], start: number, squeezes: Squeeze[], spe
     zones: beat.zones.map((zone) => zone.t_change === undefined ? zone : { ...zone, t_change: s(zone.t_change) }),
     changed_frac: beat.changed_frac?.map((sample) => ({ ...sample, t: s(sample.t) })),
     actions: beat.actions.map((action) => {
-      const a = action as { t?: number; t0?: number; t1?: number };
+      const a = action as { t?: number; t0?: number; t1?: number; path?: { t: number; x: number; y: number }[] };
       return {
         ...a,
         ...(a.t === undefined ? {} : { t: ms(a.t) }),
         ...(a.t0 === undefined ? {} : { t0: ms(a.t0) }),
         ...(a.t1 === undefined ? {} : { t1: ms(a.t1) }),
+        ...(a.path ? { path: a.path.map(p => ({ ...p, t: ms(p.t) })) } : {}),
       };
     }),
   }));
