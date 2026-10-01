@@ -6,6 +6,7 @@ import { DEFAULTS, type CameraDefaults } from "../camera/defaults.ts";
 import { solveCamera } from "../camera/solver.ts";
 import type { Beat, CameraFrame, Decision, TakeMeta } from "../camera/types.ts";
 import { idleSqueezes, setptsExpr, warp, warpBeats } from "./pace.ts";
+import { editBeats, editTimeline, editZooms, validateEdits } from "./edits.ts";
 import {
   beatClicks, captionAss, cardFilter, clickAss, measureAss, stageFrames, stageGeometry, stageImageFilter, takeCaptions,
   type Caption, type CaptionInk,
@@ -84,6 +85,7 @@ function runFfmpeg(args: string[]): Promise<string> {
 /** Read the take's durable inputs, write its camera path and render the silent MP4. */
 export async function renderTake(dir: string, d: CameraDefaults = DEFAULTS): Promise<{ out: string; seconds: number }> {
   const meta = JSON.parse(await readFile(join(dir, "take.json"), "utf8")) as TakeMeta;
+  validateEdits(meta);
   const beats = JSON.parse(await readFile(join(dir, "analysis/beats.json"), "utf8")) as Beat[];
   // The planner stores seconds; the existing FOLLOW solver consumes action timestamps in ms.
   if ("stream" in meta) for (const beat of beats) beat.actions = beat.actions.map((action) => {
@@ -100,10 +102,27 @@ export async function renderTake(dir: string, d: CameraDefaults = DEFAULTS): Pro
   const trimStart = meta.trim_start ?? 0;
   // Everything after this point runs on the output clock, with idle gaps squeezed.
   const squeezes = idleSqueezes(beats, trimStart, trimEnd, d);
-  const outTime = (t: number) => warp(t - trimStart, squeezes, d.idle_speed);
+  const edited = Boolean(meta.cuts?.length || meta.speed?.length);
+  const clock = edited ? editTimeline(meta, beats, trimStart, trimEnd, d) : undefined;
+  const outTime = clock?.at ?? ((t: number) => warp(t - trimStart, squeezes, d.idle_speed));
   const duration = outTime(trimEnd);
-  const outBeats = warpBeats(beats, trimStart, squeezes, d.idle_speed);
-  const frames = solveCamera(outBeats, decisions, { ...meta, trim_end: trimStart + duration }, d);
+  const outBeats = clock ? editBeats(beats, clock, trimStart) : warpBeats(beats, trimStart, squeezes, d.idle_speed);
+  const byId = new Map(outBeats.map(b => [b.id, b]));
+  const sourceBeats = new Map(beats.map(b => [b.id, b]));
+  const outDecisions = clock ? decisions.flatMap(decision => {
+    const beat = byId.get(decision.beat);
+    if (!beat) return [];
+    const source = sourceBeats.get(decision.beat)!;
+    const kept = (name: string | undefined) => source.zones.some(z => z.name === name
+      && (z.t_change === undefined || clock.contains(z.t_change)));
+    const A = kept(decision.A) ? decision.A : source.zones.find(z => kept(z.name))?.name ?? decision.A;
+    const B = kept(decision.B) ? decision.B : A;
+    return [{ ...decision, A, B }];
+  }) : decisions;
+  const zooms = clock ? editZooms(meta.zooms, clock, trimStart)
+    : meta.zooms?.map(z => ({ ...z, t0: trimStart + outTime(z.t0), t1: trimStart + outTime(z.t1) }));
+  const frames = solveCamera(outBeats, outDecisions,
+    { ...meta, zooms, trim_end: trimStart + duration }, d);
   await writeFile(join(dir, "camera.json"), JSON.stringify(frames));
   const stage = stageGeometry(meta.width, meta.height, d);
   const commandFile = join(dir, "camera.cmd");
@@ -126,7 +145,7 @@ export async function renderTake(dir: string, d: CameraDefaults = DEFAULTS): Pro
   const clicksFile = join(dir, "clicks.ass");
   const clicksAss = clickAss(beatClicks(outBeats), meta.width, meta.height, trimStart, stage, d);
   await writeFile(clicksFile, clicksAss);
-  const captions = takeCaptions(meta, outTime, duration);
+  const captions = takeCaptions(clock ? { ...meta, captions: meta.captions?.filter(c => clock.contains(c.t)) } : meta, outTime, duration);
   const captionsFile = join(dir, "captions.ass");
   const captionsAss = captionAss(captions, await measureCaptions(dir, captions, d), d);
   await writeFile(captionsFile, captionsAss);
@@ -140,7 +159,7 @@ export async function renderTake(dir: string, d: CameraDefaults = DEFAULTS): Pro
   const clicksOverlay = hasDialogue(clicksAss) ? `,ass=${filterPath(clicksFile)}` : "";
   const captionsOverlay = hasDialogue(captionsAss) ? `,ass=${filterPath(captionsFile)}` : "";
   const filter = [
-    `[0:v]setpts='${setptsExpr(squeezes, d.idle_speed)}',fps=${d.fps}${clicksOverlay},scale=in_color_matrix=auto:out_color_matrix=bt601,format=yuv420p[screen]`,
+    `[0:v]${clock?.filter ?? `setpts='${setptsExpr(squeezes, d.idle_speed)}'`},fps=${d.fps}${clicksOverlay},scale=in_color_matrix=auto:out_color_matrix=bt601,format=yuv420p[screen]`,
     cardFilter(meta.width, meta.height, stage, d, still),
     `[c4]${camera}${captionsOverlay}`
       + (fade > 0 ? `,fade=t=in:st=0:d=${fade}:color=${background},fade=t=out:st=${duration - fade}:d=${fade}:color=${background}` : "")
@@ -165,6 +184,7 @@ export async function renderTake(dir: string, d: CameraDefaults = DEFAULTS): Pro
     // Slice threads keep the stage filters from starving the encoder.
     "-filter_threads", threads, "-filter_complex_threads", threads,
     graphOption, commandFile,
+    ...(clock ? ["-t", String(duration)] : []),
     "-r", String(d.fps), "-an", "-c:v", "libx264", "-crf", String(crf),
     "-color_primaries", "bt709", "-color_trc", "bt709", "-colorspace", "bt709", "-color_range", "tv",
     "-preset", d.preset, "-movflags", "+faststart", output,
