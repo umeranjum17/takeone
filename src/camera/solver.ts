@@ -18,6 +18,7 @@ interface Shot {
   zoneA: Zone;
   zoneB: Zone;
   arrival: number;
+  portraitFill?: boolean;
 }
 
 interface Target {
@@ -403,6 +404,10 @@ function buildTargets(
     const framed = (zone: Zone): CameraState => frame({ ...zone, boxes: boxesFor(zone) },
       shot.decision.L, width, height, shot.beat.window_rect, d);
     const targetA = framed(shot.zoneA);
+    if (shot.portraitFill) {
+      const fitZoom = baseWidth(width, height, d) / (height * d.out_w / d.out_h);
+      targetA.z = Math.max(targetA.z, Math.min(fitZoom, zMax(width, height, d)));
+    }
     const result: Target[] = [{
       t: shot.arrival,
       state: targetA,
@@ -794,6 +799,7 @@ export function solveCamera(
         .sort((a, b) => Math.abs((a.t_change ?? active.beat.anchor_t) - active.beat.anchor_t)
           - Math.abs((b.t_change ?? active.beat.anchor_t) - active.beat.anchor_t))[0]!;
       active.decision = { ...active.decision, L: Math.max(2, active.decision.L) as 2 | 3 };
+      active.portraitFill = true;
     }
   }
   const quietShots = applyDwellAndShotLength(shots, d).filter((shot) => shot.arrival < end);
@@ -806,6 +812,10 @@ export function solveCamera(
   for (const zoom of zooms) {
     const region: Zone = { name: "manual", type: "act", bbox: zoom.bbox };
     const requested = frame(region, zoom.level ?? 2, width, height, undefined, d);
+    if (portraitCrop) {
+      const fitZoom = baseWidth(width, height, d) / (height * d.out_w / d.out_h);
+      requested.z = Math.max(requested.z, Math.min(fitZoom, zMax(width, height, d)));
+    }
     const viewport = toFrame(requested, width, height, d);
     targets.push({ t: Math.max(start, zoom.t0 - 2 / d.lowpass_omega), manual: "zoom", importance: 2,
       state: { cx: viewport.x + viewport.w / 2, cy: viewport.y + viewport.h / 2, z: baseWidth(width, height, d) / viewport.w } });
