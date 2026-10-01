@@ -8,6 +8,7 @@ import { solveCamera } from "../src/camera/solver.ts";
 import type { Beat, TakeMeta } from "../src/camera/types.ts";
 import { editBeats, editTimeline, editZooms, validateEdits } from "../src/render/edits.ts";
 import { renderTake } from "../src/render/render.ts";
+import { stageFrames, stageGeometry } from "../src/render/stage.ts";
 import { hasFfmpeg } from "./helpers.ts";
 
 const d = { ...DEFAULTS, idle_speed: 1, out_w: 320, out_h: 180, caption_size: 14, fade_s: 0, preset: "ultrafast" };
@@ -92,6 +93,26 @@ test("wide source in portrait establishes then crops to an active region within 
   assert.ok(frames[0]!.w >= 639, `starts with wide establish: ${frames[0]!.w}`);
   assert.ok(frames[59]!.w < 500, `active crop reached by 1s: ${frames[59]!.w}`);
   assert.ok(frames.every(frame => 180 / frame.w <= portrait.max_upscale + 1e-8));
+  const stage = stageGeometry(640, 360, portrait);
+  const staged = stageFrames(frames, 640, 360, stage, portrait);
+  for (const frame of staged.slice(3 * portrait.fps, 6 * portrait.fps)) {
+    assert.ok(frame.y >= stage.screenY - 1e-6, `portrait crop starts inside screen: ${frame.y}`);
+    assert.ok(frame.y + frame.h <= stage.screenY + 360 + 1e-6,
+      `portrait crop ends inside screen: ${frame.y + frame.h}`);
+  }
+});
+
+test("portrait manual zoom holds the requested region without stage bands", () => {
+  const portrait = { ...d, out_w: 180, out_h: 320, outro_s: 0 };
+  const zoom = { t0: 2, t1: 6, bbox: [250, 110, 160, 90] as [number,number,number,number], level: 2 as const };
+  const frames = solveCamera([], [], { width: 640, height: 360, trim_end: 8, zooms: [zoom] }, portrait);
+  const camera = frames[Math.round(3 * portrait.fps)]!;
+  assert.ok(camera.x <= zoom.bbox[0] && camera.x + camera.w >= zoom.bbox[0] + zoom.bbox[2]);
+  assert.ok(camera.y <= zoom.bbox[1] && camera.y + camera.h >= zoom.bbox[1] + zoom.bbox[3]);
+  const stage = stageGeometry(640, 360, portrait);
+  const [staged] = stageFrames([camera], 640, 360, stage, portrait);
+  assert.ok(Math.abs(staged!.y - stage.screenY) < 0.01);
+  assert.ok(Math.abs(staged!.y + staged!.h - stage.screenY - 360) < 0.01);
 });
 
 test("ffmpeg applies cuts and speed to actual pixels and timestamps", { skip: !hasFfmpeg() }, () => {

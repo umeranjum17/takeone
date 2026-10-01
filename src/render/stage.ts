@@ -47,10 +47,15 @@ export function stageGeometry(width: number, height: number, d: CameraDefaults):
 export function stageFrames(frames: CameraFrame[], width: number, height: number, st: Stage, d: CameraDefaults): CameraFrame[] {
   const top = zMax(width, height, d);
   const aspect = d.out_w / d.out_h;
+  const portraitCrop = d.out_h > d.out_w && width / height > aspect;
+  const portraitFillWidth = height * aspect;
   return frames.map((f) => {
     const zoom = st.baseW / f.w;
     const keep = top > 1 ? 1 - smooth(clamp((zoom - 1) / (top - 1), 0, 1)) : 1;
-    const w = Math.min(st.w, f.w * (1 + 2 * d.stage_margin * keep));
+    const portraitMargin = portraitCrop
+      ? clamp((f.w - portraitFillWidth) / (st.baseW - portraitFillWidth), 0, 1)
+      : 1;
+    const w = Math.min(st.w, f.w * (1 + 2 * d.stage_margin * keep * portraitMargin));
     const h = Math.min(st.h, w / aspect);
     const cx = f.x + f.w / 2 + st.screenX;
     const cy = f.y + f.h / 2 + st.screenY;
