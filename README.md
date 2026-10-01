@@ -276,6 +276,11 @@ For an existing planned recording take, render reads `screen.webm`, `take.json` 
 
 `--set motion_blur=0..1` controls camera blur (default 1). Fast pans and zooms use a centred 180° shutter at full strength, with enough camera samples to keep neighbouring samples within 2 output pixels. Slow moves and holds stay sharp; captions remain sharp throughout. Source images are held fixed during each exposure, so changing UI does not smear between frames. `motion_blur=0` disables sampling. Render writes the sampling count, peak spacing and estimated warp work to `motion-blur.json`.
 
+Edit a planned recording through `take.json`: `cuts[]` removes sections,
+`speed[]` sets playback rates (including detected typing), and `zooms[]` holds
+manual source-pixel regions. Rerender to apply them without replanning. See
+[edit controls](docs/edit-controls.md) for the schema and synthetic fixtures.
+
 ## Cost per minute of video (measured)
 
 About **14–15k Jev input tokens, roughly $0.0006, per minute of video**, hard-bounded by the preflight in `src/make.ts` (~line 241-276): it refuses any take whose reserved total — planned request tokens plus a 1,200-token re-ask reserve per Jev job after the first — exceeds 40,000 estimated tokens per take minute (`DEFAULT_TOKENS_PER_MIN`), about $0.0017/min at the $0.042/Mtok estimate and about $0.0023/min worst billed given the measured ~1.34× estimate-to-billed gap.

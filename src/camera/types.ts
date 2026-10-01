@@ -38,6 +38,8 @@ export interface Beat {
   dialog_results?: { t: number; bbox: [number, number, number, number] }[];
   /** Cut beats: changed_frac at each analysis frame after the cut (video-relative s). */
   changed_frac?: { t: number; f: number }[];
+  /** Render-time only: a cut removed the anchor, but surviving actions still draw clicks. */
+  camera_suppressed?: boolean;
 }
 
 export interface Decision {
@@ -53,7 +55,7 @@ export interface Decision {
   input_tokens?: number;
 }
 
-export interface TakeMeta {
+export interface TakeMeta extends TakeEdits {
   /** Mobile capture renders inside a handset frame. */
   device?: "android" | "ios";
   theme?: string;
@@ -75,6 +77,24 @@ export interface TakeMeta {
   title?: string;
   /** Optional captions in video-relative seconds; `d` defaults to 3. */
   captions?: { t: number; d?: number; text: string; position?: "top" | "bottom" }[];
+}
+
+export interface TakeEdits {
+  /** Remove half-open intervals, in video-relative seconds. */
+  cuts?: { t0: number; t1: number }[];
+  /** Explicit rates override typing speed and automatic idle pacing. */
+  speed?: ({ t0: number; t1: number; rate: number; kind?: "region" }
+    | { kind: "type_speed"; rate: number })[];
+  /** Source-pixel regions; transition starts at t0, automatic framing resumes at t1. */
+  zooms?: ManualZoom[];
+}
+
+export interface ManualZoom {
+  t0: number;
+  t1: number;
+  bbox: [number, number, number, number];
+  /** 0 = whole screen; 1..3 use the camera's context / medium / tight padding. */
+  level?: 0 | 1 | 2 | 3;
 }
 
 export interface CameraFrame {

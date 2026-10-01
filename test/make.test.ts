@@ -628,3 +628,25 @@ test("zones never leak window titles without --screen-text; beats carry word-onl
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("make preserves JSON edits and typing speed uses detected action times", { skip: needsFfmpeg }, async () => {
+  const dir = newTake();
+  try {
+    const file = join(dir, "take.json");
+    const edits = { cuts: [{t0: 7, t1: 9}], speed: [{kind: "type_speed", rate: 2}],
+      zooms: [{t0: 1, t1: 6, bbox: [120, 40, 150, 80], level: 2}] };
+    writeFileSync(file, JSON.stringify({...JSON.parse(readFileSync(file,"utf8")), ...edits}));
+    const result = await fastTake(dir,{noJev:true,camera:{...FAST,idle_speed:1}});
+    const saved = JSON.parse(readFileSync(file,"utf8"));
+    assert.deepEqual(saved.cuts,edits.cuts);
+    assert.deepEqual(saved.speed,edits.speed);
+    assert.deepEqual(saved.zooms,edits.zooms);
+    const actions = JSON.parse(readFileSync(join(dir,"analysis/actions.json"),"utf8")).actions;
+    const typing = actions.filter((a: {k:string}) => a.k === "type");
+    assert.ok(typing.length > 0);
+    const typeSeconds = typing.reduce((sum:number,a:{t0:number;t1:number}) => sum+(a.t1-a.t0)/1000,0);
+    assert.ok(Math.abs(result.seconds-(8-typeSeconds/2))<0.001, `${result.seconds} output seconds`);
+    const probe = JSON.parse(execFileSync("ffprobe",["-v","error","-count_frames","-show_entries","stream=nb_read_frames","-of","json",result.out!],{encoding:"utf8"}));
+    assert.ok(Math.abs(Number(probe.streams[0].nb_read_frames)-result.seconds*FAST.fps)<=1);
+  } finally { rmSync(dir,{recursive:true,force:true}); }
+});

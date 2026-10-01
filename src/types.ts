@@ -1,6 +1,7 @@
 // Plain data types shared across the pipeline. Everything here is JSON-serializable
 // and free of behaviour so the later in-browser editor can import the decision,
 // beat and zone modules directly.
+import type { TakeEdits } from "./camera/types.ts";
 
 export type BBox = [x: number, y: number, w: number, h: number];
 
@@ -152,7 +153,7 @@ export interface Decision {
 }
 
 /** Take metadata (take.json), the subset the planner reads. */
-export interface TakeMeta {
+export interface TakeMeta extends TakeEdits {
   /** Mobile capture renders inside a handset frame. */
   device?: "android" | "ios";
   theme?: string;

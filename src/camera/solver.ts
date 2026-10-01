@@ -1,5 +1,6 @@
 import { applyDragVisibility, gestures } from "./gesture.ts";
 import { WIN_MAX_COVER } from "../beats/zones.ts";
+import { validateZooms } from "../render/edits.ts";
 import { DEFAULTS, type CameraDefaults } from "./defaults.ts";
 import type {
   Beat,
@@ -7,6 +8,7 @@ import type {
   CameraState,
   Decision,
   TakeMeta,
+  ManualZoom,
   Zone,
 } from "./types.ts";
 
@@ -29,6 +31,8 @@ interface Target {
   breathe?: boolean;
   /** A disappearing subject cannot wait behind ordinary shot holds. */
   reveal?: { t: number; bbox: Zone["bbox"] };
+  /** An edit takes precedence over automatic shot suppression and FOLLOW. */
+  manual?: boolean;
 }
 
 interface Move {
@@ -462,14 +466,22 @@ function distance(from: CameraState, to: CameraState, baseW: number): number {
 }
 
 /** Apply the long-pan/high-zoom hop rule and compute the move interval. */
-function createMove(from: CameraState, to: CameraState, arrival: number, baseW: number, d: CameraDefaults, startAfter = 0): Move {
+function createMove(from: CameraState, to: CameraState, arrival: number, baseW: number, d: CameraDefaults, startAfter = 0, manual = false): Move {
   const viewportW = baseW / from.z;
   const pan = Math.hypot(to.cx - from.cx, to.cy - from.cy) / viewportW;
   const hop = from.z > d.hop_zoom && to.z > d.hop_zoom && pan > d.hop_pan;
-  const duration = moveDuration(distance(from, to, baseW), d) * (hop ? d.hop_t_scale : 1);
+  let duration = moveDuration(distance(from, to, baseW), d) * (hop ? d.hop_t_scale : 1);
   const mid = hop
     ? { cx: (from.cx + to.cx) / 2, cy: (from.cy + to.cy) / 2, z: Math.max(1, Math.min(from.z, to.z) / d.hop_zoom_div) }
     : from;
+  if (manual) {
+    // A user can request a much deeper zoom than the planner. Smootherstep's
+    // peak slope is 1.875 and peak acceleration is <5.78: bound the ideal path
+    // to 1 ln/s and 4 ln/s² before the final spring. Hops ease each half.
+    const travel = hop ? 2 * Math.max(Math.abs(Math.log(mid.z / from.z)), Math.abs(Math.log(to.z / mid.z)))
+      : Math.abs(Math.log(to.z / from.z));
+    duration = Math.max(duration, 1.875 * travel, Math.sqrt(5.78 * travel * (hop ? 2 : 1) / 4));
+  }
   const start = Math.max(arrival - duration, startAfter);
   return { from, to, mid, start, end: start + duration, hop };
 }
@@ -571,6 +583,7 @@ function sampleCamera(
   start: number,
   end: number,
   d: CameraDefaults,
+  zooms: ManualZoom[] = [],
 ): CameraFrame[] {
   const baseW = baseWidth(width, height, d);
   let state: CameraState = { cx: width / 2, cy: height / 2, z: 1 };
@@ -606,25 +619,33 @@ function sampleCamera(
     // were delayed by dwell. Otherwise an old click can arrive after its dialog
     // has disappeared. Start from the visible camera to keep the move continuous.
     const revealIndex = targets.findIndex((target, i) => i >= targetIndex && target.reveal
+      && !zooms.some(z => time >= z.t0 && time < z.t1)
       && createMove(previousFiltered, target.state, target.t, baseW, d, Math.max(start, target.startAfter ?? start)).start <= time);
     if (revealIndex >= 0) {
       targetIndex = revealIndex;
       state = previousFiltered;
     }
+    const dueEdit = targets.findIndex((target, i) => i >= targetIndex && target.manual && target.t <= time);
+    if (dueEdit >= 0) targetIndex = dueEdit;
     while (targetIndex < targets.length) {
       const urgent = Boolean(targets[targetIndex]!.reveal);
-      if (!urgent && move && previousTime < heldUntil) break;
       const target = targets[targetIndex]!;
+      // A manual edit begins at its exact boundary and interrupts any auto move.
+      const manualDue = target.manual && time >= target.t;
+      if (target.manual && !manualDue) break;
+      if (!manualDue && zooms.some(z => time >= z.t0 && time < z.t1)) break;
+      if (!manualDue && !urgent && move && previousTime < heldUntil) break;
       const reversing = lastZoomDirection !== 0
         && Math.sign(Math.log(target.state.z / state.z)) === -lastZoomDirection;
       // Include result, breathe and outro targets: arrivals alone do not enforce
       // a visible hold between opposite zooms once the spring settles.
       const zoomHold = reversing ? Math.max(heldUntil, lastZoomMotion + d.min_shot) : heldUntil;
       const candidateMove = createMove(state, target.state, target.t, baseW, d,
-        urgent ? Math.max(start, target.startAfter ?? start, previousTime) : Math.max(target.startAfter ?? 0, zoomHold, previousTime));
+        manualDue ? target.t : urgent ? Math.max(start, target.startAfter ?? start, previousTime)
+          : Math.max(target.startAfter ?? 0, zoomHold, previousTime), Boolean(target.manual));
       if (candidateMove.start > time) break;
       targetIndex++;
-      if (!urgent && canHold(state, target, width, height, d)) continue;
+      if (!urgent && !target.manual && canHold(state, target, width, height, d)) continue;
       move = candidateMove;
       if (urgent) break;
     }
@@ -644,7 +665,7 @@ function sampleCamera(
     // Keep the result through passive dwell at the now-vanished close button.
     // Resume follow when a new intentional action begins.
     const revealing = reveals.some((reveal) => time >= reveal.start && time <= reveal.end);
-    if (activeBeat && !revealing) {
+    if (activeBeat && !revealing && !zooms.some(z => time >= z.t0 && time < z.t1)) {
       state = followPointer(state, previousFiltered, activeBeat, decisions, baseW,
         time, time - previousTime, velocity, d);
     }
@@ -753,6 +774,7 @@ export function solveCamera(
   d: CameraDefaults = DEFAULTS,
 ): CameraFrame[] {
   validateCameraInputs(beats, decisions, take);
+  validateZooms(take.zooms, take.width, take.height);
   const start = take.trim_start ?? 0;
   const end = take.trim_end ?? Math.max(0, ...beats.flatMap(beat => [beat.t1, ...gestures(beat).map(g => g.t1 / 1000)]));
   if (end <= start) throw new Error("invalid camera trim duration");
@@ -762,12 +784,30 @@ export function solveCamera(
   const visibleBeats = beats.filter(beat => (beat.t1 > start && beat.t0 < end)
     || gestures(beat).some(g => g.t1 / 1000 > start && g.t0 / 1000 < end));
   const shots = buildShots(beats, decisions, start, d)
-    .filter((shot) => visibleBeats.includes(shot.beat));
+    .filter((shot) => visibleBeats.includes(shot.beat) && !shot.beat.camera_suppressed);
   const quietShots = applyDwellAndShotLength(shots, d).filter((shot) => shot.arrival < end);
-  const targets = applyMoveRateLimit(buildTargets(quietShots, visibleBeats, width, height, start, end, d), width, height, d);
+  const automatic = applyMoveRateLimit(buildTargets(quietShots, visibleBeats.filter(beat => !beat.camera_suppressed),
+    width, height, start, end, d), width, height, d);
+  const zooms = (take.zooms ?? []).filter(z => z.t1 > start && z.t0 < end)
+    .map(z => ({ ...z, t0: Math.max(start, z.t0), t1: Math.min(end, z.t1) }))
+    .sort((a, b) => a.t0 - b.t0);
+  const targets = automatic.filter(t => !zooms.some(z => t.t >= z.t0 && t.t < z.t1));
+  for (const zoom of zooms) {
+    const region: Zone = { name: "manual", type: "act", bbox: zoom.bbox };
+    const requested = frame(region, zoom.level ?? 2, width, height, undefined, d);
+    const viewport = toFrame(requested, width, height, d);
+    targets.push({ t: zoom.t0, startAfter: zoom.t0, manual: true, importance: 2,
+      state: { cx: viewport.x + viewport.w / 2, cy: viewport.y + viewport.h / 2, z: baseWidth(width, height, d) / viewport.w } });
+    // Resume the latest automatic framing, even if its target fell inside the edit.
+    if (zoom.t1 < end && !zooms.some(z => z.t0 === zoom.t1)) targets.push({
+      t: zoom.t1, startAfter: zoom.t1, manual: true, importance: 2,
+      state: automatic.filter(t => t.t <= zoom.t1).at(-1)?.state ?? { cx: width / 2, cy: height / 2, z: 1 },
+    });
+  }
+  targets.sort((a, b) => a.t - b.t || Number(Boolean(a.manual)) - Number(Boolean(b.manual)));
   const frames = sampleCamera(targets, visibleBeats.map((beat) => ({ ...beat,
     kind: quietShots.some((shot) => shot.beat === beat) ? beat.kind : "idle",
     actions: quietShots.some((shot) => shot.beat === beat) ? beat.actions : [],
-  })), decisionMap, width, height, start, end, d);
+  })), decisionMap, width, height, start, end, d, zooms);
   return applyDragVisibility(frames, visibleBeats, width, height, start, d);
 }

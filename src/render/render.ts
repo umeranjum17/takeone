@@ -12,6 +12,7 @@ import { blurGraph, keycapAss, keycapObstacles, overlayRegions, spotlightAss } f
 import { motionBlurGraph, shutterPlan } from "./motion-blur.ts";
 import { idleSqueezes, setptsExpr, warp, warpBeats } from "./pace.ts";
 import { phoneTapShots } from "./phone.ts";
+import { editBeats, editTimeline, editZooms, validateEdits } from "./edits.ts";
 import {
   bandEligible, bandFrames, bandLayout, bandText, beatClicks, captionAss, cardFilter, clickAss, measureAss, stageFrames, stageGeometry, stageImageFilter,
   takeCaptions, type Caption, type CaptionInk,
@@ -50,6 +51,7 @@ export async function renderTake(dir: string, d?: CameraDefaults): Promise<{ out
   d ??= resolveTheme(meta.theme);
   const phone = meta.device !== undefined && meta.height > meta.width;
   if (phone) d = { ...d, corner_radius: 36, stage_margin: Math.max(0.16, d.stage_margin) };
+  validateEdits(meta);
   const beats = JSON.parse(await readFile(join(dir, "analysis/beats.json"), "utf8")) as Beat[];
   // The planner stores seconds; the existing FOLLOW solver consumes action timestamps in ms.
   if ("stream" in meta) for (const beat of beats) beat.actions = beat.actions.map(actionCameraMilliseconds);
@@ -61,13 +63,29 @@ export async function renderTake(dir: string, d?: CameraDefaults): Promise<{ out
   const trimStart = meta.trim_start ?? 0;
   // Everything after this point runs on the output clock, with idle gaps squeezed.
   const squeezes = idleSqueezes(beats, trimStart, trimEnd, d);
-  const outTime = (t: number) => warp(t - trimStart, squeezes, d.idle_speed);
+  const edited = Boolean(meta.cuts?.length || meta.speed?.length);
+  const clock = edited ? editTimeline(meta, beats, trimStart, trimEnd, d) : undefined;
+  const outTime = clock?.at ?? ((t: number) => warp(t - trimStart, squeezes, d.idle_speed));
   const duration = outTime(trimEnd);
   const blurs = overlayRegions(meta, "blur", outTime, trimStart, trimEnd);
   const spotlights = overlayRegions(meta, "spotlight", outTime, trimStart, trimEnd);
-  const outBeats = warpBeats(beats, trimStart, squeezes, d.idle_speed);
+  const outBeats = clock ? editBeats(beats, clock, trimStart) : warpBeats(beats, trimStart, squeezes, d.idle_speed);
+  const byId = new Map(outBeats.map(b => [b.id, b]));
+  const sourceBeats = new Map(beats.map(b => [b.id, b]));
+  const outDecisions = clock ? decisions.flatMap(decision => {
+    const beat = byId.get(decision.beat);
+    if (!beat) return [];
+    const source = sourceBeats.get(decision.beat)!;
+    const kept = (name: string | undefined) => source.zones.some(z => z.name === name
+      && (z.t_change === undefined || clock.contains(z.t_change)));
+    const A = kept(decision.A) ? decision.A : source.zones.find(z => kept(z.name))?.name ?? decision.A;
+    const B = kept(decision.B) ? decision.B : A;
+    return [{ ...decision, A, B }];
+  }) : decisions;
+  const zooms = clock ? editZooms(meta.zooms, clock, trimStart)
+    : meta.zooms?.map(z => ({ ...z, t0: trimStart + outTime(z.t0), t1: trimStart + outTime(z.t1) }));
   const tapShots = meta.device === "android" ? phoneTapShots(outBeats, meta.width, meta.height) : null;
-  const solved = solveCamera(tapShots?.beats ?? outBeats, tapShots?.decisions ?? decisions, { ...meta, trim_end: trimStart + duration },
+  const solved = solveCamera(tapShots?.beats ?? outBeats, tapShots?.decisions ?? outDecisions, { ...meta, zooms, trim_end: trimStart + duration },
     { ...d, min_shot: d.min_shot * d.pace, dwell: d.dwell * d.pace, dwell_k2: d.dwell_k2 * d.pace });
   // A handset's controls span its narrow screen. Keep that entire width while
   // pushing in and following the tapped row; horizontal pans slice labels.
@@ -80,7 +98,7 @@ export async function renderTake(dir: string, d?: CameraDefaults): Promise<{ out
     return { t: f.t, x: (meta.width - w) / 2, y, w, h };
   }) : solved;
   await writeFile(join(dir, "camera.json"), JSON.stringify(frames));
-  const captions = takeCaptions(meta, outTime, duration);
+  const captions = takeCaptions(clock ? { ...meta, captions: meta.captions?.filter(c => clock.contains(c.t)) } : meta, outTime, duration);
   const banded = captions.length > 0 && bandEligible(meta.width, meta.height, d);
   let text = banded ? bandText(captions, [], d) : d;
   let captionInk = await measureCaptions(dir, captions, text, banded);
@@ -142,7 +160,7 @@ export async function renderTake(dir: string, d?: CameraDefaults): Promise<{ out
   const clicksOverlay = hasDialogue(clicksAss) ? `,ass=${filterPath(clicksFile)}:fontsdir=${filterPath(FONTS_DIR)}` : "";
   const captionsOverlay = hasDialogue(captionsAss) ? `,ass=${filterPath(captionsFile)}:fontsdir=${filterPath(FONTS_DIR)}` : "";
   const filter = [
-    `[0:v]setpts='${setptsExpr(squeezes, d.idle_speed)}',fps=${d.fps}${clicksOverlay},scale=in_color_matrix=auto:out_color_matrix=bt601,format=${pixelFormat}[region0]`,
+    `[0:v]${clock?.filter ?? `setpts='${setptsExpr(squeezes, d.idle_speed)}'`},fps=${d.fps}${clicksOverlay},scale=in_color_matrix=auto:out_color_matrix=bt601,format=${pixelFormat}[region0]`,
     ...(blurs.length ? [blurGraph(blurs, pixelFormat)] : []),
     (band ? [
       `[region${blurs.length}]null${spotlightOverlay}[raw]`,
@@ -175,6 +193,7 @@ export async function renderTake(dir: string, d?: CameraDefaults): Promise<{ out
     // Slice threads keep the stage filters from starving the encoder.
     "-filter_threads", threads, "-filter_complex_threads", threads,
     graphOption, commandFile,
+    ...(clock ? ["-t", String(duration)] : []),
     "-r", String(d.fps), "-an", ...encodingOptions(d),
     "-color_primaries", "bt709", "-color_trc", "bt709", "-colorspace", "bt709", "-color_range", "tv",
     "-movflags", "+faststart", output,
