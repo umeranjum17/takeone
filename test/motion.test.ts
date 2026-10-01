@@ -178,3 +178,32 @@ test("encoding closes failed streams during warm-up and backpressure",{timeout:5
   await assert.rejects(encodeFrames(spawn(process.execPath,["-e","setTimeout(()=>process.exit(2),20)"],options),large()),/exited 2|[Pp]remature|EPIPE|ECONNRESET/);
   await assert.rejects(encodeFrames(spawn("./missing-motion-encoder",[],options),warmup()),/ENOENT/);
 });
+
+
+test("counter and device labels receive reveal and reading holds in every layout",()=>{
+  for(const [kind,d] of [["counter",2.7],["browser-chrome",1.5],["phone-chrome",1.2]] as const) {
+    const short={pattern:"fragment",kind,d:.25,text:""};
+    const full={...short,d};
+    const layouts=(scene:typeof short)=>[
+      {kind:"single"},
+      {kind:"bento",grid:"2x2",master:{d:6,scenes:[scene]},tiles:["TL","TR","BL","BR"].map(id=>({id,offset_s:0}))},
+      {kind:"bento",grid:"pinwheel-3x2",tiles:Object.fromEntries(["A","B","C","D"].map(id=>[id,[scene]]))},
+    ];
+    for(const layout of layouts(short))assert.throws(()=>validateStoryboard({...board(),scenes:[short],layout}),/reveal and reading-time/);
+    for(const layout of layouts(full))validateStoryboard({...board(),scenes:[full],layout});
+  }
+  assert.throws(()=>validateStoryboard({...board(),scenes:[{pattern:"fragment",kind:"counter",d:2}]}),/reading-time/);
+  const context:Record<string,unknown>={document:{readyState:"loading"},addEventListener:()=>{}};context.window=context;
+  vm.runInNewContext(readFileSync(new URL("../resources/motion/runtime.js",import.meta.url),"utf8"),context);
+  context.h=()=>({textContent:""});
+  vm.runInNewContext(readFileSync(new URL("../resources/motion/fragments.js",import.meta.url),"utf8"),context);
+  const counter=(context.FRAGMENTS as Record<string,()=>{textContent:string}>).counter!();
+  const seek=(context.TICKS as ((ms:number)=>void)[])[0]!;
+  seek(250);assert.notEqual(counter.textContent,"60");
+  seek(1500);assert.equal(counter.textContent,"60");
+  seek((Math.round(2.7*60)-1)*1000/60);assert.equal(counter.textContent,"60");
+  const normalized=JSON.parse(JSON.stringify(validateStoryboard({...board(),seed:123,transitions:[{after:0,kind:"cut",d:0}],scenes:[...board().scenes,...board().scenes]})));
+  assert.equal(Object.hasOwn(normalized,"seed"),false);
+  assert.equal(Object.hasOwn(normalized,"transitions"),false);
+  assert.deepEqual(normalized.scenes.map((scene:{at:number})=>scene.at),[0,3]);
+});
