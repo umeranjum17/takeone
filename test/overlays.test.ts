@@ -2,9 +2,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { DEFAULTS } from "../src/camera/defaults.ts";
+import { DEFAULTS, applyOverrides } from "../src/camera/defaults.ts";
 import type { Beat } from "../src/camera/types.ts";
-import { blurGraph, keycapAss, overlayRegions, shortcutKeys, spotlightAss } from "../src/render/overlays.ts";
+import { blurGraph, keycapAss, keycapCues, keycapObstacles, overlayRegions, shortcutKeys, spotlightAss } from "../src/render/overlays.ts";
 import { warpBeats } from "../src/render/pace.ts";
 import { hasFfmpeg } from "./helpers.ts";
 
@@ -30,10 +30,10 @@ test("no typed character reaches generated render output, even with injected tex
 test("keycaps deduplicate beats, trim and follow the squeezed output clock", () => {
   const b=beats([{k:"shortcut",t:1000,combo:"Ctrl+K"},{k:"shortcut",t:8000,combo:"Ctrl+S"}]);
   const warped=warpBeats([...b,...b],2,[{a:1,b:5}],4);
-  const ass=keycapAss(warped,2,5,d);
-  const dialogues=ass.split("\n").filter(l=>l.startsWith("Dialogue:"));
-  assert.equal(dialogues.length,4); // only S, two keycaps, each with shape and text
-  assert.ok(dialogues.every(l=>l.includes(",0:00:03.00,")));
+  const cues=keycapCues(warped,2,5,d);
+  assert.equal(cues.length,1);
+  assert.equal(cues[0]!.t0,3);
+  assert.deepEqual(cues[0]!.keys,["Ctrl","S"]);
 });
 
 test("region validation and timing preserve privacy coverage across trims and speed changes", () => {
@@ -45,7 +45,7 @@ test("region validation and timing preserve privacy coverage across trims and sp
 });
 
 test("rendered spotlights preserve holes and dim only the rest, including overlapping regions", {skip:!hasFfmpeg()},()=>{
-  const dir=mkdtempSync(`${process.cwd()}/tmp/spotlight-`);
+  const dir=mkdtempSync(`${process.cwd()}/tmp-spotlight-`);
   try {
     writeFileSync(`${dir}/spot.ass`,spotlightAss([
       {t0:0,t1:2,rect:[50,50,160,100]}, {t0:0,t1:2,rect:[150,50,160,100]}],640,360,d));
@@ -83,16 +83,46 @@ test("a narrow coloured blur has no corrupt chroma slices at render thread count
 let hasOcr=false;
 try {execFileSync("tesseract",["--version"],{stdio:"ignore"});hasOcr=true;} catch { /* Optional local visual check. */ }
 test("keycaps are OCR legible at both shortcut holds", {skip:!hasFfmpeg()||!hasOcr},()=>{
-  const dir=mkdtempSync(`${process.cwd()}/tmp/keycap-ocr-`);
+  const dir=mkdtempSync(`${process.cwd()}/tmp-keycap-ocr-`);
   try {
     writeFileSync(`${dir}/keys.ass`,keycapAss(beats([
       {k:"shortcut",t:500,combo:"Ctrl+K"},{k:"shortcut",t:2500,combo:"Ctrl+S"}]),0,5,DEFAULTS));
     for(const [t,key] of [[1,"K"],[3,"S"]] as const){
       const png=`${dir}/${key}.png`;
       execFileSync("ffmpeg",["-y","-v","error","-f","lavfi","-i","color=black:s=1920x1080:r=10:d=4",
-        "-vf",`ass=${dir}/keys.ass,select=gte(t\\,${t}),crop=1920:200:0:0`,"-frames:v","1",png]);
-      const text=execFileSync("tesseract",[png,"stdout","--psm","6"],{encoding:"utf8",stdio:["ignore","pipe","ignore"]});
-      assert.equal(text.trim().replace(/\s+/g," "),`Ctrl ${key}`);
+        "-vf",`ass=${dir}/keys.ass,select=gte(t\\,${t}),crop=650:180:635:650,format=gray,lut=y='if(gt(val,160),0,255)'`,"-frames:v","1",png]);
+      const text=execFileSync("tesseract",[png,"stdout","--psm","7"],{encoding:"utf8",stdio:["ignore","pipe","ignore"]});
+      assert.equal(text.trim().replace(/\s+/g," "),`Ctrl + ${key}`);
     }
   } finally {rmSync(dir,{recursive:true,force:true});}
+});
+
+test("platform labels are explicit and validated", () => {
+  const b=beats([{k:"shortcut",t:1000,combo:"Ctrl+Alt+Meta+Shift+K"}]);
+  assert.deepEqual(keycapCues(b,0,4,{...d,keycap_style:"mac"})[0]!.keys,["⌃","⌥","⇧","⌘","K"]);
+  assert.deepEqual(keycapCues(b,0,4,d)[0]!.keys,["Ctrl","Alt","Meta","Shift","K"]);
+  assert.equal(applyOverrides({keycap_style:"mac"}).keycap_style,"mac");
+  assert.throws(()=>applyOverrides({keycap_style:"other"}),/invalid --set/);
+});
+
+test("placement clears focus and captions for the entire hold, or hides in a full frame",()=>{
+  const b=beats([{k:"shortcut",t:1000,combo:"Ctrl+K"}]);
+  const preferred=keycapCues(b,0,4,d)[0]!;
+  assert.equal(preferred.cy,d.out_h*0.68);
+  const obstacles=[{t0:1,t1:3.5,rect:[200,210,240,80] as [number,number,number,number]},
+    {t0:1,t1:3.5,rect:[0,300,640,60] as [number,number,number,number]}];
+  const cue=keycapCues(b,0,4,d,obstacles)[0]!;
+  assert.ok(cue.cx !== preferred.cx || cue.cy !== preferred.cy);
+  for (const {rect:[x,y,w,h]} of obstacles) assert.ok(
+    cue.cx + cue.w/2 <= x || cue.cx - cue.w/2 >= x+w || cue.cy + cue.h/2 <= y || cue.cy - cue.h/2 >= y+h);
+  assert.equal(keycapCues(b,0,4,d,[{t0:1,t1:4,rect:[0,0,640,360]}]).length,0);
+});
+
+test("focus obstacles follow source regions through the actual stage camera",()=>{
+  const b=beats([]);
+  b[0]!.zones=[{name:"focus",type:"act",bbox:[10,20,100,50]}];
+  const obstacles=keycapObstacles(b,[{beat:"b",A:"focus",L:1,p:0,K:0,conf:1,decided_by:"test"}],
+    [{t:1,x:30,y:40,w:320,h:180}],{w:700,h:400,baseW:640,baseH:360,screenX:40,screenY:30,restScale:1},
+    0,[],[],d);
+  assert.deepEqual(obstacles[0]!.rect,[40,20,200,100]);
 });

@@ -72,6 +72,7 @@ export interface CameraDefaults {
   accent: string; // click ripple colour
   ripple_ms: number; // ripple duration, 0 turns click emphasis off
   ripple_r: number; // final ripple radius, output px at rest
+  keycap_style: "linux" | "mac"; // modifier words or macOS glyphs
   caption_font: string;
   caption_size: number; // output px; the title is 1.4x this
   fade_s: number; // fade in from and out to the background
@@ -147,6 +148,7 @@ export const DEFAULTS: CameraDefaults = {
   accent: "#6d8cff",
   ripple_ms: 550,
   ripple_r: 34,
+  keycap_style: "linux",
   caption_font: "Inter SemiBold",
   caption_size: 38,
   fade_s: 0.4,
@@ -181,6 +183,11 @@ export function applyOverrides(overrides: Overrides, base: CameraDefaults = DEFA
     if (key === "background_image") {
       if (typeof v !== "string" || /[\x00-\x1f]/.test(v) || v.length > 4096) throw new Error(`unknown or invalid --set ${k}=${v}`);
       out.background_image = v;
+      continue;
+    }
+    if (key === "keycap_style") {
+      if (v !== "linux" && v !== "mac") throw new Error(`unknown or invalid --set ${k}=${v}`);
+      out.keycap_style = v;
       continue;
     }
     if (key === "quality") {

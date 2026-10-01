@@ -271,8 +271,8 @@ function captionMargin(size: number, d: CameraDefaults): number {
   return Math.ceil(d.out_w * 0.05 + size * 0.75);
 }
 
-export function captionAss(captions: Caption[], widths: (number | CaptionInk)[], d: CameraDefaults): string {
-  let out = assHeader(d.out_w, d.out_h, d.caption_font, d.caption_size);
+/** Shared geometry keeps keycap collision avoidance identical to caption placement. */
+export function captionLayouts(captions: Caption[], widths: (number | CaptionInk)[], d: CameraDefaults) {
   const heights = captions.map((caption, index) => {
     const size = caption.title ? Math.round(d.caption_size * 1.4) : d.caption_size;
     const ink = widths[index] ?? 0;
@@ -280,26 +280,30 @@ export function captionAss(captions: Caption[], widths: (number | CaptionInk)[],
       ? Math.ceil(ink / Math.max(1, d.out_w - 2 * captionMargin(size, d))) * size * 1.2 : ink.h;
     return Math.ceil(Math.max(size, h) + size * 0.9);
   });
-  captions.forEach((caption, index) => {
+  return captions.map((caption, index) => {
     const size = caption.title ? Math.round(d.caption_size * 1.4) : d.caption_size;
-    const padX = size * 0.75;
-    const pillH = heights[index]!;
     const ink = widths[index] ?? 0;
-    const pillW = Math.min(d.out_w * 0.9, (typeof ink === "number" ? ink : ink.w) + 2 * padX);
-    const cx = d.out_w / 2;
+    const w = Math.min(d.out_w * 0.9, (typeof ink === "number" ? ink : ink.w) + 2 * size * 0.75);
+    const h = heights[index]!;
     const below = caption.title ? Math.max(0, ...captions.map((other, i) =>
       !other.title && other.t0 < caption.t1 && other.t1 > caption.t0 ? heights[i]! : 0)) : 0;
-    const cy = d.out_h - d.out_h * 0.075 - pillH / 2 - (below ? below + size * 0.35 : 0);
-    const rise = Math.round(size * 0.3);
+    const cx = d.out_w / 2;
+    const cy = d.out_h - d.out_h * 0.075 - h / 2 - (below ? below + size * 0.35 : 0);
+    return { cx, cy, w, h, size, rise: Math.round(size * 0.3) };
+  });
+}
+
+export function captionAss(captions: Caption[], widths: (number | CaptionInk)[], d: CameraDefaults): string {
+  let out = assHeader(d.out_w, d.out_h, d.caption_font, d.caption_size);
+  const layouts = captionLayouts(captions, widths, d);
+  captions.forEach((caption, index) => {
+    const { cx, cy, w, h, size, rise } = layouts[index]!;
     const settle = Math.round(260 * 14 / d.spring_omega / d.spring_zeta);
     const move = `\\move(${cx},${cy + rise},${cx},${cy},0,${settle})`;
     const fade = `\\fad(220,200)`;
-    const x = -pillW / 2;
-    const y = -pillH / 2;
     const time = `${assTime(caption.t0)},${assTime(caption.t1)}`;
-    // The pill is drawn around its own origin so \move animates it with the text.
     out += `Dialogue: 2,${time},Default,,0,0,0,,{\\an7${move}${fade}\\bord${d.caption_border}\\3c${assColour(d.text)}\\shad0\\blur0.6`
-      + `\\1c${assColour(d.card)}\\1a${assAlpha(1 - d.caption_opacity)}\\p1}${roundRect(x, y, pillW, pillH, pillH / 2 * d.caption_rounding)}\n`;
+      + `\\1c${assColour(d.card)}\\1a${assAlpha(1 - d.caption_opacity)}\\p1}${roundRect(-w / 2, -h / 2, w, h, h / 2 * d.caption_rounding)}\n`;
     const margin = captionMargin(size, d);
     out += `Dialogue: 3,${time},Default,,${margin},${margin},0,,{\\q0\\an5${move}${fade}\\fs${size}\\fn${caption.title ? d.display_font : d.caption_font}\\1c${assColour(d.text)}\\bord0\\shad0}${caption.text}\n`;
   });

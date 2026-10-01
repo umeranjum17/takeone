@@ -7,7 +7,7 @@ import { basename, join, resolve } from "node:path";
 import type { CameraDefaults } from "../camera/defaults.ts";
 import { solveCamera } from "../camera/solver.ts";
 import type { Beat, CameraFrame, Decision, TakeMeta } from "../camera/types.ts";
-import { blurGraph, keycapAss, overlayRegions, spotlightAss } from "./overlays.ts";
+import { blurGraph, keycapAss, keycapObstacles, overlayRegions, spotlightAss } from "./overlays.ts";
 import { idleSqueezes, setptsExpr, warp, warpBeats } from "./pace.ts";
 import {
   beatClicks, captionAss, cardFilter, clickAss, measureAss, stageFrames, stageGeometry, stageImageFilter, takeCaptions,
@@ -114,7 +114,8 @@ export async function renderTake(dir: string, d?: CameraDefaults): Promise<{ out
   await writeFile(join(dir, "camera.json"), JSON.stringify(frames));
   const stage = stageGeometry(meta.width, meta.height, d);
   const commandFile = join(dir, "camera.cmd");
-  const camera = cameraFilter(stageFrames(frames, meta.width, meta.height, stage, d), stage.w, stage.h, d);
+  const stageCamera = stageFrames(frames, meta.width, meta.height, stage, d);
+  const camera = cameraFilter(stageCamera, stage.w, stage.h, d);
 
   const outputDir = join(dir, "out");
   await mkdir(outputDir, { recursive: true });
@@ -135,11 +136,13 @@ export async function renderTake(dir: string, d?: CameraDefaults): Promise<{ out
   await writeFile(clicksFile, clicksAss);
   const captions = takeCaptions(meta, outTime, duration);
   const captionsFile = join(dir, "captions.ass");
-  const captionsAss = captionAss(captions, await measureCaptions(dir, captions, d), d);
+  const captionInk = await measureCaptions(dir, captions, d);
+  const captionsAss = captionAss(captions, captionInk, d);
   await writeFile(captionsFile, captionsAss);
 
   const keysFile = join(dir, "keycaps.ass");
-  const keys = keycapAss(outBeats, trimStart, duration, d);
+  const keys = keycapAss(outBeats, trimStart, duration, d,
+    keycapObstacles(outBeats, decisions, stageCamera, stage, trimStart, captions, captionInk, d));
   await writeFile(keysFile, keys);
   const spotlightFile = join(dir, "spotlight.ass");
   const spotlight = spotlightAss(spotlights, meta.width, meta.height, d);
