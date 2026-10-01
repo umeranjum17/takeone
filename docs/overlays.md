@@ -2,9 +2,10 @@
 
 Rerender a take with `takeone render <take-dir>`. Shortcut actions derived from
 `key.combo` automatically display separate keycap pills in a translucent pill near the bottom third of the output.
-Only a validated key name with Ctrl, Alt or Meta reaches the overlay. Bare keys,
-Shift-only typing, key releases, typed text and malformed combinations produce no
-keycap. Each shortcut holds for 2.2 output seconds, ending when the next starts.
+Only a validated key name paired with Ctrl, Alt or Meta reaches the overlay;
+Shift may accompany one of those modifiers. Bare keys, Shift-only typing, key
+releases, typed text and malformed combinations produce no keycap. Each shortcut
+holds for 2.2 output seconds, ending when the next starts.
 The bevelled cells have a subtle shadow and a `+` join. A soft critical spring brings
 them in; the last 250 ms fade out. Their size stays constant during camera motion.
 Placement clears the selected focus targets and the measured title/caption pills

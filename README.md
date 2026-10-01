@@ -77,7 +77,7 @@ Add a `title` and timed `captions` to `take.json` and they render as rounded pil
 
 1. **Record.** `takeone record` captures the desktop through desklink's view-only portal session and, when evdev is readable, the pointer, clicks, wheel, key classes and focused window. Typed characters are never recorded. `takeone record --android <serial>` records a phone or emulator into the same take format instead, and `takeone record --ios-sim` records the booted iOS Simulator on macOS, video-only with no touch events (see [Recording](#recording)).
 2. **Make.** `takeone make` segments the take into beats (at most 30 per minute), finds the regions that changed, and decides each beat's shot. Jev decides the beats that need judgement, from zone descriptions and an optional `--about` topic; idle and cut beats are decided locally. A token preflight refuses the whole run before any call if the plan would exceed its cap, and `--no-jev` keeps every decision local.
-3. **Render.** The camera path is solved on the output clock, eased through a spring and rendered with ffmpeg and libass into a silent H.264 MP4 (1920×1080, or 1080×1920 when the take stream is portrait and no `out_w`/`out_h` override is passed): stage, click rings, idle speed-up, titles and captions. Rerendering with new `--set` values never calls the planner.
+3. **Render.** The camera path is solved on the output clock, eased through a spring and rendered with ffmpeg and libass into a silent H.264 MP4 (1920×1080, or 1080×1920 when the take stream is portrait and no `out_w`/`out_h` override is passed): stage, click rings, shortcut keycaps, timed spotlight and blur regions, idle speed-up, titles and captions. Rerendering with new `--set` values never calls the planner.
 
 ## Download / Install
 
