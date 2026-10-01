@@ -110,4 +110,4 @@ meta.pop('trim',None)
 PY
 cp "$dir/screen.webm" "$evidence/takeone-uiboxes-recording.webm"
 cp "$dir/events.jsonl" "$evidence/takeone-uiboxes-events.jsonl"
-node scripts/e2e/uiboxes-proof.ts --recorded
+node scripts/e2e/uiboxes-proof.ts

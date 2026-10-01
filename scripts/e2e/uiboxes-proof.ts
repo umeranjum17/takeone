@@ -1,11 +1,6 @@
-// A deterministic headless Tidewater take: captured board/dialog surfaces plus
-// recorded click events. No DOM boundaries enter analysis. Run under the shared
-// heavy lock, after capturing scene.html at 2560x1440 using chrome-devtools-axi:
-//   source-board.png, then open New task and capture source-dialog.png, both with
-//   the takeone-uiboxes- prefix in tmp/evidence/t1-uiboxes/.
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, readFileSync, writeFileSync, copyFileSync } from "node:fs";
+import { readFileSync, writeFileSync, copyFileSync } from "node:fs";
 import { resolve, join } from "node:path";
 import { makeTake } from "../../src/make.ts";
 import { zonesForBeat } from "../../src/beats/zones.ts";
@@ -18,25 +13,8 @@ import type { BBox, FrameRegions } from "../../src/types.ts";
 
 const evidence = resolve("tmp/evidence/t1-uiboxes");
 const dir = resolve("tmp/uiboxes-proof");
-const recorded = process.argv.includes("--recorded");
-mkdirSync(dir, { recursive: true });
 const ffmpeg = (args: string[]) => execFileSync("ffmpeg", ["-nostdin", "-v", "error", "-y", ...args], { stdio: "inherit" });
-// Freeze each captured surface so ordinary clicks on already-visible cards and
-// the dialog have genuinely empty temporal perception, rather than deleting it.
-if (!recorded) ffmpeg(["-loop", "1", "-i", join(evidence, "takeone-uiboxes-source-board.png"),
-  "-loop", "1", "-i", join(evidence, "takeone-uiboxes-source-dialog.png"),
-  "-filter_complex", "[0:v]trim=duration=16,setpts=PTS-STARTPTS[a];[1:v]trim=duration=8,setpts=PTS-STARTPTS[b];[a][b]concat=n=2:v=1:a=0[v]",
-  "-map", "[v]", "-t", "24", "-r", "30", "-c:v", "libvpx-vp9", "-threads", "2", "-deadline", "realtime", "-cpu-used", "8",
-  "-pix_fmt", "yuv420p", join(dir, "screen.webm")]);
-if (!recorded) {
-  writeFileSync(join(dir, "take.json"), JSON.stringify({ id: "takeone-uiboxes", stream: { w: 2560, h: 1440 }, scale: 1, offset_ms: 0, pointer: "hyprland" }));
-  writeFileSync(join(dir, "frames.tsv"), "0\t0\n");
-}
-const clicks: number[][] = recorded ? JSON.parse(readFileSync(join(dir, "proof-clicks.json"), "utf8"))
-  : [[3000, 1120, 403], [8000, 580, 550], [13000, 2210, 730], [20000, 1200, 560]];
-const events = [{ k: "win", t: 0, cls: "chromium", title: "Tidewater board", rect: [0, 0, 2560, 1440] },
-  ...clicks.flatMap(([t, x, y]) => [{ k: "ptr", t: t! - 200, x, y }, { k: "btn", t, b: "left", down: true }, { k: "btn", t: t! + 60, b: "left", down: false }])];
-if (!recorded) writeFileSync(join(dir, "events.jsonl"), events.map(e => JSON.stringify(e)).join("\n") + "\n");
+const clicks: number[][] = JSON.parse(readFileSync(join(dir, "proof-clicks.json"), "utf8"));
 const camera = { ...DEFAULTS, preset: "veryfast", idle_speed: 1 };
 const planned = await makeTake(dir, { noJev: true, apiKey: null, camera, planOnly: true });
 const changes = JSON.parse(readFileSync(join(dir, "analysis/regions.json"), "utf8")).frames as FrameRegions[];
@@ -96,6 +74,6 @@ ffmpeg(["-i", join(evidence, "takeone-uiboxes-before.png"), "-i", join(evidence,
 writeFileSync(join(dir, "analysis/beats.json"), afterBeats);
 writeFileSync(join(dir, "analysis/decisions.jsonl"), afterDecisions);
 const analysis = JSON.parse(readFileSync(join(dir, "analysis/ui-boxes.json"), "utf8"));
-writeFileSync(join(evidence, "takeone-uiboxes-quality.json"), JSON.stringify({ fixture: recorded ? "isolated Xvfb Tidewater recording + browser input events" : "headless Tidewater captured surfaces + scripted events", empty_region_clicks: clicks,
+writeFileSync(join(evidence, "takeone-uiboxes-quality.json"), JSON.stringify({ fixture: "isolated Xvfb Tidewater recording + browser input events", empty_region_clicks: clicks,
   cost: analysis.cost, holds: quality, output: { width: camera.out_w, height: camera.out_h, fps: camera.fps }, model_calls: 0 }, null, 2));
 console.log(JSON.stringify({ evidence, cost: analysis.cost, holds: quality.length }));
