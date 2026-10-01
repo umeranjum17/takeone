@@ -67,6 +67,27 @@ function isPortraitTake(dir: string): boolean {
   }
 }
 
+export function renderDimensions(aspect?: string, resolution?: string, portraitSource = false): Overrides {
+  const dimensions: Overrides = {};
+  if (aspect !== undefined) {
+    const sizes: Record<string, [number, number]> = {
+      landscape: [1920, 1080], portrait: [1080, 1920], square: [1080, 1080],
+    };
+    const size = sizes[aspect];
+    if (!size) throw Error(`unknown aspect ${aspect}; use landscape, portrait or square`);
+    [dimensions.out_w, dimensions.out_h] = size;
+  }
+  if (resolution !== undefined) {
+    if (resolution !== "4k") throw Error(`unknown resolution ${resolution}; use 4k`);
+    const resolvedAspect = aspect ?? (portraitSource ? "portrait" : "landscape");
+    const sizes: Record<string, [number, number]> = {
+      landscape: [3840, 2160], portrait: [2160, 3840], square: [3840, 3840],
+    };
+    [dimensions.out_w, dimensions.out_h] = sizes[resolvedAspect]!;
+  }
+  return dimensions;
+}
+
 function parseArgs(argv: string[]): Args {
   const a: Args = { noJev: false, screenText: false, set: [] };
   for (let i = 0; i < argv.length; i++) {
@@ -181,21 +202,7 @@ export async function main(argv: string[]): Promise<number> {
         else if (option === "--resolution") resolution = value;
         else if (option === "--format") format = value;
       }
-      const dimensions: Overrides = {};
-      if (aspect !== undefined) {
-        const aspects: Record<string, [number, number]> = {
-          landscape: [1920, 1080], portrait: [1080, 1920], square: [1080, 1080],
-        };
-        const size = aspects[aspect];
-        if (!size) throw Error(`unknown aspect ${aspect}; use landscape, portrait or square`);
-        dimensions.out_w = size[0]; dimensions.out_h = size[1];
-      }
-      if (resolution !== undefined) {
-        if (resolution !== "4k") throw Error(`unknown resolution ${resolution}; use 4k`);
-        const portrait = aspect === "portrait" || (aspect === undefined && isPortraitTake(dir));
-        dimensions.out_w = portrait ? 2160 : 3840;
-        dimensions.out_h = portrait ? 3840 : 2160;
-      }
+      const dimensions = renderDimensions(aspect, resolution, isPortraitTake(dir));
       if (!["mp4", "gif", "webm", "prores4444"].includes(format)) {
         throw Error(`unknown format ${format}; use mp4, gif, webm or prores4444`);
       }
