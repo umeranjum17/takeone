@@ -53,8 +53,6 @@ export interface Scene {
   push?: number;
 }
 
-export interface Transition { after: number; kind: "cut"; d: number }
-
 export interface Tempo { bpm: number; phase_s: number; snap: "beat" | "half" }
 
 export type BentoTile2x2 = "TL" | "TR" | "BL" | "BR";
@@ -89,7 +87,6 @@ export interface Storyboard {
   id: string;
   output: Output;
   theme: { name: string; overrides: Overrides & Record<string, number | string> };
-  seed: number;
   tempo?: Tempo;
   source: {
     kind: "image" | "html" | "url";
@@ -106,6 +103,5 @@ export interface Storyboard {
   regions: Region[];
   layout: Layout;
   scenes: Scene[];
-  transitions: Transition[];
   planner: { by: "local" | "user"; abstained: string[] };
 }

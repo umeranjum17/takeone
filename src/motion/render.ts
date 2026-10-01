@@ -1,5 +1,6 @@
 // Frame-stepped CDP renderer: N fixed workers, each a pinned headless shell, seek -> capture -> encode.
 import { spawn, execFileSync, type ChildProcess } from "node:child_process";
+import { pipeline } from "node:stream/promises";
 import { createHash } from "node:crypto";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
@@ -97,7 +98,19 @@ export function encoder(out: string, fps: number, crf: number, preset: string, w
     "-color_primaries", "bt709", "-color_trc", "bt709", "-colorspace", "bt709", "-color_range", "tv", out],
   { stdio: ["pipe", "ignore", "inherit"] });
 }
-const finished = (p: ChildProcess) => new Promise<void>((ok, bad) => p.on("close", (c) => (c === 0 ? ok() : bad(new Error(`ffmpeg exited ${c}`)))));
+const finished = (p: ChildProcess) => new Promise<void>((ok, bad) => {
+  p.once("error", bad);
+  p.once("close", c => c === 0 ? ok() : bad(new Error(`ffmpeg exited ${c}`)));
+});
+
+export async function encodeFrames(child: ChildProcess, frames: AsyncIterable<Uint8Array>): Promise<void> {
+  try {
+    await Promise.all([finished(child), pipeline(frames, child.stdin!)]);
+  } finally {
+    child.stdin?.destroy();
+    if (child.exitCode === null && child.signalCode === null) child.kill();
+  }
+}
 
 export function ffmpegVersion(): string {
   return execFileSync("ffmpeg", ["-version"], { encoding: "utf8" }).split("\n")[0] ?? "";
@@ -131,35 +144,45 @@ export async function renderFrames(job: FrameJob): Promise<FrameResult> {
   const mp4 = job.mp4 ? resolve(job.mp4) : undefined;
   const segs = mp4 ? Array.from({ length: workers }, (_, w) => `${mp4}.seg${w}.mp4`) : [];
   const t0 = performance.now();
-  const parts = await Promise.all(Array.from({ length: workers }, async (_, w) => {
+  const results = await Promise.allSettled(Array.from({ length: workers }, async (_, w) => {
     const f0 = cuts[w]!, f1 = cuts[w + 1]!;
     const b = await openPage(shell, job.html, job.width, job.height, requests, job.rasterScale);
     const enc = job.mp4 ? encoder(segs[w]!, job.fps, job.crf ?? 18, job.preset ?? "medium", job.width, job.height) : null;
-    const encDone = enc ? finished(enc) : null;
     const md5: string[] = [];
-    try {
+    async function* frames() {
       for (let n = WARMUP; n > 0; n--) { const i = Math.max(0, f0 - n); await frameAt(b, i + first, job.fps, undefined); }
       for (let i = f0; i < f1; i++) {
         const png = await frameAt(b, i + first, job.fps, job.plan?.samples?.[i]);
         md5.push(createHash("md5").update(png).digest("hex"));
         if (job.framesDir) await writeFile(join(job.framesDir, `${String(i + 1).padStart(6, "0")}.png`), png);
-        if (enc && !enc.stdin!.write(png)) await new Promise((r) => enc.stdin!.once("drain", r));
+        yield png;
       }
+    }
+    try {
+      if (enc) await encodeFrames(enc, frames());
+      else for await (const _png of frames()) { }
     } finally {
       await b.close();
-      enc?.stdin!.end();
     }
-    await encDone;
     return md5;
   }));
+  const failed = results.find(result => result.status === "rejected");
+  if (failed) {
+    await Promise.all(segs.map(f => rm(f, { force: true })));
+    throw failed.reason;
+  }
+  const parts = (results as PromiseFulfilledResult<string[]>[]).map(result => result.value);
   const render_s = (performance.now() - t0) / 1000;
   if (requests.length) throw new Error(`motion page tried to fetch ${requests[0]}; renders are offline`);
   let concat_s = 0;
   if (mp4) {
     const t1 = performance.now(), list = `${mp4}.segs.txt`;
     await writeFile(list, segs.map((f) => `file '${f.replace(/'/g, "'\\''")}'`).join("\n") + "\n");
-    await finished(spawn("ffmpeg", ["-nostdin", "-v", "error", "-y", "-f", "concat", "-safe", "0", "-i", list, "-c", "copy", "-movflags", "+faststart", mp4], { stdio: ["ignore", "ignore", "inherit"] }));
-    await Promise.all([list, ...segs].map((f) => rm(f, { force: true })));
+    try {
+      await finished(spawn("ffmpeg", ["-nostdin", "-v", "error", "-y", "-f", "concat", "-safe", "0", "-i", list, "-c", "copy", "-movflags", "+faststart", mp4], { stdio: ["ignore", "ignore", "inherit"] }));
+    } finally {
+      await Promise.all([list, ...segs].map((f) => rm(f, { force: true })));
+    }
     concat_s = (performance.now() - t1) / 1000;
   }
   return { md5: parts.flat(), render_s, concat_s, workers, shell, flags: shellFlags({ width: job.width, height: job.height, dsf: job.rasterScale ?? 1 }, "<profile>"), requests };

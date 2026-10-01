@@ -106,11 +106,10 @@ export function planStoryboard(a: MotionArgs, id: string): unknown {
     : kind === "html" ? { kind, file: resolve(first), viewport: [2560, 1440], states: Object.fromEntries(a.states.map(([n, ops]) => [n, splitStateOps(ops)])) }
     : { kind, url: first, viewport: [1440, 900], dsf: 2, states: Object.fromEntries(a.states.map(([n, ops]) => [n, splitStateOps(ops)])) };
   return {
-    version: 1, id, seed: 1,
+    version: 1, id,
     output: { ...(a.workers ? { workers: a.workers } : {}), ...(a.blur !== undefined ? { motion_blur: a.blur } : {}) },
     theme: { name: a.theme ?? "midnight", overrides: {} },
     source, screens: {}, regions, layout: { kind: "single" }, scenes,
-    transitions: [],
     planner: { by: "local", abstained: [] },
   };
 }
