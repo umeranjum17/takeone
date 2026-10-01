@@ -10,7 +10,7 @@ import { sceneCameras } from "./camera.ts";
 import { ingest } from "./ingest.ts";
 import { samplePalette } from "./palette.ts";
 import { motionPage } from "./page.ts";
-import { ffmpegVersion, renderFrames } from "./render.ts";
+import { ffmpegVersion, MOTION_CRF, renderFrames } from "./render.ts";
 import { pinnedShell } from "./shell.ts";
 import { filmDuration, validateStoryboard } from "./storyboard.ts";
 import { motionTokens } from "./theme.ts";
@@ -103,7 +103,7 @@ export async function renderMotion(dir: string, o: RenderOptions = {}): Promise<
   const rasterScale = allTimelines(sb.layout, sb.scenes).some(list => list.some(scene => scene.pattern === "zoom-tour")) ? 2 : 1;
   mkdirSync(join(dir, "out"), { recursive: true });
   const out = join(dir, "out", `${sb.id}.mp4`);
-  const crf = 18;
+  const crf = MOTION_CRF;
   const r = await renderFrames({ html, width, height, fps, frames, workers: sb.output.workers, plan: blur.plan, mp4: out, crf,
     preset: sb.output.preset, shell, rasterScale, ...(o.framesDir ? { framesDir: o.framesDir } : {}) });
   const md5 = r.md5.map((h, i) => `${String(i + 1).padStart(6, "0")} ${h}`).join("\n") + "\n";

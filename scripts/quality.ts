@@ -242,14 +242,16 @@ export function compare(video: string, golden: string, output: string, vmaf: boo
     return n;
   };
   const candidateFrames = count(video), goldenFrames = count(golden);
+  // Compare corresponding decoded frames, independent of container timestamp rounding.
+  const clock = 'settb=AVTB,setpts=N/FRAME_RATE/TB';
   const stats = join(output, 'ssim.log');
-  ffmpeg(['-i', video, '-i', golden, '-filter_complex', `[0:v]setpts=PTS-STARTPTS[a];[1:v]setpts=PTS-STARTPTS[b];[a][b]ssim=stats_file=${stats}`, '-f', 'null', '-']);
+  ffmpeg(['-i', video, '-i', golden, '-filter_complex', `[0:v]${clock}[a];[1:v]${clock}[b];[a][b]ssim=stats_file=${stats}`, '-f', 'null', '-']);
   const scores = [...readFileSync(stats, 'utf8').matchAll(/n:(\d+).*All:([\d.]+)/g)].map(m => ({ frame: Number(m[1]), ssim: Number(m[2]) }));
   if (!scores.length) throw new Error('SSIM produced no scores');
   let vmafScore: number | null = null;
   if (vmaf) {
     const log = join(output, 'vmaf.json');
-    ffmpeg(['-i', video, '-i', golden, '-filter_complex', `[0:v]setpts=PTS-STARTPTS[a];[1:v]setpts=PTS-STARTPTS[b];[a][b]libvmaf=log_fmt=json:log_path=${log}:n_threads=2`, '-f', 'null', '-']);
+    ffmpeg(['-i', video, '-i', golden, '-filter_complex', `[0:v]${clock}[a];[1:v]${clock}[b];[a][b]libvmaf=log_fmt=json:log_path=${log}:n_threads=2`, '-f', 'null', '-']);
     vmafScore = json<{ pooled_metrics: { vmaf: { mean: number } } }>(log).pooled_metrics.vmaf.mean;
   }
   return { candidateFrames, goldenFrames, timelineMismatch: candidateFrames !== goldenFrames, minSSIM: Math.min(...scores.map(s => s.ssim)), framesBelow095: scores.filter(s => s.ssim < 0.95), vmaf: vmafScore, mode: vmaf ? 'SSIM + VMAF' : 'SSIM only: ffmpeg has no libvmaf' };
