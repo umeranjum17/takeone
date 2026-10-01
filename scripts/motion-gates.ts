@@ -40,7 +40,7 @@ for(const id of ["timing","hero-reveal","zoom-tour","end-card","bento"]) {
       if(story.layout.kind==="single")add(story.scenes,"",0);
       else if(story.layout.grid==="2x2")for(const tile of story.layout.tiles)add(story.layout.master.scenes,"master:",tile.offset_s);
       else for(const [tile,scenes]of Object.entries(story.layout.tiles))add(scenes as {at:number;d:number}[],tile+":",0);
-      const moving=pairs.some(([a,b])=>a && b && ["x","y","w","h"].some(k=>Math.abs(a[k]-b[k])>1e-7));
+      const moving=pairs.some(([a,b])=>a && b && ["x","y","w","h"].some(k=>Math.abs(a[k]!-b[k]!)>1e-7));
       if(moving && md5[f]===md5[f-1])movingDuplicates.push(f);
     }
     duplicates[id]={frames:movingDuplicates,pass:movingDuplicates.length===0};

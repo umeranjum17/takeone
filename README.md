@@ -8,7 +8,7 @@
 
 <p align="center">
   <strong>Record once. Direct the camera afterwards.</strong><br/>
-  takeone is a private screen-recording studio that turns a raw capture into a polished demo. You demonstrate your app the way you normally use it; takeone then plans every zoom, hold and pan from what actually happened on screen, and renders a framed, paced MP4 locally.
+  takeone is a private demo studio that turns a raw capture into a polished demo or saved screens into a motion-design film. You demonstrate your app the way you normally use it; takeone then plans every zoom, hold and pan from what actually happened on screen, and renders a framed, paced MP4 locally.
 </p>
 
 <p align="center">
@@ -91,7 +91,7 @@ git clone https://github.com/umeranjum17/takeone
 cd takeone
 npm install        # also builds dist/
 npm link           # optional: puts `takeone` on PATH
-takeone doctor     # report what the recorder needs on this machine
+takeone doctor     # report recorder requirements and motion-shell identity
 ```
 
 Run `node bin/takeone.mjs` from the checkout, or `takeone` if the package is linked. Set `TAKEONE_DIR` to the parent of your takes; otherwise it defaults to `~/Videos/takeone`.
@@ -245,6 +245,10 @@ Video-only: no `events.jsonl` is written, so the camera plans from screen change
 takeone render ~/Videos/takeone/<id> --set background=#0B1220 --set idle_speed=3
 ```
 
+## Motion design from screens
+
+Use `takeone motion` to create a film from images, HTML or a URL without recording. See [Motion renders](docs/motion.md) for setup, common usage and the storyboard contract.
+
 ## Plan and render
 
 ```sh
@@ -258,7 +262,7 @@ With a [configured Jev key](#jev-key), Jev receives zone descriptions and an opt
 
 ### Render an existing take
 
-For an existing planned take, render reads `screen.webm`, `take.json` (at least `width` and `height` in source pixels), `analysis/beats.json` as a beat array, and `analysis/decisions.jsonl` as one decision per line. Each beat needs a matching decision whose A (and optional B) names refer to that beat's zones. For an existing take, `events.jsonl` may be omitted only when `take.json` has `"events": "none"`; an empty event file is also valid.
+For an existing planned recording take, render reads `screen.webm`, `take.json` (at least `width` and `height` in source pixels), `analysis/beats.json` as a beat array, and `analysis/decisions.jsonl` as one decision per line. Each beat needs a matching decision whose A (and optional B) names refer to that beat's zones. For an existing recording take, `events.jsonl` may be omitted only when `take.json` has `"events": "none"`; an empty event file is also valid. Motion takes use the [motion rerender contract](docs/motion.md) instead.
 
 `--set key=value` overrides camera settings defined in `src/camera/defaults.ts`; rerendering does not call the planner. Render writes `camera.json`, `camera.cmd`, `render.log` (including libass font selection), and a silent H.264 MP4 at `out/<id>.mp4` inside the take directory (default 1920×1080 at 60 fps, or 1080×1920 at 60 fps when the take stream is portrait and no `out_w`/`out_h` override is passed). `--set quality=draft|standard|master` selects CRF 23, 18 (default), or 14; `--set preset=...` independently controls encoder speed. Output uses limited-range bt709 colour conversion and tags. The camera uses a subpixel warp: draft trades smoothness for fast previews with bilinear interpolation, standard uses cubic interpolation at output resolution, and master uses cubic at twice output resolution followed by Lanczos downsampling. Master is the slow highest-quality tier, with a render-time budget of up to 8× the original 30 fps renderer; standard targets 2.5×. Whole-screen shots of non-16:9 sources are centred on the stage background rather than cropped; zooming can crop the screen. If `take.json` omits `id`, the directory name is used; if it omits `trim_end`, the latest beat end is used.
 
@@ -293,7 +297,7 @@ Worst case at the defaults: the reserved total (planned tokens plus the 1,200-to
 
 ## Look and pacing
 
-Every render uses the same stage, all local ffmpeg/libass work at zero token cost:
+Every recording render uses the same stage, all local ffmpeg/libass work at zero token cost:
 
 - **Stage**: the selected theme sets the screen card, background, and typography; see the theme table below. The stage margin (`stage_margin`, fraction of stage size) eases away as the camera zooms, so close-ups are all screen.
 - **Zoom**: shots never upscale source pixels more than `max_upscale` (1.5): a clear push-in on a 1080p capture that keeps text crisp. The camera path runs through a critically damped spring (`lowpass_omega`), so moves ease in and out without overshoot. When a click opens a panel or dialog (a change region holding the click, up to half the screen), the shot holds the whole panel: per-level padding never widens a shot past `frame_max` (0.8) of the screen, and the zone itself always keeps `hold_pad` (1.08x) around it.
@@ -308,7 +312,7 @@ Every render uses the same stage, all local ffmpeg/libass work at zero token cos
   "captions": [{ "t": 8.4, "text": "Search filters as you type" }, { "t": 22.6, "d": 3.6, "text": "Drag to adjust retention" }] }
 ```
 
-Both `make` and `render` accept `--theme midnight|paper|aurora|mono|neon|brutalist|sand|terminal`.
+Both `make` and recording `render` accept `--theme NAME`; the supported names are defined in [the shared theme registry](src/themes.ts), including the new `editorial` theme.
 `midnight` is the default and keeps the existing look. A saved `"theme": "paper"`
 in `take.json` applies on every rerender; an explicit `--theme` takes precedence,
 and `--set` overrides the selected theme's tokens. `make --theme` saves the
@@ -350,8 +354,9 @@ Overlay spring tokens adjust caption arrival time only; the recording camera
 remains critically damped. Recording `pace` scales camera holds (`dwell`,
 `dwell_k2`, `min_shot`) while keeping move durations and caption reading time.
 
-Generate the synthetic eight-theme grid and a short comparison video with
-`node scripts/theme-proof.ts tmp/theme-proof`. The fixture is a fictional
+The committed eight-theme grid and comparison video predate `editorial`.
+Their generator is [scripts/theme-proof.ts](scripts/theme-proof.ts); its grid
+layout needs updating before it can include all current themes. The fixture is a fictional
 Tidewater launch board with Umer as its demo person, with no desktop capture.
 The captured 2560×1440 fixture comes from `scripts/e2e/scene.html`; the proof
 uses `stage_margin=0.16` so background treatment is visible at thumbnail size.
@@ -423,7 +428,7 @@ takeone record --android <serial>   record a phone or emulator until `takeone st
 takeone record --ios-sim   record the booted iOS Simulator until `takeone stop` (macOS only)
   [--root DIR] [--state-dir DIR] as above
 takeone stop            stop the active recording (SIGINT to the pid file)
-takeone doctor          report what the recorder needs on this machine
+takeone doctor          report recorder requirements and motion-shell identity
 ```
 
 If recording with `--state-dir DIR`, set `TAKEONE_STATE_DIR=DIR` for `takeone stop` (and bare `takeone`); those commands read the state directory from the environment, not the record option.
