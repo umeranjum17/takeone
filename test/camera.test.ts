@@ -684,6 +684,8 @@ test("a dwell before a curved drag cannot hide the object or regress the next ac
     actions: [{ k: "dwell", t0: 1000, t1: 1900, x: 3500, y: 100 }, ...actions],
     zones: [zone("object", [200, 800, 500, 200])] };
   const g = gestures(drag)[0]!;
+  drag.actions.push({ ...g, k: "travel" });
+  assert.equal(gestures(drag).length, 1);
   assert.deepEqual(g.subject, [200, 800, 500, 200]);
   assert.deepEqual(gesturePointer(g, 2.5), [400, 900]);
   assert.deepEqual(gesturePointer(g, 3), [1700, 1400]);

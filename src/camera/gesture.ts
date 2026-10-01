@@ -2,7 +2,7 @@ import type { Beat, CameraFrame, Zone } from "./types.ts";
 import type { CameraDefaults } from "./defaults.ts";
 
 export interface Gesture {
-  k: "drag" | "travel";
+  k: "drag";
   t0: number;
   t1: number;
   from: [number, number];
@@ -16,7 +16,7 @@ export interface Gesture {
 export function gestures(beat: Beat): Gesture[] {
   return beat.actions.filter((action): action is Gesture => {
     const a = action as Partial<Gesture>;
-    return (a.k === "drag" || a.k === "travel") && Array.isArray(a.from) && Array.isArray(a.to)
+    return a.k === "drag" && Array.isArray(a.from) && Array.isArray(a.to)
       && Array.isArray(a.bbox) && Number.isFinite(a.t0) && Number.isFinite(a.t1);
   });
 }
@@ -63,8 +63,7 @@ export function applyDragVisibility(
   const transition = d.move_t_max + d.min_shot + 2 / d.lowpass_omega;
   const smooth = (u: number) => u * u * u * (u * (u * 6 - 15) + 10);
   const holds = beats.flatMap((beat, index) => {
-    const drags = gestures(beat).filter(g => g.k === "drag"
-      && g.t1 / 1000 >= start && g.t0 / 1000 <= start + frames.at(-1)!.t);
+    const drags = gestures(beat).filter(g => g.t1 / 1000 >= start && g.t0 / 1000 <= start + frames.at(-1)!.t);
     if (!drags.length) return [];
     const zones = drags.map(g => gestureZone(g, width, height));
     const acted = beat.zones.find(z => z.type === "act");
