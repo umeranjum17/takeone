@@ -7,6 +7,7 @@ import { basename, join, resolve } from "node:path";
 import type { CameraDefaults } from "../camera/defaults.ts";
 import { solveCamera } from "../camera/solver.ts";
 import type { Beat, CameraFrame, Decision, TakeMeta } from "../camera/types.ts";
+import { blurGraph, keycapAss, overlayRegions, spotlightAss } from "./overlays.ts";
 import { idleSqueezes, setptsExpr, warp, warpBeats } from "./pace.ts";
 import {
   beatClicks, captionAss, cardFilter, clickAss, measureAss, stageFrames, stageGeometry, stageImageFilter, takeCaptions,
@@ -105,6 +106,8 @@ export async function renderTake(dir: string, d?: CameraDefaults): Promise<{ out
   const squeezes = idleSqueezes(beats, trimStart, trimEnd, d);
   const outTime = (t: number) => warp(t - trimStart, squeezes, d.idle_speed);
   const duration = outTime(trimEnd);
+  const blurs = overlayRegions(meta, "blur", outTime, trimStart, trimEnd);
+  const spotlights = overlayRegions(meta, "spotlight", outTime, trimStart, trimEnd);
   const outBeats = warpBeats(beats, trimStart, squeezes, d.idle_speed);
   const frames = solveCamera(outBeats, decisions, { ...meta, trim_end: trimStart + duration },
     { ...d, min_shot: d.min_shot * d.pace, dwell: d.dwell * d.pace, dwell_k2: d.dwell_k2 * d.pace });
@@ -135,18 +138,29 @@ export async function renderTake(dir: string, d?: CameraDefaults): Promise<{ out
   const captionsAss = captionAss(captions, await measureCaptions(dir, captions, d), d);
   await writeFile(captionsFile, captionsAss);
 
+  const keysFile = join(dir, "keycaps.ass");
+  const keys = keycapAss(outBeats, trimStart, duration, d);
+  await writeFile(keysFile, keys);
+  const spotlightFile = join(dir, "spotlight.ass");
+  const spotlight = spotlightAss(spotlights, meta.width, meta.height, d);
+  await writeFile(spotlightFile, spotlight);
+  const keysOverlay = hasDialogue(keys) ? `,ass=${filterPath(keysFile)}` : "";
+  const spotlightOverlay = hasDialogue(spotlight) ? `,ass=${filterPath(spotlightFile)}` : "";
+
   const fade = Math.min(d.fade_s, duration / 4);
   const background = `0x${d.background_to.slice(1)}`;
-  // Planar YUV throughout; the stills are decoded once and looped in-graph.
+  // Planar YUV composition; blur patches briefly use RGB. Stills are decoded once.
   const still = `loop=-1:1:0,trim=end=${duration}`;
   // An .ass with no Dialogue lines renders nothing, so skip its overlay:
   // stock ffmpeg builds without libass (e.g. Homebrew) have no ass filter.
   const clicksOverlay = hasDialogue(clicksAss) ? `,ass=${filterPath(clicksFile)}:fontsdir=${filterPath(FONTS_DIR)}` : "";
   const captionsOverlay = hasDialogue(captionsAss) ? `,ass=${filterPath(captionsFile)}:fontsdir=${filterPath(FONTS_DIR)}` : "";
   const filter = [
-    `[0:v]setpts='${setptsExpr(squeezes, d.idle_speed)}',fps=${d.fps}${clicksOverlay},scale=in_color_matrix=auto:out_color_matrix=bt601,format=yuv420p[screen]`,
+    `[0:v]setpts='${setptsExpr(squeezes, d.idle_speed)}',fps=${d.fps}${clicksOverlay},scale=in_color_matrix=auto:out_color_matrix=bt601,format=yuv420p[region0]`,
+    ...(blurs.length ? [blurGraph(blurs)] : []),
+    `[region${blurs.length}]null${spotlightOverlay}[screen]`,
     cardFilter(meta.width, meta.height, stage, d, still),
-    `[c4]${camera}${captionsOverlay}`
+    `[c4]${camera}${captionsOverlay}${keysOverlay}`
       + (fade > 0 ? `,fade=t=in:st=0:d=${fade}:color=${background},fade=t=out:st=${duration - fade}:d=${fade}:color=${background}` : "")
       + `,scale=in_color_matrix=bt601:out_color_matrix=bt709:out_range=tv,format=yuv420p,setparams=range=limited:color_primaries=bt709:color_trc=bt709:colorspace=bt709`,
   ].join(";");

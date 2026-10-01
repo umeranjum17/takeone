@@ -62,6 +62,9 @@ export interface TakeMeta {
   trim_end?: number;
   pointer?: string;
   events?: string;
+  /** Timed source-pixel regions; t/d are video-relative seconds. */
+  spotlight?: { t: number; d: number; rect: [number, number, number, number] }[];
+  blur?: { t: number; d: number; rect: [number, number, number, number] }[];
   /** Optional opening title, drawn over the first seconds of the render. */
   title?: string;
   /** Optional captions in video-relative seconds; `d` defaults to 3. */

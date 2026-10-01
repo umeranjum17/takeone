@@ -134,7 +134,7 @@ function assAlpha(clear: number): string {
   return `&H${Math.round(clamp(clear, 0, 1) * 255).toString(16).padStart(2, "0").toUpperCase()}&`;
 }
 
-function assTime(s: number): string {
+export function assTime(s: number): string {
   const cs = Math.max(0, Math.round(s * 100));
   const h = Math.floor(cs / 360000);
   const m = Math.floor(cs / 6000) % 60;
@@ -155,7 +155,7 @@ function circle(cx: number, cy: number, r: number, reverse = false): string {
     + `b ${n(cx + k)} ${n(cy - s * r)} ${n(cx + r)} ${n(cy - s * k)} ${n(cx + r)} ${n(cy)}`;
 }
 
-function roundRect(x: number, y: number, w: number, h: number, r: number): string {
+export function roundRect(x: number, y: number, w: number, h: number, r: number): string {
   const k = r * 0.4477; // r - 0.5523r: bezier handle offset from the corner
   return `m ${n(x + r)} ${n(y)} l ${n(x + w - r)} ${n(y)} `
     + `b ${n(x + w - k)} ${n(y)} ${n(x + w)} ${n(y + k)} ${n(x + w)} ${n(y + r)} `
@@ -164,7 +164,7 @@ function roundRect(x: number, y: number, w: number, h: number, r: number): strin
     + `l ${n(x)} ${n(y + r)} b ${n(x)} ${n(y + k)} ${n(x + k)} ${n(y)} ${n(x + r)} ${n(y)}`;
 }
 
-function assHeader(w: number, h: number, font: string, size: number): string {
+export function assHeader(w: number, h: number, font: string, size: number): string {
   return `[Script Info]
 ScriptType: v4.00+
 PlayResX: ${w}
@@ -181,7 +181,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 `;
 }
 
-function drawing(start: number, end: number, colour: string, clear: number, path: string, layer = 0): string {
+export function drawing(start: number, end: number, colour: string, clear: number, path: string, layer = 0): string {
   // \pos(0,0) with \an7 keeps drawing coordinates absolute on the canvas.
   return `Dialogue: ${layer},${assTime(start)},${assTime(end)},Default,,0,0,0,,`
     + `{\\an7\\pos(0,0)\\bord0\\shad0\\1c${assColour(colour)}\\1a${assAlpha(clear)}\\p1}${path}\n`;
