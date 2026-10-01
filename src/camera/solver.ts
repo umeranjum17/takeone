@@ -554,6 +554,21 @@ function containFollowedSubject(state: CameraState, zone: Zone, width: number, h
   };
 }
 
+function followFocus(zone: Zone, pointer: { x: number; y: number } | undefined): Zone {
+  if (!pointer || !zone.boxes?.length) return zone;
+  const nearest = zone.boxes.reduce((best, box) => {
+    const dx = Math.max(box[0] - pointer.x, 0, pointer.x - box[0] - box[2]);
+    const dy = Math.max(box[1] - pointer.y, 0, pointer.y - box[1] - box[3]);
+    const distance = dx * dx + dy * dy;
+    const bestDx = Math.max(best[0] - pointer.x, 0, pointer.x - best[0] - best[2]);
+    const bestDy = Math.max(best[1] - pointer.y, 0, pointer.y - best[1] - best[3]);
+    const bestDistance = bestDx * bestDx + bestDy * bestDy;
+    return distance < bestDistance || (distance === bestDistance && box[2] * box[3] < best[2] * best[3])
+      ? box : best;
+  });
+  return { ...zone, bbox: [pointer.x - nearest[2] / 2, pointer.y - nearest[3] / 2, nearest[2], nearest[3]] };
+}
+
 /** Sample HOLD/MOVE/FOLLOW/BREATHE camera states at output fps. */
 function sampleCamera(
   targets: Target[],
@@ -641,10 +656,7 @@ function sampleCamera(
       const decision = decisions.get(activeBeat.id);
       const subject = activeBeat.zones.find((zone) => zone.name === decision?.A);
       if (subject) {
-        const pointer = pointerAt(activeBeat, time);
-        const [x, y, w, h] = subject.bbox;
-        const focus = pointer ? { ...subject, bbox: [pointer.x - w / 2, pointer.y - h / 2, w, h] as Box } : subject;
-        state = containFollowedSubject(state, focus, width, height, d);
+        state = containFollowedSubject(state, followFocus(subject, pointerAt(activeBeat, time)), width, height, d);
       }
     }
     previousFiltered = state;

@@ -5,7 +5,9 @@ import { join } from "node:path";
 import test from "node:test";
 import { applyOverrides, DEFAULTS } from "../src/camera/defaults.ts";
 import { clippedFractions, HIGH_CLIP_FRACTION, frame, moveDuration, solveCamera, zMax } from "../src/camera/solver.ts";
+import { zonesForBeat } from "../src/beats/zones.ts";
 import type { Beat, Decision, Zone } from "../src/camera/types.ts";
+import type { Action as PerceivedAction, Beat as PerceivedBeat, FrameRegions } from "../src/types.ts";
 import { renderTake, cameraFilter } from "../src/render/render.ts";
 import { hasFfmpeg } from "./helpers.ts";
 
@@ -281,14 +283,32 @@ test("timestamped pointer actions follow interpolation, not the final position e
 });
 
 test("drag and travel follow frames keep the selected focus zone inside safe margins", () => {
+  const action: PerceivedAction = {
+    k: "drag", t0: 1000, t1: 5000, from: [500, 1080], to: [3300, 1080],
+    bbox: [500, 1079, 2800, 2], window_cls: "browser",
+  };
+  const perceivedBeat: PerceivedBeat = {
+    id: "drag-focus", t0: 1000, t1: 5000, anchor_t: 3000,
+    window_cls: "browser", actions: [action], zones: [], kind: "drag",
+  };
+  const regions: FrameRegions[] = [{ t: 4800, changed_frac: 0.01, cut: false,
+    regions: [{ bbox: [3180, 1000, 200, 120], area_frac: 0.003 }] }];
+  const perceivedZones = zonesForBeat(perceivedBeat, {
+    winRect: null, stream: { w: 3840, h: 2160 }, scale: 1, frames: regions,
+  });
+  const act = perceivedZones.find((candidate) => candidate.kind === "act")!;
+  assert.ok(act.bbox[2] > 2500, "normal drag act zone contains the full pointer path");
+  assert.ok(act.boxes?.some((box) => box[2] === 200 && box[3] === 120));
+
   for (const kind of ["drag", "travel"] as const) {
     const moving = beat(`${kind}-focus`, 2, 1900, kind);
     moving.t0 = 1;
     moving.t1 = 5;
-    moving.zones[0] = zone("focus", [1800, 900, 240, 160]);
+    const focus: Zone = { name: "focus", type: "act", bbox: act.bbox, boxes: act.boxes };
+    moving.zones[0] = focus;
     moving.actions = [{ t: 1000, x: 500, y: 1080 }, { t: 5000, x: 3300, y: 1080 }];
     const frames = camera([moving], [decision(moving)], 5);
-    const [, , w, h] = moving.zones[0]!.bbox;
+    const [, , w, h] = act.boxes!.find((box) => box[2] === 200 && box[3] === 120)!;
     for (const crop of frames.filter((frame) => frame.t >= 1 && frame.t <= 5)) {
       const margin = Math.min(crop.w, crop.h) * 0.01;
       const pointerX = 500 + (crop.t - 1) / 4 * 2800;
