@@ -36,6 +36,7 @@ The recorder keeps the whole 3840×2160 screen and the input events. `make` pick
 ### Hold the whole panel
 
 When a click opens a panel or dialog, the shot holds all of it. While you type, the camera keeps the whole form in frame (title, notes, priority and buttons) instead of chasing the caret.
+When a dialog closes, takeone detects the revealed result and frames the changed area, so viewers can see the new card or toast.
 
 <p align="center">
   <picture><source srcset="docs/assets/readme/typing.webp" type="image/webp"><img src="docs/assets/readme/typing.jpg" alt="The New task dialog held whole while notes are typed: the Title reads Draft launch announcement, the focused Notes field reads Two short paragraphs and a link to, and Priority, Cancel and Create task stay in frame" width="720" /></picture>
