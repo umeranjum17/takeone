@@ -8,7 +8,8 @@ import { pathToFileURL } from 'node:url';
 import { DEFAULTS } from '../src/camera/defaults.ts';
 import type { CameraFrame, Beat, TakeMeta } from '../src/camera/types.ts';
 import { makeTake } from '../src/make.ts';
-import { renderTake } from '../src/render/render.ts';
+import { encodingOptions, renderTake } from '../src/render/render.ts';
+import { cameraFilter } from '../src/render/camera-filter.ts';
 import { stageFrames, stageGeometry, takeCaptions } from '../src/render/stage.ts';
 import { idleSqueezes, warp } from '../src/render/pace.ts';
 
@@ -41,7 +42,7 @@ export function cameraMetrics(frames: CameraFrame[], fps: number, outW: number, 
   const ax = delta(vx).map(v => v * fps), ay = delta(vy).map(v => v * fps);
   const holds = reversals(zoomV, fps, 0.005);
   return {
-    max_upscale: metric(Math.max(...frames.map(f => outW / f.w)), 1.5, 'output px/source px'),
+    max_upscale: metric(Math.max(...frames.map(f => outW / f.w)), 1, 'output px/source px'),
     zoom_speed: metric(peak(zoomV), 1, 'ln/s'),
     zoom_acceleration: metric(peak(delta(zoomV).map(v => v * fps)), 4, 'ln/s²'),
     zoom_opposite_hold: metric(holds.length ? Math.min(...holds) : minShot, minShot, 's', 'min'),
@@ -76,6 +77,67 @@ function sha(file: string): string { return createHash('sha256').update(readFile
 function frameRows(video: string, filter: string): Buffer {
   return ffmpeg(['-i', video, '-vf', filter, '-pix_fmt', 'gray', '-f', 'rawvideo', '-']);
 }
+/** Squared luma gradients per pixel. A native crop supplies the text/contrast reference. */
+export function gradientEnergy(pixels: Uint8Array, width: number): number {
+  if (width < 2 || pixels.length % width || pixels.length < width * 2) throw new Error('invalid sharpness crop');
+  let energy = 0;
+  for (let y = 1; y < pixels.length / width; y++) for (let x = 1; x < width; x++) {
+    const i = y * width + x;
+    energy += (pixels[i]! - pixels[i - 1]!) ** 2 + (pixels[i]! - pixels[i - width]!) ** 2;
+  }
+  return energy / ((width - 1) * (pixels.length / width - 1));
+}
+
+export function lumaStats(pixels: Uint8Array): { mean: number; variance: number } {
+  if (!pixels.length) throw new Error('empty flat-surface sample');
+  const mean = pixels.reduce((sum, value) => sum + value, 0) / pixels.length;
+  const variance = pixels.reduce((sum, value) => sum + (value - mean) ** 2, 0) / pixels.length;
+  return { mean, variance };
+}
+
+/** Absolute output gates shared by the harness and corrupted-render regressions. */
+export function zoomAcceptance(reference: Uint8Array, decoded: Uint8Array, flatReference: { mean: number; variance: number }, flat: { mean: number; variance: number }) {
+  const referenceEnergy = gradientEnergy(reference, 800);
+  if (referenceEnergy < 10) throw new Error('sharpness reference has no usable text edges');
+  const energy = gradientEnergy(decoded, 800);
+  const ratio = energy / referenceEnergy;
+  const target = 0.75;
+  const flatTarget = 0.05;
+  const sharpnessPassed = Number.isFinite(ratio) && ratio >= target;
+  const flatPassed = flat.variance <= flatReference.variance + flatTarget && Math.abs(flat.mean - flatReference.mean) <= 4;
+  return { ratio, referenceEnergy, energy, target, sharpnessPassed, flat, flatReference, flatTarget, flatPassed, passed: sharpnessPassed && flatPassed };
+}
+
+/** Decode native-size zoomed UI text through the actual camera and encoder. */
+export function zoomSharpness(source: string, output: string) {
+  mkdirSync(output, { recursive: true });
+  const size = JSON.parse(command('ffprobe', ['-v', 'error', '-show_entries', 'stream=width,height', '-of', 'json', source]).toString()).streams[0];
+  if (size?.width !== 3840 || size?.height !== 2160) throw new Error('sharpness fixture must contain native 3840x2160 pixels');
+  const reference = ffmpeg(['-i', source, '-vf', 'crop=800:160:530:310:exact=1', '-frames:v', '1', '-pix_fmt', 'gray', '-f', 'rawvideo', '-']);
+  const referenceEnergy = gradientEnergy(reference, 800);
+  if (referenceEnergy < 10) throw new Error('sharpness reference has no usable text edges');
+  const flatReference = lumaStats(ffmpeg(['-i', source, '-vf', 'crop=160:30:850:450:exact=1', '-frames:v', '1', '-pix_fmt', 'gray', '-f', 'rawvideo', '-']));
+  if (flatReference.variance > 0.05) throw new Error('sharpness fixture white-card patch is not flat');
+  const measurements = [];
+  for (const quality of ['standard', 'master'] as const) {
+    const d = { ...DEFAULTS, quality };
+    const video = join(output, `zoom-${quality}.mp4`);
+    const filter = cameraFilter([{ t: 0, x: 520.25, y: 270.5, w: 1920, h: 1080 }], 3840, 2160, d);
+    ffmpeg(['-y', '-loop', '1', '-i', source, '-vf', filter, '-t', '0.1', '-r', '60', ...encodingOptions(d), video]);
+    const decoded = ffmpeg(['-i', video, '-vf', 'crop=800:160:10:40:exact=1', '-frames:v', '1', '-pix_fmt', 'gray', '-f', 'rawvideo', '-']);
+    ffmpeg(['-y', '-i', video, '-vf', 'crop=800:160:10:40:exact=1', '-frames:v', '1', join(output, `zoom-${quality}.png`)]);
+    // Match the native stage dimensions at a held integer-pixel zoom. Kernel
+    // rounding must not invent texture that the encoder amplifies on flat UI.
+    const flatVideo = join(output, `flat-${quality}.mp4`);
+    const flatFilter = `format=${quality === 'master' ? 'yuv444p' : 'yuv420p'},pad=4262:2398:211:119:color=0x2a2d38,`
+      + cameraFilter([{ t: 0, x: 211, y: 119, w: 1920, h: 1080 }], 4262, 2398, d);
+    ffmpeg(['-y', '-loop', '1', '-i', source, '-vf', flatFilter, '-t', '0.1', '-r', '60', ...encodingOptions(d), flatVideo]);
+    const flat = lumaStats(ffmpeg(['-i', flatVideo, '-vf', 'crop=160:30:850:450:exact=1', '-frames:v', '1', '-pix_fmt', 'gray', '-f', 'rawvideo', '-']));
+    measurements.push({ quality, ...zoomAcceptance(reference, decoded, flatReference, flat), video, flatVideo });
+  }
+  return measurements;
+}
+
 export function widestRun(row: Uint8Array): number {
   let max = 0, run = 0, previous = -1;
   for (const v of row) { run = v === previous ? run + 1 : 1; previous = v; max = Math.max(max, run); }
@@ -111,8 +173,12 @@ function judder(video: string, frames: CameraFrame[], meta: TakeMeta, d: typeof 
     if (a != null && b != null && c != null && peak([frames[i]!.x - frames[i - 1]!.x, frames[i]!.w - frames[i - 1]!.w]) > 0.01) jitter.push(c - 2 * b + a);
   }
   if (!jitter.length) {
-    if (required) throw new Error('no moving visible edge samples for judder');
-    return null;
+    const moving = frames.some((f, i) => i > 0 && peak([f.x - frames[i - 1]!.x, f.y - frames[i - 1]!.y, f.w - frames[i - 1]!.w]) > 0.01);
+    if (moving) {
+      if (required) throw new Error('no moving visible edge samples for judder');
+      return null;
+    }
+    return { rms: 0, samples: 0 }; // Explicitly no motion at the native-resolution cap.
   }
   return { rms: Math.sqrt(jitter.reduce((s, v) => s + v * v, 0) / jitter.length), samples: jitter.length };
 }
@@ -195,6 +261,10 @@ async function main() {
   const report: Record<string, unknown> = { version: 1, dirty: Boolean(command('git', ['status', '--porcelain']).toString().trim()), harnessSha256: sha(resolve('scripts/quality.ts')), revision: command('git', ['rev-parse', 'HEAD']).toString().trim(), ffmpeg: command('ffmpeg', ['-version']).toString().split('\n')[0], tesseract: command('tesseract', ['--version']).toString().split('\n')[0], vmafAvailable: vmaf, fixtures: {} };
   const baselines: Record<string, Metrics> = {};
   const failures: string[] = [];
+  const sharpness = zoomSharpness(join(baselineDir, 'tidewater-4k.png'), join(root, 'sharpness'));
+  report.sharpness = { sourceSha256: sha(join(baselineDir, 'tidewater-4k.png')), sourceWidth: 3840, sourceHeight: 2160, measurements: sharpness };
+  failures.push(...sharpness.filter(m => !m.sharpnessPassed).map(m => `zoom sharpness ${m.quality}: ${m.ratio} < ${m.target}`));
+  failures.push(...sharpness.filter(m => !m.flatPassed).map(m => `flat card ${m.quality}: variance ${m.flat.variance} (limit ${m.flatTarget}), mean ${m.flat.mean} vs reference ${m.flatReference.mean}`));
   for (const fixture of ['synth', 'portrait']) {
     console.error(`quality: ${fixture}`);
     const dir = join(root, fixture);
@@ -257,7 +327,7 @@ async function main() {
     }
     failures.push(...fixtureFailures.map(f => `${fixture}: ${f}`));
     baselines[fixture] = metrics;
-    (report.fixtures as Record<string, unknown>)[fixture] = { metrics, sha256: sha(video), goldenSha256: existsSync(golden) ? sha(golden) : null, stream, source: JSON.parse(command('ffprobe', ['-v', 'error', '-show_streams', '-of', 'json', join(dir, 'screen.webm')]).toString()).streams[0], cameraFrames: camera.length, decodedFrames: hashes.length, judderSamples: edge?.samples ?? 0, ocr, regression, motionBlurGhosting: { status: 'not-applicable', reason: 'renderer has no motion blur' }, failures: fixtureFailures };
+    (report.fixtures as Record<string, unknown>)[fixture] = { metrics, sha256: sha(video), goldenSha256: existsSync(golden) ? sha(golden) : null, stream, source: JSON.parse(command('ffprobe', ['-v', 'error', '-show_streams', '-of', 'json', join(dir, 'screen.webm')]).toString()).streams[0], cameraFrames: camera.length, decodedFrames: hashes.length, judderSamples: edge?.samples ?? 0, judderStatus: edge ? (edge.samples ? 'measured' : 'not-applicable: no camera motion at native cap') : 'not-applicable: optional fixture has no measurable judder', ocr, regression, motionBlurGhosting: { status: 'not-applicable', reason: 'motion blur ghosting is qualified separately; see docs/motion-blur.md' }, failures: fixtureFailures };
   }
   report.failures = failures;
   save(join(root, 'metrics.json'), report);

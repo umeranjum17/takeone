@@ -167,7 +167,9 @@ test("lower Tidewater card hold includes nearby context instead of empty board",
   const act = zonesForBeat(b, { winRect: null, scale: 1, stream: { w: 2560, h: 1440 },
     frames: [{ t: 7400, regions: [], cut: false, changed_frac: 0 }],
     uiBoxes: [{ t: 7400, boxes }] }).find(z => z.kind === "act")!;
-  const state = frame({ name: act.name, type: act.kind, bbox: act.bbox, boxes: act.boxes }, 3, 2560, 1440);
+  // This tight context fixture opts into enlargement; production keeps the native cap.
+  const state = frame({ name: act.name, type: act.kind, bbox: act.bbox, boxes: act.boxes }, 3, 2560, 1440,
+    undefined, { ...DEFAULTS, max_upscale: 1.5 });
   const w = 2560 / state.z;
   const crop = { x: state.cx - w / 2, y: state.cy - w * 9 / 32, w, h: w * 9 / 16 };
   assert.equal(clippedFractions(crop, [boxes[9]!])[0], 0);

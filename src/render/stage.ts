@@ -132,14 +132,15 @@ function phoneFrameFilter(width: number, height: number, st: Stage, radius: numb
 /** Main-graph filters that lay the opaque [screen] on the looped [stage] and round its corners. */
 export function cardFilter(width: number, height: number, st: Stage, d: CameraDefaults, still: string): string {
   const c = cornerSize(st, d);
+  const sampling = d.quality === "master" ? "444" : "420";
   const spots = [[0, 0], [width - c, 0], [0, height - c], [width - c, height - c]]
     .map(([x, y]) => [st.screenX + x!, st.screenY + y!]);
   const parts = [
-    `[1:v]format=yuv420p,${still}[stage]`,
-    `[2:v]format=yuva420p,${still},split=4${spots.map((_, i) => `[h${i}]`).join("")}`,
+    `[1:v]format=yuv${sampling}p,${still}[stage]`,
+    `[2:v]format=yuva${sampling}p,${still},split=4${spots.map((_, i) => `[h${i}]`).join("")}`,
     ...spots.map(([x, y], i) => `[h${i}]crop=${c}:${c}:${x}:${y}[k${i}]`),
-    `[stage][screen]overlay=${st.screenX}:${st.screenY}:shortest=1[c0]`,
-    ...spots.map(([x, y], i) => `[c${i}][k${i}]overlay=${x}:${y}[c${i + 1}]`),
+    `[stage][screen]overlay=${st.screenX}:${st.screenY}:shortest=1:format=yuv${sampling}[c0]`,
+    ...spots.map(([x, y], i) => `[c${i}][k${i}]overlay=${x}:${y}:format=yuv${sampling}[c${i + 1}]`),
   ];
   return parts.join(";");
 }

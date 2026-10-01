@@ -28,5 +28,6 @@ jobs:
             tmp/quality/*/ssim.log
             tmp/quality/*/vmaf.json
             tmp/quality/*/ocr-*.png
+            tmp/quality/sharpness/*
             tmp/quality/*/out/*.mp4
           if-no-files-found: error

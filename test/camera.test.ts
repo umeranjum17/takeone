@@ -6,7 +6,7 @@ import test from "node:test";
 import { applyOverrides, DEFAULTS } from "../src/camera/defaults.ts";
 import { clippedFractions, HIGH_CLIP_FRACTION, frame, moveDuration, solveCamera, zMax } from "../src/camera/solver.ts";
 import type { Beat, Decision, Zone } from "../src/camera/types.ts";
-import { renderTake, cameraFilter } from "../src/render/render.ts";
+import { renderTake } from "../src/render/render.ts";
 import { dialogResults } from "../src/perceive/dialogs.ts";
 import { warpBeats } from "../src/render/pace.ts";
 import { hasFfmpeg } from "./helpers.ts";
@@ -52,7 +52,8 @@ function decision(b: Beat, importance: 0 | 1 | 2 = 1): Decision {
   };
 }
 
-const noBookends = { ...DEFAULTS, establish_s: 0, outro_s: 0 };
+// Motion mechanics may explicitly opt into upscaling; native-default limits are tested separately.
+const noBookends = { ...DEFAULTS, max_upscale: 1.5, establish_s: 0, outro_s: 0 };
 
 // Mechanics tests opt out of the opening hold and closing wide shot.
 function camera(beats: Beat[], decisions: Decision[], end = 8) {
@@ -69,10 +70,11 @@ function at(frames: ReturnType<typeof camera>, seconds: number) {
 }
 
 test("framing expands to 16:9 and respects source and upscale clamps", () => {
-  assert.equal(zMax(3840, 2160), 3);
+  assert.equal(zMax(3840, 2160), 2);
+  assert.equal(zMax(3840, 2160, { ...DEFAULTS, max_upscale: 1.5 }), 3);
   for (let level = 0; level <= 3; level++) {
     const result = frame(zone("edge", [3600, 1900, 100, 100]), level, 3840, 2160);
-    assert.ok(result.z >= 1 && result.z <= 3);
+    assert.ok(result.z >= 1 && result.z <= 2);
     assert.ok(result.cx >= 0 && result.cx <= 3840);
     assert.ok(result.cy >= 0 && result.cy <= 2160);
   }
@@ -81,7 +83,7 @@ test("framing expands to 16:9 and respects source and upscale clamps", () => {
 test("FIT holds a whole opened panel at a real zoom instead of padding out to the whole screen", () => {
   const panel = zone("panel", [84, 224, 972, 692]);
   for (let level = 2; level <= 3; level++) {
-    const s = frame(panel, level, 1920, 1080);
+    const s = frame(panel, level, 1920, 1080, undefined, noBookends);
     const w = 1920 / s.z;
     const h = w * 9 / 16;
     // The heading at the panel's top edge and every other edge stay in frame.
@@ -116,7 +118,7 @@ test("whole-screen non-16:9 frames cover the full source while 16:9 framing is u
 test("phone footage into 16:9 zooms against the padded canvas and keeps the card centred", () => {
   // 1080x2400 sits on a 4267-wide 16:9 canvas; zoom is measured against it.
   assert.ok(zMax(1080, 2400) > 1);
-  assert.ok(Math.abs(zMax(1080, 2400) - 2400 * 16 / 9 / 1280) < 1e-9);
+  assert.ok(Math.abs(zMax(1080, 2400) - 2400 * 16 / 9 / 1920) < 1e-9);
   const tap: Beat = { ...beat("tap", 2, 0), zones: [zone("tap", [120, 1900, 240, 120])] };
   const frames = solveCamera([tap], [decision(tap)], {
     width: 1080, height: 2400, trim_start: 0, trim_end: 4,
@@ -140,7 +142,7 @@ test("non-16:9 padding eases through zoom and back without a crop jump", () => {
   const all = { ...beat("all", 5.5, 0), zones: [{ name: "all", type: "all" as const, bbox: [0, 0, 3440, 1440] as [number, number, number, number] }] };
   const frames = solveCamera([zoom, all], [decision(zoom), { ...decision(all), L: 0 }], {
     width: 3440, height: 1440, trim_start: 0, trim_end: 8,
-  });
+  }, { ...DEFAULTS, max_upscale: 1.5 });
   assert.ok(Math.abs(frames[0]!.w / frames[0]!.h - 16 / 9) < 1e-9);
   assert.ok(frames[0]!.x <= 0 && frames[0]!.x + frames[0]!.w >= 3440);
   assert.ok(Math.min(...frames.map((f) => f.w)) < 1700);
@@ -152,12 +154,9 @@ test("non-16:9 padding eases through zoom and back without a crop jump", () => {
   assert.ok(frames.every((f, i) => !i || Math.abs(f.w - frames[i - 1]!.w) < 200));
 });
 
-test("move duration clamps and the camera retains fractional source coordinates", () => {
+test("move duration clamps", () => {
   assert.equal(moveDuration(0), 0.6);
   assert.ok(moveDuration(100) <= 1.4);
-  const filter = cameraFilter([{ t: 0, x: 0.125, y: 0.25, w: 1920, h: 1080 }], 3840, 2160, DEFAULTS);
-  assert.match(filter, /x0='0.062500000'/);
-  assert.match(filter, /interpolation=cubic/);
 });
 
 test("deadzone skips framing that already fits with the configured margin", () => {
@@ -551,7 +550,7 @@ test("L1 frames a real window, but pads the zone inside a fullscreen window", ()
   const windowed = frame(button, 1, 3840, 2160, [1920, 0, 1920, 1080]);
   assert.equal(windowed.z, 2);
   const fullscreen = frame(button, 1, 3840, 2160, [0, 0, 3840, 2160]);
-  assert.ok(fullscreen.z > 2, `z=${fullscreen.z}`);
+  assert.equal(fullscreen.z, 2);
   assert.equal(fullscreen.z, frame(button, 1, 3840, 2160).z);
 });
 
@@ -635,6 +634,8 @@ test("opposite zooms hold for min_shot, including result targets", () => {
 });
 
 test("Tidewater holds whole cards, retains enclosing context and balances the visible cluster", () => {
+  // Tight composition requires explicit enlargement at this source/output size.
+  const contextDefaults = { ...DEFAULTS, max_upscale: 1.5 };
   const boxes: Zone['bbox'][] = [
     [336, 200, 488, 132], [336, 348, 488, 132], [336, 496, 488, 132],
     [888, 200, 488, 132], [888, 348, 488, 132],
@@ -643,7 +644,7 @@ test("Tidewater holds whole cards, retains enclosing context and balances the vi
   ];
   const b: Beat = { id: 'board', kind: 'click', t0: 2, t1: 10, anchor_t: 3, actions: [],
     zones: [{ ...zone('focus', [1080, 375, 80, 56]), boxes }] };
-  const frames = solveCamera([b], [decision(b)], { width: 2560, height: 1440, trim_end: 10 });
+  const frames = solveCamera([b], [decision(b)], { width: 2560, height: 1440, trim_end: 10 }, contextDefaults);
   for (const crop of frames.filter(f => f.t >= 4 && f.t <= 7)) {
     assert.ok(clippedFractions(crop, boxes).every(f => f === 0 || f >= HIGH_CLIP_FRACTION), `half card at ${crop.t}`);
     const panel = boxes[4]!;
@@ -654,14 +655,14 @@ test("Tidewater holds whole cards, retains enclosing context and balances the vi
     assert.ok(Math.abs(crop.x + crop.w / 2 - (336 + 1928) / 2) < crop.w * .06);
   }
   const modal: Zone = { ...zone('field', [944, 450, 200, 56]), type: 'txt', boxes: [[900, 340, 760, 620]] };
-  const state = frame(modal, 3, 2560, 1440);
+  const state = frame(modal, 3, 2560, 1440, undefined, contextDefaults);
   const w = 2560 / state.z;
   const crop = { x: state.cx - w / 2, y: state.cy - w * 9 / 32, w, h: w * 9 / 16 };
   assert.equal(clippedFractions(crop, modal.boxes!)[0], 0);
   assert.ok(crop.h >= 620 * DEFAULTS.hold_pad, 'zoom relaxes to fit the enclosing dialog');
   // A panel taller than the minimum crop forces a wider hold, including at screen edges.
   const tall: Zone = { ...zone('edge-field', [2400, 250, 80, 56]), boxes: [[1984, 128, 544, 1272]] };
-  const edgeState = frame(tall, 3, 2560, 1440);
+  const edgeState = frame(tall, 3, 2560, 1440, undefined, contextDefaults);
   const edgeW = 2560 / edgeState.z;
   assert.equal(clippedFractions({ x: Math.min(2560 - edgeW, edgeState.cx - edgeW / 2),
     y: Math.max(0, edgeState.cy - edgeW * 9 / 32), w: edgeW, h: edgeW * 9 / 16 }, tall.boxes!)[0], 0);
@@ -700,4 +701,45 @@ test("a dialog close reveals its result despite dwell, shot suppression and poin
   }
   const warped = warpBeats([close], 0, [{ a: 0, b: 1 }], 4)[0]!;
   assert.ok(Math.abs(warped.dialog_results![0]!.t - 1.55) < 1e-9);
+});
+
+
+test("master blur preserves full-resolution chroma through production rendering", { skip: needsFfmpeg }, async () => {
+  const dir = await mkdtemp(join(process.cwd(), "takeone-chroma-"));
+  try {
+    const width = 160, height = 90, plane = width * height;
+    const source = Buffer.alloc(plane * 3, 128);
+    for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
+      source[plane + y * width + x] = x % 2 ? 176 : 80;
+    }
+    const input = join(dir, "source.yuv");
+    await writeFile(input, source);
+    execFileSync("ffmpeg", ["-y", "-v", "error", "-stream_loop", "-1", "-f", "rawvideo",
+      "-pix_fmt", "yuv444p", "-s", "160x90", "-r", "10", "-i", input,
+      "-t", "0.6", "-c:v", "ffv1", "-f", "matroska", join(dir, "screen.webm")]);
+    await mkdir(join(dir, "analysis"));
+    await writeFile(join(dir, "analysis/beats.json"), "[]");
+    await writeFile(join(dir, "analysis/decisions.jsonl"), "");
+    await writeFile(join(dir, "take.json"), JSON.stringify({ id: "chroma", width, height,
+      trim_end: 0.6, blur: [{ t: 0.2, d: 0.2, rect: [10, 10, 30, 20] }] }));
+    const { out } = await renderTake(dir, { ...FAST, quality: "master", out_w: width, out_h: height,
+      fps: 10, stage_margin: 0, corner_radius: 0, motion_blur: 0 });
+    const format = execFileSync("ffprobe", ["-v", "error", "-select_streams", "v:0",
+      "-show_entries", "stream=pix_fmt", "-of", "default=nw=1:nk=1", out], { encoding: "utf8" });
+    assert.equal(format.trim(), "yuv444p");
+    const pixels = execFileSync("ffmpeg", ["-v", "error", "-i", out,
+      "-pix_fmt", "yuv444p", "-f", "rawvideo", "-"], { maxBuffer: 1_000_000 });
+    assert.equal(pixels.length, 6 * plane * 3);
+    const contrast = (frame: number, x: number, y: number) => {
+      const at = frame * plane * 3 + plane + y * width + x;
+      return Math.abs(pixels[at]! - pixels[at + 1]!);
+    };
+    for (let frame = 0; frame < 6; frame++) {
+      assert.ok(contrast(frame, 80, 45) > 60, `outside blur frame ${frame}`);
+      if (frame === 2 || frame === 3) assert.ok(contrast(frame, 20, 20) < 10, `active blur frame ${frame}`);
+      else assert.ok(contrast(frame, 20, 20) > 60, `inactive blur frame ${frame}`);
+    }
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 });

@@ -6,9 +6,8 @@ import { resolveTheme } from "../themes.ts";
 import { basename, join, resolve } from "node:path";
 import type { CameraDefaults } from "../camera/defaults.ts";
 import { solveCamera } from "../camera/solver.ts";
-import type { Beat, CameraFrame, Decision, TakeMeta } from "../camera/types.ts";
+import type { Beat, Decision, TakeMeta } from "../camera/types.ts";
 import { blurGraph, keycapAss, keycapObstacles, overlayRegions, spotlightAss } from "./overlays.ts";
-export { cameraFilter } from "./camera-filter.ts";
 import { motionBlurGraph, shutterPlan } from "./motion-blur.ts";
 import { idleSqueezes, setptsExpr, warp, warpBeats } from "./pace.ts";
 import { phoneTapShots } from "./phone.ts";
@@ -16,6 +15,13 @@ import {
   beatClicks, captionAss, cardFilter, clickAss, measureAss, stageFrames, stageGeometry, stageImageFilter, takeCaptions,
   type Caption, type CaptionInk,
 } from "./stage.ts";
+
+/** Text-friendly production encoder settings, also exercised by the output gate. */
+export function encodingOptions(d: CameraDefaults): string[] {
+  return ["-c:v", "libx264", "-crf", String({ draft: 23, standard: 12, master: 12 }[d.quality]),
+    "-preset", d.preset, "-pix_fmt", d.quality === "master" ? "yuv444p" : "yuv420p",
+    ...(d.quality === "draft" ? [] : ["-tune", "animation"])];
+}
 
 /** Run ffmpeg, resolve with its stderr, and include its final 20 stderr lines on failure. */
 function runFfmpeg(args: string[]): Promise<string> {
@@ -125,20 +131,20 @@ export async function renderTake(dir: string, d?: CameraDefaults): Promise<{ out
   const still = `loop=-1:1:0,trim=end=${duration}`;
   // An .ass with no Dialogue lines renders nothing, so skip its overlay:
   // stock ffmpeg builds without libass (e.g. Homebrew) have no ass filter.
+  const pixelFormat = d.quality === "master" ? "yuv444p" : "yuv420p";
   const clicksOverlay = hasDialogue(clicksAss) ? `,ass=${filterPath(clicksFile)}:fontsdir=${filterPath(FONTS_DIR)}` : "";
   const captionsOverlay = hasDialogue(captionsAss) ? `,ass=${filterPath(captionsFile)}:fontsdir=${filterPath(FONTS_DIR)}` : "";
   const filter = [
-    `[0:v]setpts='${setptsExpr(squeezes, d.idle_speed)}',fps=${d.fps}${clicksOverlay},scale=in_color_matrix=auto:out_color_matrix=bt601,format=yuv420p[region0]`,
-    ...(blurs.length ? [blurGraph(blurs)] : []),
+    `[0:v]setpts='${setptsExpr(squeezes, d.idle_speed)}',fps=${d.fps}${clicksOverlay},scale=in_color_matrix=auto:out_color_matrix=bt601,format=${pixelFormat}[region0]`,
+    ...(blurs.length ? [blurGraph(blurs, pixelFormat)] : []),
     `[region${blurs.length}]null${spotlightOverlay}[screen]`,
     cardFilter(meta.width, meta.height, stage, d, still),
     `${camera};[camera]trim=end=${duration}${captionsOverlay}${keysOverlay}`
       + (fade > 0 ? `,fade=t=in:st=0:d=${fade}:color=${background},fade=t=out:st=${duration - fade}:d=${fade}:color=${background}` : "")
-      + `,scale=in_color_matrix=bt601:out_color_matrix=bt709:out_range=tv,format=yuv420p,setparams=range=limited:color_primaries=bt709:color_trc=bt709:colorspace=bt709`,
+      + `,scale=in_color_matrix=bt601:out_color_matrix=bt709:out_range=tv,format=${pixelFormat},setparams=range=limited:color_primaries=bt709:color_trc=bt709:colorspace=bt709`,
   ].join(";");
 
   await writeFile(commandFile, filter);
-  const crf = { draft: 23, standard: 18, master: 14 }[d.quality];
 
   const threads = String(Math.min(8, availableParallelism()));
   const ffmpegMajor = Number(execFileSync("ffmpeg", ["-version"], { encoding: "utf8" })
@@ -155,9 +161,9 @@ export async function renderTake(dir: string, d?: CameraDefaults): Promise<{ out
     // Slice threads keep the stage filters from starving the encoder.
     "-filter_threads", threads, "-filter_complex_threads", threads,
     graphOption, commandFile,
-    "-r", String(d.fps), "-an", "-c:v", "libx264", "-crf", String(crf),
+    "-r", String(d.fps), "-an", ...encodingOptions(d),
     "-color_primaries", "bt709", "-color_trc", "bt709", "-colorspace", "bt709", "-color_range", "tv",
-    "-preset", d.preset, "-movflags", "+faststart", output,
+    "-movflags", "+faststart", output,
   ]);
   await writeFile(join(dir, "render.log"), renderLog);
   return { out: output, seconds: duration };

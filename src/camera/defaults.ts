@@ -28,7 +28,7 @@ export interface CameraDefaults {
   pace: number; // hold/min-shot multiplier; never camera move duration
   fps: number;
   motion_blur: number; // 0..1, centred shutter up to half a frame
-  quality: "draft" | "standard" | "master"; // encode CRF 23 / 18 / 14
+  quality: "draft" | "standard" | "master"; // encode CRF 23 / 12 / 12; master keeps 4:4:4 chroma
   max_upscale: number; // never upscale source pixels more than this
   deadzone_margin: number; // 8% margin for the deadzone rule
   deadzone_zoom: number; // max zoom change for the deadzone rule
@@ -107,7 +107,7 @@ export const DEFAULTS: CameraDefaults = {
   fps: 60,
   quality: "standard",
   motion_blur: 1,
-  max_upscale: 1.5,
+  max_upscale: 1.0,
   deadzone_margin: 0.08,
   deadzone_zoom: 1.25,
   dwell: 0.6,
