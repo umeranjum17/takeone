@@ -34,6 +34,8 @@ export interface Beat {
   actions: unknown[];
   zones: Zone[];
   kind: BeatKind;
+  /** UI revealed by a dialog dismissal, independent of the selected shot. */
+  dialog_results?: { t: number; bbox: [number, number, number, number] }[];
   /** Cut beats: changed_frac at each analysis frame after the cut (video-relative s). */
   changed_frac?: { t: number; f: number }[];
 }

@@ -7,6 +7,8 @@ import { applyOverrides, DEFAULTS } from "../src/camera/defaults.ts";
 import { clippedFractions, HIGH_CLIP_FRACTION, frame, moveDuration, solveCamera, zMax } from "../src/camera/solver.ts";
 import type { Beat, Decision, Zone } from "../src/camera/types.ts";
 import { renderTake, cameraFilter } from "../src/render/render.ts";
+import { dialogResults } from "../src/perceive/dialogs.ts";
+import { warpBeats } from "../src/render/pace.ts";
 import { hasFfmpeg } from "./helpers.ts";
 
 // Only tests pass a fast preset and tiny output: shipped output stays
@@ -663,4 +665,39 @@ test("Tidewater holds whole cards, retains enclosing context and balances the vi
   const edgeW = 2560 / edgeState.z;
   assert.equal(clippedFractions({ x: Math.min(2560 - edgeW, edgeState.cx - edgeW / 2),
     y: Math.max(0, edgeState.cy - edgeW * 9 / 32), w: edgeW, h: edgeW * 9 / 16 }, tall.boxes!)[0], 0);
+});
+
+test("a dialog close reveals its result despite dwell, shot suppression and pointer follow", () => {
+  const board = new Uint8Array(160 * 90).fill(230);
+  const fadeOut = [222, 214, 206, 198, 190].map((level) => board.map(() => level));
+  const created = board.slice();
+  for (let y = 10; y < 25; y++) created.fill(90, y * 160 + 10, y * 160 + 40);
+  for (let y = 65; y < 75; y++) created.fill(80, y * 160 + 110, y * 160 + 135);
+  const fadeIn = [198, 206, 214, 222].map((level) => board.map(() => level));
+  for (let y = 10; y < 25; y++) fadeIn.at(-1)!.fill(90, y * 160 + 10, y * 160 + 40);
+  for (let y = 65; y < 75; y++) fadeIn.at(-1)!.fill(80, y * 160 + 110, y * 160 + 135);
+  const dialogFrames = [board, ...fadeOut, ...fadeIn, created];
+  const times = dialogFrames.map((_, index) => 1300 + index * 100);
+  const results = dialogResults(dialogFrames, times, [],
+    { w: 160, h: 90, streamW: 3840, streamH: 2160 });
+  assert.equal(results.length, 1);
+  assert.equal(results[0]!.t, 2300);
+  const [resultX, resultY, resultW, resultH] = results[0]!.bbox;
+  assert.ok(resultX <= 10 * 24 && resultY <= 10 * 24);
+  assert.ok(resultX + resultW >= 135 * 24 && resultY + resultH >= 75 * 24);
+  const modal = beat("modal", 1, 2200);
+  modal.t1 = 4;
+  const close = beat("close", 1.2, 2200, "drag");
+  close.t1 = 4;
+  close.actions = [{ k: "ptr", t: 2200, x: 3000, y: 1800 }];
+  close.dialog_results = results.map((result) => ({ ...result, t: result.t / 1000 }));
+  // The close's action shot is suppressed by min_shot, but its result is kept.
+  const frames = camera([modal, close], [decision(modal), decision(close)], 4);
+  for (const f of frames.filter((f) => f.t >= 2.2 && f.t <= 3.3)) {
+    assert.ok(f.x <= resultX && f.y <= resultY
+      && f.x + f.w >= resultX + resultW && f.y + f.h >= resultY + resultH,
+      `result cropped at ${f.t}`);
+  }
+  const warped = warpBeats([close], 0, [{ a: 0, b: 1 }], 4)[0]!;
+  assert.ok(Math.abs(warped.dialog_results![0]!.t - 1.55) < 1e-9);
 });

@@ -26,6 +26,8 @@ interface Target {
   startAfter?: number;
   /** A long-idle widen: quiet by definition, so exempt from the rate cap. */
   breathe?: boolean;
+  /** A disappearing subject cannot wait behind ordinary shot holds. */
+  reveal?: { t: number; bbox: Zone["bbox"] };
 }
 
 interface Move {
@@ -321,7 +323,7 @@ function applyMoveRateLimit(targets: Target[], width: number, height: number, d:
   let state: CameraState = { cx: width / 2, cy: height / 2, z: 1 };
   const moving: Target[] = [];
   for (const target of targets) {
-    if (canHold(state, target, width, height, d)) {
+    if (!target.reveal && canHold(state, target, width, height, d)) {
       const previous = moving.at(-1);
       if (previous) previous.importance = Math.max(previous.importance, target.importance);
       continue;
@@ -333,7 +335,7 @@ function applyMoveRateLimit(targets: Target[], width: number, height: number, d:
   // Dropping a breathe would strand the camera on a close shot through a long
   // idle, so the cap counts and drops only action targets.
   for (const anchor of moving) {
-    const window = kept.filter((target) => !target.breathe && target.t >= anchor.t
+    const window = kept.filter((target) => !target.breathe && !target.reveal && target.t >= anchor.t
       && target.t < anchor.t + d.rate_window);
     if (window.length <= d.rate_max) continue;
     const winners = new Set([...window]
@@ -343,7 +345,7 @@ function applyMoveRateLimit(targets: Target[], width: number, height: number, d:
   }
   state = { cx: width / 2, cy: height / 2, z: 1 };
   return kept.filter((target) => {
-    if (canHold(state, target, width, height, d)) return false;
+    if (!target.reveal && canHold(state, target, width, height, d)) return false;
     state = target.state;
     return true;
   });
@@ -399,6 +401,19 @@ function buildTargets(
     }
     return result;
   });
+
+  for (const beat of beats) for (const result of beat.dialog_results ?? []) {
+    if (result.t < start || result.t >= end) continue;
+    const shot = shots.filter((candidate) => candidate.beat.t0 <= result.t).at(-1);
+    const revealed: Zone = { name: "revealed", type: "res", bbox: result.bbox };
+    // Widen before the close, retaining the dialog until the result is visible.
+    // The union gives the final spring room to settle without losing the card.
+    const context = shot ? mergeZones(shot.zoneA, revealed) : revealed;
+    targets.push({ t: Math.max(start, result.t - 0.3), state: frame(context, 1, width, height, undefined, d),
+      importance: 2, reveal: result });
+    targets.push({ t: result.t + 1, startAfter: result.t,
+      state: frame(revealed, 2, width, height, undefined, d), importance: 2, reveal: result });
+  }
 
   // BREATHE rule: widen during long idle gaps when the following beat is distant.
   for (const [index, beat] of beats.entries()) {
@@ -550,6 +565,16 @@ function sampleCamera(
   let lastZoomMotion = start;
   let lastZoomDirection = 0;
   const frames: CameraFrame[] = [];
+  const intentTimes = beats.flatMap((beat) => beat.actions).flatMap((action) => {
+    const event = action as { k?: string; t?: number; t0?: number };
+    if (!["click", "drag", "type", "scroll", "shortcut"].includes(event.k ?? "")) return [];
+    const time = event.t ?? event.t0;
+    return time === undefined ? [] : [time / 1000];
+  }).sort((a, b) => a - b);
+  const reveals = beats.flatMap((beat) => (beat.dialog_results ?? []).map((result) => ({
+    start: result.t - d.move_t_max - 0.3,
+    end: intentTimes.find((time) => time > result.t + 0.1) ?? end,
+  })));
 
   for (let index = 0; index <= Math.floor((end - start) * d.fps); index++) {
     const time = start + index / d.fps;
@@ -559,8 +584,18 @@ function sampleCamera(
     // and breathe targets obey it too, so no shot flashes by unread.
     const settle = move ? move.end + 2 / d.lowpass_omega : 0;
     const heldUntil = move ? settle + d.dwell : 0;
+    // A close result preempts pending action targets, even when those targets
+    // were delayed by dwell. Otherwise an old click can arrive after its dialog
+    // has disappeared. Start from the visible camera to keep the move continuous.
+    const revealIndex = targets.findIndex((target, i) => i >= targetIndex && target.reveal
+      && createMove(previousFiltered, target.state, target.t, baseW, d, Math.max(start, target.startAfter ?? start)).start <= time);
+    if (revealIndex >= 0) {
+      targetIndex = revealIndex;
+      state = previousFiltered;
+    }
     while (targetIndex < targets.length) {
-      if (move && previousTime < heldUntil) break;
+      const urgent = Boolean(targets[targetIndex]!.reveal);
+      if (!urgent && move && previousTime < heldUntil) break;
       const target = targets[targetIndex]!;
       const reversing = lastZoomDirection !== 0
         && Math.sign(Math.log(target.state.z / state.z)) === -lastZoomDirection;
@@ -568,11 +603,12 @@ function sampleCamera(
       // a visible hold between opposite zooms once the spring settles.
       const zoomHold = reversing ? Math.max(heldUntil, lastZoomMotion + d.min_shot) : heldUntil;
       const candidateMove = createMove(state, target.state, target.t, baseW, d,
-        Math.max(target.startAfter ?? 0, zoomHold, previousTime));
+        urgent ? Math.max(start, target.startAfter ?? start, previousTime) : Math.max(target.startAfter ?? 0, zoomHold, previousTime));
       if (candidateMove.start > time) break;
       targetIndex++;
-      if (canHold(state, target, width, height, d)) continue;
+      if (!urgent && canHold(state, target, width, height, d)) continue;
       move = candidateMove;
+      if (urgent) break;
     }
 
     if (move && time >= move.start && time < move.end) {
@@ -587,7 +623,10 @@ function sampleCamera(
     // camera off a result shot (an opened menu) mid-beat.
     const activeBeat = beats.find((beat) => beat.t0 <= time && beat.t1 >= time
       && ["drag", "travel"].includes(beat.kind));
-    if (activeBeat) {
+    // Keep the result through passive dwell at the now-vanished close button.
+    // Resume follow when a new intentional action begins.
+    const revealing = reveals.some((reveal) => time >= reveal.start && time <= reveal.end);
+    if (activeBeat && !revealing) {
       state = followPointer(state, previousFiltered, activeBeat, decisions, baseW,
         time, time - previousTime, velocity, d);
     }
@@ -643,6 +682,9 @@ function validateCameraInputs(beats: Beat[], decisions: Decision[], take: TakeMe
       || (beat.changed_frac !== undefined && (!Array.isArray(beat.changed_frac)
         || beat.changed_frac.some((sample) => !sample || !time(sample.t)
           || !finite(sample.f) || sample.f < 0 || sample.f > 1)))
+      || (beat.dialog_results !== undefined && (!Array.isArray(beat.dialog_results)
+        || beat.dialog_results.some((result) => !result || !time(result.t)
+          || !rect(result.bbox, take.width, take.height))))
       || beat.zones.some((zone) => !zone || typeof zone.name !== "string" || !zone.name
         || !rect(zone.bbox, take.width, take.height)
         || (zone.boxes !== undefined && (!Array.isArray(zone.boxes)
@@ -689,5 +731,8 @@ export function solveCamera(
     .filter((shot) => visibleBeats.includes(shot.beat));
   const quietShots = applyDwellAndShotLength(shots, d).filter((shot) => shot.arrival < end);
   const targets = applyMoveRateLimit(buildTargets(quietShots, visibleBeats, width, height, start, end, d), width, height, d);
-  return sampleCamera(targets, quietShots.map((shot) => shot.beat), decisionMap, width, height, start, end, d);
+  return sampleCamera(targets, visibleBeats.map((beat) => ({ ...beat,
+    kind: quietShots.some((shot) => shot.beat === beat) ? beat.kind : "idle",
+    actions: quietShots.some((shot) => shot.beat === beat) ? beat.actions : [],
+  })), decisionMap, width, height, start, end, d);
 }
