@@ -9,6 +9,7 @@ import type { Beat, TakeMeta } from "../src/camera/types.ts";
 import { editBeats, editTimeline, editZooms, validateEdits } from "../src/render/edits.ts";
 import { renderTake } from "../src/render/render.ts";
 import { stageFrames, stageGeometry } from "../src/render/stage.ts";
+import { cameraMetrics } from "../scripts/quality.ts";
 import { hasFfmpeg } from "./helpers.ts";
 
 const d = { ...DEFAULTS, idle_speed: 1, out_w: 320, out_h: 180, caption_size: 14, fade_s: 0, preset: "ultrafast" };
@@ -113,6 +114,21 @@ test("portrait manual zoom holds the requested region without stage bands", () =
   const [staged] = stageFrames([camera], 640, 360, stage, portrait);
   assert.ok(Math.abs(staged!.y - stage.screenY) < 0.01);
   assert.ok(Math.abs(staged!.y + staged!.h - stage.screenY - 360) < 0.01);
+});
+
+test("portrait stage mapping stays continuous as the crop reaches screen fill", () => {
+  const portrait = { ...d, out_w: 180, out_h: 320, outro_s: 0 };
+  const stage = stageGeometry(640, 360, portrait);
+  const fill = 360 * portrait.out_w / portrait.out_h;
+  const frames = Array.from({ length: 7 }, (_, i) => {
+    const w = fill * (1.1 + (3 - i) * 0.0001);
+    const h = w / (portrait.out_w / portrait.out_h);
+    return { t: i / portrait.fps, x: 320 - w / 2, y: 180 - h / 2, w, h };
+  });
+  const staged = stageFrames(frames, 640, 360, stage, portrait);
+  const metrics = cameraMetrics(staged, portrait.fps, portrait.out_w, portrait.out_h, portrait.min_shot);
+  assert.ok(metrics.zoom_speed.value <= 1, `stage zoom speed ${metrics.zoom_speed.value}`);
+  assert.ok(metrics.zoom_acceleration.value <= 4, `stage zoom acceleration ${metrics.zoom_acceleration.value}`);
 });
 
 test("ffmpeg applies cuts and speed to actual pixels and timestamps", { skip: !hasFfmpeg() }, () => {
