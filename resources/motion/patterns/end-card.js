@@ -9,8 +9,8 @@ PATTERNS["end-card"] = (layer,s,ctx) => {
   const url=h(`<div style="color:var(--text);font:${Math.min(W*.019,H*.032)}px var(--mono)">${esc(s.url??"")}</div>`);
   group.append(cta,url);layer.append(group);
   const base=BASE;
-  AFTER_MOUNT.push(()=>{BASE=base; const glyphs=word.layoutGlyphs(); glyphs.forEach((g,i)=>K(g.span,[[i*35,{opacity:0,transform:`translate(${g.x}px,-${H*.08}px)`}],[550+i*35,{opacity:1,transform:`translate(${g.x}px,0px)`},SMOOTH]]));BASE=0;});
-  K(cta,[[0,{opacity:0}],[650,{opacity:1},SMOOTH]]);
-  K(url,[[0,{opacity:0}],[750,{opacity:1},SMOOTH]]);
+  AFTER_MOUNT.push(()=>{BASE=base; const glyphs=word.layoutGlyphs(); glyphs.forEach((g,i)=>K(g.span,[[i*35,{opacity:0,transform:`translate(${g.x}px,-${H*.08}px)`},SMOOTH],[550+i*35,{opacity:1,transform:`translate(${g.x}px,0px)`}]]));BASE=0;});
+  K(cta,[[0,{opacity:0},SMOOTH],[650,{opacity:1}]]);
+  K(url,[[0,{opacity:0},SMOOTH],[750,{opacity:1}]]);
   K(group,[[0,{transform:"scale(1)"}],[s.d*1000,{transform:"scale(1.03)"}]]);
 };

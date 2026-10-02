@@ -29,6 +29,41 @@ test("end-card defaults and explicit logos reach display coverage on every timel
   assert.throws(()=>validateStoryboard({...raw,scenes:[{...raw.scenes[0]!,d:1.75}]}),/reveal and reading-time/);
 });
 
+test("hero and end-card reveals seek eased outgoing segments",async()=>{
+  const dir=mkdtempSync(resolve(".motion-easing-test-"));
+  try {
+    const sb=validateStoryboard({version:1,theme:{name:"editorial"},source:{kind:"image"},screens:{S1:{file:resolve("resources/demo/tidewater-board.png"),width:2560,height:1440}},regions:[],scenes:[
+      {pattern:"hero-reveal",title:"Launch now",subtitle:"Made for you",d:6,screen:"S1"},
+      {pattern:"end-card",logo:"Cafe\u0301",cta:"Try it",url:"takeone.test",d:6},
+    ]});
+    await withPage(writePage(dir,sb).html,1920,1080,async b=>{
+      const read=async(selector:string,ms:number,property:"opacity"|"y")=>{
+        await b.evaluate(`__seek(${ms})`);
+        return b.evaluate<number>(`(()=>{const cs=getComputedStyle(document.querySelector(${JSON.stringify(selector)}));return ${property==="opacity" ? "Number(cs.opacity)" : "cs.transform==='none'?0:new DOMMatrixReadOnly(cs.transform).m42"};})()`);
+      };
+      const cases=[
+        {selector:'[data-scene="0"] .hero-word',start:0,duration:400,property:"y"},
+        {selector:'[data-scene="0"] span:nth-of-type(2) .hero-word',start:60,duration:400,property:"y"},
+        {selector:'[data-scene="0"] > div:last-child',start:0,duration:600,property:"opacity"},
+        {selector:'[data-scene="1"] .kern [data-x]',start:6000,duration:550,property:"y"},
+        {selector:'[data-scene="1"] .kern [data-x]:last-child',start:6105,duration:550,property:"opacity"},
+        {selector:'[data-scene="1"] .kern + div',start:6000,duration:650,property:"opacity"},
+        {selector:'[data-scene="1"] .kern + div + div',start:6000,duration:750,property:"opacity"},
+      ] as const;
+      for(const {selector,start,duration,property} of cases) {
+        const initial=await read(selector,start,property);
+        const final=await read(selector,start+duration,property);
+        assert.notEqual(initial,final,selector);
+        const quarter=await read(selector,start+duration/4,property);
+        assert.ok(Math.abs((quarter-initial)/(final-initial)-.1035)<.001,`${selector}: ${quarter}`);
+        assert.equal(await read(selector,start+duration/4,property),quarter,selector);
+        assert.equal(await read(selector,start,property),initial,selector);
+        assert.equal(await read(selector,start+duration,property),final,selector);
+      }
+    });
+  } finally {rmSync(dir,{recursive:true,force:true});}
+});
+
 test("emitted motion glyphs use bundled faces with default and serif roles", async()=>{
   const dir=mkdtempSync(resolve(".motion-glyph-test-"));
   try {
