@@ -85,7 +85,7 @@ export interface TakeEdits {
   /** Explicit rates override typing speed and automatic idle pacing. */
   speed?: ({ t0: number; t1: number; rate: number; kind?: "region" }
     | { kind: "type_speed"; rate: number })[];
-  /** Source-pixel regions; transition starts at t0, automatic framing resumes at t1. */
+  /** Source-pixel regions; requested arrival at t0, automatic framing resumes at t1. */
   zooms?: ManualZoom[];
 }
 
@@ -98,6 +98,8 @@ export interface ManualZoom {
 }
 
 export interface CameraFrame {
+  /** Exact padded viewport from the bounded planner; avoids a second edge clamp. */
+  padded?: { t: number; x: number; y: number; w: number; h: number };
   t: number; // s, relative to trim start
   x: number;
   y: number;

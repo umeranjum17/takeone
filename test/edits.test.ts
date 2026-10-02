@@ -90,16 +90,33 @@ test("manual zoom pre-rolls to its region and rejects holds shorter than 0.5 sec
   assert.throws(() => solveCamera([], [], { ...take, zooms: [{ ...requested, t1: 2.49 }] }, d), /0.5s hold/);
 });
 
-test("deep manual portrait zoom reaches its requested framing at t0", () => {
+test("manual anticipation stays inside clip boundaries and reports feasible arrival", () => {
   const portrait = { ...d, out_w: 180, out_h: 320, outro_s: 0 };
-  const zoom = { t0: 1, t1: 8, bbox: [250, 110, 160, 90] as [number,number,number,number], level: 3 as const };
-  const frames = solveCamera([], [], { width: 640, height: 360, trim_end: 9, zooms: [zoom] }, portrait);
-  const arrived = frames[Math.round(zoom.t0 * portrait.fps)]!;
-  const held = frames[Math.round(5 * portrait.fps)]!;
-  assert.ok(arrived.x <= zoom.bbox[0] && arrived.x + arrived.w >= zoom.bbox[0] + zoom.bbox[2],
-    `requested region framed at t0: viewport ${arrived.x}, ${arrived.w}`);
-  assert.ok(arrived.w <= held.w * 1.1,
-    `requested zoom reached at t0: ${arrived.w} vs settled viewport ${held.w}`);
+  for (const t0 of [1, 5]) {
+    const zoom = { t0, t1: 8, bbox: [250, 110, 160, 90] as [number,number,number,number], level: 3 as const };
+    const timing = { cuts: [], arrivals: [] as import("../src/camera/solver.ts").CameraArrival[] };
+    const frames = solveCamera([], [], { width: 640, height: 360, trim_end: 9, zooms: [zoom] }, portrait, timing);
+    const arrival = timing.arrivals[0]!;
+    assert.equal(frames[0]!.t, 0);
+    assert.ok(frames[0]!.w >= 639, "never fabricate motion before the clip");
+    assert.equal(arrival.boundary, 0);
+    assert.ok(arrival.feasibleStart >= arrival.boundary);
+    if (t0 === 1) assert.ok(arrival.lateness > 0);
+    else assert.equal(arrival.lateness, 0);
+    const attained = frames[Math.ceil(arrival.actualArrival * portrait.fps)]!;
+    const held = frames[7 * portrait.fps]!;
+    assert.ok(attained.w <= held.w * 1.1, "requested framing reached at reported arrival");
+    const stage = stageGeometry(640, 360, portrait);
+    const metrics = cameraMetrics(stageFrames(frames, 640, 360, stage, portrait),60,180,320,portrait.min_shot);
+    assert.ok(metrics.zoom_speed!.value <= 1);
+    assert.ok(metrics.zoom_acceleration!.value <= 4);
+    assert.ok(metrics.pan_acceleration!.value <= 9000);
+  }
+  const timing = { cuts: [2], arrivals: [] as import("../src/camera/solver.ts").CameraArrival[] };
+  solveCamera([], [], {width:640,height:360,trim_end:9,zooms:[{t0:3,t1:8,bbox:[250,110,160,90],level:3}]},portrait,timing);
+  assert.equal(timing.arrivals[0]!.boundary, 2);
+  assert.equal(timing.arrivals[0]!.feasibleStart, 2);
+  assert.ok(timing.arrivals[0]!.lateness > 0);
 });
 
 test("square 4K manual zoom moves to the native upscale boundary after stage padding", () => {
@@ -112,10 +129,10 @@ test("square 4K manual zoom moves to the native upscale boundary after stage pad
   const metrics = cameraMetrics(frames, square4k.fps, square4k.out_w, square4k.out_h, square4k.min_shot);
   assert.ok(frames[0]!.w > frames[2 * square4k.fps]!.w,
     `manual zoom changes visible viewport ${frames[0]!.w} -> ${frames[2 * square4k.fps]!.w}`);
-  assert.ok(metrics.max_upscale.value <= 1.5, `visible viewport upscale ${metrics.max_upscale.value}`);
-  assert.ok(metrics.zoom_speed.value <= 1, `visible zoom speed ${metrics.zoom_speed.value}`);
-  assert.ok(metrics.zoom_acceleration.value <= 4, `visible zoom acceleration ${metrics.zoom_acceleration.value}`);
-  assert.ok(metrics.pan_acceleration.value <= 9000, `visible pan acceleration ${metrics.pan_acceleration.value}`);
+  assert.ok(metrics.max_upscale!.value <= 1.5, `visible viewport upscale ${metrics.max_upscale!.value}`);
+  assert.ok(metrics.zoom_speed!.value <= 1, `visible zoom speed ${metrics.zoom_speed!.value}`);
+  assert.ok(metrics.zoom_acceleration!.value <= 4, `visible zoom acceleration ${metrics.zoom_acceleration!.value}`);
+  assert.ok(metrics.pan_acceleration!.value <= 9000, `visible pan acceleration ${metrics.pan_acceleration!.value}`);
   assert.match(manualZoomLimitWarning(take, square4k) ?? "", /requested .*x, achieved 1\.11x/);
 });
 
@@ -129,12 +146,12 @@ test("wide source in portrait establishes then crops to an active region within 
   const stage = stageGeometry(640, 360, portrait);
   const staged = stageFrames(frames, 640, 360, stage, portrait);
   const metrics = cameraMetrics(staged, portrait.fps, portrait.out_w, portrait.out_h, portrait.min_shot);
-  assert.ok(metrics.max_upscale.value <= 1.5, `portrait upscale ${metrics.max_upscale.value}`);
-  assert.ok(metrics.zoom_speed.value <= 1, `portrait visible zoom speed ${metrics.zoom_speed.value}`);
-  assert.ok(metrics.zoom_acceleration.value <= 4,
-    `portrait visible zoom acceleration ${metrics.zoom_acceleration.value}`);
-  assert.ok(metrics.pan_acceleration.value <= 9000,
-    `portrait visible pan acceleration ${metrics.pan_acceleration.value}`);
+  assert.ok(metrics.max_upscale!.value <= 1.5, `portrait upscale ${metrics.max_upscale!.value}`);
+  assert.ok(metrics.zoom_speed!.value <= 1, `portrait visible zoom speed ${metrics.zoom_speed!.value}`);
+  assert.ok(metrics.zoom_acceleration!.value <= 4,
+    `portrait visible zoom acceleration ${metrics.zoom_acceleration!.value}`);
+  assert.ok(metrics.pan_acceleration!.value <= 9000,
+    `portrait visible pan acceleration ${metrics.pan_acceleration!.value}`);
   const active = { x: 280 + stage.screenX, y: 120 + stage.screenY, w: 120, h: 40 };
   for (const frame of staged.slice(3 * portrait.fps, 6 * portrait.fps)) {
     assert.ok(frame.x <= active.x && frame.x + frame.w >= active.x + active.w,
@@ -168,8 +185,8 @@ test("portrait stage mapping stays continuous as the crop reaches screen fill", 
   });
   const staged = stageFrames(frames, 640, 360, stage, portrait);
   const metrics = cameraMetrics(staged, portrait.fps, portrait.out_w, portrait.out_h, portrait.min_shot);
-  assert.ok(metrics.zoom_speed.value <= 1, `stage zoom speed ${metrics.zoom_speed.value}`);
-  assert.ok(metrics.zoom_acceleration.value <= 4, `stage zoom acceleration ${metrics.zoom_acceleration.value}`);
+  assert.ok(metrics.zoom_speed!.value <= 1, `stage zoom speed ${metrics.zoom_speed!.value}`);
+  assert.ok(metrics.zoom_acceleration!.value <= 4, `stage zoom acceleration ${metrics.zoom_acceleration!.value}`);
 });
 
 test("portrait stage crop keeps its aspect while crossing the source-fill boundary", () => {
@@ -187,9 +204,9 @@ test("portrait stage crop keeps its aspect while crossing the source-fill bounda
       `portrait viewport aspect ${frame.w}:${frame.h}`);
   }
   const metrics = cameraMetrics(staged, portrait.fps, portrait.out_w, portrait.out_h, portrait.min_shot);
-  assert.ok(metrics.zoom_speed.value <= 1, `stage zoom speed ${metrics.zoom_speed.value}`);
-  assert.ok(metrics.zoom_acceleration.value <= 4, `stage zoom acceleration ${metrics.zoom_acceleration.value}`);
-  assert.ok(metrics.pan_acceleration.value <= 9000, `stage pan acceleration ${metrics.pan_acceleration.value}`);
+  assert.ok(metrics.zoom_speed!.value <= 1, `stage zoom speed ${metrics.zoom_speed!.value}`);
+  assert.ok(metrics.zoom_acceleration!.value <= 4, `stage zoom acceleration ${metrics.zoom_acceleration!.value}`);
+  assert.ok(metrics.pan_acceleration!.value <= 9000, `stage pan acceleration ${metrics.pan_acceleration!.value}`);
 });
 
 test("stage edge clamp eases across the source-to-card boundary", () => {

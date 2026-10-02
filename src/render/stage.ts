@@ -96,6 +96,7 @@ export function stageFrames(frames: CameraFrame[], width: number, height: number
   const portraitCrop = d.out_h > d.out_w && width / height > aspect;
   const portraitFillWidth = height * aspect;
   return frames.map((f) => {
+    if (f.padded) return f.padded;
     const naturalW = portraitCrop
       ? Math.min(st.w, Math.max(portraitFillWidth, f.w))
       : Math.min(st.w, f.w);
