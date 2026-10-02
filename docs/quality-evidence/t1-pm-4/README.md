@@ -42,6 +42,14 @@ remains in [previous-87d-render](previous-87d-render/). The root-level
 `tidewater-real-after.mp4`, `tidewater-real-strip.png`, `output-report.txt`, and
 `beat-results.txt` are also historical and retain their original bindings.
 
+## Historical MP4 review coverage
+
+All seven historical MP4s listed by the executor coverage audit have a
+[decoded-image visual/content/provenance review](historical-media-review/README.md),
+with per-file hashes, overview and drag-detail sheets, ending images, and
+recorded limitations. This review does not establish current-candidate output
+acceptance.
+
 ## Rebased candidate: validation pending
 
 At review starting HEAD `d2fe04c4933ef5e55302d7beeb61d3dff86b05b2`, the recorded
