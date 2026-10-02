@@ -244,14 +244,15 @@ export function validateStoryboard(raw: unknown): Storyboard {
       if (region.screen !== owner) throw new StoryboardError(`scenes[${i}]`, "regions must belong to the scene screen");
     }
   }
-  const duration = layoutDuration(layout, scenes);
-  for (const list of allTimelines(layout, scenes)) for (const [i, s] of list.entries()) validateVisibleScene(s, 0, duration, fps, `scenes[${i}].d`);
   if (layout.kind === "bento" && layout.grid === "2x2") {
     for (const tile of layout.tiles) for (const [i, s] of layout.master.scenes.entries()) {
       const end = tile.offset_s + Math.round(layout.master.d * fps) / fps;
       if (s.at! + s.d <= tile.offset_s || s.at! >= end) continue;
       validateVisibleScene(s, tile.offset_s, layout.master.d, fps, `layout.tiles.${tile.id}.scenes[${i}]`);
     }
+  } else {
+    const duration = layoutDuration(layout, scenes);
+    for (const list of allTimelines(layout, scenes)) for (const [i, s] of list.entries()) validateVisibleScene(s, 0, duration, fps, `scenes[${i}].d`);
   }
   lintFonts(result);
   return result;

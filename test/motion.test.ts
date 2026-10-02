@@ -332,6 +332,32 @@ test("hero and tour device copy gets its post-reveal hold in every visible windo
   assert.throws(()=>validateStoryboard({...board(),scenes:[{pattern:"zoom-tour",device:"browser",d:.5}]}),/reading-time/);
 });
 
+test("later canon scenes use only intersecting shifted tile windows",()=>{
+  const ids=["TL","TR","BL","BR"];
+  const pairs=[
+    ["Alpha","Bravo"].map(logo=>({pattern:"end-card",logo,d:4})),
+    ["Alpha","Bravo"].map(title=>({pattern:"hero-reveal",title,subtitle:"Launch",screen:"S1",d:4})),
+    ["Alpha","Bravo"].map(text=>({pattern:"fragment",kind:"button",text,d:4})),
+    ["Alpha","Bravo"].map(()=>({pattern:"fragment",kind:"counter",d:4})),
+    ["Alpha","Bravo"].map(caption=>({pattern:"zoom-tour",screen:"S1",stops:[{region:"r1",caption}],d:4})),
+  ];
+  const regions=[{id:"r1",screen:"S1",rect:[900,300,760,620],from:"user"}];
+  for(const scenes of pairs) {
+    for(const first of ids) {
+      const tiles=ids.map(id=>({id,offset_s:id===first ? 0 : 4}));
+      const layout={kind:"bento",grid:"2x2",master:{d:4,scenes},tiles};
+      const accepted=validateStoryboard({...board(),regions,layout});
+      assert.equal(filmDuration(accepted),4);
+      assert.deepEqual(accepted.layout.kind==="bento" && accepted.layout.grid==="2x2" && accepted.layout.master.scenes.map(s=>s.at),[0,4]);
+      for(const id of ids) for(const offset_s of [-3,6.9]) {
+        assert.throws(()=>validateStoryboard({...board(),regions,layout:{...layout,tiles:tiles.map(tile=>({...tile,offset_s:tile.id===id ? offset_s : tile.offset_s}))}}),/visible window.*reading/);
+      }
+    }
+    validateStoryboard({...board(),regions,scenes,layout:{kind:"single"}});
+    validateStoryboard({...board(),regions,layout:{kind:"bento",grid:"pinwheel-3x2",tiles:Object.fromEntries(["A","B","C","D"].map(id=>[id,scenes]))}});
+  }
+});
+
 test("effective bento windows preserve required reveals and holds",()=>{
   const spinner={pattern:"fragment",kind:"spinner",d:5};
   const counter={pattern:"fragment",kind:"counter",d:2.7};
