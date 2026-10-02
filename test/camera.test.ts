@@ -6,6 +6,7 @@ import test from "node:test";
 import { applyOverrides, DEFAULTS } from "../src/camera/defaults.ts";
 import { clippedFractions, HIGH_CLIP_FRACTION, frame, moveDuration, solveCamera, zMax } from "../src/camera/solver.ts";
 import type { Beat, Decision, Zone } from "../src/camera/types.ts";
+import type { Event } from "../src/types.ts";
 import { renderTake } from "../src/render/render.ts";
 import { dialogResults } from "../src/perceive/dialogs.ts";
 import { idleSqueezes, warp, warpBeats } from "../src/render/pace.ts";
@@ -811,7 +812,7 @@ test("paused pickup rejects changed-pixel footprints and preserves established w
   const { actionsFromEvents } = await import("../src/perceive/actions.ts");
   const { gestures, gesturePointer, applyDragVisibility } = await import("../src/camera/gesture.ts");
   const { framingCoverage, contains } = await import("../scripts/check-framing.ts");
-  const events = [
+  const events: Event[] = [
     { k: "ptr" as const, t: 8000, x: 2500, y: 1000 },
     { k: "btn" as const, t: 8000, b: "left", down: true },
     { k: "ptr" as const, t: 8600, x: 2500, y: 1000 },
@@ -882,7 +883,7 @@ test("unreleased drag protects every stationary held-tail frame through recordin
   const { framingCoverage, contains } = await import("../scripts/check-framing.ts");
   const stream = { w: 3840, h: 2160 };
   const windowRect: [number, number, number, number] = [0, 0, 1920, 1080];
-  const events = [
+  const events: Event[] = [
     { k: "win" as const, t: 0, cls: "board", title: "Tidewater", rect: windowRect },
     { k: "ptr" as const, t: 8000, x: 1100, y: 800 },
     { k: "btn" as const, t: 8000, b: "left", down: true },
@@ -949,7 +950,7 @@ test("overlapping buttons retain the longer drag through its stationary tail", a
   const { framingCoverage, contains } = await import("../scripts/check-framing.ts");
   const stream = { w: 3840, h: 2160 };
   const rect: [number, number, number, number] = [0, 0, 1920, 1080];
-  const events = [
+  const events: Event[] = [
     { k: "win" as const, t: 0, cls: "board", title: "Tidewater", rect },
     { k: "ptr" as const, t: 8000, x: 1100, y: 800 },
     { k: "btn" as const, t: 8000, b: "left", down: true },
@@ -1012,7 +1013,7 @@ test("planning retains released and unreleased drags crossing the actual trim bo
   const { framingCoverage, contains } = await import("../scripts/check-framing.ts");
   const stream = { w: 3840, h: 2160 };
   const rect: [number, number, number, number] = [0, 0, 1920, 1080];
-  const events = [
+  const events: Event[] = [
     { k: "win" as const, t: 0, cls: "board", title: "Tidewater", rect },
     { k: "ptr" as const, t: 8000, x: 1100, y: 800 },
     { k: "btn" as const, t: 8000, b: "left", down: true },
@@ -1023,7 +1024,7 @@ test("planning retains released and unreleased drags crossing the actual trim bo
     { k: "ptr" as const, t: 14000, x: 3300, y: 800 },
   ];
   for (const released of [false, true]) for (const endMs of [25000, 30000]) {
-    const history = released ? [...events, { k: "btn" as const, t: 28000, b: "left", down: false }] : events;
+    const history: Event[] = released ? [...events, { k: "btn" as const, t: 28000, b: "left", down: false }] : events;
     const bounds = { stream, startMs: 9000, endMs };
     const actions = actionsFromEvents(history, [], { ...bounds, pointer: "mapped" });
     const drag = actions.find(a => a.k === "drag")!;
@@ -1086,13 +1087,13 @@ test("make and render clocks retain a drag crossing the first video frame withou
   const { framingCoverage, contains } = await import("../scripts/check-framing.ts");
   const rect: [number, number, number, number] = [0, 0, 1920, 1080];
   for (const released of [false, true]) {
-    const events = [
+    const events: Event[] = [
       { k: "win" as const, t: 0, cls: "board", title: "Tidewater", rect },
       { k: "ptr" as const, t: 900, x: 1100, y: 800 },
       { k: "btn" as const, t: 900, b: "left", down: true },
       { k: "ptr" as const, t: 1100, x: 1500, y: 1000 },
       { k: "ptr" as const, t: 2000, x: 3300, y: 1000 },
-      ...(released ? [{ k: "btn" as const, t: 3000, b: "left", down: false }] : []),
+      ...(released ? [{ k: "btn" as const, t: 3000, b: "left" as const, down: false }] : []),
     ];
     const stream = { w: 3840, h: 2160 };
     const bounds = { stream, startMs: 1000, endMs: 3000 };

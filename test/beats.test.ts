@@ -288,7 +288,7 @@ test("intent actions outrank longer dwells and incidental travel", () => {
 });
 
 test("trim clips intersecting drags and preserves raw history", () => {
-  const drag = (t0: number, t1: number): Action => ({ k: "drag", t0, t1,
+  const drag = (t0: number, t1: number): Extract<Action, { k: "drag" }> => ({ k: "drag", t0, t1,
     from: [10, 10], to: [80, 10], bbox: [10, 10, 70, 0],
     path: [{ t: t0, x: 10, y: 10 }, { t: t1, x: 80, y: 10 }], window_cls: "chromium" });
   for (const [t0, t1, retained] of [[0, 1999, false], [0, 2000, true], [0, 4000, true], [3000, 4000, true], [3001, 4000, false]] as const) {
