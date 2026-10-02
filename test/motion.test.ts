@@ -13,7 +13,8 @@ import { INGEST_CLOCK } from "../src/motion/ingest-clock.ts";
 import assert from "node:assert/strict";
 import { filmDuration, validateStoryboard } from "../src/motion/storyboard.ts";
 import { beatTime, fontCovers, lintCss } from "../src/motion/lint.ts";
-import { parseMotionArgs, planStoryboard } from "../src/motion/cli.ts";
+import { parseMotionArgs, planStoryboard, runMotion } from "../src/motion/cli.ts";
+import { listTakes } from "../src/takes.ts";
 import { bitmapSize, heroSize } from "../src/motion/geometry.ts";
 import { motionTokens } from "../src/motion/theme.ts";
 import { fontFile } from "../src/motion/theme.ts";
@@ -24,6 +25,29 @@ import { sceneCameras } from "../src/motion/camera.ts";
 import type { Storyboard } from "../src/motion/types.ts";
 
 const board=()=>({version:1,source:{kind:"image",files:["board.png"]},theme:{name:"editorial"},screens:{S1:{file:"board.png",width:2560,height:1440}},scenes:[{pattern:"hero-reveal",d:3,screen:"S1",title:"Launch"}],regions:[]});
+test("default motion takes survive same-second collisions and appear in listing",async t=>{
+  const dir=mkdtempSync(resolve(".motion-names-test-"));
+  t.mock.timers.enable({apis:["Date"],now:Date.UTC(2026,9,2,12)});
+  try {
+    const root=join(dir,"takes");
+    await runMotion(["scripts/e2e/scene.html","--plan-only","--title","First"],root);
+    const first=(await listTakes(root,null))[0]!;
+    assert.ok(first);
+    const saved=readFileSync(join(first.path,"storyboard.json"));
+    await Promise.all(["Second","Third"].map(title=>runMotion(["scripts/e2e/scene.html","--plan-only","--title",title],root)));
+    const custom=join(dir,"custom.json");
+    writeFileSync(custom,JSON.stringify({...board(),id:"custom"}));
+    await runMotion(["--storyboard",custom,"--plan-only"],root);
+    const entries=await listTakes(root,null);
+    assert.deepEqual(entries.map(entry=>entry.id),[`${first.id}-3`,`${first.id}-2`,`${first.id}-1`,first.id]);
+    assert.deepEqual(readFileSync(join(first.path,"storyboard.json")),saved);
+    assert.deepEqual(entries.map(entry=>JSON.parse(readFileSync(join(entry.path,"take.json"),"utf8")).id),entries.map(entry=>entry.id));
+    assert.deepEqual(entries.slice(1).map(entry=>JSON.parse(readFileSync(join(entry.path,"storyboard.json"),"utf8")).scenes[0].title),["Third","Second","First"]);
+    assert.equal(JSON.parse(readFileSync(join(entries[0]!.path,"storyboard.json"),"utf8")).id,"custom");
+    assert.ok(entries.every(entry=>entry.status==="complete"));
+  } finally {t.mock.timers.reset();rmSync(dir,{recursive:true,force:true});}
+});
+
 test("accepted image representations retain their palette in themed fragments",async()=>{
   const dir=mkdtempSync(resolve(".motion-palette-test-"));
   const chunk=(type:string,data:Buffer)=>{
@@ -69,7 +93,9 @@ test("accepted image representations retain their palette in themed fragments",a
         const sb=validateStoryboard({...board(),theme:{name:theme},source:{kind:"image",files:[file]},screens:{},scenes:[{pattern:"fragment",kind:"chip",d:3}]});
         await ingest(dir,sb);
         assert.deepEqual(readFileSync(join(dir,sb.screens.S1!.file)),readFileSync(file));
-        const html=writePage(dir,sb).html;
+        const production=writePage(dir,sb).html;
+        const html=join(dir,"fragment.html");
+        writeFileSync(html,readFileSync(production,"utf8").replace("</body>",`<script>window.setup=async()=>{const sb=STORYBOARD.storyboard;mountScenes($('#stage'),sb.scenes,sb.output.out_w,sb.output.out_h);};</script></body>`));
         await withPage(html,1920,1080,async b=>{
           await b.evaluate("__seek(1500)");
           const actual=await b.evaluate<{background:string;foreground:string;x:number;y:number}>(`(()=>{const el=document.querySelector('[data-pattern="fragment"] > div > div');const style=getComputedStyle(el),r=el.getBoundingClientRect();return {background:style.backgroundColor,foreground:style.color,x:Math.floor(r.x+16),y:Math.floor(r.y+r.height/2)};})()`);

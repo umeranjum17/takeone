@@ -1,9 +1,48 @@
 {
   "generator": "scripts/theme-proof.ts",
-  "generator_sha256": "427288dfdb2ab4157f3f228dd1882df7a9dc215cb5a3a556b8e243a9030eb2b5",
+  "generator_sha256": "8e1c24089dc3c90ec9b0537d5927456566087645e55a2f8f3ca7dfe91110444e",
   "source": "resources/demo/tidewater-board.png",
   "source_sha256": "28e0ef9da37fcff18c34edea2b40ee67553fe2f4b21a4959b360345b4e6c1bb2",
   "theme_sha256": "d97e2563ce4a69ec80c91e2477fbf903ad5dcc1c91372fee531dec5b53902d08",
+  "renderer_sha256": "6ed01ccc2270c33e17ebe1391ef817b8f8f790dc110f3547f6373747dc027fb4",
+  "ffmpeg": "ffmpeg version n9.0.1 Copyright (c) 2000-2026 the FFmpeg developers",
+  "settings": {
+    "mode": "fixture",
+    "source_seconds": 10,
+    "comparison": {
+      "duration_s": 10,
+      "title": "A launch worth sharing",
+      "caption": {
+        "t": 0.6,
+        "d": 3,
+        "text": "Umer prepares the next release"
+      },
+      "frame_s": 1.2
+    },
+    "themes": {
+      "duration_s": 4.6,
+      "title": "A launch worth sharing",
+      "caption": {
+        "t": 3.1,
+        "d": 1.5,
+        "text": "Umer's launch board"
+      },
+      "title_frame_s": 1.6,
+      "caption_frame_s": 4
+    },
+    "render": {
+      "out_w": 1280,
+      "out_h": 720,
+      "caption_size": 34,
+      "preset": "fast",
+      "idle_speed": 1,
+      "max_upscale": 1,
+      "stage_margin": 0.16,
+      "fade_s": 0
+    },
+    "baseline": "current midnight",
+    "cycle_seconds": 41.4
+  },
   "fonts": {
     "Inter-SemiBold.ttf": "6fef0b1371ec20dffb54c860ad584d991288086cb76ac66f9c1bdee4ae617c0b",
     "Inter-Bold.ttf": "e341d5b8cef94709a465b6bbdcabfacd96c32f09734a023645c759ebac87e1bb",
@@ -36,33 +75,15 @@
     "columns": 4,
     "rows": 3,
     "width": 2560,
-    "height": 1188
+    "height": 2268
   },
   "artifacts": {
-    "takeone-themes-grid.png": "7f87025a7f9fe2bd57ec3245a9424947003624ba946bff6425e2d778fd82df96",
-    "takeone-themes-cycle.mp4": "0398afffb385cd0c9e1b8a95529fae9accc3402e02d2bc0089ec91992e81e189",
-    "takeone-themes-before.png": "4bcc871d49d60a68089c7f7e00f53f33258a67d1f10c198c1025be3c21b8fcd2",
-    "takeone-themes-after.png": "2f1fb6c32d229d25dbb04e654b2ce6cfa2514fd0f1bf0d43d82ab865ed97ac35",
-    "takeone-themes-after.mp4": "e678421e958078160d9960841e99f5a8dea06db290349a728eee3ad7fd218c5f",
-    "takeone-themes-side-by-side.mp4": "3d7b0864687788a425b47f78ed833104f2fc8d2d81def7cdd99c1e8002ace921",
-    "metrics.json": "2dae25a1ae7dad6935999b978e0c9266ce35cb5033c716c6642566bef798a416",
-    "midnight.png": "cdc7d80069fa63045befaba080d5a23b69d4ac5429b56c4e57bda265140b8f7b",
-    "midnight.mp4": "2736eade20019b73fcf81a9e2a548bc38ca88045dfc4218278e9165250440ece",
-    "paper.png": "c125a9c377f330115415a89d8be8881a80d8b68e300bbec9b1a039b1e4a53e43",
-    "paper.mp4": "c00b779dd4a6c147f8e94f74c4d3f1087c5beb220ffd83791b060e1fab5849a6",
-    "aurora.png": "a414ebc08fd09b69a3820c7847ff722178f26f2c2842746400872f4fd2b7e3ef",
-    "aurora.mp4": "bdc9ad8abb08616a843c881fdebd641a8176288e171a5f69b4e8fefe843df20a",
-    "mono.png": "83cf7611d5c7913ef2f50a53820895b7f536bb41cd95317f7767ffded1bd8548",
-    "mono.mp4": "e794691acfc48a40a28c242c15586edc86c66105063dd13a3d0c0c4405df9fa8",
-    "neon.png": "47b37c1b1fe7bc793aabaff23dbcf441946500cbe72254a9a80211052af91087",
-    "neon.mp4": "143821f436b4a45027662e690ce26a6b7eb3cfbc791971dd1193f4efaae92aef",
-    "brutalist.png": "112ff7936df3173725de4ba5620890222a3c4cadcb1cf8d6884a65b6a22739da",
-    "brutalist.mp4": "180888837c68951531bc46a89a34703aa8cb88ee768aa20402133f176ced3fd1",
-    "sand.png": "b3af462bda0d1e247522115c7680ce303cbfea998c5280b8c3b05fb23f2c0f5a",
-    "sand.mp4": "8e1eb15c409f9cfb1fe59cb6ad2dae273accaf4a4229d1f717f32ada54920a7d",
-    "terminal.png": "2ddab5925fcd327c0217b17967f1e4abce0bbe09cf2ce45fb2d2730c0006fea1",
-    "terminal.mp4": "417982ba33c9f485d8a6740334fb0ff88bdb9de17fcb2730582ab2dc73b72c20",
-    "editorial.png": "bfab1b9b797034042e9cdf494f770e72039176095480909fa8226dadb5058f1e",
-    "editorial.mp4": "6e67800517587909028d735b81a0a653ac71e2eec296eb59dd4de36127b607af"
+    "takeone-themes-grid.png": "3afef8d527ebc36ee25c044c708881f20846afc3a2147bb0f4b72a8f152e9c01",
+    "takeone-themes-cycle.mp4": "e8ad310a685311bf6fbec66c53c00b04a33e24766003f23a719e77e541a2ca0f",
+    "takeone-themes-before.png": "ec56ebcf5c50c3919cd43266165577a49a9c2dc8eb0db118badf4be55c11357b",
+    "takeone-themes-after.png": "8b5106aa909b6f7ef85ba4a980c7d35e7295a0972a7c3a1709b368ffb875aae5",
+    "takeone-themes-after.mp4": "6d1b247a421da93093467bb49c38a628c03961c41667ca8b30ca764ee28a1988",
+    "takeone-themes-side-by-side.mp4": "c5cb70800e98417b0547fd310257bb749dcb26f6254dad71a63c5bbbc9d9b25a",
+    "metrics.json": "ccbc35cae56a2f205c2b4a99b3f249607a3a051685e3a45a4dadb50aeafd8ac7"
   }
 }

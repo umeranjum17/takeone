@@ -119,7 +119,7 @@ export function planStoryboard(a: MotionArgs, id: string): unknown {
 
 function stamp(): string {
   const d = new Date(), p = (n: number) => String(n).padStart(2, "0");
-  return `motion-${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
+  return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
 }
 
 export async function runMotion(argv: string[], takesDir: string): Promise<number> {
@@ -142,8 +142,22 @@ export async function runMotion(argv: string[], takesDir: string): Promise<numbe
     storyboard = planStoryboard(a, id);
   }
   const sb = validateStoryboard(storyboard); // refuse bad plans before touching the disk
-  const dir = resolve(a.out ?? join(takesDir, stamp()));
-  mkdirSync(dir, { recursive: true });
+  let dir: string;
+  if (a.out !== undefined) {
+    dir = resolve(a.out);
+    mkdirSync(dir, { recursive: true });
+  } else {
+    mkdirSync(takesDir, { recursive: true });
+    const name = stamp();
+    dir = resolve(takesDir, name);
+    for (let suffix = 1; ; suffix++) {
+      try { mkdirSync(dir, { mode: 0o700 }); break; }
+      catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+        dir = resolve(takesDir, `${name}-${suffix}`);
+      }
+    }
+  }
   writeFileSync(join(dir, "storyboard.json"), JSON.stringify(sb, null, 2) + "\n");
   writeFileSync(join(dir, "take.json"), JSON.stringify({ id: basename(dir), theme: sb.theme.name,
     motion: { pattern: sb.scenes.map((s) => s.pattern).join("+"), storyboard: "storyboard.json" } }, null, 2) + "\n");

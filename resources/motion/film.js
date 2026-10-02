@@ -32,8 +32,9 @@ window.mountScenes = (root, scenes, W, H, shiftMs = 0, keyPrefix = "") => {
   });
 };
 
+if (STORYBOARD.palette) { document.documentElement.style.setProperty("--design-accent", STORYBOARD.palette.accent); document.documentElement.style.setProperty("--design-on-accent", STORYBOARD.palette.accent_text); }
+
 window.setup = async () => {
-  if (STORYBOARD.palette) { document.documentElement.style.setProperty("--design-accent", STORYBOARD.palette.accent); document.documentElement.style.setProperty("--design-on-accent", STORYBOARD.palette.accent_text); }
   const sb = STORYBOARD.storyboard, stage = $("#stage"), { out_w: W, out_h: H } = sb.output;
   if (sb.layout.kind === "single") mountScenes(stage, sb.scenes, W, H);
   else if (sb.layout.kind === "bento" && window.mountBento) await mountBento(stage, sb);
