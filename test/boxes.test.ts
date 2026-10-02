@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { analyzeUiBoxes, detectUiBoxes, uiBoxesAt } from "../src/perceive/boxes.ts";
 import { actStart, resultTime, segmentBeats } from "../src/beats/segment.ts";
 import { zonesForBeat } from "../src/beats/zones.ts";
-import { frame, clippedFractions } from "../src/camera/solver.ts";
+import { frame, clippedFractions, baseWidth } from "../src/camera/solver.ts";
 import { DEFAULTS } from "../src/camera/defaults.ts";
 import type { Action, BBox, Beat, FrameRegions } from "../src/types.ts";
 
@@ -168,10 +168,12 @@ test("lower Tidewater card hold includes nearby context instead of empty board",
     frames: [{ t: 7400, regions: [], cut: false, changed_frac: 0 }],
     uiBoxes: [{ t: 7400, boxes }] }).find(z => z.kind === "act")!;
   // This tight context fixture opts into enlargement; production keeps the native cap.
+  const camera = { ...DEFAULTS, max_upscale: 1.5 };
   const state = frame({ name: act.name, type: act.kind, bbox: act.bbox, boxes: act.boxes }, 3, 2560, 1440,
-    undefined, { ...DEFAULTS, max_upscale: 1.5 });
-  const w = 2560 / state.z;
-  const crop = { x: state.cx - w / 2, y: state.cy - w * 9 / 32, w, h: w * 9 / 16 };
+    undefined, camera);
+  const w = baseWidth(2560,1440,camera) / state.z;
+  const h = w * camera.out_h / camera.out_w;
+  const crop = { x: state.cx - w / 2, y: state.cy - h / 2, w, h };
   assert.equal(clippedFractions(crop, [boxes[9]!])[0], 0);
   assert.equal(clippedFractions(crop, [boxes[6]!])[0], 0, "retain the adjacent card above pricing");
   assert.ok(clippedFractions(crop, boxes).every(f => f === 0 || f >= .9));

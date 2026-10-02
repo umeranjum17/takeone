@@ -43,7 +43,7 @@ test('decoded pixel gates measure flat runs and subpixel edges', () => {
   assert.equal(edgePosition(new Uint8Array(10), 4), null);
 });
 
-test('golden comparison executes ffmpeg and flags visibly degraded frames', async () => {
+test('golden comparison executes ffmpeg and flags visibly degraded frames', async (t) => {
   const { execFileSync } = await import('node:child_process');
   const { mkdirSync, mkdtempSync, rmSync } = await import('node:fs');
   const { resolve, join } = await import('node:path');
@@ -51,20 +51,29 @@ test('golden comparison executes ffmpeg and flags visibly degraded frames', asyn
   mkdirSync(resolve('tmp'), { recursive: true });
   const dir = mkdtempSync(resolve('tmp/quality-test-'));
   try {
-    for (const colour of ['black', 'white']) execFileSync('ffmpeg', ['-nostdin', '-v', 'error', '-f', 'lavfi', '-i', `color=${colour}:s=64x64:r=60:d=0.2`, '-c:v', 'libx264', '-pix_fmt', 'yuv420p', join(dir, `${colour}.mp4`)]);
-    const black = join(dir, 'black.mp4'), white = join(dir, 'white.mp4');
-    const identical = compare(black, black, dir, false);
+    const reference = join(dir, 'reference.mp4'), coarse = join(dir, 'coarse.mp4');
+    execFileSync('ffmpeg', ['-nostdin', '-v', 'error', '-f', 'lavfi', '-i', 'testsrc2=s=320x240:r=60:d=0.2',
+      '-frames:v', '12', '-c:v', 'libx264', '-crf', '0', '-pix_fmt', 'yuv420p', reference]);
+    execFileSync('ffmpeg', ['-nostdin', '-v', 'error', '-i', reference, '-vf', 'scale=20:16,scale=320:240:flags=neighbor',
+      '-frames:v', '12', '-c:v', 'libx264', '-crf', '0', '-pix_fmt', 'yuv420p', coarse]);
+    const identical = compare(reference, reference, dir, false);
+    assert.equal(identical.candidateFrames, 12);
+    assert.equal(identical.goldenFrames, 12);
     assert.equal(identical.minSSIM, 1);
     assert.deepEqual(identical.framesBelow095, []);
-    const degraded = compare(white, black, dir, false);
+    const degraded = compare(coarse, reference, dir, false);
     assert.ok(degraded.minSSIM < 0.95);
     assert.equal(degraded.framesBelow095.length, 12);
     assert.equal(degraded.vmaf, null);
     assert.ok(degraded.mode.includes('SSIM only'));
     const filters = execFileSync('ffmpeg',['-filters'],{encoding:'utf8',stdio:['ignore','pipe','ignore']});
     if (filters.includes('libvmaf')) {
-      assert.ok(compare(black,black,dir,true).vmaf! >= 95);
-      assert.ok(compare(white,black,dir,true).vmaf! < 95);
+      const selfVmaf = compare(reference,reference,dir,true);
+      const degradedVmaf = compare(coarse,reference,dir,true);
+      t.diagnostic(`reference VMAF ${selfVmaf.vmaf}; degraded VMAF ${degradedVmaf.vmaf}; flagged frames ${degradedVmaf.framesBelow095.length}`);
+      assert.ok(selfVmaf.vmaf! >= 95, `reference VMAF ${selfVmaf.vmaf}`);
+      assert.ok(degradedVmaf.vmaf! < 95, `degraded VMAF ${degradedVmaf.vmaf}`);
+      assert.equal(degradedVmaf.framesBelow095.length, 12);
     }
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
