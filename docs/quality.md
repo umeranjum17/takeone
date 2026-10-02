@@ -121,6 +121,8 @@ always regenerates both fixtures. When renderer changes are being evaluated,
 use the normal command so the first encode and deterministic rerender come
 from the same candidate.
 
+## Drag framing
+
 Drag framing has a separate visibility check. On two camera paths with the
 same output clock, run:
 
@@ -139,14 +141,21 @@ reports how many before frames contained the region, so an untested region is
 visible.
 
 Drag actions preserve the sampled pointer path through planning and pacing.
-An unreleased drag lasts until the known video/trim end, holding its final
-pointer position through the stationary tail. Released drags end at release.
+Drags crossing the trim start or first video frame are retained: segmentation
+clips them to the video/trim overlap, interpolates the pointer at the boundary,
+and starts the retained path there. No negative video-relative action or path
+timestamps reach the camera solver; the original pre-boundary history remains
+in `analysis/actions.json`. An unreleased drag lasts until the known video/trim
+end, holding its final pointer position through the stationary tail. Released
+drags end at release or the trim end, whichever comes first. Overlapping shorter
+actions and beat merging cannot shorten a retained drag's visibility protection;
+the checker covers its active tail even outside the owning beat's interval.
 The camera reserves the object's swept footprint ahead of the drag, rather
 than following an earlier dwell. `whole_object` represents explicitly established
-complete object bounds at pickup, preserved with the recorded path through
-planning and pacing. Changed-pixel regions cannot establish these bounds;
-extraction leaves them unknown. Historical inferred `subject` fields are not
-trusted. When the whole object is unknown, the camera retains the whole source
+complete object bounds at the retained drag start, translated with the pointer
+when clipping and preserved through planning and pacing. Changed-pixel regions
+cannot establish these bounds; extraction leaves them unknown. Historical
+inferred `subject` fields are not trusted. When the whole object is unknown, the camera retains the whole source
 and the framing checker fails the drag rather than treating cursor or partial
 region coverage as proof of whole-object visibility. The handoff to
 the following action retains that context, including when a shot is omitted
@@ -157,7 +166,5 @@ The t1-pm-4 candidate evidence package is in
 historical Acme sheets, main and renderer-bound camera paths, real Tidewater
 renders and drag strips, per-beat results, and source/output hashes. Those
 results are bound to their recorded renderer commits and do not establish
-acceptance for the rebased candidate. The README records the source-digest
-mismatch and the five pending actual-output scenarios for the assigned
-validation phase. Fresh public-CLI renders and inspection are required before
-current-candidate conclusions can be published.
+acceptance for the rebased candidate. See that package's README for the
+authoritative current-candidate status and validation handoff.
