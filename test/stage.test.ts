@@ -6,7 +6,9 @@ import { hasFfmpeg } from "./helpers.ts";
 import { applyOverrides, DEFAULTS } from "../src/camera/defaults.ts";
 import type { Beat } from "../src/camera/types.ts";
 import { idleSqueezes, setptsExpr, warp } from "../src/render/pace.ts";
-import { captionAss, takeCaptions } from "../src/render/stage.ts";
+import { bandEligible, bandLayout, bandText, captionAss, captionLayouts, takeCaptions } from "../src/render/stage.ts";
+import { measureCaptions } from "../src/render/render.ts";
+import { THEMES, resolveTheme } from "../src/themes.ts";
 
 const clickAt = (t: number): Beat => ({
   id: `b${t}`, t0: t, t1: t + 0.5, anchor_t: t, zones: [], actions: [{ k: "click", t: t * 1000, x: 10, y: 10 }],
@@ -47,6 +49,161 @@ test("captions stop at the next mapped start in chronological order", () => {
     captions: [{t: 4, text: "second"}, {t: 2, d: 8, text: "first"}, {t: 4, text: "replacement"}],
   }, t => t / 2, 10);
   assert.deepEqual(captions.map(c => [c.text,c.t0,c.t1]), [["first",1,2],["replacement",2,5]]);
+});
+
+test("every theme keeps title and captions in the band below a fixed card", () => {
+  for (const name of Object.keys(THEMES)) {
+    const d = resolveTheme(name);
+    const captions = takeCaptions({ width: 3840, height: 2160, title: "From idea to launch",
+      captions: [{ t: 1, text: "Umer adds a launch task" }, { t: 9, text: "a caption far too long to fit on one line ".repeat(4) }] },
+      t => t, 20);
+    assert.deepEqual(captions.map(c => c.t0), [0.35, 1, 9], name);
+    const ink = [{ w: 600, h: 50 }, { w: 500, h: 30 }, { w: 9000, h: 30 }];
+    const band = bandLayout(3840, 2160, d, captions, ink)!;
+    const card = band.stage;
+    assert.equal(card.screenY + card.baseH, band.top, name);
+    const layouts = captionLayouts(captions, ink, d, false, band);
+    assert.ok(layouts[0]!.cy + layouts[0]!.h / 2 + layouts[0]!.rise
+      < layouts[1]!.cy - layouts[1]!.h / 2 - d.caption_border, name);
+    for (const { cx, cy, w, h, size } of layouts) {
+      assert.ok(cy - h / 2 >= band.top && cy + h / 2 <= d.out_h, `${name}: vertical`);
+      assert.ok(cx - w / 2 >= 0 && cx + w / 2 <= d.out_w && size > 0, `${name}: horizontal`);
+    }
+    assert.ok(layouts[0]!.size > layouts[1]!.size, `${name}: title outranks captions`);
+  }
+  assert.equal(bandLayout(1080, 2340, DEFAULTS), null);
+});
+
+test("matching non-16:9 exports retain the overlay layout", () => {
+  for (const [width, height] of [[1080, 1920], [1080, 1080], [1440, 1080]]) {
+    assert.equal(bandLayout(width!, height!, { ...DEFAULTS, out_w: width!, out_h: height! }), null);
+  }
+  assert.equal(bandLayout(1920, 1080, { ...DEFAULTS, out_w: 1080, out_h: 1080 }), null);
+  assert.ok(bandLayout(1920, 1080, DEFAULTS));
+});
+
+test("titles preserve caption timestamps and ordinary replacement behavior", () => {
+  const meta = { width: 1920, height: 1080, title: "Demo", captions: [
+    { t: 0, d: 0.3, text: "before" }, { t: 0.1, d: 1, text: "first" },
+    { t: 1, d: 2, text: "second" }, { t: 4, d: 3, text: "ordinary" },
+  ] };
+  const result = takeCaptions(meta, t => t, 10);
+  assert.deepEqual(result.map(c => [c.text, c.t0, c.t1]), [
+    ["Demo", 0.35, 3.1], ["before", 0, 0.1], ["first", 0.1, 1], ["second", 1, 3], ["ordinary", 4, 7],
+  ]);
+  assert.deepEqual(result.filter(c => !c.title), takeCaptions({ ...meta, title: "" }, t => t, 10));
+  const sameStart = { ...meta, captions: [
+    { t: 1, d: 1, text: "first" }, { t: 1, d: 1, text: "replacement" },
+    { t: 9, d: 3, text: "last" },
+  ] };
+  assert.deepEqual(takeCaptions(sameStart, t => t, 10).filter(c => !c.title).map(c => [c.text, c.t0, c.t1]),
+    [["replacement", 1, 2], ["last", 9, 10]]);
+});
+
+test("complete long caption ink is measured before fitting inside a band pill", { skip: !hasFfmpeg() }, async () => {
+  const dir = mkdtempSync(`${process.cwd()}/tmp-long-caption-`);
+  const d = { ...DEFAULTS, card: "#000000", text: "#ffffff", caption_border: 0 };
+  let band = bandLayout(1920, 1080, d)!;
+  const text = "Review every task and share the result. ".repeat(32).trim();
+  const captions = [text, `${text} ${text}`].map(text => ({ t0: 0, t1: 2, text, title: false }));
+  try {
+    const ink = await measureCaptions(dir, captions, d, true);
+    band = bandLayout(1920, 1080, d, captions, ink)!;
+    assert.ok(ink[0]!.w > 16000, `natural width=${ink[0]!.w}`);
+    assert.ok(Math.abs(ink[1]!.w / ink[0]!.w - 2) < 0.02, `widths=${ink.map(i => i.w)}`);
+    for (let i = 0; i < captions.length; i++) {
+      const layout = captionLayouts([captions[i]!], [ink[i]!], d, false, band)[0]!;
+      writeFileSync(`${dir}/captions.ass`, captionAss([captions[i]!], [ink[i]!], d, false, band));
+      const pixels = execFileSync("ffmpeg", ["-v", "error", "-f", "lavfi", "-i",
+        `color=black:s=${d.out_w}x${d.out_h}:r=1:d=2`, "-vf",
+        `ass=${dir}/captions.ass:fontsdir=resources/fonts,select=gte(t\\,1),format=gray`,
+        "-frames:v", "1", "-f", "rawvideo", "-"], { maxBuffer: d.out_w * d.out_h * 2 });
+      let left = d.out_w, right = -1;
+      for (let y = 0; y < d.out_h; y++) for (let x = 0; x < d.out_w; x++) {
+        if (pixels[y * d.out_w + x]! <= 16) continue;
+        left = Math.min(left, x);
+        right = Math.max(right, x);
+        assert.ok(y > band.top && Math.abs(y - layout.cy) <= layout.h / 2, `ink y=${y}`);
+      }
+      assert.ok(left >= layout.cx - layout.w / 2 && right <= layout.cx + layout.w / 2,
+        `ink ${left}..${right}, pill ${layout.cx - layout.w / 2}..${layout.cx + layout.w / 2}`);
+      assert.ok(right - left > layout.w * 0.9, `complete fitted line spans ${right - left}`);
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("concurrent band titles and captions retain separate measured rows in every theme", { skip: !hasFfmpeg() }, async () => {
+  const dir = mkdtempSync(`${process.cwd()}/tmp-title-`);
+  try {
+    for (const name of Object.keys(THEMES)) {
+      const d = resolveTheme(name);
+      const captions = takeCaptions({ width: 1920, height: 1080,
+        title: "From a new idea to a complete product: plan your launch, organise every task, and review the result with your team",
+        captions: [{ t: 1, d: 4, text: "Review the result" }] }, t => t, 10);
+      const ink = await measureCaptions(dir, captions, d, bandEligible(1920, 1080, d));
+      const band = bandLayout(1920, 1080, d, captions, ink)!;
+      const layouts = captionLayouts(captions, ink, d, false, band);
+      assert.equal(layouts[0]!.size, Math.round(d.caption_size * 1.6), name);
+      assert.ok(ink[0]!.h > layouts[0]!.size, `${name}: title wraps`);
+      assert.equal(layouts[1]!.size, d.caption_size, name);
+      assert.deepEqual([captions[1]!.t0, captions[1]!.t1], [1, 5], name);
+      assert.ok(layouts[0]!.cy + layouts[0]!.h / 2 + layouts[0]!.rise
+        < layouts[1]!.cy - layouts[1]!.h / 2 - d.caption_border, name);
+      const background = execFileSync("ffmpeg", ["-v", "error", "-f", "lavfi", "-i",
+        `color=0x${d.background.slice(1)}:s=${d.out_w}x${d.out_h}:r=1:d=1`, "-vf", "format=gray",
+        "-frames:v", "1", "-f", "rawvideo", "-"], { maxBuffer: d.out_w * d.out_h * 2 });
+      for (const t of [0.4, 1.4, 4]) for (let i = 0; i < captions.length; i++) {
+        if (captions[i]!.t0 >= t || captions[i]!.t1 <= t) continue;
+        writeFileSync(`${dir}/captions.ass`, captionAss([captions[i]!], [ink[i]!], d, false, band));
+        const pixels = execFileSync("ffmpeg", ["-v", "error", "-f", "lavfi", "-i",
+          `color=0x${d.background.slice(1)}:s=${d.out_w}x${d.out_h}:r=1:d=1`, "-vf",
+          `settb=1/1000,setpts=PTS+${t}/TB,ass=${dir}/captions.ass:fontsdir=resources/fonts,format=gray`,
+          "-frames:v", "1", "-f", "rawvideo", "-"], { maxBuffer: d.out_w * d.out_h * 2 });
+        let count = 0;
+        for (let y = 0; y < d.out_h; y++) for (let x = 0; x < d.out_w; x++) {
+          if (Math.abs(pixels[y * d.out_w + x]! - background[y * d.out_w + x]!) <= 2) continue;
+          count++;
+          const rowTop = i === 0 ? band.top : layouts[0]!.cy + layouts[0]!.h / 2 + layouts[0]!.rise;
+          const rowBottom = i === 0 ? layouts[1]!.cy - layouts[1]!.h / 2 - d.caption_border : d.out_h;
+          assert.ok(y > rowTop && y < rowBottom, `${name}: row ${i} ink at y=${y}, t=${t}`);
+          assert.ok(y > band.top + d.border && y < d.out_h - 1, `${name}: ink at y=${y}, t=${t}`);
+          assert.ok(x > d.out_w * 0.04 && x < d.out_w * 0.96, `${name}: ink at x=${x}, t=${t}`);
+        }
+        assert.ok(count > 100, `${name}: visible ink at t=${t}`);
+      }
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("small outputs and oversized captions scale band text, keeping distinct rows above a real card", { skip: !hasFfmpeg() }, async () => {
+  const dir = mkdtempSync(`${process.cwd()}/tmp-small-`);
+  try {
+    const meta = { width: 1920, height: 1080, title: "Smoke title", captions: [{ t: 1.5, text: "Hello world" }] };
+    assert.equal(bandText(takeCaptions(meta, t => t, 10), [{ w: 400, h: 50 }, { w: 300, h: 30 }], DEFAULTS), DEFAULTS);
+    for (const d of [{ ...DEFAULTS, out_w: 320, out_h: 180 }, { ...DEFAULTS, caption_size: 200, caption_border: 8 },
+      { ...DEFAULTS, out_w: 320, out_h: 180, caption_size: 200, caption_border: 8 }]) {
+      const captions = takeCaptions(meta, t => t, 10);
+      const initial = bandText(captions, [], d);
+      const ink = await measureCaptions(dir, captions, initial, bandEligible(1920, 1080, d));
+      const text = bandText(captions, ink, initial);
+      assert.ok(text.caption_size < d.caption_size, `${d.out_w}: text shrinks`);
+      assert.equal(text.caption_border, d.caption_border * (text.caption_size / d.caption_size));
+      const fitted = await measureCaptions(dir, captions, text, bandEligible(1920, 1080, text));
+      const band = bandLayout(1920, 1080, text, captions, fitted)!;
+      assert.ok(band.stage.baseH >= d.out_h / 2, `${d.out_w}: card keeps most of the frame`);
+      const [title, caption] = captionLayouts(captions, fitted, text, false, band);
+      assert.ok(title!.size > caption!.size * 1.5, `${d.out_w}: title hierarchy`);
+      assert.ok(band.top < title!.cy - title!.h / 2 - title!.rise, `${d.out_w}: title below the card`);
+      assert.ok(title!.cy + title!.h / 2 + title!.rise < caption!.cy - caption!.h / 2, `${d.out_w}: separate rows`);
+      assert.ok(caption!.cy + caption!.h / 2 + caption!.rise <= d.out_h, `${d.out_w}: caption inside the frame`);
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 // Inspect rendered white ink, rather than ASS source, for layout regressions.

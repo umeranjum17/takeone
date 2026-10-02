@@ -40,7 +40,8 @@ this reports goal status but does not change the baseline ratchet gate.
 - Pan acceleration: vector second difference of the projected source origin
   (`-x*out_w/w`, `-y*out_h/h`), goal 9,000 output px/s². Pan bounce counts
   sign reversals without a `min_shot` hold; speeds ≤1 px/s count as rest.
-- Subpixel judder: edge centroid on the decoded card's straight left edge,
+- Subpixel judder: edge centroid on the decoded card's straight left edge, or
+  the synthetic source's sidebar divider when the text band keeps the card fixed,
   measured near the predicted projection at mid-height. RMS second differences
   of measured-minus-ideal positions, goal 0.15 px/frame². Fade and rest frames,
   offscreen edges and low-contrast samples are excluded. Sample count is
@@ -48,8 +49,9 @@ this reports goal status but does not change the baseline ratchet gate.
   at the native cap, the report explicitly marks judder not applicable.
 - Caption OCR: midpoint of every active interval between caption boundaries
   (including overlaps), excluding intervals shorter than 0.5 s for fades.
-  Tesseract reads the decoded pill bounds from the emitted `captions.ass`
-  geometry (the union when pills overlap), excluding unrelated UI text. Compare case-sensitive text after
+  Tesseract reads the reserved text band when active, otherwise the decoded
+  pill bounds from the emitted `captions.ass` geometry (the union when pills
+  overlap), excluding unrelated UI text. Compare case-sensitive text after
   whitespace normalization, exactly against the expected take captions mapped
   through the output time warp. OCR mismatches and times remain in the JSON. Each input caption also has
   its own mismatch metric, so fixing one cannot conceal breaking another.
@@ -80,8 +82,9 @@ this reports goal status but does not change the baseline ratchet gate.
 - Motion blur ghosting is not part of this harness. The renderer's synthetic
   proof and measurements are documented in [camera motion blur](motion-blur.md).
 
-Camera measurements use `stageFrames` so they include the rendered stage clamp,
-not only the solver's unclamped path. `default_fps_error` additionally exposes
+Camera measurements use `bandFrames` for a fixed card with a text band, otherwise
+`stageFrames` to include the rendered stage clamp, rather than only the solver's
+unclamped path. `default_fps_error` additionally exposes
 whether the production default has reached 60 fps; fixture renders always test
 60 fps regardless of that default.
 

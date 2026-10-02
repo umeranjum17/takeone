@@ -41,6 +41,54 @@ export function stageGeometry(width: number, height: number, d: CameraDefaults):
 }
 
 /**
+ * With a title or captions, a 16:9 take exported at 16:9 keeps its card fixed above a reserved
+ * text band and the camera moves inside the card, so text never covers the app.
+ */
+export interface Band { stage: Stage; top: number; titleY: number; captionY: number; titleH: number; captionH: number }
+
+function bandRows(captions: Caption[], widths: (number | CaptionInk)[], d: CameraDefaults) {
+  const layouts = captions.map((c, i) => bandCaption(c, widths[i] ?? 0, d));
+  const titleH = Math.max(0, ...layouts.map((l, i) => captions[i]!.title ? l.h + 2 * l.rise : 0));
+  const captionH = Math.max(0, ...layouts.map((l, i) => !captions[i]!.title ? l.h + 2 * l.rise + 2 * d.caption_border : 0));
+  const gap = titleH && captionH ? d.caption_size * 0.35 : 0;
+  const padding = d.caption_size * 0.6;
+  return { titleH, captionH, gap, padding, band: Math.ceil(titleH + captionH + gap + 2 * padding) };
+}
+
+/**
+ * Text geometry for the band: caption_size is in output px, so on small outputs it
+ * scales down until the band takes at most a third of the frame. 1080p is untouched.
+ */
+export function bandText(captions: Caption[], widths: (number | CaptionInk)[], d: CameraDefaults): CameraDefaults {
+  const fit = Math.min(1, d.out_h / 3 / bandRows(captions, widths, d).band);
+  return fit < 1 ? { ...d, caption_size: d.caption_size * fit, caption_border: d.caption_border * fit } : d;
+}
+
+export function bandEligible(width: number, height: number, d: CameraDefaults): boolean {
+  return Math.abs(width / height - 16 / 9) <= 0.01 && Math.abs(d.out_w / d.out_h - 16 / 9) <= 0.01;
+}
+
+export function bandLayout(width: number, height: number, d: CameraDefaults, captions: Caption[] = [],
+  widths: (number | CaptionInk)[] = []): Band | null {
+  if (!bandEligible(width, height, d)) return null;
+  const { titleH, captionH, gap, padding, band } = bandRows(captions, widths, d);
+  const top = Math.round(d.out_h * d.stage_margin / (1 + 2 * d.stage_margin));
+  const h = Math.floor((d.out_h - top - band) / 2) * 2;
+  if (h <= 0) throw new Error("text is too tall for the stage band");
+  const w = even(h * d.out_w / d.out_h);
+  const stage = { w: d.out_w, h: d.out_h, baseW: w, baseH: h, screenX: Math.round((d.out_w - w) / 2), screenY: top, restScale: 1 };
+  return { stage, top: top + h, titleY: top + h + padding + titleH / 2,
+    captionY: top + h + padding + titleH + gap + captionH / 2, titleH, captionH };
+}
+
+/** Solver viewports re-expressed as full-output viewports, for code that projects source px to output px. */
+export function bandFrames(frames: CameraFrame[], band: Band, d: CameraDefaults): CameraFrame[] {
+  const { screenX, screenY, baseW, baseH } = band.stage;
+  return frames.map(f => ({ t: f.t, x: f.x - screenX * f.w / baseW, y: f.y - screenY * f.h / baseH,
+    w: f.w * d.out_w / baseW, h: f.h * d.out_h / baseH }));
+}
+
+/**
  * Map solver viewports (source px) onto the stage. At rest the whole stage shows;
  * zooming eases the margin away so the deepest zoom still fills the frame with screen.
  */
@@ -285,8 +333,8 @@ export function takeCaptions(meta: TakeMeta, at: (t: number) => number, duration
 }
 
 /**
- * Captions as rounded pills near the bottom, sized from `widths`: ink widths
- * and heights measured with the same libass/font that renders them.
+ * Ink bounds must use the same libass/font as final rendering so row sizing
+ * and collision avoidance agree with the visible text.
  */
 export interface CaptionInk { w: number; h: number }
 
@@ -294,17 +342,53 @@ function captionMargin(size: number, d: CameraDefaults): number {
   return Math.ceil(d.out_w * 0.05 + size * 0.75);
 }
 
+const titleSize = (d: CameraDefaults, band = true) => Math.round(d.caption_size * (band ? 1.6 : 1.4));
+const textSize = (caption: Caption, d: CameraDefaults, band = false) =>
+  caption.title ? titleSize(d, band) : d.caption_size;
+
+const luminance = (colour: string) => [1, 3, 5].map(i => parseInt(colour.slice(i, i + 2), 16) / 255)
+  .map(v => v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4)
+  .reduce((sum, v, i) => sum + v * [0.2126, 0.7152, 0.0722][i]!, 0);
+const contrast = (a: string, b: string) => {
+  const [lo, hi] = [luminance(a), luminance(b)].sort((x, y) => x - y);
+  return (hi! + 0.05) / (lo! + 0.05);
+};
+/** The bare title sits on the stage, so it takes whichever caption colour reads best there. */
+export function titleColour(d: CameraDefaults): string {
+  return contrast(d.text, d.background) >= contrast(d.card, d.background) ? d.text : d.card;
+}
+
+function bandCaption(caption: Caption, ink: number | CaptionInk, d: CameraDefaults) {
+  const inkW = typeof ink === "number" ? ink : ink.w;
+  const base = caption.title ? titleSize(d) : d.caption_size;
+  const fit = caption.title ? 1 : Math.min(1, (d.out_w * 0.9 - 2 * base * 0.75) / Math.max(1, inkW));
+  const size = base * fit;
+  const w = inkW * fit + (caption.title ? 0 : 2 * size * 0.75);
+  const inkH = typeof ink === "number" ? 0 : ink.h * fit;
+  const h = caption.title ? Math.max(size, inkH) : Math.ceil(Math.max(size * 1.9, inkH + size * 0.9));
+  return { w, h, size, rise: Math.round(size * 0.3) };
+}
+
 /** Shared geometry keeps keycap collision avoidance identical to caption placement. */
-export function captionLayouts(captions: Caption[], widths: (number | CaptionInk)[], d: CameraDefaults, widePhone = false) {
+export function captionLayouts(captions: Caption[], widths: (number | CaptionInk)[], d: CameraDefaults, widePhone = false,
+  band?: Band | null) {
+  if (band) return captions.map((caption, index) => {
+    const layout = bandCaption(caption, widths[index] ?? 0, d);
+    const rowH = caption.title ? band.titleH : band.captionH;
+    if (layout.w > d.out_w * 0.9 || layout.h + 2 * layout.rise > rowH) {
+      throw new Error("text does not fit the stage band row");
+    }
+    return { cx: d.out_w / 2, cy: caption.title ? band.titleY : band.captionY, ...layout };
+  });
   const heights = captions.map((caption, index) => {
-    const size = caption.title ? Math.round(d.caption_size * 1.4) : d.caption_size;
+    const size = textSize(caption, d);
     const ink = widths[index] ?? 0;
     const h = typeof ink === "number"
       ? Math.ceil(ink / Math.max(1, d.out_w - 2 * captionMargin(size, d))) * size * 1.2 : ink.h;
     return Math.ceil(Math.max(size, h) + size * 0.9);
   });
   return captions.map((caption, index) => {
-    const size = caption.title ? Math.round(d.caption_size * 1.4) : d.caption_size;
+    const size = textSize(caption, d);
     const ink = widths[index] ?? 0;
     const w = Math.min(d.out_w * 0.9, (typeof ink === "number" ? ink : ink.w) + 2 * size * 0.75);
     const h = heights[index]!;
@@ -318,30 +402,38 @@ export function captionLayouts(captions: Caption[], widths: (number | CaptionInk
   });
 }
 
-export function captionAss(captions: Caption[], widths: (number | CaptionInk)[], d: CameraDefaults, widePhone = false): string {
+/** In the band the title is bare display type; captions keep their pill, one line each. */
+export function captionAss(captions: Caption[], widths: (number | CaptionInk)[], d: CameraDefaults, widePhone = false,
+  band?: Band | null): string {
   let out = assHeader(d.out_w, d.out_h, d.caption_font, d.caption_size);
-  const layouts = captionLayouts(captions, widths, d, widePhone);
+  const layouts = captionLayouts(captions, widths, d, widePhone, band);
   captions.forEach((caption, index) => {
     const { cx, cy, w, h, size, rise } = layouts[index]!;
     const settle = Math.round(260 * 14 / d.spring_omega / d.spring_zeta);
     const move = `\\move(${cx},${cy + rise},${cx},${cy},0,${settle})`;
     const fade = `\\fad(220,200)`;
     const time = `${assTime(caption.t0)},${assTime(caption.t1)}`;
+    const font = caption.title ? d.display_font : d.caption_font;
+    if (band && caption.title) {
+      const margin = captionMargin(size, d);
+      out += `Dialogue: 3,${time},Default,,${margin},${margin},0,,{\\q0\\an5${move}${fade}\\fs${size}\\fn${font}\\1c${assColour(titleColour(d))}\\bord0\\shad0}${caption.text}\n`;
+      return;
+    }
     out += `Dialogue: 2,${time},Default,,0,0,0,,{\\an7${move}${fade}\\bord${d.caption_border}\\3c${assColour(d.text)}\\shad0\\blur0.6`
       + `\\1c${assColour(d.card)}\\1a${assAlpha(1 - d.caption_opacity)}\\p1}${roundRect(-w / 2, -h / 2, w, h, h / 2 * d.caption_rounding)}\n`;
     const margin = captionMargin(size, d);
-    out += `Dialogue: 3,${time},Default,,${margin},${margin},0,,{\\q0\\an5${move}${fade}\\fs${size}\\fn${caption.title ? d.display_font : d.caption_font}\\1c${assColour(d.text)}\\bord0\\shad0}${caption.text}\n`;
+    out += `Dialogue: 3,${time},Default,,${margin},${margin},0,,{\\q${band ? 2 : 0}\\an5${move}${fade}\\fs${size}\\fn${font}\\1c${assColour(d.text)}\\bord0\\shad0}${caption.text}\n`;
   });
   return out;
 }
 
 /** Show caption i alone during second i, with the final wrap width, to measure its ink bounds. */
-export function measureAss(captions: Caption[], d: CameraDefaults): string {
+export function measureAss(captions: Caption[], d: CameraDefaults, band = false, scaleX = 100): string {
   let out = assHeader(d.out_w, d.out_h, d.caption_font, d.caption_size);
   captions.forEach((caption, index) => {
-    const size = caption.title ? Math.round(d.caption_size * 1.4) : d.caption_size;
+    const size = textSize(caption, d, band);
     const margin = captionMargin(size, d);
-    out += `Dialogue: 0,${assTime(index)},${assTime(index + 1)},Default,,${margin},${margin},0,,{\\q0\\an5\\pos(${d.out_w / 2},${d.out_h / 2})\\fs${size}\\fn${caption.title ? d.display_font : d.caption_font}}${caption.text}\n`;
+    out += `Dialogue: 0,${assTime(index)},${assTime(index + 1)},Default,,${margin},${margin},0,,{\\q${band && !caption.title ? 2 : 0}\\an5\\pos(${d.out_w / 2},${d.out_h / 2})${band && !caption.title ? `\\fscx${scaleX}` : ""}\\fs${size}\\fn${caption.title ? d.display_font : d.caption_font}}${caption.text}\n`;
   });
   return out;
 }

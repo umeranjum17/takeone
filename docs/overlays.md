@@ -8,7 +8,7 @@ releases, typed text and malformed combinations produce no keycap. Each shortcut
 holds for 2.2 output seconds, ending when the next starts.
 The bevelled cells have a subtle shadow and a `+` join. A soft critical spring brings
 them in; the last 250 ms fade out. Their size stays constant during camera motion.
-Placement clears the selected focus targets and the measured title/caption pills
+Placement clears the selected focus targets and the measured title/caption bounds
 throughout the entire hold. If no safe position exists, that keycap is omitted.
 
 Add timed source regions to `take.json`:

@@ -85,7 +85,7 @@ export const DEFAULTS: CameraDefaults = {
   background: "#2a2d38",
   text: "#ffffff",
   card: "#101217",
-  display_font: "Inter SemiBold",
+  display_font: "Inter Bold",
   bg_style: "linear",
   bg_stops: "",
   background_image: "",

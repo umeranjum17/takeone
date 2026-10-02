@@ -13,5 +13,5 @@ build-time work; rendering requires neither fontTools nor a font download.
 
 Libass uses this directory for both caption measurement and final rendering.
 The recording renderer writes `render.log` next to the take so selected faces
-can be inspected. The default title retains Inter SemiBold for compatibility;
-Inter Bold is also bundled for display overrides and future motion scenes.
+can be inspected. See the [theme table](../../README.md#look-and-pacing) for the
+display and caption fonts selected by each theme.

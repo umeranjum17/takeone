@@ -1,7 +1,7 @@
 {
   "synth": {
     "max_upscale": {
-      "value": 0.9009009009009008,
+      "value": 0.7166666666666666,
       "target": 1,
       "direction": "max",
       "unit": "output px/source px",
@@ -18,7 +18,7 @@
       "value": 0,
       "target": 4,
       "direction": "max",
-      "unit": "ln/s\u00b2",
+      "unit": "ln/s²",
       "goalPassed": true
     },
     "zoom_opposite_hold": {
@@ -32,7 +32,7 @@
       "value": 0,
       "target": 9000,
       "direction": "max",
-      "unit": "px/s\u00b2",
+      "unit": "px/s²",
       "goalPassed": true
     },
     "pan_bounce": {
@@ -57,8 +57,8 @@
       "goalPassed": true
     },
     "cadence_error": {
-      "value": 6.666666694833678e-07,
-      "target": 2e-06,
+      "value": 6.666666694833678e-7,
+      "target": 0.000002,
       "direction": "max",
       "unit": "s",
       "goalPassed": true
@@ -109,7 +109,7 @@
       "value": 0,
       "target": 0.15,
       "direction": "max",
-      "unit": "px/frame\u00b2",
+      "unit": "px/frame²",
       "goalPassed": true
     },
     "caption_ocr_errors": {
@@ -120,7 +120,7 @@
       "goalPassed": true
     },
     "banding": {
-      "value": 7,
+      "value": 9,
       "target": 64,
       "direction": "max",
       "unit": "px",
@@ -192,24 +192,24 @@
   },
   "portrait": {
     "max_upscale": {
-      "value": 0.9999999999999996,
+      "value": 0.7209612817089452,
       "target": 1,
       "direction": "max",
       "unit": "output px/source px",
       "goalPassed": true
     },
     "zoom_speed": {
-      "value": 0.7902588777390385,
+      "value": 0,
       "target": 1,
       "direction": "max",
       "unit": "ln/s",
       "goalPassed": true
     },
     "zoom_acceleration": {
-      "value": 3.0471266394457075,
+      "value": 0,
       "target": 4,
       "direction": "max",
-      "unit": "ln/s\u00b2",
+      "unit": "ln/s²",
       "goalPassed": true
     },
     "zoom_opposite_hold": {
@@ -220,18 +220,18 @@
       "goalPassed": true
     },
     "pan_acceleration": {
-      "value": 2701.7022176578657,
+      "value": 0,
       "target": 9000,
       "direction": "max",
-      "unit": "px/s\u00b2",
+      "unit": "px/s²",
       "goalPassed": true
     },
     "pan_bounce": {
-      "value": 1,
+      "value": 0,
       "target": 0,
       "direction": "max",
       "unit": "flips",
-      "goalPassed": false
+      "goalPassed": true
     },
     "default_fps_error": {
       "value": 0,
@@ -248,8 +248,8 @@
       "goalPassed": true
     },
     "cadence_error": {
-      "value": 6.66666667707011e-07,
-      "target": 2e-06,
+      "value": 6.66666667707011e-7,
+      "target": 0.000002,
       "direction": "max",
       "unit": "s",
       "goalPassed": true
@@ -296,6 +296,13 @@
       "unit": "",
       "goalPassed": true
     },
+    "subpixel_judder": {
+      "value": 0,
+      "target": 0.15,
+      "direction": "max",
+      "unit": "px/frame²",
+      "goalPassed": true
+    },
     "caption_ocr_errors": {
       "value": 2,
       "target": 0,
@@ -304,7 +311,7 @@
       "goalPassed": false
     },
     "banding": {
-      "value": 8,
+      "value": 7,
       "target": 64,
       "direction": "max",
       "unit": "px",
@@ -350,13 +357,6 @@
       "target": 0,
       "direction": "max",
       "unit": "",
-      "goalPassed": false
-    },
-    "subpixel_judder": {
-      "value": 0.5812681997448663,
-      "target": 0.15,
-      "direction": "max",
-      "unit": "px/frame\u00b2",
       "goalPassed": false
     }
   }
