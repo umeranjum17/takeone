@@ -143,7 +143,7 @@ test("trim keeps actions starting inside inclusive bounds, clamps ends and regio
       const beats = segmentBeats([action], frames, bounds);
       assert.deepEqual(beats.map((b) => [b.kind, b.t0, b.t1]), [[action.k, beat0, beat1]], action.k);
       if (action.k === "type") assert.deepEqual((beats[0]!.actions[0] as typeof action).region, inside.bbox);
-      else assert.deepEqual(beats[0]!.actions[0], { ...action, t1: beat1 });
+      else assert.deepEqual(beats[0]!.actions[0], action.k === "drag" ? action : { ...action, t1: beat1 });
     }
   }
   assert.deepEqual(segmentBeats([click(1500), click(3500)], [], bounds).filter((b) => b.kind !== "idle"), []);
@@ -279,4 +279,17 @@ test("intent actions outrank longer dwells and incidental travel", () => {
   }
   assert.equal(segmentBeats([dwell], [], opts())[0]!.kind, "dwell");
   assert.equal(segmentBeats([dwell, travel], [], opts())[0]!.kind, "travel");
+});
+
+test("trim retains only intersecting drags without rewriting their recorded history", () => {
+  const drag = (t0: number, t1: number): Action => ({ k: "drag", t0, t1,
+    from: [10, 10], to: [80, 10], bbox: [10, 10, 70, 0],
+    path: [{ t: t0, x: 10, y: 10 }, { t: t1, x: 80, y: 10 }], window_cls: "chromium" });
+  for (const [t0, t1, retained] of [[0, 1999, false], [0, 2000, true], [0, 4000, true], [3000, 4000, true], [3001, 4000, false]] as const) {
+    const action = drag(t0, t1);
+    const beats = segmentBeats([action], [], { ...opts(), startMs: 2000, endMs: 3000 });
+    const owned = beats.flatMap(b => b.actions);
+    assert.deepEqual(owned, retained ? [action] : []);
+    assert.ok(beats.every(b => b.t0 >= 2000 && b.t1 <= 3000));
+  }
 });

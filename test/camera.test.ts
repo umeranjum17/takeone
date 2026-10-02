@@ -980,3 +980,71 @@ test("overlapping buttons retain the longer drag through its stationary tail", a
     assert.ok(Math.abs(implicit.at(-1)!.t - end) < 1 / DEFAULTS.fps);
   }
 });
+
+test("planning retains released and unreleased drags crossing the actual trim boundary", async () => {
+  const { actionsFromEvents } = await import("../src/perceive/actions.ts");
+  const { segmentBeats } = await import("../src/beats/segment.ts");
+  const { zonesForBeat } = await import("../src/beats/zones.ts");
+  const { idleSqueezes, warp } = await import("../src/render/pace.ts");
+  const { gestures, gesturePointer } = await import("../src/camera/gesture.ts");
+  const { framingCoverage, contains } = await import("../scripts/check-framing.ts");
+  const stream = { w: 3840, h: 2160 };
+  const rect: [number, number, number, number] = [0, 0, 1920, 1080];
+  const events = [
+    { k: "win" as const, t: 0, cls: "board", title: "Tidewater", rect },
+    { k: "ptr" as const, t: 8000, x: 1100, y: 800 },
+    { k: "btn" as const, t: 8000, b: "left", down: true },
+    { k: "ptr" as const, t: 10000, x: 3300, y: 800 },
+    { k: "ptr" as const, t: 12000, x: 500, y: 800 },
+    { k: "btn" as const, t: 12000, b: "right", down: true },
+    { k: "btn" as const, t: 12100, b: "right", down: false },
+    { k: "ptr" as const, t: 14000, x: 3300, y: 800 },
+  ];
+  for (const released of [false, true]) for (const endMs of [25000, 30000]) {
+    const history = released ? [...events, { k: "btn" as const, t: 28000, b: "left", down: false }] : events;
+    const bounds = { stream, startMs: 9000, endMs };
+    const actions = actionsFromEvents(history, [], { ...bounds, pointer: "mapped" });
+    const drag = actions.find(a => a.k === "drag")!;
+    assert.equal(drag.t0, 8000);
+    const planned = segmentBeats(actions, [], { ...bounds, takeMs: 30000 });
+    const owner = planned.find(b => b.actions.includes(drag))!;
+    assert.ok(owner);
+    assert.equal(owner.t0, 9000);
+    assert.equal(owner.t1, Math.min(endMs, drag.t1));
+    assert.ok(planned.every(b => b.t0 >= 9000 && b.t1 <= endMs));
+    assert.deepEqual(owner.actions.find(a => a.k === "drag"), drag);
+    const beats: Beat[] = JSON.parse(JSON.stringify(planned.map(b => ({
+      ...b, t0: b.t0 / 1000, t1: b.t1 / 1000, anchor_t: b.anchor_t / 1000, window_rect: rect,
+      zones: zonesForBeat(b, { stream, scale: 1, winRect: rect, frames: [] })
+        .map(z => ({ name: z.name, type: z.kind, bbox: z.bbox })),
+    }))));
+    const start = 9;
+    const end = endMs / 1000;
+    const squeezes = idleSqueezes(beats, start, end, DEFAULTS);
+    const duration = warp(end - start, squeezes, DEFAULTS.idle_speed);
+    const warped = warpBeats(beats, start, squeezes, DEFAULTS.idle_speed);
+    const take = { width: stream.w, height: stream.h, trim_start: start, trim_end: start + duration };
+    const decisions = warped.map(b => decision(b));
+    const solved = solveCamera(warped, decisions, take, DEFAULTS);
+    const heldBeat = warped.find(b => gestures(b).length)!;
+    const g = gestures(heldBeat)[0]!;
+    const held = solved.filter(f => f.t + start >= g.t0 / 1000 && f.t + start <= g.t1 / 1000);
+    assert.ok(held.length > 900);
+    for (const f of held) {
+      const [x, y] = gesturePointer(g, f.t + start);
+      assert.ok(contains(f, [0, 0, 3840, 2160]), JSON.stringify(f));
+      assert.ok(contains(f, [x - 8, y - 8, 32, 40]), JSON.stringify(f));
+    }
+    const unknown = framingCoverage(warped, solved, solved, start).find(r => r.beat === heldBeat.id)!;
+    assert.equal(unknown.dragFrames, held.length);
+    assert.equal(unknown.dragLost, held.length);
+    g.whole_object = [1000, 700, 400, 200];
+    const established = solveCamera(warped, decisions, take, DEFAULTS);
+    const baseline = solveCamera(warped.map(b => ({ ...b, actions: [] })), decisions, take, DEFAULTS);
+    const rows = framingCoverage(warped, baseline, established, start);
+    assert.ok(rows.every(r => r.lost === 0));
+    assert.equal(rows.find(r => r.beat === heldBeat.id)!.dragLost, 0);
+    const clipped = established.map(f => f.t + start >= 16 ? { ...f, x: 0, y: 0, w: 1920, h: 1080 } : f);
+    assert.ok(framingCoverage(warped, baseline, clipped, start).find(r => r.beat === heldBeat.id)!.dragLost > 0);
+  }
+});

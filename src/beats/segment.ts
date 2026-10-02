@@ -101,8 +101,9 @@ export function segmentBeats(
   const start = o.startMs ?? -Infinity;
   const end = o.endMs ?? Infinity;
   const scopedFrames = frames.filter((frame) => frame.t >= start && frame.t <= end);
-  const scoped = actions.filter((a) => actStart(a) >= start && actStart(a) <= end).map((a): Action => {
-    if (!("t1" in a)) return a;
+  const scoped = actions.filter(a => actStart(a) <= end
+    && (a.k === "drag" ? actEnd(a) >= start : actStart(a) >= start)).map((a): Action => {
+    if (a.k === "drag" || !("t1" in a)) return a;
     const bounded = { ...a, t1: Math.min(a.t1, end) };
     if (bounded.k !== "type" || !bounded.region) return bounded;
     let region: BBox | undefined;
