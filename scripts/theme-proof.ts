@@ -7,10 +7,14 @@ import { execFileSync } from "node:child_process";
 import { cpSync, mkdirSync, readFileSync, writeFileSync, copyFileSync } from "node:fs";
 import { resolve, join } from "node:path";
 import { pathToFileURL, fileURLToPath } from "node:url";
+import { parseArgs } from "node:util";
 import { THEMES, resolveTheme } from "../src/themes.ts";
 import { renderTake, FONTS_DIR } from "../src/render/render.ts";
 
-const dest = resolve(process.argv[2] ?? "tmp/theme-proof");
+const { values, positionals } = parseArgs({
+ options: { take: { type: "string" }, baseline: { type: "string" } }, allowPositionals: true,
+});
+const dest = resolve(positionals[0] ?? "tmp/theme-proof");
 mkdirSync(dest, { recursive: true });
 const take = join(dest, "take");
 mkdirSync(join(take,"analysis"), { recursive: true });
@@ -23,10 +27,9 @@ const grid=()=>{
  const cells=names.map((name,i)=>`[${i}:v]scale=640:720,pad=640:756:0:36:color=0x121319,drawtext=fontfile='${font}':text='${name}':x=20:y=9:fontsize=20:fontcolor=white[c${i}]`).join(";");
  ff(...inputs,"-filter_complex",`${cells};${names.map((_,i)=>`[c${i}]`).join("")}xstack=inputs=8:layout=0_0|640_0|1280_0|1920_0|0_756|640_756|1280_756|1920_756[grid]`,"-map","[grid]","-frames:v","1","-update","1",join(dest,"takeone-themes-grid.png"));
 };
-const real=process.argv.indexOf("--take");
-if(real!==-1){
+if(values.take!==undefined){
  // A real take at the default 1080p60 output: frames from its title and its first caption.
- cpSync(resolve(process.argv[real+1]!),take,{recursive:true});
+ cpSync(resolve(values.take),take,{recursive:true});
  for(const name of names){
   const result=await renderTake(take,resolveTheme(name));
   copyFileSync(result.out,join(dest,`${name}.mp4`));
@@ -49,9 +52,8 @@ const meta={id:"theme-demo",width:2560,height:1440,trim_end:10,title:"A launch w
 const save=()=>writeFileSync(join(take,"take.json"),JSON.stringify(meta));
 save();writeFileSync(join(take,"analysis/beats.json"),"[]");writeFileSync(join(take,"analysis/decisions.jsonl"),"");
 const size={out_w:1280,out_h:720,caption_size:34,preset:"fast",idle_speed:1,max_upscale:1,stage_margin:0.16,fade_s:0};
-const baseline=process.argv.indexOf("--baseline");
-if(baseline!==-1){
- const old=await import(pathToFileURL(resolve(process.argv[baseline+1]!)).href) as {renderTake:typeof renderTake};
+if(values.baseline!==undefined){
+ const old=await import(pathToFileURL(resolve(values.baseline)).href) as {renderTake:typeof renderTake};
  copyFileSync((await old.renderTake(take,resolveTheme("midnight",size))).out,join(dest,"before.mp4"));
 }else copyFileSync((await renderTake(take,resolveTheme("midnight",size))).out,join(dest,"before.mp4"));
 copyFileSync((await renderTake(take,resolveTheme("paper",size))).out,join(dest,"takeone-themes-after.mp4"));
