@@ -1,9 +1,6 @@
-Status: historical renderer-8f8cf089 results; rebased-candidate validation pending.
-Original receipt preserved in previous-8f8-receipts/candidate-beat-results.txt.
-
 Baseline: main commit 684fb6c4f6b1216c5b2aab1f5ebfc35a16569bf3
 Renderer candidate: 8f8cf08903046cf9fb258dc4eb84dfb70b3fb27e
-Comparison: renderer-8f8cf089 camera paths on the output clock; every frame checks acted-on bbox and drag subject/cursor.
+Comparison: current-candidate camera paths on the output clock; every frame checks acted-on bbox and drag subject/cursor.
 
 Tidewater real take
 beat | frames | before visible | after visible | regressions | drag frames | drag clipped | result

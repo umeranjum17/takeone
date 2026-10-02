@@ -1,4 +1,4 @@
-# t1-pm-4 current-candidate output evidence
+# t1-pm-4 historical output evidence and validation handoff
 
 The real Tidewater take and Acme fixture were rendered from reviewed candidate
 `8f8cf08903046cf9fb258dc4eb84dfb70b3fb27e`, git tree
@@ -8,7 +8,7 @@ render configurations are recorded in [candidate-output-report.txt](candidate-ou
 so later evidence-only commits can be compared without claiming they rendered
 themselves.
 
-## Candidate output
+## Historical output from renderer 8f8cf089
 
 - [Tidewater candidate MP4](tidewater-candidate-after.mp4)
 - [Tidewater drag strip](tidewater-candidate-strip.png), sampled 15.5–19 s at
@@ -21,77 +21,87 @@ themselves.
 - [Per-beat before/after results](candidate-beat-results.txt)
 - [Rendered source provenance and hashes](candidate-output-report.txt)
 
-The Tidewater strip was visually inspected at full resolution. The dragged
+For renderer `8f8cf089`, the Tidewater strip was visually inspected at full resolution. The dragged
 card remains visible while crossing the board, at release, and after drop. Its
 recorded drag spans 16.65–18.583333 s; all 117 drag frames keep both the card
-footprint and cursor inside the candidate camera crop. The current-main
+footprint and cursor inside the candidate camera crop. The recorded main-`684fb6c4`
 comparison has zero acted-on region regressions across all ten beats.
 
-The Acme sheet shows the retention slider from before its dialog opens through
+For renderer `8f8cf089`, the Acme sheet shows the retention slider from before its dialog opens through
 the drag and drop. The rendered-crop check uses the candidate camera frames
 after `stageFrames`, maps each output frame back through the output time warp,
 and checks both cursor and thumb footprints on every frame from 16 through 30
 s. All 841 frames pass.
 
-The former renderer-`87d4717` outputs and their report are preserved under
-[previous-87d-render](previous-87d-render/); current-candidate conclusions use
-the files linked above.
+All linked media, camera paths, visibility records, and beat tables above are
+historical evidence bound to renderer `8f8cf089`, not the rebased candidate.
+The original README and receipts are preserved byte-for-byte in
+[previous-8f8-receipts](previous-8f8-receipts/). The renderer-`87d4717` evidence
+remains in [previous-87d-render](previous-87d-render/). The root-level
+`acme-after-half-sheet.png`, `acme-after.mp4`, `acme-before.mp4`,
+`tidewater-real-after.mp4`, `tidewater-real-strip.png`, `output-report.txt`, and
+`beat-results.txt` are also historical and retain their original bindings.
 
-The evidence-only commits after that render preserve the output-producing
-inputs: the digest recomputed at HEAD
-`ffb60af3d73a5095e59b133417e73fe77a309b04` is
-`090109f3eeaa7d54a7dd233b94343ca7536ccc8ceffc8919f6fc11cc3e7debe3`, matching
-the renderer report, and `package-lock.json` remains at the reported SHA-256.
-The root-level `acme-after-half-sheet.png`, `acme-after.mp4`,
-`acme-before.mp4`, `tidewater-real-after.mp4`, `tidewater-real-strip.png`,
-`output-report.txt`, and `beat-results.txt` are superseded historical evidence.
-They are retained for context and are not used for the current-candidate
-conclusions above. The `previous-87d-render/` directory is also historical.
+## Rebased candidate: validation pending
 
-## Reproduce
+At review starting HEAD `d2fe04c4933ef5e55302d7beeb61d3dff86b05b2`, the recorded
+digest command produces
+`75c8b3e25b2dd105e9676bfd5579537f7cd6fafebd1309d24df8b8fbadbcec6a`, not the
+historical renderer digest
+`090109f3eeaa7d54a7dd233b94343ca7536ccc8ceffc8919f6fc11cc3e7debe3`.
+Output-affecting changes include caption-band composition, `max_upscale`
+1.5 to 1.0, and standard encoding CRF 18 to 12. Historical PASS results do not
+establish acceptance for this candidate. No fresh render or output inspection
+was performed in this review phase.
 
-Run every media render under the shared lock. Dependencies are specified in
-`package-lock.json`.
+The outer executor's assigned validation phase must regenerate and inspect all
+five scenarios through the current public CLI, then publish source-bound
+results. Automated tests and historical media do not substitute for this work.
 
-Tidewater raw input is at
-`/home/umer/.treehouse/takeone-9abf5c/11/takeone/tmp/real/screen.webm`. Its
-matching plan is committed in `tidewater-plan/`:
+| Required scenario | Current-candidate status |
+| --- | --- |
+| Fresh Acme render: retention thumb and cursor visible on every frame 16–30 s | Pending |
+| Fresh before/after comparison: every beat retains each acted-on region whenever the before crop did | Pending |
+| Fresh real Tidewater render: whole dragged card and cursor visible for the full drag through release/drop | Pending |
+| Fresh Acme after-half sheet: 1 fps, output times 16–32 s, visually inspected | Pending |
+| Actual framing CLI: nonzero trim-relative camera times aligned to output-clock beats, and no-match beat rejected with expected exit status | Pending |
 
-```sh
-mkdir -p tmp/t1-pm-4-reviewed-real/analysis
-cp /home/umer/.treehouse/takeone-9abf5c/11/takeone/tmp/real/screen.webm tmp/t1-pm-4-reviewed-real/
-cp docs/quality-evidence/t1-pm-4/tidewater-plan/{events.jsonl,frames.tsv,take.json} tmp/t1-pm-4-reviewed-real/
-cp docs/quality-evidence/t1-pm-4/tidewater-plan/analysis/* tmp/t1-pm-4-reviewed-real/analysis/
-flock /home/umer/.treehouse/firstmate-8bf1b0/1/firstmate/state/takeone-heavy.lock node --input-type=module -e 'import { renderTake } from "./src/render/render.ts"; import { DEFAULTS } from "./src/camera/defaults.ts"; await renderTake("tmp/t1-pm-4-reviewed-real", DEFAULTS);'
-cp tmp/t1-pm-4-reviewed-real/out/headless-demo.mp4 docs/quality-evidence/t1-pm-4/tidewater-candidate-after.mp4
-cp tmp/t1-pm-4-reviewed-real/camera.json docs/quality-evidence/t1-pm-4/tidewater-candidate-camera.json
-```
+## Validation phase handoff
 
-Generate and render the Acme fixture with this candidate:
+Preserve every historical artifact and receipt. Write fresh outputs and their
+reports to a separate worktree-local directory, and add links here only after
+inspection. Retain the original full-drag whole-element, slider, and
+no-regression criteria; keep stored numerical quality limits at least as strict
+as both accepted histories.
 
-```sh
-flock /home/umer/.treehouse/firstmate-8bf1b0/1/firstmate/state/takeone-heavy.lock node scripts/synth-take.ts tmp/t1-pm-4-reviewed-acme
-flock /home/umer/.treehouse/firstmate-8bf1b0/1/firstmate/state/takeone-heavy.lock node --input-type=module -e 'import { makeTake } from "./src/make.ts"; import { DEFAULTS } from "./src/camera/defaults.ts"; await makeTake("tmp/t1-pm-4-reviewed-acme", { noJev: true, camera: { ...DEFAULTS, fps: 60, caption_font: "Liberation Sans" } });'
-cp tmp/t1-pm-4-reviewed-acme/out/synth-demo.mp4 docs/quality-evidence/t1-pm-4/acme-candidate-after.mp4
-cp tmp/t1-pm-4-reviewed-acme/camera.json docs/quality-evidence/t1-pm-4/acme-candidate-camera.json
-node docs/quality-evidence/t1-pm-4/check-acme-detail-visibility.ts tmp/t1-pm-4-reviewed-acme
-```
+The retained real input is
+`/home/umer/.treehouse/takeone-9abf5c/11/takeone/tmp/real/screen.webm`, with
+SHA-256 `bfe7d750c092c13db9db04781d927b7f5d711e7b2a91b10be0d825dfe497cfc7`.
+Copy it into the worktree with the committed `tidewater-plan/` bundle; keep the
+real Umer/Tidewater recording and plans. The Acme fixture producer is
+`scripts/synth-take.ts`; retain the committed `acme-plan/` for historical
+comparison. If a retained input is inaccessible, record the exact refusal and
+leave its scenario pending; do not substitute a synthetic real take.
 
-Create the contact sheet and drag strip from those rendered MP4s:
+Build the current CLI within the worktree, then use `node bin/takeone.mjs render
+<worktree-local-tidewater-dir>` and `node bin/takeone.mjs make <acme-id> --no-jev
+--set fps=60 --set "caption_font=Liberation Sans"`. Set `TAKEONE_DIR` to a
+worktree-local directory for `make`. Do not invoke new Jev calls. Serialize each
+heavy build, render, test, or ffmpeg command and all its children under the
+existing shared lock
+`/home/umer/.treehouse/firstmate-8bf1b0/1/firstmate/state/takeone-heavy.lock`;
+keep AXI control calls outside the lock.
 
-```sh
-flock /home/umer/.treehouse/firstmate-8bf1b0/1/firstmate/state/takeone-heavy.lock ffmpeg -nostdin -v error -y -ss 16 -t 17 -i docs/quality-evidence/t1-pm-4/acme-candidate-after.mp4 -vf "select=not(mod(n\,60)),scale=480:270,pad=480:302:0:32:color=0x101116,drawtext=fontfile='resources/fonts/Geist.ttf':text='After %{eif\:16+n\:d} s':fontsize=20:fontcolor=white:x=12:y=6,tile=4x5" -frames:v 1 docs/quality-evidence/t1-pm-4/acme-candidate-after-half-sheet.png
-flock /home/umer/.treehouse/firstmate-8bf1b0/1/firstmate/state/takeone-heavy.lock ffmpeg -nostdin -v error -y -ss 15.5 -t 4 -i docs/quality-evidence/t1-pm-4/tidewater-candidate-after.mp4 -vf "select=not(mod(n\,30)),scale=640:360,pad=640:398:0:38:color=0x101116,drawtext=fontfile='resources/fonts/Geist.ttf':text='Tidewater %{expr\:15.5+n/2} s':fontsize=24:fontcolor=white:x=12:y=7,tile=4x2" -frames:v 1 docs/quality-evidence/t1-pm-4/tidewater-candidate-strip.png
-```
+Use freshly produced camera paths and output-clock beats with
+`node scripts/check-framing.ts <beats.json> <trim-start-seconds>
+<before-camera.json> <after-camera.json>`. Include a nonzero-trim run and a
+no-match run with its captured exit status. The fresh frame-visibility checks
+must account for the current rendered composition, including the caption band,
+and inspect the actual MP4s, sheet, and strip.
 
-The committed output-clock beat files and before/after camera paths use the
-executable framing checker. Pass the trim start in seconds; these two fixtures
-start at zero:
-
-```sh
-node scripts/check-framing.ts docs/quality-evidence/t1-pm-4/tidewater-output-clock-beats.json 0 docs/quality-evidence/t1-pm-4/tidewater-main-before-camera.json docs/quality-evidence/t1-pm-4/tidewater-candidate-camera.json
-node scripts/check-framing.ts docs/quality-evidence/t1-pm-4/acme-output-clock-beats.json 0 docs/quality-evidence/t1-pm-4/acme-main-before-camera.json docs/quality-evidence/t1-pm-4/acme-candidate-camera.json
-```
-
-`SHA256SUMS` covers the current evidence package and the preserved previous
-render files.
+Record exact source commit/tree, the output-source digest command from the
+historical report, dependency lock, runtime, CLI commands and configurations,
+input/plan/output hashes, per-frame and per-beat results, and visual inspection
+conclusions from those fresh results. Refresh `SHA256SUMS` after publication.
+Its current entries cover the preserved package and corrected documentation,
+not proof that the rebased renderer has passed.

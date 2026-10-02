@@ -1,6 +1,3 @@
-Status: historical renderer-8f8cf089 receipt; rebased-candidate validation pending.
-Original receipt preserved in previous-8f8-receipts/candidate-output-report.txt.
-
 Rendered from reviewed candidate HEAD: 8f8cf08903046cf9fb258dc4eb84dfb70b3fb27e
 Reviewed HEAD git tree: b4daccbb8e8a609ac7a6b733728de99eedf8c4d2
 Output-source SHA-256: 090109f3eeaa7d54a7dd233b94343ca7536ccc8ceffc8919f6fc11cc3e7debe3
@@ -40,4 +37,4 @@ Candidate-output checks
 3. Acme candidate camera vs main camera: every beat passed; zero acted-on region regressions; zero clipped drag frames.
 4. Acme rendered MP4: 841 sampled crop frames from 16–30 s contain the thumb and cursor; the 1 fps after-half sheet covers 16–32 s.
 
-The exact reviewed commit and tree identify the renderer snapshot. To compare later evidence-only commits, recompute the output-source digest command above; it covers tracked renderer, producer, resource, build, and dependency-lock inputs while excluding this evidence package. The rebased candidate has different output-producing inputs; these checks establish results only for the renderer snapshot above. See README.md for the pending validation handoff.
+The exact reviewed commit and tree identify the renderer snapshot. To compare later evidence-only commits, recompute the output-source digest command above; it covers tracked renderer, producer, resource, build, and dependency-lock inputs while excluding this evidence package. No output-affecting files changed after either render.

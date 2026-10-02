@@ -147,8 +147,11 @@ the following action retains that context, including when a shot is omitted
 by the camera's movement budget.
 
 The t1-pm-4 candidate evidence package is in
-[`quality-evidence/t1-pm-4`](quality-evidence/t1-pm-4/README.md). It includes
-the Acme after-half sheet, current-main and candidate camera paths, a real
-Tidewater render and drag strip, per-beat results, reproduction commands, and
-source/output hashes. The earlier supplied artifacts remain in the package as
-historical evidence; current-candidate conclusions use the regenerated files.
+[`quality-evidence/t1-pm-4`](quality-evidence/t1-pm-4/README.md). It preserves
+historical Acme sheets, main and renderer-bound camera paths, real Tidewater
+renders and drag strips, per-beat results, and source/output hashes. Those
+results are bound to their recorded renderer commits and do not establish
+acceptance for the rebased candidate. The README records the source-digest
+mismatch and the five pending actual-output scenarios for the assigned
+validation phase. Fresh public-CLI renders and inspection are required before
+current-candidate conclusions can be published.
