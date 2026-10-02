@@ -2,7 +2,7 @@ window.AFTER_MOUNT=window.AFTER_MOUNT??[];
 PATTERNS["end-card"] = (layer,s,ctx) => {
   const {W,H}=ctx;
   const group=h(`<div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:${H*.055}px"></div>`);
-  const word=kernedLetters(s.logo??"TakeOne");
+  const word=kernedLetters(s.logo);
   word.style.font=`400 ${Math.min(W*.12,H*.2)}px/1.1 var(--display)`;
   group.append(word);
   const cta=h(`<div style="background:var(--text);color:var(--bg);border-radius:999px;padding:18px 38px;font:${Math.min(W*.028,H*.046)}px var(--body)">${esc(s.cta??"")}</div>`);
