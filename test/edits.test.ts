@@ -90,6 +90,18 @@ test("manual zoom pre-rolls to its region and rejects holds shorter than 0.5 sec
   assert.throws(() => solveCamera([], [], { ...take, zooms: [{ ...requested, t1: 2.49 }] }, d), /0.5s hold/);
 });
 
+test("deep manual portrait zoom reaches its requested framing at t0", () => {
+  const portrait = { ...d, out_w: 180, out_h: 320, outro_s: 0 };
+  const zoom = { t0: 1, t1: 8, bbox: [250, 110, 160, 90] as [number,number,number,number], level: 3 as const };
+  const frames = solveCamera([], [], { width: 640, height: 360, trim_end: 9, zooms: [zoom] }, portrait);
+  const arrived = frames[Math.round(zoom.t0 * portrait.fps)]!;
+  const held = frames[Math.round(5 * portrait.fps)]!;
+  assert.ok(arrived.x <= zoom.bbox[0] && arrived.x + arrived.w >= zoom.bbox[0] + zoom.bbox[2],
+    `requested region framed at t0: viewport ${arrived.x}, ${arrived.w}`);
+  assert.ok(arrived.w <= held.w * 1.1,
+    `requested zoom reached at t0: ${arrived.w} vs settled viewport ${held.w}`);
+});
+
 test("square 4K manual zoom moves to the native upscale boundary after stage padding", () => {
   const square4k = { ...DEFAULTS, out_w: 3840, out_h: 3840 };
   const take = { width: 2560, height: 1440, trim_end: 8,
