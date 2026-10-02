@@ -177,24 +177,16 @@ function toFrame(
 ): CameraFrame {
   const z = clamp(state.z, 1, zMax(width, height, d));
   const aspect = d.out_w / d.out_h;
-  const aspectDelta = Math.abs(width / height / aspect - 1);
-  const nonWide = aspectDelta > 1e-9;
   // The camera now moves across the padded stage itself. This makes the
   // solver's viewport the same viewport the renderer finally exposes.
   const w = baseWidth(width, height, d) / z;
   const h = w / aspect;
-  // Overscan remains centred until the requested crop fits; pan eases into the
-  // newly available margin to avoid a one-frame jump at the source boundary.
   const place = (centre: number, view: number, size: number) => {
     if (view > size) {
       const wideIntoPortrait = d.out_h > d.out_w && width / height > aspect;
       return wideIntoPortrait ? centre - view / 2 : (size - view) / 2;
     }
-    const easeBoundary = aspectDelta > 0.01 || d.stage_margin > 0;
-    const edgeSpan = d.out_h > d.out_w ? 0.25 : 0.75;
-    const u = easeBoundary ? smooth(clamp((size - view) / (size * edgeSpan), 0, 1)) : 1;
-    const effectiveCentre = size / 2 + (centre - size / 2) * u;
-    return clamp(effectiveCentre - view / 2, 0, size - view);
+    return clamp(centre - view / 2, 0, size - view);
   };
   const x = place(state.cx, w, width);
   const y = place(state.cy, h, height);
@@ -790,12 +782,18 @@ export interface CameraArrival {
 function boundedCamera(targets: Target[], width: number, height: number, start: number,
   end: number, d: CameraDefaults, cuts: number[], arrivals: CameraArrival[], beats: Beat[]): CameraFrame[] {
   const stage = stageGeometry(width, height, d);
-  const project = (state: CameraState) => stageFrames([toFrame(state, width, height, d)], width, height, stage, d)[0]!;
-  const dragBoxes = beats.flatMap(beat => gestures(beat).map(g => gestureZone(g, width, height).bbox));
+  const aspect = d.out_w / d.out_h;
+  const normalize = (view: CameraFrame): CameraFrame => {
+    const w = Math.min(view.w, stage.w, stage.h * aspect), h = w / aspect;
+    return { t: view.t, x: clamp(view.x + (view.w - w) / 2, 0, stage.w - w),
+      y: clamp(view.y + (view.h - h) / 2, 0, stage.h - h), w, h };
+  };
+  const project = (state: CameraState) => normalize(stageFrames([toFrame(state, width, height, d)], width, height, stage, d)[0]!);
   const path = (a: CameraFrame, b: CameraFrame, u: number): CameraFrame => {
+    if (u <= 0) return a;
+    if (u >= 1) return b;
     const eased = smooth(clamp(u, 0, 1));
-    const w = dragBoxes.length ? 1 / lerp(1 / a.w, 1 / b.w, eased)
-      : Math.exp(lerp(Math.log(a.w), Math.log(b.w), eased));
+    const w = 1 / lerp(1 / a.w, 1 / b.w, eased);
     const h = w * d.out_h / d.out_w;
     // Interpolate final screen-origin projection, not a source centre which
     // the padded renderer would clamp at a source-fill boundary.
@@ -827,17 +825,7 @@ function boundedCamera(targets: Target[], width: number, height: number, start: 
     return Math.max(d.move_t_min, speed, Math.sqrt(za / 4), Math.sqrt(pa / 9000)) * 1.05;
   };
   const initial = project({ cx: width / 2, cy: height / 2, z: 1 });
-  const endpoint = (target: Target) => {
-    const view = target.viewport ?? project(target.state);
-    if (!dragBoxes.length) return view;
-    const left = Math.min(view.x, ...dragBoxes.map(b => b[0] + stage.screenX));
-    const top = Math.min(view.y, ...dragBoxes.map(b => b[1] + stage.screenY));
-    const right = Math.max(view.x + view.w, ...dragBoxes.map(b => b[0] + b[2] + stage.screenX));
-    const bottom = Math.max(view.y + view.h, ...dragBoxes.map(b => b[1] + b[3] + stage.screenY));
-    const w = Math.max(right - left, (bottom - top) * d.out_w / d.out_h);
-    const h = w * d.out_h / d.out_w;
-    return { ...view, x: (left + right - w) / 2, y: (top + bottom - h) / 2, w, h };
-  };
+  const endpoint = (target: Target) => target.viewport ? normalize(target.viewport) : project(target.state);
   const boundaryAt = (t: number) => Math.max(start, ...cuts.filter(c => c <= t));
   const manual = targets.filter(t => t.manual === "zoom");
   const reservations = manual.map(t => ({ from: Math.max(boundaryAt(t.t), t.t - lead(initial, endpoint(t))), to: t.holdEnd ?? t.t }));
@@ -863,13 +851,46 @@ function boundedCamera(targets: Target[], width: number, height: number, start: 
     available = target.manual === "zoom" ? Math.max(arrival, target.holdEnd ?? arrival)
       : arrival + Math.max(d.dwell, d.min_shot);
   }
-  let moveIndex = 0;
+  const at = (t: number): CameraFrame => {
+    const move = moves.findLast(move => move.start <= t);
+    return move ? path(move.from, move.to, (t - move.start) / (move.end - move.start)) : initial;
+  };
+  const holds = [{ start, end: moves[0]?.start ?? end, view: initial },
+    ...moves.map((move, i) => ({ start: move.end, end: moves[i + 1]?.start ?? end, view: move.to }))];
+  const reserve = (t0: number, t1: number, zone: Zone) => {
+    t1 = Math.min(end, Math.max(t1, t0 + Math.max(d.dwell, d.min_shot)));
+    let view = project(frame(zone, 2, width, height, undefined, d));
+    const before = holds.flatMap((hold, i) => {
+      const t = Math.min(hold.end, t0 - lead(hold.view, view));
+      return t >= hold.start + (i ? Math.max(d.dwell, d.min_shot) : 0) && t <= t0 ? [t] : [];
+    });
+    const a = before.length ? Math.max(...before) : start;
+    if (!before.length) view = initial;
+    const after = holds.flatMap((hold, i) => {
+      const t = Math.max(hold.start, t1 + lead(view, hold.view));
+      return t <= hold.end - (i < holds.length - 1 ? Math.max(d.dwell, d.min_shot) : 0) && t >= t1 ? [t] : [];
+    });
+    const b = after.length ? Math.min(...after) : end;
+    return { t0, t1, zone, view, a, b, from: at(a), to: after.length ? at(b) : view };
+  };
+  const visibility: ReturnType<typeof reserve>[] = [];
+  const drags = beats.flatMap(beat => gestures(beat)).filter(g => g.t1 / 1000 >= start && g.t0 / 1000 <= end)
+    .sort((a, b) => a.t0 - b.t0);
+  for (const drag of drags) {
+    let hold = reserve(Math.max(start, drag.t0 / 1000), Math.min(end, drag.t1 / 1000), gestureZone(drag, width, height));
+    while (visibility.length && hold.a <= visibility.at(-1)!.b) {
+      const previous = visibility.pop()!;
+      hold = reserve(Math.min(previous.t0, hold.t0), Math.max(previous.t1, hold.t1), mergeZones(previous.zone, hold.zone));
+    }
+    visibility.push(hold);
+  }
   return Array.from({ length: Math.floor((end - start) * d.fps) + 1 }, (_, index) => {
     const t = start + index / d.fps;
-    while (moveIndex + 1 < moves.length && moves[moveIndex + 1]!.start <= t) moveIndex++;
-    const move = moves[moveIndex];
-    const padded = !move || t < move.start ? initial
-      : path(move.from, move.to, (t - move.start) / (move.end - move.start));
+    const hold = visibility.find(hold => t >= hold.a && t <= hold.b);
+    const padded = !hold ? at(t) : t < hold.t0
+      ? path(hold.from, hold.view, (t - hold.a) / (hold.t0 - hold.a))
+      : t <= hold.t1 ? hold.view
+        : path(hold.view, hold.to, (t - hold.t1) / (hold.b - hold.t1));
     return { ...padded, x: padded.x - stage.screenX, y: padded.y - stage.screenY,
       t: t - start, padded: { ...padded, t: t - start } };
   });

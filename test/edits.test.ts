@@ -387,3 +387,58 @@ test("bounded portrait square and manual paths reserve drag visibility and motio
     }
   }
 });
+
+
+test("late drags preserve unrelated manual holds before and after their bounded lead", () => {
+  const zooms = [
+    {t0:4,t1:8,bbox:[1100,600,100,100] as [number,number,number,number],level:3 as const},
+    {t0:17,t1:21,bbox:[1000,500,200,200] as [number,number,number,number],level:2 as const},
+  ];
+  const drag: Beat = {id:"later",kind:"drag",t0:10,t1:12,anchor_t:10,camera_suppressed:true,zones:[],
+    actions:[{k:"drag",t0:10000,t1:12000,from:[100,100],to:[2400,1200],bbox:[100,100,2300,1100]}]};
+  for (const settings of [{out_w:1080,out_h:1920},{out_w:1080,out_h:1080}]) {
+    const camera = {...DEFAULTS,...settings,outro_s:0};
+    const take = {width:2560,height:1440,trim_end:24,zooms};
+    const baseline = solveCamera([],[],take,camera);
+    const actual = solveCamera([drag],[],take,camera);
+    assert.deepEqual(actual.slice(4*60,8*60+1),baseline.slice(4*60,8*60+1));
+    assert.deepEqual(actual.slice(14*60),baseline.slice(14*60));
+    const stage = stageGeometry(2560,1440,camera);
+    const frames = stageFrames(actual,2560,1440,stage,camera);
+    for (const f of frames.filter(f=>f.t>=10&&f.t<=12)) {
+      assert.ok(f.x<=stage.screenX+1e-8 && f.x+f.w>=stage.screenX+2560-1e-8);
+      assert.ok(f.y<=stage.screenY+1e-8 && f.y+f.h>=stage.screenY+1440-1e-8);
+    }
+    const metrics = cameraMetrics(frames,60,camera.out_w,camera.out_h,camera.min_shot);
+    for (const key of ["max_upscale","zoom_speed","zoom_acceleration","pan_acceleration"]) {
+      assert.equal(metrics[key]!.goalPassed,true,`${key}: ${metrics[key]!.value}`);
+    }
+  }
+});
+
+test("edge manual holds remain exact and their entire curves stay inside the padded stage", () => {
+  const boxes: [number,number,number,number][] = [[0,600,100,100],[2460,600,100,100],[1200,0,100,100],[1200,1340,100,100]];
+  for (const settings of [{out_w:1080,out_h:1080},{out_w:1080,out_h:1920},{out_w:1920,out_h:1080}]) {
+    const camera = {...DEFAULTS,...settings,outro_s:0};
+    const stage = stageGeometry(2560,1440,camera);
+    for (const bbox of boxes) {
+      const timing = {cuts:[],arrivals:[] as import("../src/camera/solver.ts").CameraArrival[]};
+      const raw = solveCamera([],[],{width:2560,height:1440,trim_end:14,zooms:[{t0:6,t1:10,bbox,level:3}]},camera,timing);
+      const frames = stageFrames(raw,2560,1440,stage,camera);
+      assert.equal(timing.arrivals[0]!.lateness,0);
+      for (const f of frames) {
+        assert.ok(f.x>=-1e-8 && f.y>=-1e-8);
+        assert.ok(f.x+f.w<=stage.w+1e-8 && f.y+f.h<=stage.h+1e-8,JSON.stringify(f));
+      }
+      for (const f of frames.filter(f=>f.t>=6&&f.t<=10)) {
+        assert.ok(f.x<=stage.screenX+bbox[0]+1e-8 && f.x+f.w>=stage.screenX+bbox[0]+bbox[2]-1e-8);
+        assert.ok(f.y<=stage.screenY+bbox[1]+1e-8 && f.y+f.h>=stage.screenY+bbox[1]+bbox[3]-1e-8);
+        for (const key of ["x","y","w","h"] as const) assert.ok(Math.abs(f[key]-timing.arrivals[0]!.requestedFrame[key])<1e-8);
+      }
+      const metrics = cameraMetrics(frames,60,camera.out_w,camera.out_h,camera.min_shot);
+      for (const key of ["max_upscale","zoom_speed","zoom_acceleration","pan_acceleration"]) {
+        assert.equal(metrics[key]!.goalPassed,true,`${key}: ${metrics[key]!.value}`);
+      }
+    }
+  }
+});
