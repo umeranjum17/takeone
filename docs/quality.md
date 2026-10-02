@@ -98,6 +98,8 @@ baselines. For a maximum metric the gate is
 `value ≥ min(goal, baseline)`. Passing metrics keep their goal. Only 1e-6 relative
 round-off is tolerated. A missing, nonfinite or removed measurement fails.
 
+Accepted current limitation: portrait stage-origin `pan_bounce` is 4 vs stored 3; track the general correction in the `t1-camera-coupled` follow-up.
+
 After a quality improvement, run `npm run quality -- --ratchet` and commit the
 new JSON to tighten limits. This command must pass the existing numeric gates
 and cannot loosen a failing baseline. CI never rewrites baselines. Improvements
