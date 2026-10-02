@@ -120,3 +120,5 @@ source/analysis/camera/edit-clock/video hashes. Every camera budget uses the
 final padded viewport. It rejects encoded size, frame-clock or motion-budget
 failures; physical screen-corner bounce is recorded separately for review.
 Run proof work under the repository's shared heavy-job lock where applicable.
+
+Held automatic portrait and square crops use whole-element boundaries supplied by saved analysis. When a single element cannot fit without cutting neighboring content, the camera widens to include whole neighboring regions. Manual crops retain the requested region. Movement still obeys the final padded viewport budgets.

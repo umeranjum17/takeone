@@ -4,7 +4,7 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import test from "node:test";
 import { applyOverrides, DEFAULTS } from "../src/camera/defaults.ts";
-import { clippedFractions, HIGH_CLIP_FRACTION, frame, moveDuration, solveCamera, zMax } from "../src/camera/solver.ts";
+import { baseWidth, clippedFractions, HIGH_CLIP_FRACTION, frame, moveDuration, solveCamera, zMax } from "../src/camera/solver.ts";
 import type { Beat, Decision, Zone } from "../src/camera/types.ts";
 import type { Event } from "../src/types.ts";
 import { renderTake } from "../src/render/render.ts";
@@ -58,6 +58,7 @@ function decision(b: Beat, importance: 0 | 1 | 2 = 1): Decision {
 // Motion mechanics may explicitly opt into upscaling; native-default limits are tested separately.
 const noBookends = { ...DEFAULTS, max_upscale: 1.5, establish_s: 0, outro_s: 0 };
 
+// Rest-width assertions use baseWidth after the accepted padded-viewport change.
 // Mechanics tests opt out of the opening hold and closing wide shot.
 function camera(beats: Beat[], decisions: Decision[], end = 8) {
   return solveCamera(beats, decisions, {
@@ -109,7 +110,9 @@ test("whole-screen non-16:9 frames cover the full source while 16:9 framing is u
     assert.equal(DEFAULTS.out_h, 1080);
   }
   const wide = solveCamera([], [], { width: 3840, height: 2160, trim_start: 0, trim_end: 1 })[0]!;
-  assert.deepEqual(wide, { t: 0, x: 0, y: 0, w: 3840, h: 2160 });
+  // Accepted padded-viewport change: the rest margin is part of camera geometry.
+  const paddedW = baseWidth(3840, 2160);
+  assert.deepEqual(wide, { t: 0, x: (3840 - paddedW) / 2, y: (2160 - paddedW * 9 / 16) / 2, w: paddedW, h: paddedW * 9 / 16 });
   const zoomBeat = beat("wide-zoom", 2, 2500);
   const zoomed = solveCamera([zoomBeat], [decision(zoomBeat)], {
     width: 3840, height: 2160, trim_start: 0, trim_end: 4,
@@ -166,7 +169,7 @@ test("deadzone skips framing that already fits with the configured margin", () =
   const b = beat("wide", 2, 300);
   b.zones[0]!.bbox = [200, 500, 3200, 1100];
   const result = camera([b], [decision(b)], 4);
-  assert.equal(at(result, 3).w, 3840);
+  assert.equal(at(result, 3).w, baseWidth(3840, 2160));
 });
 
 test("minimum dwell delays the next shot and merges its zone with the previous one", () => {
@@ -225,7 +228,7 @@ test("four-moves-per-ten-seconds limit discards lowest-importance excess", () =>
   const decisions = beats.map((b, index) => decision(b, index === 0 ? 0 : 2));
   const result = camera(beats, decisions, 11);
   // The low-importance first target is discarded, so it has not zoomed by its arrival.
-  assert.equal(at(result, 1.1).w, 3840);
+  assert.equal(at(result, 1.1).w, baseWidth(3840, 2160));
 });
 
 test("later targets wait until the action shot is visible", () => {
@@ -258,13 +261,13 @@ test("cut move waits until changed_frac remains settled for 300ms", () => {
     { t: 2.7, f: 0.01 },
   ];
   const result = camera([cut], [decision(cut)], 5);
-  assert.equal(at(result, 2.5).w, 3840);
+  assert.equal(at(result, 2.5).w, baseWidth(3840, 2160));
   assert.ok(at(result, 3.5).w < 3840);
 });
 
 test("scroll is never chased", () => {
   const scroll = beat("scroll", 2, 3000, "scroll");
-  assert.equal(at(camera([scroll], [decision(scroll, 2)], 4), 3).w, 3840);
+  assert.equal(at(camera([scroll], [decision(scroll, 2)], 4), 3).w, baseWidth(3840, 2160));
 });
 
 test("long, distant high-zoom pans hop through a wider midpoint", () => {
@@ -432,12 +435,14 @@ test("the first shot waits for the establishing hold and the take ends wide", ()
   const result = solveCamera([early], [decision(early)],
     { width: 3840, height: 2160, trim_start: 0, trim_end: 8 });
   // Still wide until the move toward the establish-delayed arrival starts.
-  assert.deepEqual(result[10], { t: 10 / DEFAULTS.fps, x: 0, y: 0, w: 3840, h: 2160 });
+  // Accepted padded-viewport change includes the full rest margin.
+  const paddedW = baseWidth(3840, 2160);
+  assert.deepEqual(result[10], { t: 10 / DEFAULTS.fps, x: (3840 - paddedW) / 2, y: (2160 - paddedW * 9 / 16) / 2, w: paddedW, h: paddedW * 9 / 16 });
   assert.ok(result[Math.round(DEFAULTS.establish_s * DEFAULTS.fps) + 3]!.w < 3000);
   assert.ok(result.at(-1)!.w > 3839);
   const kept = solveCamera([early], [decision(early)],
     { width: 3840, height: 2160, trim_start: 0, trim_end: 8 }, noBookends);
-  assert.ok(kept[10]!.w < 3840 && kept.at(-1)!.w < 3000);
+  assert.ok(kept[10]!.w < paddedW && kept.at(-1)!.w < 3000);
 });
 
 test("frame samples have smooth log zoom and fixed aspect", () => {
@@ -570,9 +575,10 @@ test("synthetic source renders silent H.264 at the configured size and 60fps", {
 test("L1 frames a real window, but pads the zone inside a fullscreen window", () => {
   const button = zone("button", [3300, 30, 300, 80]);
   const windowed = frame(button, 1, 3840, 2160, [1920, 0, 1920, 1080]);
-  assert.equal(windowed.z, 2);
+  // Accepted padded-viewport change measures zoom against the padded canvas.
+  assert.equal(windowed.z, baseWidth(3840, 2160) / 1920);
   const fullscreen = frame(button, 1, 3840, 2160, [0, 0, 3840, 2160]);
-  assert.equal(fullscreen.z, 2);
+  assert.equal(fullscreen.z, zMax(3840, 2160));
   assert.equal(fullscreen.z, frame(button, 1, 3840, 2160).z);
 });
 
@@ -678,14 +684,14 @@ test("Tidewater holds whole cards, retains enclosing context and balances the vi
   }
   const modal: Zone = { ...zone('field', [944, 450, 200, 56]), type: 'txt', boxes: [[900, 340, 760, 620]] };
   const state = frame(modal, 3, 2560, 1440, undefined, contextDefaults);
-  const w = 2560 / state.z;
+  const w = baseWidth(2560, 1440, contextDefaults) / state.z;
   const crop = { x: state.cx - w / 2, y: state.cy - w * 9 / 32, w, h: w * 9 / 16 };
   assert.equal(clippedFractions(crop, modal.boxes!)[0], 0);
   assert.ok(crop.h >= 620 * DEFAULTS.hold_pad, 'zoom relaxes to fit the enclosing dialog');
   // A panel taller than the minimum crop forces a wider hold, including at screen edges.
   const tall: Zone = { ...zone('edge-field', [2400, 250, 80, 56]), boxes: [[1984, 128, 544, 1272]] };
   const edgeState = frame(tall, 3, 2560, 1440, undefined, contextDefaults);
-  const edgeW = 2560 / edgeState.z;
+  const edgeW = baseWidth(2560, 1440, contextDefaults) / edgeState.z;
   assert.equal(clippedFractions({ x: Math.min(2560 - edgeW, edgeState.cx - edgeW / 2),
     y: Math.max(0, edgeState.cy - edgeW * 9 / 32), w: edgeW, h: edgeW * 9 / 16 }, tall.boxes!)[0], 0);
 });
@@ -1129,5 +1135,30 @@ test("make and render clocks retain a drag crossing the first video frame withou
     g.whole_object = [1200, 800, 400, 200];
     const established = solveCamera(beats, decisions, take, DEFAULTS);
     assert.ok(framingCoverage(beats, frames, established).every(r => r.passed));
+  }
+});
+
+test("held portrait and square edges respect whole context regions", () => {
+  // Generic supplied geometry, deliberately different from the proof board.
+  const subject: Zone = {name: "subject", type: "res", bbox: [350, 150, 500, 1200], t_change: 2};
+  const regions: Zone[] = [
+    {name: "navigation", type: "win", bbox: [0, 90, 290, 1350]},
+    {name: "left", type: "win", bbox: [350, 150, 500, 1200]},
+    {name: "middle", type: "win", bbox: [890, 150, 500, 1200]},
+    {name: "right", type: "win", bbox: [1430, 150, 500, 1200]},
+  ];
+  const b: Beat = {id: "whole", kind: "click", t0: 2, t1: 10, anchor_t: 2, zones: [subject, ...regions], actions: []};
+  for (const [out_w, out_h] of [[1080, 1920], [1920, 1920]]) {
+    const d = {...noBookends, out_w: out_w!, out_h: out_h!};
+    const frames = solveCamera([b], [{...decision(b), L: 1}], {width: 2560, height: 1440, trim_end: 10}, d);
+    const held = at(frames, 9);
+    assert.ok(held.x <= 350 && held.x + held.w >= 850);
+    for (const r of regions) for (const edge of [held.x, held.x + held.w]) {
+      assert.ok(edge <= r.bbox[0] || edge >= r.bbox[0] + r.bbox[2], `held edge ${edge} slices ${r.name}`);
+    }
+    // Without supplied boundaries the old crop slices neighboring content.
+    const raw = at(solveCamera([{...b, zones: [subject]}], [{...decision(b), L: 1}],
+      {width: 2560, height: 1440, trim_end: 10}, d), 9);
+    assert.ok(regions.some(r => [raw.x, raw.x + raw.w].some(e => e > r.bbox[0] && e < r.bbox[0] + r.bbox[2])));
   }
 });
