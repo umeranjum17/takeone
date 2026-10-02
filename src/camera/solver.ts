@@ -833,7 +833,8 @@ function boundedCamera(targets: Target[], width: number, height: number, start: 
   const boundaryAt = (t: number) => Math.max(start, ...cuts.filter(c => c <= t));
   const manual = targets.filter(t => t.manual === "zoom");
   const reservations = manual.map(t => ({ from: Math.max(boundaryAt(t.t), t.t - lead(initial, endpoint(t))), to: t.holdEnd ?? t.t }));
-  const selected = targets.filter(t => t.manual || !reservations.some(r => t.t >= r.from && t.t <= r.to));
+  const selected = targets.filter(t => t.manual === "zoom" || !reservations.some(r => t.t >= r.from && t.t <= r.to
+    && (t.manual !== "resume" || t.t < r.to)));
   const moves: { from: CameraFrame; to: CameraFrame; start: number; end: number }[] = [];
   let state = initial;
   let available = start;
@@ -845,7 +846,8 @@ function boundedCamera(targets: Target[], width: number, height: number, start: 
     const arrival = feasibleStart + duration;
     // An automatic move that would occupy a manual reservation cannot delay
     // the edit past its clip/cut boundary. Keep the prior pose for that lead.
-    if (!target.manual && reservations.some(r => target.t < r.from && arrival > r.from)) continue;
+    if (target.manual !== "zoom" && reservations.some(r => target.t < r.from
+      && arrival + Math.max(d.dwell, d.min_shot) > r.from)) continue;
     moves.push({ from: state, to: destination, start: feasibleStart, end: arrival });
     if (target.manual === "zoom") arrivals.push({ requested: target.t - start, requiredLead: duration,
       boundary: boundary - start, feasibleStart: feasibleStart - start, actualArrival: arrival - start,

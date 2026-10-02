@@ -75,6 +75,23 @@ test("manual region zoom interrupts FOLLOW, holds its framing, then resumes the 
   for (const f of frames) assert.ok(d.out_w / f.w <= d.max_upscale + 1e-8);
 });
 
+test("automatic resume preserves the full next identical manual hold", () => {
+  const camera = {...DEFAULTS,out_w:1080,out_h:1080,outro_s:0};
+  const bbox: [number,number,number,number] = [1100,600,100,100];
+  const take = {width:2560,height:1440,trim_end:14,
+    zooms:[{t0:6,t1:8,bbox},{t0:9,t1:12,bbox}]};
+  const timing = {cuts:[],arrivals:[] as import("../src/camera/solver.ts").CameraArrival[]};
+  const frames = solveCamera([],[],take,camera,timing);
+  const held = frames[6*camera.fps]!;
+  assert.ok(held.w < frames[0]!.w);
+  for (const f of frames.slice(6*camera.fps,12*camera.fps+1)) {
+    assert.deepEqual({x:f.x,y:f.y,w:f.w,h:f.h},{x:held.x,y:held.y,w:held.w,h:held.h},`manual framing at ${f.t}`);
+  }
+  assert.equal(timing.arrivals.length,2);
+  assert.ok(timing.arrivals[1]!.actualArrival <= 9);
+  assert.equal(timing.arrivals[1]!.holdEnd,12);
+});
+
 test("manual zoom pre-rolls to its region and rejects holds shorter than 0.5 seconds", () => {
   const requested = { t0: 2, t1: 2.6, bbox: [250, 130, 140, 60] as [number,number,number,number], level: 3 as const };
   const take = { ...meta, trim_start: 0, trim_end: 8, zooms: [requested] };
