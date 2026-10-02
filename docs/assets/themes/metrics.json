@@ -1,13 +1,14 @@
 {
   "midnight": {
-    "seconds": 1.25,
+    "seconds": 4.6,
     "contrast": 18.734499042543195,
     "fonts": [
-      "fontselect: (Inter SemiBold, 400, 0) -> InterSemiBold, 0, InterSemiBold"
+      "fontselect: (Inter SemiBold, 400, 0) -> InterSemiBold, 0, InterSemiBold",
+      "fontselect: (Inter Bold, 400, 0) -> InterBold, 0, InterBold"
     ]
   },
   "paper": {
-    "seconds": 1.25,
+    "seconds": 4.6,
     "contrast": 17.179303975348738,
     "fonts": [
       "fontselect: (IBM Plex Sans, 400, 0) -> IBMPlexSans, 0, IBMPlexSans",
@@ -15,7 +16,7 @@
     ]
   },
   "aurora": {
-    "seconds": 1.25,
+    "seconds": 4.6,
     "contrast": 18.734499042543195,
     "fonts": [
       "fontselect: (Geist, 400, 0) -> Geist, 0, Geist",
@@ -23,7 +24,7 @@
     ]
   },
   "mono": {
-    "seconds": 1.25,
+    "seconds": 4.6,
     "contrast": 21,
     "fonts": [
       "fontselect: (Geist Mono, 400, 0) -> GeistMono, 0, GeistMono",
@@ -31,7 +32,7 @@
     ]
   },
   "neon": {
-    "seconds": 1.25,
+    "seconds": 4.6,
     "contrast": 9.547339428494318,
     "fonts": [
       "fontselect: (Space Grotesk Medium, 400, 0) -> SpaceGroteskMedium, 0, SpaceGroteskMedium",
@@ -39,7 +40,7 @@
     ]
   },
   "brutalist": {
-    "seconds": 1.25,
+    "seconds": 4.6,
     "contrast": 14.50331468800011,
     "fonts": [
       "fontselect: (IBM Plex Mono, 400, 0) -> IBMPlexMono-Regular, 0, IBMPlexMono-Regular",
@@ -47,7 +48,7 @@
     ]
   },
   "sand": {
-    "seconds": 1.25,
+    "seconds": 4.6,
     "contrast": 12.864695072523226,
     "fonts": [
       "fontselect: (Manrope Medium, 400, 0) -> ManropeMedium, 0, ManropeMedium",
@@ -55,7 +56,7 @@
     ]
   },
   "terminal": {
-    "seconds": 1.25,
+    "seconds": 4.6,
     "contrast": 7.4497929930639835,
     "fonts": [
       "fontselect: (JetBrains Mono, 400, 0) -> JetBrainsMono, 0, JetBrainsMono",

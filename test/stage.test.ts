@@ -6,7 +6,8 @@ import { hasFfmpeg } from "./helpers.ts";
 import { applyOverrides, DEFAULTS } from "../src/camera/defaults.ts";
 import type { Beat } from "../src/camera/types.ts";
 import { idleSqueezes, setptsExpr, warp } from "../src/render/pace.ts";
-import { captionAss, takeCaptions } from "../src/render/stage.ts";
+import { bandLayout, captionAss, captionLayouts, takeCaptions } from "../src/render/stage.ts";
+import { THEMES, resolveTheme } from "../src/themes.ts";
 
 const clickAt = (t: number): Beat => ({
   id: `b${t}`, t0: t, t1: t + 0.5, anchor_t: t, zones: [], actions: [{ k: "click", t: t * 1000, x: 10, y: 10 }],
@@ -47,6 +48,27 @@ test("captions stop at the next mapped start in chronological order", () => {
     captions: [{t: 4, text: "second"}, {t: 2, d: 8, text: "first"}, {t: 4, text: "replacement"}],
   }, t => t / 2, 10);
   assert.deepEqual(captions.map(c => [c.text,c.t0,c.t1]), [["first",1,2],["replacement",2,5]]);
+});
+
+test("every theme keeps title and captions in the band below a fixed card", () => {
+  for (const name of Object.keys(THEMES)) {
+    const d = resolveTheme(name);
+    const band = bandLayout(3840, 2160, d)!;
+    const card = band.stage;
+    assert.equal(card.screenY + card.baseH, band.top, name);
+    const captions = takeCaptions({ width: 3840, height: 2160, title: "From idea to launch",
+      captions: [{ t: 1, text: "Umer adds a launch task" }, { t: 9, text: "a caption far too long to fit on one line ".repeat(4) }] },
+      t => t, 20, true);
+    // The band holds one line, so a caption overlapping the title waits for it.
+    assert.deepEqual(captions.map(c => c.t0), [0.35, 3.1, 9], name);
+    const layouts = captionLayouts(captions, [{ w: 600, h: 50 }, { w: 500, h: 30 }, { w: 9000, h: 30 }], d, false, band);
+    for (const { cx, cy, w, h, size } of layouts) {
+      assert.ok(cy - h / 2 >= band.top && cy + h / 2 <= d.out_h, `${name}: vertical`);
+      assert.ok(cx - w / 2 >= 0 && cx + w / 2 <= d.out_w && size > 0, `${name}: horizontal`);
+    }
+    assert.ok(layouts[0]!.size > layouts[1]!.size, `${name}: title outranks captions`);
+  }
+  assert.equal(bandLayout(1080, 2340, DEFAULTS), null);
 });
 
 // Inspect rendered white ink, rather than ASS source, for layout regressions.

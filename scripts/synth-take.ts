@@ -170,6 +170,7 @@ function baseDraws(): Draw[] {
   d.push(box(0, 0, W, 64, "0xffffff"));
   d.push(box(0, 62, W, 2, "0xdadce0"));
   d.push(box(0, 64, 320, H - 64, "0xeef1f5"));
+  d.push(box(318, 64, 2, H - 64, "0xdadce0"));
   d.push(text("Acme Analytics", 24, 16, 28, "0x202124", { bold: true }));
   d.push(box(1560, 12, 160, 40, "0x1a73e8"));
   d.push(text("Export", 1618, 22, 22, "0xffffff"));

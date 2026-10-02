@@ -12,8 +12,8 @@ import { motionBlurGraph, shutterPlan } from "./motion-blur.ts";
 import { idleSqueezes, setptsExpr, warp, warpBeats } from "./pace.ts";
 import { phoneTapShots } from "./phone.ts";
 import {
-  beatClicks, captionAss, cardFilter, clickAss, measureAss, stageFrames, stageGeometry, stageImageFilter, takeCaptions,
-  type Caption, type CaptionInk,
+  bandFrames, bandLayout, beatClicks, captionAss, cardFilter, clickAss, measureAss, stageFrames, stageGeometry, stageImageFilter,
+  takeCaptions, type Band, type Caption, type CaptionInk,
 } from "./stage.ts";
 
 /** Text-friendly production encoder settings, also exercised by the output gate. */
@@ -84,12 +84,17 @@ export async function renderTake(dir: string, d?: CameraDefaults): Promise<{ out
     return { t: f.t, x: (meta.width - w) / 2, y, w, h };
   }) : solved;
   await writeFile(join(dir, "camera.json"), JSON.stringify(frames));
-  const stage = stageGeometry(meta.width, meta.height, d);
+  const hasText = takeCaptions(meta, outTime, duration).length > 0;
+  const band = hasText ? bandLayout(meta.width, meta.height, d) : null;
+  const stage = band?.stage ?? stageGeometry(meta.width, meta.height, d);
   const commandFile = join(dir, "camera.cmd");
-  const stageCamera = stageFrames(frames, meta.width, meta.height, stage, d);
-  const shutter = shutterPlan(stageCamera, stage.w, stage.h, d);
+  // With a band the camera frames the screen alone, into the fixed card.
+  const stageCamera = band ? bandFrames(frames, band, d) : stageFrames(frames, meta.width, meta.height, stage, d);
+  const view = band ? { ...d, out_w: stage.baseW, out_h: stage.baseH } : d;
+  const [cameraFrames, cameraW, cameraH] = band ? [frames, meta.width, meta.height] : [stageCamera, stage.w, stage.h];
+  const shutter = shutterPlan(cameraFrames, cameraW, cameraH, view);
   await writeFile(join(dir, "motion-blur.json"), JSON.stringify(shutter.metrics, null, 2));
-  const camera = motionBlurGraph(stageCamera, shutter, stage.w, stage.h, d);
+  const camera = motionBlurGraph(cameraFrames, shutter, cameraW, cameraH, view);
 
   const outputDir = join(dir, "out");
   await mkdir(outputDir, { recursive: true });
@@ -102,22 +107,24 @@ export async function renderTake(dir: string, d?: CameraDefaults): Promise<{ out
   // Render intermediates live next to camera.cmd so a failed render can be rerun by hand.
   const stageFile = join(dir, "stage.png");
   const holesFile = join(dir, "stage-holes.png");
-  await runFfmpeg(["-y", "-v", "error", ...(d.bg_style === "image" ? ["-i", resolveBackgroundImage(dir, d.background_image)] : []), "-filter_complex", stageImageFilter(meta.width, meta.height, stage, d, phone),
+  await runFfmpeg(["-y", "-v", "error", ...(d.bg_style === "image" ? ["-i", resolveBackgroundImage(dir, d.background_image)] : []), "-filter_complex", stageImageFilter(band ? stage.baseW : meta.width, band ? stage.baseH : meta.height, stage, d, phone),
     "-map", "[stage]", "-frames:v", "1", "-update", "1", stageFile,
     "-map", "[holes]", "-frames:v", "1", "-update", "1", holesFile]);
   const clicksFile = join(dir, "clicks.ass");
-  const clicksAss = clickAss(beatClicks(outBeats), meta.width, meta.height, trimStart, stage, d);
+  const clicksAss = clickAss(beatClicks(outBeats), meta.width, meta.height, trimStart,
+    band ? { ...stage, restScale: stage.baseW / meta.width } : stage, d);
   await writeFile(clicksFile, clicksAss);
-  const captions = takeCaptions(meta, outTime, duration);
+  const captions = takeCaptions(meta, outTime, duration, Boolean(band));
   const captionsFile = join(dir, "captions.ass");
-  const captionInk = await measureCaptions(dir, captions, d);
+  const captionInk = await measureCaptions(dir, captions, d, band);
   const widePhone = phone && d.out_w > d.out_h;
-  const captionsAss = captionAss(captions, captionInk, d, widePhone);
+  const captionsAss = captionAss(captions, captionInk, d, widePhone, band);
   await writeFile(captionsFile, captionsAss);
 
   const keysFile = join(dir, "keycaps.ass");
   const keys = keycapAss(outBeats, trimStart, duration, d,
-    keycapObstacles(outBeats, decisions, stageCamera, stage, trimStart, captions, captionInk, d, widePhone));
+    keycapObstacles(outBeats, decisions, stageCamera, band ? { ...stage, screenX: 0, screenY: 0 } : stage,
+      trimStart, captions, captionInk, d, widePhone, band));
   await writeFile(keysFile, keys);
   const spotlightFile = join(dir, "spotlight.ass");
   const spotlight = spotlightAss(spotlights, meta.width, meta.height, d);
@@ -137,9 +144,16 @@ export async function renderTake(dir: string, d?: CameraDefaults): Promise<{ out
   const filter = [
     `[0:v]setpts='${setptsExpr(squeezes, d.idle_speed)}',fps=${d.fps}${clicksOverlay},scale=in_color_matrix=auto:out_color_matrix=bt601,format=${pixelFormat}[region0]`,
     ...(blurs.length ? [blurGraph(blurs, pixelFormat)] : []),
-    `[region${blurs.length}]null${spotlightOverlay}[screen]`,
-    cardFilter(meta.width, meta.height, stage, d, still),
-    `${camera};[camera]trim=end=${duration}${captionsOverlay}${keysOverlay}`
+    (band ? [
+      `[region${blurs.length}]null${spotlightOverlay}[raw]`,
+      `${camera.replace(/^\[c4\]/, "[raw]")};[camera]null[screen]`,
+      cardFilter(stage.baseW, stage.baseH, stage, d, still),
+      `[c4]trim=end=${duration}${captionsOverlay}${keysOverlay}`,
+    ] : [
+      `[region${blurs.length}]null${spotlightOverlay}[screen]`,
+      cardFilter(meta.width, meta.height, stage, d, still),
+      `${camera};[camera]trim=end=${duration}${captionsOverlay}${keysOverlay}`,
+    ]).join(";")
       + (fade > 0 ? `,fade=t=in:st=0:d=${fade}:color=${background},fade=t=out:st=${duration - fade}:d=${fade}:color=${background}` : "")
       + `,scale=in_color_matrix=bt601:out_color_matrix=bt709:out_range=tv,format=${pixelFormat},setparams=range=limited:color_primaries=bt709:color_trc=bt709:colorspace=bt709`,
   ].join(";");
@@ -181,16 +195,17 @@ function filterPath(path: string): string {
 }
 
 /** Wrapped ink bounds of each caption, measured by rendering it with libass and cropdetect. */
-async function measureCaptions(dir: string, captions: Caption[], d: CameraDefaults): Promise<CaptionInk[]> {
+async function measureCaptions(dir: string, captions: Caption[], d: CameraDefaults, band: Band | null): Promise<CaptionInk[]> {
   if (captions.length === 0) return [];
   const file = join(dir, "measure.ass");
-  await writeFile(file, measureAss(captions, d));
+  await writeFile(file, measureAss(captions, d, band));
   const log = await runFfmpeg(["-hide_banner", "-f", "lavfi", "-i", `color=black:s=${d.out_w}x${d.out_h}:r=1:d=${captions.length}`,
     "-vf", `ass=${filterPath(file)}:fontsdir=${filterPath(FONTS_DIR)},format=gray,cropdetect=limit=0:round=2:reset=1:skip=0`, "-f", "null", "-"]);
   const widths = captions.map(() => ({ w: 0, h: 0 }));
   for (const match of log.matchAll(/x1:(-?\d+) x2:(-?\d+) y1:(-?\d+) y2:(-?\d+).*? t:(\d+(?:\.\d+)?)/g)) {
     const index = Math.round(Number(match[5]));
-    if (index < widths.length) widths[index] = { w: Math.max(0, Number(match[2]) - Number(match[1]) + 1),
+    // Band lines never wrap; they are measured at quarter width so long ones still fit the frame.
+    if (index < widths.length) widths[index] = { w: Math.max(0, Number(match[2]) - Number(match[1]) + 1) * (band ? 4 : 1),
       h: Math.max(0, Number(match[4]) - Number(match[3]) + 1) };
   }
   return widths;

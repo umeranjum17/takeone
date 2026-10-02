@@ -10,7 +10,7 @@ import type { CameraFrame, Beat, TakeMeta } from '../src/camera/types.ts';
 import { makeTake } from '../src/make.ts';
 import { encodingOptions, renderTake } from '../src/render/render.ts';
 import { cameraFilter } from '../src/render/camera-filter.ts';
-import { stageFrames, stageGeometry, takeCaptions } from '../src/render/stage.ts';
+import { bandFrames, bandLayout, stageFrames, stageGeometry, takeCaptions, type Band } from '../src/render/stage.ts';
 import { idleSqueezes, warp } from '../src/render/pace.ts';
 
 export interface Metric { value: number; target: number; direction: 'max' | 'min'; unit: string; goalPassed: boolean }
@@ -154,16 +154,19 @@ export function edgePosition(row: Uint8Array, predicted: number): number | null 
   }
   return sum >= 20 ? weighted / sum : null;
 }
-function judder(video: string, frames: CameraFrame[], meta: TakeMeta, d: typeof DEFAULTS, required: boolean): { rms: number; samples: number } | null {
+function judder(video: string, frames: CameraFrame[], meta: TakeMeta, d: typeof DEFAULTS, required: boolean, band: Band | null): { rms: number; samples: number } | null {
   // A 3-row strip through the straight card edge avoids corners, captions and rescaling.
+  // A banded card never moves, so track the source sidebar divider moving inside it instead.
   const rows = frameRows(video, `crop=iw:3:0:${Math.floor(d.out_h / 2)}:exact=1`);
   const st = stageGeometry(meta.width, meta.height, d);
+  const source = band ? 319 : st.screenX;
+  const [lo, hi] = band ? [band.stage.screenX + 8, band.stage.screenX + band.stage.baseW - 8] : [8, d.out_w - 8];
   const residuals: (number | null)[] = [];
   for (let i = 0; i < Math.min(frames.length, rows.length / (3 * d.out_w)); i++) {
     const f = frames[i]!;
-    const expected = (st.screenX - f.x) * d.out_w / f.w;
+    const expected = (source - f.x) * d.out_w / f.w;
     const row = rows.subarray(i * 3 * d.out_w + d.out_w, i * 3 * d.out_w + 2 * d.out_w);
-    const edge = expected > 8 && expected < d.out_w - 8 && f.t > 0.5 ? edgePosition(row, expected) : null;
+    const edge = expected > lo && expected < hi && f.t > 0.5 ? edgePosition(row, expected) : null;
     residuals.push(edge === null ? null : edge - expected);
   }
   const jitter: number[] = [];
@@ -183,14 +186,14 @@ function judder(video: string, frames: CameraFrame[], meta: TakeMeta, d: typeof 
   return { rms: Math.sqrt(jitter.reduce((s, v) => s + v * v, 0) / jitter.length), samples: jitter.length };
 }
 
-function captions(video: string, dir: string, meta: TakeMeta, d: typeof DEFAULTS, duration: number) {
+function captions(video: string, dir: string, meta: TakeMeta, d: typeof DEFAULTS, duration: number, band: Band | null) {
   const beats = json<Beat[]>(join(dir, 'analysis/beats.json')).map(b => ({ ...b, actions: b.actions.map(a => {
     const v = a as { t?: number; t0?: number; t1?: number };
     return { ...v, ...(v.t === undefined ? {} : { t: v.t * 1000 }), ...(v.t0 === undefined ? {} : { t0: v.t0 * 1000 }), ...(v.t1 === undefined ? {} : { t1: v.t1 * 1000 }) };
   }) }));
   const start = meta.trim_start ?? 0;
   const squeezes = idleSqueezes(beats, start, meta.trim_end!, d);
-  const expected = takeCaptions(meta, t => warp(t - start, squeezes, d.idle_speed), duration);
+  const expected = takeCaptions(meta, t => warp(t - start, squeezes, d.idle_speed), duration, Boolean(band));
   const assTime = (s: string) => s.split(':').reduce((n, part) => n * 60 + Number(part), 0);
   const pills = readFileSync(join(dir, 'captions.ass'), 'utf8').split('\n').flatMap(line => {
     if (!line.startsWith('Dialogue:') || !line.includes('\\p1}')) return [];
@@ -211,7 +214,8 @@ function captions(video: string, dir: string, meta: TakeMeta, d: typeof DEFAULTS
     const active = expected.filter(c => c.t0 <= t && c.t1 > t);
     if (!active.length) continue;
     const png = join(dir, `ocr-${i}.png`);
-    const boxes = pills.filter(p => p.t0 <= t && p.t1 > t);
+    // Banded text has the band to itself, pill or not.
+    const boxes = band ? [{ x0: 4, x1: d.out_w - 4, y0: band.top + 4, y1: d.out_h - 4 }] : pills.filter(p => p.t0 <= t && p.t1 > t);
     if (!boxes.length) throw new Error('missing caption strip geometry');
     const x = Math.max(0, Math.floor(Math.min(...boxes.map(p => p.x0)) - 4));
     const y = Math.max(0, Math.floor(Math.min(...boxes.map(p => p.y0)) - 4));
@@ -283,8 +287,8 @@ async function main() {
     const deterministic = original === sha(video);
     const meta = json<TakeMeta>(join(dir, 'take.json'));
     const camera = json<CameraFrame[]>(join(dir, 'camera.json'));
-    const st = stageGeometry(meta.width, meta.height, d);
-    const frames = stageFrames(camera, meta.width, meta.height, st, d);
+    const band = meta.title || meta.captions?.length ? bandLayout(meta.width, meta.height, d) : null;
+    const frames = band ? bandFrames(camera, band, d) : stageFrames(camera, meta.width, meta.height, stageGeometry(meta.width, meta.height, d), d);
     const probe = JSON.parse(command('ffprobe', ['-v', 'error', '-count_frames', '-show_streams', '-of', 'json', video]).toString());
     const stream = probe.streams[0];
     const timestamps = JSON.parse(command('ffprobe', ['-v', 'error', '-select_streams', 'v:0', '-show_frames', '-show_entries', 'frame=best_effort_timestamp_time', '-of', 'json', video]).toString()).frames.map((f: { best_effort_timestamp_time: string }) => Number(f.best_effort_timestamp_time));
@@ -293,8 +297,8 @@ async function main() {
     hashes.forEach((h, i) => { if (i && h === hashes[i - 1] && frames[i] && peak(['x', 'y', 'w'].map(k => frames[i]![k as 'x'] - frames[i - 1]![k as 'x'])) > 0.01) hitches++; });
     const rest = frames.find(f => f.t >= 0.7 && f.t < 1.2) ?? frames[0]!;
     const row = ffmpeg(['-ss', String(rest.t), '-i', video, '-vf', 'crop=iw:1:0:10:exact=1', '-frames:v', '1', '-pix_fmt', 'gray', '-f', 'rawvideo', '-']);
-    const edge = judder(video, frames, meta, d, fixture === 'synth');
-    const ocr = captions(video, dir, meta, d, frames.at(-1)!.t);
+    const edge = judder(video, frames, meta, d, fixture === 'synth', band);
+    const ocr = captions(video, dir, meta, d, frames.at(-1)!.t, band);
     const metrics: Metrics = {
       ...cameraMetrics(frames, d.fps, d.out_w, d.out_h, d.min_shot),
       default_fps_error: metric(Math.abs(DEFAULTS.fps - 60), 0, 'fps'),
