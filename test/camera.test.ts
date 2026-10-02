@@ -1156,9 +1156,14 @@ test("held portrait and square edges respect whole context regions", () => {
     for (const r of regions) for (const edge of [held.x, held.x + held.w]) {
       assert.ok(edge <= r.bbox[0] || edge >= r.bbox[0] + r.bbox[2], `held edge ${edge} slices ${r.name}`);
     }
-    // Without supplied boundaries the old crop slices neighboring content.
-    const raw = at(solveCamera([{...b, zones: [subject]}], [{...decision(b), L: 1}],
-      {width: 2560, height: 1440, trim_end: 10}, d), 9);
-    assert.ok(regions.some(r => [raw.x, raw.x + raw.w].some(e => e > r.bbox[0] && e < r.bbox[0] + r.bbox[2])));
+    const control: Zone = {name:"control",type:"act",bbox:[500,600,100,80]};
+    const focused = {...b,zones:[control,...regions]};
+    const safe = at(solveCamera([focused],[decision(focused)],{width:2560,height:1440,trim_end:10},d),9);
+    for (const r of regions) for (const edge of [safe.x,safe.x+safe.w]) {
+      assert.ok(edge<=r.bbox[0] || edge>=r.bbox[0]+r.bbox[2]);
+    }
+    const raw = at(solveCamera([{...focused,zones:[control]}],[decision(focused)],
+      {width:2560,height:1440,trim_end:10},d),9);
+    assert.ok(regions.some(r=>[raw.x,raw.x+raw.w].some(e=>e>r.bbox[0]&&e<r.bbox[0]+r.bbox[2])));
   }
 });

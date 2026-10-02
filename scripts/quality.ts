@@ -303,7 +303,7 @@ async function main() {
       if (text !== initial) ink = await measureCaptions(dir, captions, text, true);
       band = bandLayout(meta.width, meta.height, text, captions, ink);
     }
-    const frames = band ? bandFrames(camera, band, d) : stageFrames(camera, meta.width, meta.height, stageGeometry(meta.width, meta.height, d), d);
+    const frames = band ? bandFrames(camera, band, d, meta.width, meta.height) : stageFrames(camera, meta.width, meta.height, stageGeometry(meta.width, meta.height, d), d);
     const probe = JSON.parse(command('ffprobe', ['-v', 'error', '-count_frames', '-show_streams', '-of', 'json', video]).toString());
     const stream = probe.streams[0];
     const timestamps = JSON.parse(command('ffprobe', ['-v', 'error', '-select_streams', 'v:0', '-show_frames', '-show_entries', 'frame=best_effort_timestamp_time', '-of', 'json', video]).toString()).frames.map((f: { best_effort_timestamp_time: string }) => Number(f.best_effort_timestamp_time));

@@ -163,7 +163,11 @@ export function manualZoomLimitWarning(take: TakeMeta, d: CameraDefaults = DEFAU
     const region: Zone = { name: "manual", type: "act", bbox: zoom.bbox };
     const requested = frame(region, zoom.level ?? 2, take.width, take.height, undefined, uncappedDefaults).z;
     if (requested <= limit + 1e-8) return [];
-    return [`zoom ${index + 1}: requested ${requested.toFixed(2)}x, achieved ${limit.toFixed(2)}x`];
+    const stage = stageGeometry(take.width, take.height, d);
+    const state = frame(region, zoom.level ?? 2, take.width, take.height, undefined, d);
+    const emitted = stageFrames([toFrame(state, take.width, take.height, d)], take.width, take.height, stage, d)[0]!;
+    const achieved = baseWidth(take.width, take.height, d) / Math.min(emitted.w, stage.w, stage.h * d.out_w / d.out_h);
+    return [`zoom ${index + 1}: requested ${requested.toFixed(2)}x, achieved ${achieved.toFixed(2)}x`];
   });
   return capped.length ? `Camera upscale limit capped manual framing (${capped.join("; ")}).` : undefined;
 }

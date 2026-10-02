@@ -81,9 +81,10 @@ export function bandLayout(width: number, height: number, d: CameraDefaults, cap
 }
 
 /** Solver viewports re-expressed as full-output viewports, for code that projects source px to output px. */
-export function bandFrames(frames: CameraFrame[], band: Band, d: CameraDefaults): CameraFrame[] {
+export function bandFrames(frames: CameraFrame[], band: Band, d: CameraDefaults, width: number, height: number): CameraFrame[] {
   const { screenX, screenY, baseW, baseH } = band.stage;
-  return frames.map(f => ({ t: f.t, x: f.x - screenX * f.w / baseW, y: f.y - screenY * f.h / baseH,
+  return stageFrames(frames, width, height, stageGeometry(width, height, d), d)
+    .map(f => ({ t: f.t, x: f.x - screenX * f.w / baseW, y: f.y - screenY * f.h / baseH,
     w: f.w * d.out_w / baseW, h: f.h * d.out_h / baseH }));
 }
 

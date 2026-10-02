@@ -4,7 +4,7 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { DEFAULTS } from "../src/camera/defaults.ts";
-import { manualZoomLimitWarning, solveCamera } from "../src/camera/solver.ts";
+import { baseWidth, manualZoomLimitWarning, solveCamera } from "../src/camera/solver.ts";
 import type { Beat, TakeMeta } from "../src/camera/types.ts";
 import { editBeats, editTimeline, editZooms, validateEdits } from "../src/render/edits.ts";
 import { measureCaptions, renderTake } from "../src/render/render.ts";
@@ -121,7 +121,7 @@ test("manual anticipation stays inside clip boundaries and reports feasible arri
 });
 
 test("square 4K manual zoom moves to the native upscale boundary after stage padding", () => {
-  const square4k = { ...DEFAULTS, out_w: 3840, out_h: 3840 };
+  const square4k = { ...DEFAULTS, out_w: 3840, out_h: 3840, max_upscale: 1.5 };
   const take = { width: 2560, height: 1440, trim_end: 8,
     zooms: [{ t0: 2, t1: 6, bbox: [940, 430, 680, 640] as [number, number, number, number], level: 3 as const }] };
   const sourceFrames = solveCamera([], [], take, square4k);
@@ -269,8 +269,14 @@ test("render reruns edits from take.json, preserves captions reading time and is
     const text = bandText(captions,ink,initial);
     if (text !== initial) ink = await measureCaptions(dir,captions,text,true);
     const band = bandLayout(640,360,text,captions,ink)!;
-    assert.deepEqual(geometry.frames,bandFrames(frames,band,d));
-    assert.deepEqual(geometry.sourceOrigin,{x:0,y:0});
+    assert.deepEqual(geometry.frames,bandFrames(frames,band,d,640,360));
+    assert.deepEqual(geometry.sourceOrigin,{x:stageGeometry(640,360,d).screenX,y:stageGeometry(640,360,d).screenY});
+    for (const [x,y] of [[0.5,0.025],[0.5,0.975],[0.025,0.5],[0.975,0.5]]) {
+      const margin = execFileSync("ffmpeg",["-v","error","-i",result.out,"-vf",
+        `crop=2:2:${Math.floor(band.stage.screenX+band.stage.baseW*x!)}:${Math.floor(band.stage.screenY+band.stage.baseH*y!)},format=gray`,
+        "-frames:v","1","-f","rawvideo","-"]);
+      assert.ok([...margin].every(v=>v>220),`padded card margin ${x},${y}: ${[...margin]}`);
+    }
     const rerun = await renderTake(dir,d);
     assert.deepEqual(readFileSync(rerun.out),bytes);
   } finally { rmSync(dir,{recursive:true,force:true}); }
@@ -322,7 +328,7 @@ test("nested edited timestamps retain only surviving samples on the camera clock
   assert.equal(g.t1,(1+clock.at(6))*1000);
   assert.deepEqual(g.path!.map(p=>p.t),[4.5,5.5].map(t=>(1+clock.at(t))*1000));
   assert.deepEqual(mapped.dialog_results,[{t:1+clock.at(4),bbox:[100,100,100,100]}]);
-  assert.ok(solveCamera([mapped],[],{width:640,height:360,trim_start:1,trim_end:1+clock.duration},d).length>0);
+  assert.ok(solveCamera([mapped],[decision],{width:640,height:360,trim_start:1,trim_end:1+clock.duration},d).length>0);
 });
 
 test("valid source zoom holds survive speed cuts and idle compression", () => {
@@ -394,13 +400,13 @@ test("late drags preserve unrelated manual holds before and after their bounded 
     {t0:4,t1:8,bbox:[1100,600,100,100] as [number,number,number,number],level:3 as const},
     {t0:17,t1:21,bbox:[1000,500,200,200] as [number,number,number,number],level:2 as const},
   ];
-  const drag: Beat = {id:"later",kind:"drag",t0:10,t1:12,anchor_t:10,camera_suppressed:true,zones:[],
+  const drag: Beat = {id:"later",kind:"drag",t0:10,t1:12,anchor_t:10,camera_suppressed:true,zones:[{name:"all",type:"all",bbox:[0,0,2560,1440]}],
     actions:[{k:"drag",t0:10000,t1:12000,from:[100,100],to:[2400,1200],bbox:[100,100,2300,1100]}]};
   for (const settings of [{out_w:1080,out_h:1920},{out_w:1080,out_h:1080}]) {
     const camera = {...DEFAULTS,...settings,outro_s:0};
     const take = {width:2560,height:1440,trim_end:24,zooms};
     const baseline = solveCamera([],[],take,camera);
-    const actual = solveCamera([drag],[],take,camera);
+    const actual = solveCamera([drag],[{...decision,beat:drag.id,A:"all"}],take,camera);
     assert.deepEqual(actual.slice(4*60,8*60+1),baseline.slice(4*60,8*60+1));
     assert.deepEqual(actual.slice(14*60),baseline.slice(14*60));
     const stage = stageGeometry(2560,1440,camera);
@@ -441,4 +447,52 @@ test("edge manual holds remain exact and their entire curves stay inside the pad
       }
     }
   }
+});
+
+
+test("manual native warning reports the emitted portrait viewport", () => {
+  const camera = {...DEFAULTS,out_w:1080,out_h:1920,max_upscale:1.5,outro_s:0};
+  const take = {width:2560,height:1440,trim_end:12,zooms:[{t0:6,t1:10,bbox:[1200,600,100,100] as [number,number,number,number],level:3 as const}]};
+  const raw = solveCamera([],[],take,camera);
+  const emitted = stageFrames(raw,2560,1440,stageGeometry(2560,1440,camera),camera)[8*60]!;
+  const achieved = baseWidth(2560,1440,camera)/emitted.w;
+  assert.ok(Math.abs(achieved-3.51)<0.01);
+  assert.ok(manualZoomLimitWarning(take,camera)!.includes(`achieved ${achieved.toFixed(2)}x`));
+});
+
+test("identity edits preserve camera pace and cut temporal zones cannot re-aim portrait", {skip:!hasFfmpeg()}, async () => {
+  mkdirSync(join(process.cwd(),"tmp"),{recursive:true});
+  const dir = mkdtempSync(join(process.cwd(),"tmp/edit-boundary-test-"));
+  try {
+    execFileSync("ffmpeg",["-v","error","-f","lavfi","-i","color=white:s=640x360:r=60:d=12",
+      "-c:v","libvpx-vp9","-deadline","realtime","-cpu-used","8",join(dir,"screen.webm")]);
+    mkdirSync(join(dir,"analysis"));
+    const actions: Beat[] = [5,6.5].map((t,i)=>({id:`b${i}`,kind:"click",t0:t-0.5,t1:t+1,anchor_t:t,
+      zones:[{name:"target",type:"act",bbox:[i?480:40,120,100,80]}],actions:[]}));
+    writeFileSync(join(dir,"analysis/beats.json"),JSON.stringify(actions));
+    writeFileSync(join(dir,"analysis/decisions.jsonl"),actions.map(b=>JSON.stringify({...decision,beat:b.id,A:"target",L:3})).join("\n"));
+    const take = {id:"boundaries",width:640,height:360,trim_start:0,trim_end:12};
+    const camera = {...d,pace:2};
+    writeFileSync(join(dir,"take.json"),JSON.stringify(take));
+    await renderTake(dir,camera);
+    const baseline = JSON.parse(readFileSync(join(dir,"camera.json"),"utf8"));
+    for (const edits of [{speed:[{t0:0,t1:12,rate:1}]},{cuts:[{t0:20,t1:21}]},{speed:[{kind:"type_speed",rate:2}]}]) {
+      writeFileSync(join(dir,"take.json"),JSON.stringify({...take,...edits}));
+      await renderTake(dir,camera);
+      assert.deepEqual(JSON.parse(readFileSync(join(dir,"camera.json"),"utf8")),baseline);
+    }
+    const event: Beat = {id:"toast",kind:"click",t0:0,t1:12,anchor_t:2,actions:[],zones:[
+      {name:"all",type:"all",bbox:[0,0,640,360]},
+      {name:"toast",type:"res",bbox:[480,140,100,80],t_change:5},
+    ]};
+    const edited = {...take,cuts:[{t0:4,t1:7}]};
+    const clock = editTimeline(edited,[event],0,12,d);
+    assert.deepEqual(editBeats([event],clock,0)[0]!.zones.map(z=>z.name),["all"]);
+    writeFileSync(join(dir,"take.json"),JSON.stringify(edited));
+    writeFileSync(join(dir,"analysis/beats.json"),JSON.stringify([event]));
+    writeFileSync(join(dir,"analysis/decisions.jsonl"),JSON.stringify({...decision,beat:"toast",A:"all",B:"toast"}));
+    await renderTake(dir,{...d,out_w:180,out_h:320});
+    const frames = JSON.parse(readFileSync(join(dir,"camera.json"),"utf8")) as import("../src/camera/types.ts").CameraFrame[];
+    assert.ok(frames.every(f=>f.w>=640),`cut toast restored: ${Math.min(...frames.map(f=>f.w))}`);
+  } finally {rmSync(dir,{recursive:true,force:true});}
 });

@@ -77,13 +77,20 @@ for (const [name, edits] of Object.entries(cases)) {
     || metrics.zoom_speed!.value > 1 || metrics.zoom_acceleration!.value > 4 || metrics.pan_acceleration!.value > 9000) {
     throw new Error(`synth-edits: ${name} failed video or camera gates`);
   }
-  const arrivals = (edits.zooms ?? []).map(z => Math.min(result.seconds-0.1,clock.at(z.t0)+2));
-  for (const [i,t] of [clock.at(1)+0.5,clock.at(9)+0.5,...arrivals].entries()) {
-    const crop = i < 2 ? "crop=1920:240:0:840" : "crop=960:540:480:270";
-    ff(["-ss",String(t),"-i",video,"-vf",crop,"-frames:v","1",join(root,`takeone-edit-controls-${name}-crop-${i}.png`)]);
+  const arrivals = JSON.parse(readFileSync(join(dir,"camera-arrivals.json"),"utf8")) as {requested:number;actualArrival:number}[];
+  for (const [i,t] of [clock.at(1)+0.5,clock.at(9)+0.5].entries()) {
+    if (t>=result.seconds) continue;
+    ff(["-ss",String(t),"-i",video,"-vf","crop=1920:240:0:840","-frames:v","1",join(root,`takeone-edit-controls-${name}-crop-${i}.png`)]);
   }
+  const arrivalCrops = arrivals.flatMap((arrival,i) => (["requested","actualArrival"] as const).flatMap(kind => {
+    const t = Math.ceil(arrival[kind]*d.fps)/d.fps;
+    if (t<0 || t>=result.seconds) return [];
+    const file = join(root,`takeone-edit-controls-${name}-arrival-${i}-${kind}-${t.toFixed(6)}.png`);
+    ff(["-ss",String(t),"-i",video,"-vf","crop=960:540:480:270","-frames:v","1",file]);
+    return [{kind,t,file}];
+  }));
   manifest[name]={video,sheet,seconds:result.seconds,fps:stream.r_frame_rate,size:[stream.width,stream.height],
-    frames:Number(stream.nb_read_frames),camera_frames:frames.length,colour:stream.color_space,max_upscale:maxUpscale,camera:metrics};
+    frames:Number(stream.nb_read_frames),camera_frames:frames.length,colour:stream.color_space,max_upscale:maxUpscale,camera:metrics,arrivals,arrivalCrops};
 }
 // Review both outputs on the edited output clock. Map the unedited baseline to
 // the after clock, so typing and cut sections line up instead of drifting.

@@ -77,14 +77,11 @@ export async function renderTake(
   const spotlights = overlayRegions(meta, "spotlight", outTime, trimStart, trimEnd);
   const outBeats = clock ? editBeats(beats, clock, trimStart) : warpBeats(beats, trimStart, squeezes, d.idle_speed);
   const byId = new Map(outBeats.map(b => [b.id, b]));
-  const sourceBeats = new Map(beats.map(b => [b.id, b]));
   const outDecisions = clock ? decisions.flatMap(decision => {
     const beat = byId.get(decision.beat);
     if (!beat) return [];
-    const source = sourceBeats.get(decision.beat)!;
-    const kept = (name: string | undefined) => source.zones.some(z => z.name === name
-      && (z.t_change === undefined || clock.contains(z.t_change)));
-    const A = kept(decision.A) ? decision.A : source.zones.find(z => kept(z.name))?.name ?? decision.A;
+    const kept = (name: string | undefined) => beat.zones.some(z => z.name === name);
+    const A = kept(decision.A) ? decision.A : beat.zones[0]?.name ?? decision.A;
     const B = kept(decision.B) ? decision.B : A;
     return [{ ...decision, A, B }];
   }) : decisions;
@@ -93,7 +90,7 @@ export async function renderTake(
   const timing = { zoomClock: "output" as const, cuts: (meta.cuts ?? []).map(c => trimStart + outTime(c.t1)), arrivals: [] as import("../camera/solver.ts").CameraArrival[] };
   const tapShots = meta.device === "android" ? phoneTapShots(outBeats, meta.width, meta.height) : null;
   const solved = solveCamera(tapShots?.beats ?? outBeats, tapShots?.decisions ?? outDecisions, { ...meta, zooms, trim_end: trimStart + duration },
-    edited ? d : { ...d, min_shot: d.min_shot * d.pace, dwell: d.dwell * d.pace, dwell_k2: d.dwell_k2 * d.pace }, timing);
+    { ...d, min_shot: d.min_shot * d.pace, dwell: d.dwell * d.pace, dwell_k2: d.dwell_k2 * d.pace }, timing);
   // A handset's controls span its narrow screen. Keep that entire width while
   // pushing in and following the tapped row; horizontal pans slice labels.
   const frames = phone ? solved.map(f => {
@@ -117,14 +114,15 @@ export async function renderTake(
   if (fitted !== text) captionInk = await measureCaptions(dir, captions, fitted, banded);
   text = fitted;
   const band = banded ? bandLayout(meta.width, meta.height, text, captions, captionInk) : null;
-  const stage = band?.stage ?? stageGeometry(meta.width, meta.height, d);
+  const sourceStage = stageGeometry(meta.width, meta.height, d);
+  const stage = band?.stage ?? sourceStage;
   const commandFile = join(dir, "camera.cmd");
   // With a band the camera frames the screen alone, into the fixed card.
-  const stageCamera = band ? bandFrames(frames, band, d) : stageFrames(frames, meta.width, meta.height, stage, d);
+  const stageCamera = band ? bandFrames(frames, band, d, meta.width, meta.height) : stageFrames(frames, meta.width, meta.height, stage, d);
   await writeFile(join(dir, "render-camera.json"), JSON.stringify({ frames: stageCamera,
-    sourceOrigin: band ? { x: 0, y: 0 } : { x: stage.screenX, y: stage.screenY } }));
+    sourceOrigin: { x: sourceStage.screenX, y: sourceStage.screenY } }));
   const view = band ? { ...d, out_w: stage.baseW, out_h: stage.baseH } : d;
-  const [cameraFrames, cameraW, cameraH] = band ? [frames, meta.width, meta.height] : [stageCamera, stage.w, stage.h];
+  const [cameraFrames, cameraW, cameraH] = band ? [stageFrames(frames, meta.width, meta.height, sourceStage, d), sourceStage.w, sourceStage.h] : [stageCamera, stage.w, stage.h];
   const shutter = shutterPlan(cameraFrames, cameraW, cameraH, view);
   await writeFile(join(dir, "motion-blur.json"), JSON.stringify(shutter.metrics, null, 2));
   const camera = motionBlurGraph(cameraFrames, shutter, cameraW, cameraH, view);
@@ -155,7 +153,7 @@ export async function renderTake(
 
   const keysFile = join(dir, "keycaps.ass");
   const keys = keycapAss(outBeats, trimStart, duration, d,
-    keycapObstacles(outBeats, decisions, stageCamera, band ? { ...stage, screenX: 0, screenY: 0 } : stage,
+    keycapObstacles(outBeats, outDecisions, stageCamera, sourceStage,
       trimStart, captions, captionInk, text, widePhone, band));
   await writeFile(keysFile, keys);
   const spotlightFile = join(dir, "spotlight.ass");
@@ -177,7 +175,7 @@ export async function renderTake(
     `[0:v]${clock?.filter ?? `setpts='${setptsExpr(squeezes, d.idle_speed)}'`},fps=${d.fps}${clicksOverlay},scale=in_color_matrix=auto:out_color_matrix=bt601,format=${pixelFormat}[region0]`,
     ...(blurs.length ? [blurGraph(blurs, pixelFormat)] : []),
     (band ? [
-      `[region${blurs.length}]null${spotlightOverlay}[raw]`,
+      `[region${blurs.length}]null${spotlightOverlay},format=gbrp16le,pad=${sourceStage.w}:${sourceStage.h}:${sourceStage.screenX}:${sourceStage.screenY}:color=${d.card}[raw]`,
       `${camera.replace(/^\[c4\]/, "[raw]")};[camera]null[screen]`,
       cardFilter(stage.baseW, stage.baseH, stage, d, still),
       `[c4]trim=end=${duration}${captionsOverlay}${keysOverlay}`,
