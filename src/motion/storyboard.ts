@@ -53,7 +53,7 @@ function sceneRevealDuration(s: Scene): number {
     const words = (s.title ?? "").trim().split(/\s+/).filter(Boolean).length;
     reveal = Math.max(words ? .4 + .06 * (words - 1) : 0, s.subtitle ? .6 : 0);
   } else if (s.pattern === "end-card") {
-    const glyphs = [...s.logo!].filter(ch => ch.trim()).length;
+    const glyphs = [...new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(s.logo!)].filter(ch => ch.segment.trim()).length;
     reveal = Math.max(glyphs ? .55 + .035 * (glyphs - 1) : 0, s.cta ? .65 : 0, s.url ? .75 : 0);
   } else if (s.pattern === "fragment" && s.kind === "input" && s.state === "typing") {
     reveal = .055 * (s.text ?? "Draft launch announcement").length;

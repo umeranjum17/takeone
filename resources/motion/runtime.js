@@ -59,8 +59,7 @@ window.kernedLetters = (text, className = "") => {
     measure.style.cssText = `position:fixed;left:0;top:0;visibility:hidden;white-space:pre;font:${cs.font};font-kerning:${cs.fontKerning};letter-spacing:${cs.letterSpacing};font-variant-ligatures:none`;
     document.body.append(measure);
     const node = measure.firstChild, r = document.createRange(), x0 = measure.getBoundingClientRect().left, out = [];
-    let i = 0;
-    for (const ch of text) { // iterate code points
+    for (const { segment: ch, index: i } of new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(text)) {
       r.setStart(node, i); r.setEnd(node, i + ch.length);
       const b = r.getBoundingClientRect();
       if (ch.trim()) {
@@ -71,7 +70,6 @@ window.kernedLetters = (text, className = "") => {
         el.append(span);
         out.push({ span, x: b.left - x0, w: b.width, ch });
       }
-      i += ch.length;
     }
     measure.remove();
     return out;

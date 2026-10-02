@@ -24,6 +24,9 @@ test("end-card defaults and explicit logos reach display coverage on every timel
       }
     }
   }
+  const raw={version:1,source:{kind:"image"},theme:{name:"editorial"},scenes:[{pattern:"end-card",logo:"Cafe\u0301",d:1.8}]};
+  assert.equal(validateStoryboard(raw).scenes[0]!.logo,"Cafe\u0301");
+  assert.throws(()=>validateStoryboard({...raw,scenes:[{...raw.scenes[0]!,d:1.75}]}),/reveal and reading-time/);
 });
 
 test("emitted motion glyphs use bundled faces with default and serif roles", async()=>{
@@ -39,7 +42,8 @@ test("emitted motion glyphs use bundled faces with default and serif roles", asy
         {pattern:"hero-reveal",title:"Launch",d:6,screen:"S1",device:"phone"},
         {pattern:"zoom-tour",d:6,screen:"S1",device:"browser",stops:[]},
         {pattern:"zoom-tour",d:6,screen:"S1",device:"phone",stops:[]},
-        {pattern:"end-card",d:6}
+        {pattern:"end-card",d:6},
+        {pattern:"end-card",logo:"Cafe\u0301",d:6}
       ];
       const sb=validateStoryboard({version:1,theme:{name:"editorial",overrides},source:{kind:"image"},screens:{S1:{file:resolve("resources/demo/tidewater-board.png"),width:2560,height:1440}},regions:[],scenes});
       const html=writePage(dir,sb).html;
@@ -58,9 +62,31 @@ test("emitted motion glyphs use bundled faces with default and serif roles", asy
           if(device==="browser")assert.ok(text.includes("● ● ●")&&text.includes("Design preview"),text);
           if(device==="phone")assert.ok(text.includes("9:41")&&text.includes("━"),text);
           if(scenes[i]!.pattern==="end-card") {
-            assert.ok(text.replace(/\s+/g,"").includes("TakeOne"),text);
+            const logo=scenes[i]!.logo??"TakeOne";
+            assert.ok(text.replace(/\s+/g,"").includes(logo),text);
             const family=await b.evaluate<string>(`getComputedStyle(document.querySelector('[data-scene="${i}"] .kern')).fontFamily`);
             assert.ok(family.includes(overrides.display_font??"Instrument Serif"),family);
+            const layout=await b.evaluate<{clusters:string[];max_error:number;advance_error:number;mark_width_error:number}>(`(()=>{
+              const el=document.querySelector('[data-scene="${i}"] .kern'),ghost=el.firstElementChild.cloneNode(true),cs=getComputedStyle(el);
+              ghost.style.cssText='position:fixed;left:0;top:0;white-space:pre;font:'+cs.font+';font-kerning:'+cs.fontKerning+';letter-spacing:'+cs.letterSpacing+';font-variant-ligatures:none';
+              document.body.append(ghost);
+              const spans=[...el.querySelectorAll('[data-x]')],node=ghost.firstChild,r=document.createRange(),x0=ghost.getBoundingClientRect().left;
+              const scale=el.getBoundingClientRect().width/ghost.getBoundingClientRect().width;
+              let j=0,max_error=0,mark_width_error=0;
+              for(const {segment,index} of new Intl.Segmenter(undefined,{granularity:'grapheme'}).segment(ghost.textContent)) {
+                r.setStart(node,index);r.setEnd(node,index+segment.length);
+                if(!segment.trim())continue;
+                const expected=r.getBoundingClientRect(),actual=spans[j++].getBoundingClientRect();
+                max_error=Math.max(max_error,Math.abs((actual.left-el.getBoundingClientRect().left)/scale-(expected.left-x0)));
+                if(segment==='e\\u0301')mark_width_error=Math.abs(actual.width/scale-expected.width);
+              }
+              const result={clusters:spans.map(span=>span.textContent),max_error,advance_error:Math.abs(ghost.getBoundingClientRect().width-el.offsetWidth),mark_width_error};
+              ghost.remove();return result;
+            })()`);
+            assert.deepEqual(layout.clusters,logo==="TakeOne"?["T","a","k","e","O","n","e"]:["C","a","f","e\u0301"]);
+            assert.ok(layout.max_error<=.5,JSON.stringify(layout));
+            assert.ok(layout.advance_error<=.5,JSON.stringify(layout));
+            assert.ok(layout.mark_width_error<=.5,JSON.stringify(layout));
           }
           const {root}=await b.send<{root:{nodeId:number}}>("DOM.getDocument");
           const {nodeIds}=await b.send<{nodeIds:number[]}>("DOM.querySelectorAll",{nodeId:root.nodeId,selector:`[data-scene="${i}"] *`});
