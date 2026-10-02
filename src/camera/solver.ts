@@ -31,6 +31,8 @@ interface Target {
   /** An edit takes precedence over automatic shot suppression and FOLLOW. */
   manual?: "zoom" | "resume";
   holdEnd?: number;
+  /** Exact padded hold geometry; interpolation preserves these safe edges. */
+  viewport?: CameraFrame;
 }
 
 interface Move {
@@ -305,6 +307,37 @@ function cutSettledAt(beat: Beat, arrival: number, d: CameraDefaults): number {
   return arrival;
 }
 
+/** Snap held horizontal edges into gaps between supplied whole UI elements.
+ * Widen rather than deepen when one column cannot fit within the native cap.
+ * Unknown UI is never guessed; the saved analysis provides the boundaries.
+ */
+function wholeElementViewport(state: CameraState, subject: Zone, zones: Zone[],
+  width: number, height: number, d: CameraDefaults): CameraFrame | undefined {
+  if (d.out_w > d.out_h || subject.type === "all") return undefined;
+  const elements = zones.filter(z => z.type === "win");
+  if (!elements.length) return undefined;
+  const stage = stageGeometry(width, height, d);
+  const current = stageFrames([toFrame(state, width, height, d)], width, height, stage, d)[0]!;
+  const margin = Math.min(16, subject.bbox[2] * .03);
+  const [sx, sy, sw, sh] = subject.bbox;
+  const edges = [0, width, ...elements.flatMap(z => [z.bbox[0] - margin, z.bbox[0] + z.bbox[2] + margin])];
+  const safe = (x: number) => x >= 0 && x <= width
+    && !elements.some(z => x > z.bbox[0] && x < z.bbox[0] + z.bbox[2]);
+  let best: CameraFrame | undefined;
+  let bestScore = Infinity;
+  for (const left of edges.filter(safe)) for (const right of edges.filter(safe)) {
+    const w = right - left, h = w * d.out_h / d.out_w;
+    if (left > sx || right < sx + sw || w < current.w - 1e-8 || w > stage.w || h > stage.h) continue;
+    const y = clamp(current.y - stage.screenY + current.h / 2 - h / 2, sy + sh - h, sy);
+    const score = w + Math.abs((left + right) / 2 - (current.x - stage.screenX + current.w / 2)) * .01;
+    if (score < bestScore) {
+      bestScore = score;
+      best = {t: 0, x: left + stage.screenX, y: y + stage.screenY, w, h};
+    }
+  }
+  return best;
+}
+
 /** Build A/B shots and idle widen targets; this is the camera timeline. */
 function buildTargets(
   shots: Shot[],
@@ -323,23 +356,11 @@ function buildTargets(
       const fillZoom = baseWidth(width, height, d) / (height * d.out_w / d.out_h);
       targetA.z = Math.min(Math.max(targetA.z, fillZoom), zMax(width, height, d));
     }
-    // Context regions supplied by saved analysis describe whole columns/cards.
-    // Shift within the room around the subject rather than slice a neighbor.
-    const stage = stageGeometry(width, height, d);
-    const visible = stageFrames([toFrame(targetA, width, height, d)], width, height, stage, d)[0]!;
-    const [sx, , sw] = shot.zoneA.bbox;
-    let left = sx + sw - visible.w, right = sx;
-    for (const neighbor of shot.beat.zones.filter(z => z.type === "win" && z !== shot.zoneA)) {
-      const [nx, , nw] = neighbor.bbox;
-      if (nx >= sx + sw) right = Math.min(right, nx - visible.w);
-      else if (nx + nw <= sx) left = Math.max(left, nx + nw);
-    }
-    if (left <= right && shot.beat.zones.some(z => z.type === "win" && z !== shot.zoneA)) {
-      targetA.cx = clamp(visible.x - stage.screenX, left, right) + visible.w / 2;
-    }
+    const viewport = wholeElementViewport(targetA, shot.zoneA, shot.beat.zones, width, height, d);
     const result: Target[] = [{
       t: shot.arrival,
       state: targetA,
+      viewport,
       importance: shot.decision.K,
       startAfter: shot.beat.kind === "cut" ? cutSettledAt(shot.beat, shot.arrival, d)
         : shot.zoneA.type === "res" ? shot.zoneA.t_change ?? shot.beat.t0 : undefined,
@@ -349,6 +370,8 @@ function buildTargets(
       if (resultTime >= start && resultTime < end) result.push({
         t: resultTime + d.result_late,
         state: frame(shot.zoneB, shot.decision.L, width, height, shot.beat.window_rect, d),
+        viewport: wholeElementViewport(frame(shot.zoneB, shot.decision.L, width, height, shot.beat.window_rect, d),
+          shot.zoneB, shot.beat.zones, width, height, d),
         importance: shot.decision.K,
       });
     }
@@ -522,7 +545,9 @@ function sampleCamera(
     // (the spring trails the ideal path by about 2/omega): result
     // and breathe targets obey it too, so no shot flashes by unread.
     const settle = move ? move.end + 2 / d.lowpass_omega : 0;
-    const heldUntil = move ? settle + d.dwell : 0;
+    // Quantize the minimum hold upward to the output clock, including
+    // one interval for the sampled spring's visible settling boundary.
+    const heldUntil = move ? Math.ceil((settle + d.dwell) * d.fps) / d.fps + 1 / d.fps : 0;
     const dueEdit = targets.findIndex((target, i) => i >= targetIndex && target.manual === "resume" && target.t <= time);
     if (dueEdit >= 0) targetIndex = dueEdit;
     while (targetIndex < targets.length) {
@@ -608,9 +633,8 @@ function boundedCamera(targets: Target[], width: number, height: number, start: 
   end: number, d: CameraDefaults, cuts: number[], arrivals: CameraArrival[]): CameraFrame[] {
   const stage = stageGeometry(width, height, d);
   const project = (state: CameraState) => stageFrames([toFrame(state, width, height, d)], width, height, stage, d)[0]!;
-  const path = (from: CameraState, to: CameraState, u: number): CameraFrame => {
+  const path = (a: CameraFrame, b: CameraFrame, u: number): CameraFrame => {
     const eased = smooth(clamp(u, 0, 1));
-    const a = project(from), b = project(to);
     const w = Math.exp(lerp(Math.log(a.w), Math.log(b.w), eased));
     const h = w * d.out_h / d.out_w;
     // Interpolate final screen-origin projection, not a source centre which
@@ -619,7 +643,7 @@ function boundedCamera(targets: Target[], width: number, height: number, start: 
     const py = lerp(-a.y * d.out_h / a.h, -b.y * d.out_h / b.h, eased);
     return { t: 0, x: -px * w / d.out_w, y: -py * h / d.out_h, w, h };
   };
-  const lead = (from: CameraState, to: CameraState) => {
+  const lead = (from: CameraFrame, to: CameraFrame) => {
     // Differentiate the complete normalized curve, including padded edge
     // geometry. Time dilation scales velocity by1/T and acceleration by1/T².
     const steps = 2048;
@@ -642,28 +666,30 @@ function boundedCamera(targets: Target[], width: number, height: number, start: 
     // Sampling guard is a conservative planner margin, not a relaxed gate.
     return Math.max(d.move_t_min, speed, Math.sqrt(za / 4), Math.sqrt(pa / 9000)) * 1.05;
   };
-  const initial = { cx: width / 2, cy: height / 2, z: 1 };
+  const initial = project({ cx: width / 2, cy: height / 2, z: 1 });
+  const endpoint = (target: Target) => target.viewport ?? project(target.state);
   const boundaryAt = (t: number) => Math.max(start, ...cuts.filter(c => c <= t));
   const manual = targets.filter(t => t.manual === "zoom");
-  const reservations = manual.map(t => ({ from: Math.max(boundaryAt(t.t), t.t - lead(initial, t.state)), to: t.holdEnd ?? t.t }));
+  const reservations = manual.map(t => ({ from: Math.max(boundaryAt(t.t), t.t - lead(initial, endpoint(t))), to: t.holdEnd ?? t.t }));
   const selected = targets.filter(t => t.manual || !reservations.some(r => t.t >= r.from && t.t <= r.to));
-  const moves: { from: CameraState; to: CameraState; start: number; end: number }[] = [];
+  const moves: { from: CameraFrame; to: CameraFrame; start: number; end: number }[] = [];
   let state = initial;
   let available = start;
   for (const target of selected) {
-    const duration = lead(state, target.state);
+    const destination = endpoint(target);
+    const duration = lead(state, destination);
     const boundary = boundaryAt(target.t);
     const feasibleStart = Math.max(boundary, available, target.startAfter ?? start, target.t - duration);
     const arrival = feasibleStart + duration;
     // An automatic move that would occupy a manual reservation cannot delay
     // the edit past its clip/cut boundary. Keep the prior pose for that lead.
     if (!target.manual && reservations.some(r => target.t < r.from && arrival > r.from)) continue;
-    moves.push({ from: state, to: target.state, start: feasibleStart, end: arrival });
+    moves.push({ from: state, to: destination, start: feasibleStart, end: arrival });
     if (target.manual === "zoom") arrivals.push({ requested: target.t - start, requiredLead: duration,
       boundary: boundary - start, feasibleStart: feasibleStart - start, actualArrival: arrival - start,
       lateness: Math.max(0, arrival - target.t), holdEnd: (target.holdEnd ?? target.t) - start,
-      requestedFrame: project(target.state) });
-    state = target.state;
+      requestedFrame: destination });
+    state = destination;
     available = target.manual === "zoom" ? Math.max(arrival, target.holdEnd ?? arrival)
       : arrival + Math.max(d.dwell, d.min_shot);
   }
@@ -672,7 +698,7 @@ function boundedCamera(targets: Target[], width: number, height: number, start: 
     const t = start + index / d.fps;
     while (moveIndex + 1 < moves.length && moves[moveIndex + 1]!.start <= t) moveIndex++;
     const move = moves[moveIndex];
-    const padded = !move || t < move.start ? project(initial)
+    const padded = !move || t < move.start ? initial
       : path(move.from, move.to, (t - move.start) / (move.end - move.start));
     return { ...padded, x: padded.x - stage.screenX, y: padded.y - stage.screenY,
       t: t - start, padded: { ...padded, t: t - start } };
@@ -780,6 +806,7 @@ export function solveCamera(
     // Resume the latest automatic framing, even if its target fell inside the edit.
     if (zoom.t1 < end && !zooms.some(z => z.t0 === zoom.t1)) targets.push({
       t: zoom.t1, startAfter: zoom.t1, manual: "resume", importance: 2,
+      viewport: automatic.filter(t => t.t <= zoom.t1).at(-1)?.viewport,
       state: automatic.filter(t => t.t <= zoom.t1).at(-1)?.state ?? { cx: width / 2, cy: height / 2, z: 1 },
     });
   }

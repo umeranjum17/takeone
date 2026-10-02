@@ -19,10 +19,11 @@ const hash=(p:string)=>createHash('sha256').update(readFileSync(p)).digest('hex'
 const ff=(a:string[])=>execFileSync('ffmpeg',['-nostdin','-y','-v','error',...a],{stdio:['ignore','ignore','inherit']});
 // Exact outer modal geometry from scripts/e2e/scene.html, box-sizing:border-box.
 const bbox=[900,340,760,620];
-const beat={id:'board',kind:'type',t0:0,t1:12,anchor_t:1,zones:[{name:'all',type:'all',bbox:[0,0,2560,1440]},{name:'modal',type:'act',bbox,t_change:1}],actions:[]};
+const contexts=[{name:"sidebar",type:"win",bbox:[0,88,280,1352]},{name:"todo-context",type:"win",bbox:[320,128,520,1272]},{name:"progress-context",type:"win",bbox:[872,128,520,1272]},{name:"done-context",type:"win",bbox:[1424,128,520,1272]},{name:"activity",type:"win",bbox:[1984,128,544,1272]}];
+const beat={id:'board',kind:'type',t0:0,t1:12,anchor_t:1,zones:[{name:'all',type:'all',bbox:[0,0,2560,1440]},{name:'modal',type:'act',bbox,t_change:1},...contexts],actions:[]};
 const decision={beat:'board',A:'modal',L:2,K:1,p:0,conf:1,decided_by:'heuristic'};
 const todo=[320,128,520,1272], progress=[872,128,520,1272], done=[1424,128,520,1272];
-const created={id:'created',kind:'click',t0:7,t1:10,anchor_t:7,window_rect:todo,zones:[{name:'todo',type:'res',bbox:todo,t_change:7},{name:'progress',type:'win',bbox:progress},{name:'done',type:'win',bbox:done}],actions:[]};
+const created={id:'created',kind:'click',t0:7,t1:10,anchor_t:7,window_rect:todo,zones:[{name:'todo',type:'res',bbox:todo,t_change:7},{name:'progress',type:'win',bbox:progress},{name:'done',type:'win',bbox:done},contexts[0],contexts[4]],actions:[]};
 const overview={id:'overview',kind:'dwell',t0:10,t1:12,anchor_t:10,window_rect:[320,128,1624,1272],zones:[{name:'columns',type:'win',bbox:[320,128,1624,1272]}],actions:[]};
 const beats=[beat,created,overview];const decisions=[decision,{...decision,beat:'created',A:'todo',L:1},{...decision,beat:'overview',A:'columns',L:1}];
 const base={width:2560,height:1440,trim_start:0,trim_end:12,id:'demo',captions:[{t:1,d:3,text:'Create an onboarding task'}]};
