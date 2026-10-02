@@ -305,17 +305,21 @@ export function takeCaptions(meta: TakeMeta, at: (t: number) => number, duration
     if (text && t1 > t0) out.push({ t0, t1, text, title: false, position: caption.position });
   }
   const body = out.filter(c => !c.title).sort((a, b) => a.t0 - b.t0);
-  if (band) {
-    let end = out.find(c => c.title)?.t1 ?? 0;
-    for (const c of body) {
+  const shown = band ? out.find(c => c.title && c.t1 > c.t0) : undefined;
+  let end = shown?.t1 ?? 0;
+  const replaceAt = shown ? body.find(c => c.t0 >= shown.t1)?.t0 ?? duration : duration;
+  for (let i = 0; i < body.length; i++) {
+    const c = body[i]!;
+    if (shown && c.t0 < shown.t1 && c.t1 > shown.t0) {
       const readingTime = c.t1 - c.t0;
-      c.t0 = Math.max(c.t0, end);
-      c.t1 = Math.min(duration, c.t0 + readingTime);
+      c.t0 = end;
+      c.t1 = Math.min(replaceAt, c.t0 + readingTime);
       end = c.t1;
+    } else {
+      c.t1 = Math.min(c.t1, body[i + 1]?.t0 ?? duration);
     }
-  } else {
-    for (let i = 0; i + 1 < body.length; i++) body[i]!.t1 = Math.min(body[i]!.t1, body[i + 1]!.t0);
   }
+  if (shown) body.sort((a, b) => a.t0 - b.t0);
   return [...out.filter(c => c.title && c.t1 > c.t0), ...body.filter(c => c.t1 > c.t0)];
 }
 
@@ -353,8 +357,8 @@ export function captionLayouts(captions: Caption[], widths: (number | CaptionInk
     const inkW = typeof ink === "number" ? ink : ink.w;
     const base = textSize(caption, d, band);
     const fit = caption.title ? 1 : Math.min(1, (d.out_w * 0.9 - 2 * base * 0.75) / Math.max(1, inkW));
-    const size = Math.max(1, Math.floor(base * fit));
-    const w = inkW * fit + (caption.title ? 0 : 2 * size * 0.75);
+    const size = base * fit;
+    const w = inkW * size / base + (caption.title ? 0 : 2 * size * 0.75);
     const h = caption.title ? Math.max(size, typeof ink === "number" ? 0 : ink.h) : Math.ceil(size * 1.9);
     if (caption.title && (w > d.out_w * 0.9 || h + Math.round(size * 0.3) > d.out_h - band.top)) {
       throw new Error("title does not fit the stage band");
@@ -409,12 +413,12 @@ export function captionAss(captions: Caption[], widths: (number | CaptionInk)[],
 }
 
 /** Show caption i alone during second i, with the final wrap width, to measure its ink bounds. */
-export function measureAss(captions: Caption[], d: CameraDefaults, band?: Band | null): string {
+export function measureAss(captions: Caption[], d: CameraDefaults, band?: Band | null, scaleX = 100): string {
   let out = assHeader(d.out_w, d.out_h, d.caption_font, d.caption_size);
   captions.forEach((caption, index) => {
     const size = textSize(caption, d, band);
     const margin = captionMargin(size, d);
-    out += `Dialogue: 0,${assTime(index)},${assTime(index + 1)},Default,,${margin},${margin},0,,{\\q${band && !caption.title ? 2 : 0}\\an5\\pos(${d.out_w / 2},${d.out_h / 2})${band && !caption.title ? "\\fscx25" : ""}\\fs${size}\\fn${caption.title ? d.display_font : d.caption_font}}${caption.text}\n`;
+    out += `Dialogue: 0,${assTime(index)},${assTime(index + 1)},Default,,${margin},${margin},0,,{\\q${band && !caption.title ? 2 : 0}\\an5\\pos(${d.out_w / 2},${d.out_h / 2})${band && !caption.title ? `\\fscx${scaleX}` : ""}\\fs${size}\\fn${caption.title ? d.display_font : d.caption_font}}${caption.text}\n`;
   });
   return out;
 }

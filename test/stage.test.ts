@@ -80,19 +80,61 @@ test("matching non-16:9 exports retain the overlay layout", () => {
   assert.ok(bandLayout(1920, 1080, DEFAULTS));
 });
 
-test("band captions queue behind the title and each other without extending the video", () => {
+test("only title-overlapping captions queue; ordinary cues retain replacement timing", () => {
   const meta = { width: 1920, height: 1080, title: "Demo",
-    captions: [{ t: 1, d: 1, text: "first" }, { t: 2, d: 2, text: "second" },
-      { t: 4, d: 1, text: "third" }, { t: 8, d: 3, text: "last" }] };
-  const captions = takeCaptions(meta, t => t, 10, true);
-  assert.deepEqual(captions.map(c => [c.text, c.t0, c.t1]), [
-    ["Demo", 0.35, 3.1], ["first", 3.1, 4.1], ["second", 4.1, 6.1],
-    ["third", 6.1, 7.1], ["last", 8, 10],
+    captions: [{ t: 0, d: 0.2, text: "before" }, { t: 1, d: 1, text: "first" },
+      { t: 2, d: 2, text: "second" }, { t: 8, d: 3, text: "later" },
+      { t: 9, d: 3, text: "last" }] };
+  assert.deepEqual(takeCaptions(meta, t => t, 12, true).map(c => [c.text, c.t0, c.t1]), [
+    ["Demo", 0.35, 3.1], ["before", 0, 0.2], ["first", 3.1, 4.1],
+    ["second", 4.1, 6.1], ["later", 8, 9], ["last", 9, 12],
   ]);
-  const sameStart = takeCaptions({ ...meta, title: "", captions: [
-    { t: 1, d: 1, text: "first" }, { t: 1, d: 1, text: "second" },
-  ] }, t => t, 10, true);
-  assert.deepEqual(sameStart.map(c => [c.text, c.t0, c.t1]), [["first", 1, 2], ["second", 2, 3]]);
+  const noTitle = { ...meta, title: "" };
+  assert.deepEqual(takeCaptions(noTitle, t => t, 12, true), takeCaptions(noTitle, t => t, 12));
+  const sameStart = { ...noTitle, captions: [
+    { t: 1, d: 1, text: "first" }, { t: 1, d: 1, text: "replacement" },
+  ] };
+  assert.deepEqual(takeCaptions(sameStart, t => t, 10, true).map(c => [c.text, c.t0, c.t1]),
+    [["replacement", 1, 2]]);
+  const next = { ...meta, captions: [
+    { t: 0, d: 0.3, text: "before" }, { t: 0.1, d: 1, text: "deferred" },
+    { t: 1, d: 2, text: "queued" }, { t: 4, d: 3, text: "ordinary" },
+  ] };
+  assert.deepEqual(takeCaptions(next, t => t, 10, true).map(c => [c.text, c.t0, c.t1]),
+    [["Demo", 0.35, 3.1], ["before", 0, 0.1], ["deferred", 3.1, 4], ["ordinary", 4, 7]]);
+});
+
+test("complete long caption ink is measured before fitting inside a band pill", { skip: !hasFfmpeg() }, async () => {
+  const dir = mkdtempSync(`${process.cwd()}/tmp-long-caption-`);
+  const d = { ...DEFAULTS, card: "#000000", text: "#ffffff", caption_border: 0 };
+  const band = bandLayout(1920, 1080, d)!;
+  const text = "Review every task and share the result. ".repeat(32).trim();
+  const captions = [text, `${text} ${text}`].map(text => ({ t0: 0, t1: 2, text, title: false }));
+  try {
+    const ink = await measureCaptions(dir, captions, d, band);
+    assert.ok(ink[0]!.w > 16000, `natural width=${ink[0]!.w}`);
+    assert.ok(Math.abs(ink[1]!.w / ink[0]!.w - 2) < 0.02, `widths=${ink.map(i => i.w)}`);
+    for (let i = 0; i < captions.length; i++) {
+      const layout = captionLayouts([captions[i]!], [ink[i]!], d, false, band)[0]!;
+      writeFileSync(`${dir}/captions.ass`, captionAss([captions[i]!], [ink[i]!], d, false, band));
+      const pixels = execFileSync("ffmpeg", ["-v", "error", "-f", "lavfi", "-i",
+        `color=black:s=${d.out_w}x${d.out_h}:r=1:d=2`, "-vf",
+        `ass=${dir}/captions.ass:fontsdir=resources/fonts,select=gte(t\\,1),format=gray`,
+        "-frames:v", "1", "-f", "rawvideo", "-"], { maxBuffer: d.out_w * d.out_h * 2 });
+      let left = d.out_w, right = -1;
+      for (let y = 0; y < d.out_h; y++) for (let x = 0; x < d.out_w; x++) {
+        if (pixels[y * d.out_w + x]! <= 16) continue;
+        left = Math.min(left, x);
+        right = Math.max(right, x);
+        assert.ok(y > band.top && Math.abs(y - layout.cy) <= layout.h / 2, `ink y=${y}`);
+      }
+      assert.ok(left >= layout.cx - layout.w / 2 && right <= layout.cx + layout.w / 2,
+        `ink ${left}..${right}, pill ${layout.cx - layout.w / 2}..${layout.cx + layout.w / 2}`);
+      assert.ok(right - left > layout.w * 0.9, `complete fitted line spans ${right - left}`);
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test("long band titles wrap at display size and render clear of the card in every theme", { skip: !hasFfmpeg() }, async () => {

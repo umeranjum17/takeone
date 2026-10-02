@@ -200,14 +200,25 @@ function filterPath(path: string): string {
 export async function measureCaptions(dir: string, captions: Caption[], d: CameraDefaults, band: Band | null): Promise<CaptionInk[]> {
   if (captions.length === 0) return [];
   const file = join(dir, "measure.ass");
-  await writeFile(file, measureAss(captions, d, band));
-  const log = await runFfmpeg(["-hide_banner", "-f", "lavfi", "-i", `color=black:s=${d.out_w}x${d.out_h}:r=1:d=${captions.length}`,
-    "-vf", `ass=${filterPath(file)}:fontsdir=${filterPath(FONTS_DIR)},format=gray,cropdetect=limit=0:round=2:reset=1:skip=0`, "-f", "null", "-"]);
   const widths = captions.map(() => ({ w: 0, h: 0 }));
-  for (const match of log.matchAll(/x1:(-?\d+) x2:(-?\d+) y1:(-?\d+) y2:(-?\d+).*? t:(\d+(?:\.\d+)?)/g)) {
-    const index = Math.round(Number(match[5]));
-    if (index < widths.length) widths[index] = { w: Math.max(0, Number(match[2]) - Number(match[1]) + 1) * (band && !captions[index]!.title ? 4 : 1),
-      h: Math.max(0, Number(match[4]) - Number(match[3]) + 1) };
+  const wrapped = captions.flatMap((c, i) => band && !c.title ? [] : [i]);
+  const groups = [wrapped, ...captions.flatMap((c, i) => band && !c.title ? [[i]] : [])].filter(g => g.length);
+  for (const indices of groups) {
+    const first = captions[indices[0]!]!;
+    const fullWidth = Array.from(first.text).length * d.caption_size * 4;
+    const scale = band && !first.title ? Math.max(0.01, Math.min(1, Math.floor(32000 / Math.max(1, fullWidth) * 100) / 100)) : 1;
+    const measurement = band && !first.title ? { ...d,
+      out_w: Math.ceil((d.out_w + fullWidth * scale) / 2) * 2,
+      out_h: Math.ceil(d.caption_size * 4 / 2) * 2,
+    } : d;
+    await writeFile(file, measureAss(indices.map(i => captions[i]!), measurement, band, scale * 100));
+    const log = await runFfmpeg(["-hide_banner", "-f", "lavfi", "-i", `color=black:s=${measurement.out_w}x${measurement.out_h}:r=1:d=${indices.length}`,
+      "-vf", `ass=${filterPath(file)}:fontsdir=${filterPath(FONTS_DIR)},format=gray,cropdetect=limit=0:round=2:reset=1:skip=0`, "-f", "null", "-"]);
+    for (const match of log.matchAll(/x1:(-?\d+) x2:(-?\d+) y1:(-?\d+) y2:(-?\d+).*? t:(\d+(?:\.\d+)?)/g)) {
+      const index = indices[Math.round(Number(match[5]))];
+      if (index !== undefined) widths[index] = { w: Math.max(0, Number(match[2]) - Number(match[1]) + 1 + (scale < 1 ? 2 : 0)) / scale,
+        h: Math.max(0, Number(match[4]) - Number(match[3]) + 1) };
+    }
   }
   return widths;
 }
