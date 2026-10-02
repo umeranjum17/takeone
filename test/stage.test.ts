@@ -6,7 +6,7 @@ import { hasFfmpeg } from "./helpers.ts";
 import { applyOverrides, DEFAULTS } from "../src/camera/defaults.ts";
 import type { Beat } from "../src/camera/types.ts";
 import { idleSqueezes, setptsExpr, warp } from "../src/render/pace.ts";
-import { bandLayout, captionAss, captionLayouts, takeCaptions } from "../src/render/stage.ts";
+import { bandLayout, bandText, captionAss, captionLayouts, takeCaptions } from "../src/render/stage.ts";
 import { measureCaptions } from "../src/render/render.ts";
 import { THEMES, resolveTheme } from "../src/themes.ts";
 
@@ -173,6 +173,30 @@ test("concurrent band titles and captions retain separate measured rows in every
         }
         assert.ok(count > 100, `${name}: visible ink at t=${t}`);
       }
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("small outputs and oversized captions scale band text, keeping distinct rows above a real card", { skip: !hasFfmpeg() }, async () => {
+  const dir = mkdtempSync(`${process.cwd()}/tmp-small-`);
+  try {
+    const meta = { width: 1920, height: 1080, title: "Smoke title", captions: [{ t: 1.5, text: "Hello world" }] };
+    assert.equal(bandText(takeCaptions(meta, t => t, 10), [{ w: 400, h: 50 }, { w: 300, h: 30 }], DEFAULTS), DEFAULTS);
+    for (const d of [{ ...DEFAULTS, out_w: 320, out_h: 180 }, { ...DEFAULTS, caption_size: 200, caption_border: 8 }]) {
+      const captions = takeCaptions(meta, t => t, 10);
+      const ink = await measureCaptions(dir, captions, d, bandLayout(1920, 1080, d));
+      const text = bandText(captions, ink, d);
+      assert.ok(text.caption_size < d.caption_size, `${d.out_w}: text shrinks`);
+      const fitted = await measureCaptions(dir, captions, text, bandLayout(1920, 1080, text));
+      const band = bandLayout(1920, 1080, text, captions, fitted)!;
+      assert.ok(band.stage.baseH >= d.out_h / 2, `${d.out_w}: card keeps most of the frame`);
+      const [title, caption] = captionLayouts(captions, fitted, text, false, band);
+      assert.ok(title!.size > caption!.size * 1.5, `${d.out_w}: title hierarchy`);
+      assert.ok(band.top < title!.cy - title!.h / 2 - title!.rise, `${d.out_w}: title below the card`);
+      assert.ok(title!.cy + title!.h / 2 + title!.rise < caption!.cy - caption!.h / 2, `${d.out_w}: separate rows`);
+      assert.ok(caption!.cy + caption!.h / 2 + caption!.rise <= d.out_h, `${d.out_w}: caption inside the frame`);
     }
   } finally {
     rmSync(dir, { recursive: true, force: true });

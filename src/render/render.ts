@@ -12,7 +12,7 @@ import { motionBlurGraph, shutterPlan } from "./motion-blur.ts";
 import { idleSqueezes, setptsExpr, warp, warpBeats } from "./pace.ts";
 import { phoneTapShots } from "./phone.ts";
 import {
-  bandFrames, bandLayout, beatClicks, captionAss, cardFilter, clickAss, measureAss, stageFrames, stageGeometry, stageImageFilter,
+  bandFrames, bandLayout, bandText, beatClicks, captionAss, cardFilter, clickAss, measureAss, stageFrames, stageGeometry, stageImageFilter,
   takeCaptions, type Band, type Caption, type CaptionInk,
 } from "./stage.ts";
 
@@ -86,8 +86,11 @@ export async function renderTake(dir: string, d?: CameraDefaults): Promise<{ out
   await writeFile(join(dir, "camera.json"), JSON.stringify(frames));
   const captions = takeCaptions(meta, outTime, duration);
   let band = captions.length ? bandLayout(meta.width, meta.height, d) : null;
-  const captionInk = await measureCaptions(dir, captions, d, band);
-  if (band) band = bandLayout(meta.width, meta.height, d, captions, captionInk);
+  let captionInk = await measureCaptions(dir, captions, d, band);
+  // Caption text geometry; on small outputs the band text scales so the card keeps the frame.
+  const text = band ? bandText(captions, captionInk, d) : d;
+  if (text !== d) captionInk = await measureCaptions(dir, captions, text, band);
+  if (band) band = bandLayout(meta.width, meta.height, text, captions, captionInk);
   const stage = band?.stage ?? stageGeometry(meta.width, meta.height, d);
   const commandFile = join(dir, "camera.cmd");
   // With a band the camera frames the screen alone, into the fixed card.
@@ -118,13 +121,13 @@ export async function renderTake(dir: string, d?: CameraDefaults): Promise<{ out
   await writeFile(clicksFile, clicksAss);
   const captionsFile = join(dir, "captions.ass");
   const widePhone = phone && d.out_w > d.out_h;
-  const captionsAss = captionAss(captions, captionInk, d, widePhone, band);
+  const captionsAss = captionAss(captions, captionInk, text, widePhone, band);
   await writeFile(captionsFile, captionsAss);
 
   const keysFile = join(dir, "keycaps.ass");
   const keys = keycapAss(outBeats, trimStart, duration, d,
     keycapObstacles(outBeats, decisions, stageCamera, band ? { ...stage, screenX: 0, screenY: 0 } : stage,
-      trimStart, captions, captionInk, d, widePhone, band));
+      trimStart, captions, captionInk, text, widePhone, band));
   await writeFile(keysFile, keys);
   const spotlightFile = join(dir, "spotlight.ass");
   const spotlight = spotlightAss(spotlights, meta.width, meta.height, d);

@@ -46,15 +46,28 @@ export function stageGeometry(width: number, height: number, d: CameraDefaults):
  */
 export interface Band { stage: Stage; top: number; titleY: number; captionY: number; titleH: number; captionH: number }
 
-export function bandLayout(width: number, height: number, d: CameraDefaults, captions: Caption[] = [],
-  widths: (number | CaptionInk)[] = []): Band | null {
-  if (Math.abs(width / height - 16 / 9) > 0.01 || Math.abs(d.out_w / d.out_h - 16 / 9) > 0.01) return null;
+function bandRows(captions: Caption[], widths: (number | CaptionInk)[], d: CameraDefaults) {
   const layouts = captions.map((c, i) => bandCaption(c, widths[i] ?? 0, d));
   const titleH = Math.max(0, ...layouts.map((l, i) => captions[i]!.title ? l.h + 2 * l.rise : 0));
   const captionH = Math.max(0, ...layouts.map((l, i) => !captions[i]!.title ? l.h + 2 * l.rise + 2 * d.caption_border : 0));
   const gap = titleH && captionH ? d.caption_size * 0.35 : 0;
   const padding = d.caption_size * 0.6;
-  const band = Math.ceil(titleH + captionH + gap + 2 * padding);
+  return { titleH, captionH, gap, padding, band: Math.ceil(titleH + captionH + gap + 2 * padding) };
+}
+
+/**
+ * Text geometry for the band: caption_size is in output px, so on small outputs it
+ * scales down until the band takes at most a third of the frame. 1080p is untouched.
+ */
+export function bandText(captions: Caption[], widths: (number | CaptionInk)[], d: CameraDefaults): CameraDefaults {
+  const fit = Math.min(1, d.out_h / 3 / bandRows(captions, widths, d).band);
+  return fit < 1 ? { ...d, caption_size: d.caption_size * fit, caption_border: d.caption_border * fit } : d;
+}
+
+export function bandLayout(width: number, height: number, d: CameraDefaults, captions: Caption[] = [],
+  widths: (number | CaptionInk)[] = []): Band | null {
+  if (Math.abs(width / height - 16 / 9) > 0.01 || Math.abs(d.out_w / d.out_h - 16 / 9) > 0.01) return null;
+  const { titleH, captionH, gap, padding, band } = bandRows(captions, widths, d);
   const top = Math.round(d.out_h * d.stage_margin / (1 + 2 * d.stage_margin));
   const h = Math.floor((d.out_h - top - band) / 2) * 2;
   if (h <= 0) throw new Error("text is too tall for the stage band");

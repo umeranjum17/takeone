@@ -1,7 +1,7 @@
 {
   "synth": {
     "max_upscale": {
-      "value": 0.8333333333333334,
+      "value": 0.7166666666666666,
       "target": 1,
       "direction": "max",
       "unit": "output px/source px",
@@ -120,7 +120,7 @@
       "goalPassed": true
     },
     "banding": {
-      "value": 7,
+      "value": 9,
       "target": 64,
       "direction": "max",
       "unit": "px",
