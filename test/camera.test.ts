@@ -983,6 +983,7 @@ test("overlapping buttons retain the longer drag through its stationary tail", a
 
 test("planning retains released and unreleased drags crossing the actual trim boundary", async () => {
   const { actionsFromEvents } = await import("../src/perceive/actions.ts");
+  const { actionVideoSeconds, actionCameraMilliseconds } = await import("../src/beats/clock.ts");
   const { segmentBeats } = await import("../src/beats/segment.ts");
   const { zonesForBeat } = await import("../src/beats/zones.ts");
   const { idleSqueezes, warp } = await import("../src/render/pace.ts");
@@ -1007,17 +1008,24 @@ test("planning retains released and unreleased drags crossing the actual trim bo
     const drag = actions.find(a => a.k === "drag")!;
     assert.equal(drag.t0, 8000);
     const planned = segmentBeats(actions, [], { ...bounds, takeMs: 30000 });
-    const owner = planned.find(b => b.actions.includes(drag))!;
+    const owner = planned.find(b => b.actions.some(a => a.k === "drag"))!;
     assert.ok(owner);
     assert.equal(owner.t0, 9000);
     assert.equal(owner.t1, Math.min(endMs, drag.t1));
     assert.ok(planned.every(b => b.t0 >= 9000 && b.t1 <= endMs));
-    assert.deepEqual(owner.actions.find(a => a.k === "drag"), drag);
+    const retained = owner.actions.find(a => a.k === "drag") as typeof drag;
+    assert.equal(retained.t0, 9000);
+    assert.equal(retained.t1, Math.min(endMs, drag.t1));
+    assert.deepEqual(retained.from, [2200, 800]);
+    assert.deepEqual(retained.path![0], { t: 9000, x: 2200, y: 800 });
+    assert.equal(drag.t0, 8000);
     const beats: Beat[] = JSON.parse(JSON.stringify(planned.map(b => ({
       ...b, t0: b.t0 / 1000, t1: b.t1 / 1000, anchor_t: b.anchor_t / 1000, window_rect: rect,
+      actions: b.actions.map(a => actionVideoSeconds(a, 0)),
       zones: zonesForBeat(b, { stream, scale: 1, winRect: rect, frames: [] })
         .map(z => ({ name: z.name, type: z.kind, bbox: z.bbox })),
     }))));
+    for (const b of beats) b.actions = b.actions.map(actionCameraMilliseconds);
     const start = 9;
     const end = endMs / 1000;
     const squeezes = idleSqueezes(beats, start, end, DEFAULTS);
@@ -1038,7 +1046,7 @@ test("planning retains released and unreleased drags crossing the actual trim bo
     const unknown = framingCoverage(warped, solved, solved, start).find(r => r.beat === heldBeat.id)!;
     assert.equal(unknown.dragFrames, held.length);
     assert.equal(unknown.dragLost, held.length);
-    g.whole_object = [1000, 700, 400, 200];
+    g.whole_object = [2100, 700, 400, 200];
     const established = solveCamera(warped, decisions, take, DEFAULTS);
     const baseline = solveCamera(warped.map(b => ({ ...b, actions: [] })), decisions, take, DEFAULTS);
     const rows = framingCoverage(warped, baseline, established, start);
@@ -1046,5 +1054,58 @@ test("planning retains released and unreleased drags crossing the actual trim bo
     assert.equal(rows.find(r => r.beat === heldBeat.id)!.dragLost, 0);
     const clipped = established.map(f => f.t + start >= 16 ? { ...f, x: 0, y: 0, w: 1920, h: 1080 } : f);
     assert.ok(framingCoverage(warped, baseline, clipped, start).find(r => r.beat === heldBeat.id)!.dragLost > 0);
+  }
+});
+
+test("make and render clocks retain a drag crossing the first video frame without negative history", async () => {
+  const { actionsFromEvents } = await import("../src/perceive/actions.ts");
+  const { segmentBeats } = await import("../src/beats/segment.ts");
+  const { actionVideoSeconds, actionCameraMilliseconds } = await import("../src/beats/clock.ts");
+  const { gestures, gesturePointer } = await import("../src/camera/gesture.ts");
+  const { framingCoverage, contains } = await import("../scripts/check-framing.ts");
+  const rect: [number, number, number, number] = [0, 0, 1920, 1080];
+  for (const released of [false, true]) {
+    const events = [
+      { k: "win" as const, t: 0, cls: "board", title: "Tidewater", rect },
+      { k: "ptr" as const, t: 900, x: 1100, y: 800 },
+      { k: "btn" as const, t: 900, b: "left", down: true },
+      { k: "ptr" as const, t: 1100, x: 1500, y: 1000 },
+      { k: "ptr" as const, t: 2000, x: 3300, y: 1000 },
+      ...(released ? [{ k: "btn" as const, t: 3000, b: "left", down: false }] : []),
+    ];
+    const stream = { w: 3840, h: 2160 };
+    const bounds = { stream, startMs: 1000, endMs: 3000 };
+    const raw = actionsFromEvents(events, [], { ...bounds, pointer: "mapped" });
+    const rawDrag = raw.find(a => a.k === "drag")!;
+    assert.equal(rawDrag.t0, 900);
+    const planned = segmentBeats(raw, [], { ...bounds, takeMs: 3000 });
+    const clipped = planned.flatMap(b => b.actions).find(a => a.k === "drag")!;
+    assert.deepEqual(clipped.from, [1300, 900]);
+    assert.deepEqual(clipped.path![0], { t: 1000, x: 1300, y: 900 });
+    assert.equal(rawDrag.t0, 900);
+    const seconds = (ms: number) => (ms - 1000) / 1000;
+    const serialized = JSON.stringify(planned.map(b => ({ ...b,
+      t0: seconds(b.t0), t1: seconds(b.t1), anchor_t: seconds(b.anchor_t), window_rect: rect,
+      actions: b.actions.map(a => actionVideoSeconds(a, 1000)),
+      zones: [zone("card", [1000, 700, 400, 200])],
+    })));
+    const beats = JSON.parse(serialized) as Beat[];
+    for (const b of beats) b.actions = b.actions.map(actionCameraMilliseconds);
+    const g = gestures(beats.find(b => gestures(b).length)!)[0]!;
+    assert.equal(g.t0, 0);
+    assert.equal(g.t1, 2000);
+    assert.ok(g.path!.every(p => p.t >= 0));
+    assert.deepEqual(g.path!.map(p => p.t), [0, 100, 1000, 2000]);
+    const decisions = beats.map(b => decision(b));
+    const take = { width: 3840, height: 2160, trim_start: 0, trim_end: 2 };
+    const frames = solveCamera(beats, decisions, take, DEFAULTS);
+    for (const f of frames) {
+      const [x, y] = gesturePointer(g, f.t);
+      assert.ok(contains(f, [0, 0, 3840, 2160]));
+      assert.ok(contains(f, [x - 8, y - 8, 32, 40]));
+    }
+    g.whole_object = [1200, 800, 400, 200];
+    const established = solveCamera(beats, decisions, take, DEFAULTS);
+    assert.ok(framingCoverage(beats, frames, established).every(r => r.passed));
   }
 });
