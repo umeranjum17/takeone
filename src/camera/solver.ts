@@ -17,6 +17,7 @@ interface Shot {
   zoneA: Zone;
   zoneB: Zone;
   arrival: number;
+  portraitFill?: boolean;
 }
 
 interface Target {
@@ -27,7 +28,7 @@ interface Target {
   /** A long-idle widen: quiet by definition, so exempt from the rate cap. */
   breathe?: boolean;
   /** An edit takes precedence over automatic shot suppression and FOLLOW. */
-  manual?: boolean;
+  manual?: "zoom" | "resume";
 }
 
 interface Move {
@@ -44,14 +45,31 @@ const clamp = (value: number, min: number, max: number) =>
 const lerp = (a: number, b: number, u: number) => a + (b - a) * u;
 const smooth = (u: number) => u * u * u * (u * (u * 6 - 15) + 10);
 
-/** Width of the output-aspect canvas the source sits in; z = 1 shows all of it. */
+/** Width of the padded output-aspect stage in source-space pixels. */
 export function baseWidth(width: number, height: number, d: CameraDefaults = DEFAULTS): number {
-  return Math.max(width, height * d.out_w / d.out_h);
+  const contentWidth = Math.max(width, height * d.out_w / d.out_h);
+  // Camera coordinates include the card's rest margin. This keeps the zoom
+  // budget attached to the final visible viewport, including at very large
+  // output sizes where the margin is needed to reach the source's native cap.
+  return contentWidth * (1 + 2 * d.stage_margin);
 }
 
 /** Deepest zoom, measured against the aspect-padded canvas, that keeps within max_upscale. */
 export function zMax(width: number, height: number, d: CameraDefaults = DEFAULTS): number {
   return Math.max(1, baseWidth(width, height, d) / (d.out_w / d.max_upscale));
+}
+
+/** Describe manual requests reduced by the native-pixel upscale ceiling. */
+export function manualZoomLimitWarning(take: TakeMeta, d: CameraDefaults = DEFAULTS): string | undefined {
+  const limit = zMax(take.width, take.height, d);
+  const uncappedDefaults = { ...d, max_upscale: 1e9 };
+  const capped = (take.zooms ?? []).flatMap((zoom, index) => {
+    const region: Zone = { name: "manual", type: "act", bbox: zoom.bbox };
+    const requested = frame(region, zoom.level ?? 2, take.width, take.height, undefined, uncappedDefaults).z;
+    if (requested <= limit + 1e-8) return [];
+    return [`zoom ${index + 1}: requested ${requested.toFixed(2)}x, achieved ${limit.toFixed(2)}x`];
+  });
+  return capped.length ? `Camera upscale limit capped manual framing (${capped.join("; ")}).` : undefined;
 }
 
 /** Convert a camera centre to an output-aspect viewport, allowing padded overscan. */
@@ -63,14 +81,25 @@ function toFrame(
 ): CameraFrame {
   const z = clamp(state.z, 1, zMax(width, height, d));
   const aspect = d.out_w / d.out_h;
-  const nonWide = Math.abs(width / height - aspect) > 1e-9;
-  // Keep the viewport at the output aspect; padded overscan shrinks with zoom.
-  const w = nonWide ? baseWidth(width, height, d) / z : Math.min(width / z, height * aspect);
+  const aspectDelta = Math.abs(width / height / aspect - 1);
+  const nonWide = aspectDelta > 1e-9;
+  // The camera now moves across the padded stage itself. This makes the
+  // solver's viewport the same viewport the renderer finally exposes.
+  const w = baseWidth(width, height, d) / z;
   const h = w / aspect;
-  // An axis wider than the screen centres it (a phone card in a 16:9 frame);
-  // an axis inside it clamps, so the shot never shows past the screen's edge.
-  const place = (centre: number, view: number, size: number) =>
-    nonWide && view > size ? (size - view) / 2 : clamp(centre - view / 2, 0, Math.max(0, size - view));
+  // Overscan remains centred until the requested crop fits; pan eases into the
+  // newly available margin to avoid a one-frame jump at the source boundary.
+  const place = (centre: number, view: number, size: number) => {
+    if (view > size) {
+      const wideIntoPortrait = d.out_h > d.out_w && width / height > aspect;
+      return wideIntoPortrait ? centre - view / 2 : (size - view) / 2;
+    }
+    const easeBoundary = aspectDelta > 0.01 || d.stage_margin > 0;
+    const edgeSpan = d.out_h > d.out_w ? 0.25 : 0.75;
+    const u = easeBoundary ? smooth(clamp((size - view) / (size * edgeSpan), 0, 1)) : 1;
+    const effectiveCentre = size / 2 + (centre - size / 2) * u;
+    return clamp(effectiveCentre - view / 2, 0, size - view);
+  };
   const x = place(state.cx, w, width);
   const y = place(state.cy, h, height);
   return { t: 0, x, y, w, h };
@@ -286,6 +315,13 @@ function buildTargets(
 ): Target[] {
   const targets = shots.flatMap((shot) => {
     const targetA = frame(shot.zoneA, shot.decision.L, width, height, shot.beat.window_rect, d);
+    if (shot.portraitFill) {
+      const fitZoom = baseWidth(width, height, d) / (height * d.out_w / d.out_h);
+      // Limit the first crop to a readable one-second move within the zoom
+      // speed budget. The selected region stays framed without rushing into a
+      // source-resolution zoom just to fill the portrait canvas.
+      targetA.z = Math.min(targetA.z, fitZoom, zMax(width, height, d), Math.exp(0.4));
+    }
     const result: Target[] = [{
       t: shot.arrival,
       state: targetA,
@@ -340,14 +376,14 @@ function createMove(from: CameraState, to: CameraState, arrival: number, baseW: 
   const mid = hop
     ? { cx: (from.cx + to.cx) / 2, cy: (from.cy + to.cy) / 2, z: Math.max(1, Math.min(from.z, to.z) / d.hop_zoom_div) }
     : from;
-  if (manual) {
-    // A user can request a much deeper zoom than the planner. Smootherstep's
-    // peak slope is 1.875 and peak acceleration is <5.78: bound the ideal path
-    // to 1 ln/s and 4 ln/s² before the final spring. Hops ease each half.
-    const travel = hop ? 2 * Math.max(Math.abs(Math.log(mid.z / from.z)), Math.abs(Math.log(to.z / mid.z)))
-      : Math.abs(Math.log(to.z / from.z));
-    duration = Math.max(duration, 1.875 * travel, Math.sqrt(5.78 * travel * (hop ? 2 : 1) / 4));
-  }
+  // Smootherstep's peak slope is 1.875. Manual edits retain their existing
+  // speed and acceleration bounds; portrait reframes leave room for the final
+  // spring while keeping their zoom speed within budget. Hops ease each half.
+  const travel = hop ? 2 * Math.max(Math.abs(Math.log(mid.z / from.z)), Math.abs(Math.log(to.z / mid.z)))
+    : Math.abs(Math.log(to.z / from.z));
+  if (manual) duration = Math.max(duration, 1.875 * travel, Math.sqrt(5.78 * travel * (hop ? 2 : 1) / 4));
+  else if (d.out_h > d.out_w) duration = Math.max(duration, 2 * travel);
+  if (manual) duration *= 1.35;
   const start = Math.max(arrival - duration, startAfter);
   return { from, to, mid, start, end: start + duration, hop };
 }
@@ -471,13 +507,17 @@ function sampleCamera(
     // and breathe targets obey it too, so no shot flashes by unread.
     const settle = move ? move.end + 2 / d.lowpass_omega : 0;
     const heldUntil = move ? settle + d.dwell : 0;
-    const dueEdit = targets.findIndex((target, i) => i >= targetIndex && target.manual && target.t <= time);
+    const dueEdit = targets.findIndex((target, i) => i >= targetIndex && target.manual === "resume" && target.t <= time);
     if (dueEdit >= 0) targetIndex = dueEdit;
     while (targetIndex < targets.length) {
       const target = targets[targetIndex]!;
       // A manual edit begins at its exact boundary and interrupts any auto move.
-      const manualDue = target.manual && time >= target.t;
-      if (target.manual && !manualDue) break;
+      const candidateMove = createMove(state, target.state, target.t, baseW, d,
+        target.manual === "zoom" ? 0
+          : target.manual === "resume" ? target.t : Math.max(target.startAfter ?? 0, previousTime), Boolean(target.manual));
+      const manualDue = target.manual === "zoom" ? time >= candidateMove.start
+        : target.manual === "resume" && time >= target.t;
+      if (target.manual === "resume" && !manualDue) break;
       if (!manualDue && zooms.some(z => time >= z.t0 && time < z.t1)) break;
       if (!manualDue && move && previousTime < heldUntil) break;
       const reversing = lastZoomDirection !== 0
@@ -485,12 +525,12 @@ function sampleCamera(
       // Include result, breathe and outro targets: arrivals alone do not enforce
       // a visible hold between opposite zooms once the spring settles.
       const zoomHold = reversing ? Math.max(heldUntil, lastZoomMotion + d.min_shot) : heldUntil;
-      const candidateMove = createMove(state, target.state, target.t, baseW, d,
+      const scheduledMove = target.manual === "zoom" ? candidateMove : createMove(state, target.state, target.t, baseW, d,
         manualDue ? target.t : Math.max(target.startAfter ?? 0, zoomHold, previousTime), Boolean(target.manual));
-      if (candidateMove.start > time) break;
+      if (scheduledMove.start > time) break;
       targetIndex++;
       if (!target.manual && isDeadzone(state, target.state, baseW, d)) continue;
-      move = candidateMove;
+      move = scheduledMove;
     }
 
     if (move && time >= move.start && time < move.end) {
@@ -604,6 +644,18 @@ export function solveCamera(
   const visibleBeats = beats.filter((beat) => beat.t1 > start && beat.t0 < end);
   const shots = buildShots(beats, decisions, start, d)
     .filter((shot) => visibleBeats.includes(shot.beat) && !shot.beat.camera_suppressed);
+  const portraitCrop = d.out_h > d.out_w && width / height > d.out_w / d.out_h;
+  if (portraitCrop) {
+    const active = shots.find((shot) => shot.beat.zones.some((zone) => zone.type !== "all"));
+    if (active) {
+      active.arrival = Math.min(active.arrival, start + 1 - 2 / d.lowpass_omega);
+      active.zoneA = active.beat.zones.filter((zone) => zone.type !== "all")
+        .sort((a, b) => Math.abs((a.t_change ?? active.beat.anchor_t) - active.beat.anchor_t)
+          - Math.abs((b.t_change ?? active.beat.anchor_t) - active.beat.anchor_t))[0]!;
+      active.decision = { ...active.decision, L: Math.max(2, active.decision.L) as 2 | 3 };
+      active.portraitFill = true;
+    }
+  }
   const quietShots = applyDwellAndShotLength(shots, d).filter((shot) => shot.arrival < end);
   const automatic = applyMoveRateLimit(buildTargets(quietShots, visibleBeats.filter(beat => !beat.camera_suppressed),
     width, height, start, end, d), width, height, d);
@@ -614,15 +666,19 @@ export function solveCamera(
   for (const zoom of zooms) {
     const region: Zone = { name: "manual", type: "act", bbox: zoom.bbox };
     const requested = frame(region, zoom.level ?? 2, width, height, undefined, d);
+    if (portraitCrop) {
+      const fitZoom = baseWidth(width, height, d) / (height * d.out_w / d.out_h);
+      requested.z = Math.max(requested.z, Math.min(fitZoom, zMax(width, height, d)));
+    }
     const viewport = toFrame(requested, width, height, d);
-    targets.push({ t: zoom.t0, startAfter: zoom.t0, manual: true, importance: 2,
+    targets.push({ t: zoom.t0, manual: "zoom", importance: 2,
       state: { cx: viewport.x + viewport.w / 2, cy: viewport.y + viewport.h / 2, z: baseWidth(width, height, d) / viewport.w } });
     // Resume the latest automatic framing, even if its target fell inside the edit.
     if (zoom.t1 < end && !zooms.some(z => z.t0 === zoom.t1)) targets.push({
-      t: zoom.t1, startAfter: zoom.t1, manual: true, importance: 2,
+      t: zoom.t1, startAfter: zoom.t1, manual: "resume", importance: 2,
       state: automatic.filter(t => t.t <= zoom.t1).at(-1)?.state ?? { cx: width / 2, cy: height / 2, z: 1 },
     });
   }
-  targets.sort((a, b) => a.t - b.t || Number(Boolean(a.manual)) - Number(Boolean(b.manual)));
+  targets.sort((a, b) => a.t - b.t || Number(a.manual !== undefined) - Number(b.manual !== undefined));
   return sampleCamera(targets, quietShots.map((shot) => shot.beat), decisionMap, width, height, start, end, d, zooms);
 }

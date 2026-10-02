@@ -2,7 +2,6 @@
 // source space (so they zoom with the content) and captions drawn in output space.
 // Everything here is local ffmpeg/libass work and costs zero tokens.
 import type { CameraDefaults } from "../camera/defaults.ts";
-import { zMax } from "../camera/solver.ts";
 import type { Beat, CameraFrame, TakeMeta } from "../camera/types.ts";
 
 export interface Stage {
@@ -41,23 +40,36 @@ export function stageGeometry(width: number, height: number, d: CameraDefaults):
 }
 
 /**
- * Map solver viewports (source px) onto the stage. At rest the whole stage shows;
- * zooming eases the margin away so the deepest zoom still fills the frame with screen.
+ * Map solver viewports (stage-space source px) onto the stage. The solver and
+ * renderer share one padded viewport, so padding cannot change camera timing.
  */
 export function stageFrames(frames: CameraFrame[], width: number, height: number, st: Stage, d: CameraDefaults): CameraFrame[] {
-  const top = zMax(width, height, d);
   const aspect = d.out_w / d.out_h;
+  const portraitCrop = d.out_h > d.out_w && width / height > aspect;
+  const portraitFillWidth = height * aspect;
   return frames.map((f) => {
-    const zoom = st.baseW / f.w;
-    const keep = top > 1 ? 1 - smooth(clamp((zoom - 1) / (top - 1), 0, 1)) : 1;
-    const w = Math.min(st.w, f.w * (1 + 2 * d.stage_margin * keep));
-    const h = Math.min(st.h, w / aspect);
+    const naturalW = portraitCrop
+      ? Math.min(st.w, Math.max(portraitFillWidth, f.w))
+      : Math.min(st.w, f.w);
+    const w = naturalW;
+    let h = Math.min(st.h, w / aspect);
     const cx = f.x + f.w / 2 + st.screenX;
     const cy = f.y + f.h / 2 + st.screenY;
+    const relaxX = smooth(clamp((w - width + st.screenX * 2) / (st.screenX * 4), 0, 1));
+    const relaxY = smooth(clamp((h - height + st.screenY * 2) / (st.screenY * 4), 0, 1));
+    // The source-bounded and stage-bounded clamp ranges meet at the source
+    // dimensions. Switching between them there can move an edge-tracked view
+    // by an entire stage margin in one frame. Expand the allowed range smoothly.
+    const halfX = Math.max(0, (width - w) / 2 + relaxX * st.screenX);
+    const halfY = Math.max(0, (height - h) / 2 + relaxY * st.screenY);
+    const centerX = st.w / 2;
+    const centerY = st.h / 2;
     return {
       t: f.t,
-      x: clamp(cx - w / 2, 0, st.w - w),
-      y: clamp(cy - h / 2, 0, st.h - h),
+      x: portraitCrop ? clamp(cx, centerX - halfX, centerX + halfX) - w / 2
+        : w > st.w ? (st.w - w) / 2 : clamp(cx - w / 2, 0, st.w - w),
+      y: portraitCrop ? clamp(cy, centerY - halfY, centerY + halfY) - h / 2
+        : h > st.h ? (st.h - h) / 2 : clamp(cy - h / 2, 0, st.h - h),
       w,
       h,
     };
@@ -76,20 +88,32 @@ export function cornerSize(st: Stage, d: CameraDefaults): number {
  */
 export function stageImageFilter(width: number, height: number, st: Stage, d: CameraDefaults): string {
   const radius = d.corner_radius / st.restScale;
-  const shadowY = Math.round(18 / st.restScale);
-  const blur = (28 / st.restScale).toFixed(1);
-  const hex = (colour: string) => `0x${colour.slice(1)}`;
+  const shadowY = Math.round(d.shadow_y / st.restScale);
+  const blur = (d.shadow_blur / st.restScale).toFixed(1);
+
+  const shadowX = Math.round(d.shadow_x / st.restScale);
   // Antialiased rounded-rectangle alpha from its signed distance.
   const card = `geq=lum='255*clip(${radius}+0.5-hypot(max(abs(X+0.5-W/2)-(W/2-${radius}),0),max(abs(Y+0.5-H/2)-(H/2-${radius}),0)),0,1)'`;
   // Fixed-seed luma noise is static. Pin its input to 8-bit YUV so pixel
   // format negotiation cannot turn subtle dither into high-depth colour noise.
   return [
     `color=black:s=${width}x${height}:d=1,format=gray,${card},split[m1][m2]`,
-    `[m1]pad=${st.w}:${st.h}:${st.screenX}:${st.screenY + shadowY}:black,gblur=sigma=${blur},lutyuv=y=val*${d.shadow}[sa]`,
-    `color=black:s=${st.w}x${st.h}:d=1,format=rgba[sb]`,
+    `[m1]pad=${st.w}:${st.h}:${st.screenX + shadowX}:${st.screenY + shadowY}:black${d.shadow_blur > 0 ? `,gblur=sigma=${blur}` : ""},lutyuv=y=val*${d.shadow}[sa]`,
+    `color=${d.shadow_color}:s=${st.w}x${st.h}:d=1,format=rgba[sb]`,
     `[sb][sa]alphamerge[shadow]`,
-    `gradients=s=${st.w}x${st.h}:d=1:c0=${hex(d.background)}:c1=${hex(d.background_to)}:x0=0:y0=0:x1=${st.w}:y1=${st.h}:nb_colors=2:seed=0,format=yuv444p,noise=c0s=4:c0f=u:c0_seed=7[bg]`,
-    `[bg][shadow]overlay=format=auto,format=rgb24,split[stage][cut]`,
+    `${backgroundFilter(st, d)},format=yuv444p${backgroundPattern(d)}${d.grain > 0 ? `,noise=c0s=${d.grain}:c0f=u:c0_seed=7` : ""}[bg]`,
+    `[bg][shadow]overlay=format=auto[base]`,
+    ...(d.border > 0 || d.glow > 0 ? [
+      `color=${d.glow > 0 ? d.accent : d.border_color}:s=${st.w}x${st.h}:d=1,format=rgba[accent]`,
+      (d.glow > 0
+        ? `color=black:s=${width}x${height}:d=1,format=gray,${card},pad=${st.w}:${st.h}:${st.screenX}:${st.screenY}:black`
+          + `,gblur=sigma=${(24 / st.restScale).toFixed(1)},lutyuv=y=val*${d.glow}`
+        : `color=black:s=${st.w}x${st.h}:d=1,format=gray,geq=lum='255*clip(${radius + d.border / st.restScale}+0.5-hypot(max(abs(X+0.5-${st.screenX + width / 2})-(${width / 2 - radius}),0),max(abs(Y+0.5-${st.screenY + height / 2})-(${height / 2 - radius}),0)),0,1)'`)
+        + `[accentmask]`,
+      `[accent][accentmask]alphamerge[edge]`,
+      `[base][edge]overlay=format=auto[look]`,
+    ] : [`[base]null[look]`]),
+    `[look]format=rgb24,split[stage][cut]`,
     `[m2]negate,pad=${st.w}:${st.h}:${st.screenX}:${st.screenY}:white[hole]`,
     `[cut][hole]alphamerge[holes]`,
   ].join(";");
@@ -279,16 +303,17 @@ export function captionAss(captions: Caption[], widths: (number | CaptionInk)[],
       !other.title && other.t0 < caption.t1 && other.t1 > caption.t0 ? heights[i]! : 0)) : 0;
     const cy = d.out_h - d.out_h * 0.075 - pillH / 2 - (below ? below + size * 0.35 : 0);
     const rise = Math.round(size * 0.3);
-    const move = `\\move(${cx},${cy + rise},${cx},${cy},0,260)`;
+    const settle = Math.round(260 * 14 / d.spring_omega / d.spring_zeta);
+    const move = `\\move(${cx},${cy + rise},${cx},${cy},0,${settle})`;
     const fade = `\\fad(220,200)`;
     const x = -pillW / 2;
     const y = -pillH / 2;
     const time = `${assTime(caption.t0)},${assTime(caption.t1)}`;
     // The pill is drawn around its own origin so \move animates it with the text.
-    out += `Dialogue: 2,${time},Default,,0,0,0,,{\\an7${move}${fade}\\bord0\\shad0\\blur0.6`
-      + `\\1c${assColour("#101217")}\\1a${assAlpha(0.14)}\\p1}${roundRect(x, y, pillW, pillH, pillH / 2)}\n`;
+    out += `Dialogue: 2,${time},Default,,0,0,0,,{\\an7${move}${fade}\\bord${d.caption_border}\\3c${assColour(d.text)}\\shad0\\blur0.6`
+      + `\\1c${assColour(d.card)}\\1a${assAlpha(1 - d.caption_opacity)}\\p1}${roundRect(x, y, pillW, pillH, pillH / 2 * d.caption_rounding)}\n`;
     const margin = captionMargin(size, d);
-    out += `Dialogue: 3,${time},Default,,${margin},${margin},0,,{\\q0\\an5${move}${fade}\\fs${size}\\bord0\\shad0}${caption.text}\n`;
+    out += `Dialogue: 3,${time},Default,,${margin},${margin},0,,{\\q0\\an5${move}${fade}\\fs${size}\\fn${caption.title ? d.display_font : d.caption_font}\\1c${assColour(d.text)}\\bord0\\shad0}${caption.text}\n`;
   });
   return out;
 }
@@ -299,7 +324,39 @@ export function measureAss(captions: Caption[], d: CameraDefaults): string {
   captions.forEach((caption, index) => {
     const size = caption.title ? Math.round(d.caption_size * 1.4) : d.caption_size;
     const margin = captionMargin(size, d);
-    out += `Dialogue: 0,${assTime(index)},${assTime(index + 1)},Default,,${margin},${margin},0,,{\\q0\\an5\\pos(${d.out_w / 2},${d.out_h / 2})\\fs${size}}${caption.text}\n`;
+    out += `Dialogue: 0,${assTime(index)},${assTime(index + 1)},Default,,${margin},${margin},0,,{\\q0\\an5\\pos(${d.out_w / 2},${d.out_h / 2})\\fs${size}\\fn${caption.title ? d.display_font : d.caption_font}}${caption.text}\n`;
   });
   return out;
+}
+
+/** A deterministic still for recordings. Motion scenes may animate the same tokens. */
+export function backgroundFilter(st: Stage, d: CameraDefaults): string {
+  const hex = (colour: string) => `0x${colour.slice(1)}`;
+  if (d.bg_style === "image") return `[0:v]scale=${st.w}:${st.h}:force_original_aspect_ratio=increase,crop=${st.w}:${st.h},setsar=1`;
+  if (d.bg_style === "solid") return `color=${hex(d.background)}:s=${st.w}x${st.h}:d=1`;
+  const stops = d.bg_stops ? d.bg_stops.split(",") : [d.background, d.background_to];
+  if (d.bg_style === "mesh") {
+    // Four broad radial pools rather than banded concentric stops. Fixed positions
+    // make this independent of ffmpeg random state and output frame number.
+    const rgb = stops.map(c => [1, 3, 5].map(i => parseInt(c.slice(i, i + 2), 16)));
+    const positions = [[0.1, 0.15], [0.85, 0.15], [0.1, 0.85], [0.85, 0.85]];
+    const weights = rgb.map((_, i) => {
+      const [x, y] = positions[i % 4]!;
+      return `exp(-3*(pow(X/W-${x},2)+pow(Y/H-${y},2)))`;
+    });
+    const channel = (i: number) => rgb.map((c, j) => `${c[i]}*${weights[j]}`).join("+") + `)/(${weights.join("+")})`;
+    return `nullsrc=s=${st.w}x${st.h}:d=1,format=gbrp,geq=r='(${channel(0)}':g='(${channel(1)}':b='(${channel(2)}'`;
+  }
+  const radial = d.bg_style === "radial";
+  return `gradients=s=${st.w}x${st.h}:d=1:${stops.map((c, i) => `c${i}=${hex(c)}`).join(":")}`
+    + `:x0=${radial ? Math.round(st.w / 2) : 0}:y0=${radial ? Math.round(st.h / 2) : 0}:x1=${st.w}:y1=${st.h}`
+    + `:nb_colors=${stops.length}:seed=0${radial ? ":type=radial" : ""}`;
+}
+
+/** Low-contrast stage texture; static coordinates keep rerenders deterministic. */
+function backgroundPattern(d: CameraDefaults): string {
+  if (d.bg_pattern === "none") return "";
+  const line = d.bg_pattern === "grid"
+    ? "max(lt(mod(X,48),1),lt(mod(Y,48),1))" : "lt(mod(Y,6),1)";
+  return `,geq=lum='lum(X,Y)+6*(${line})':cb='cb(X,Y)':cr='cr(X,Y)'`;
 }

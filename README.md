@@ -217,8 +217,8 @@ takeone render ~/Videos/takeone/<id> --set background=#0B1220 --set idle_speed=3
 ## Plan and render
 
 ```sh
-node bin/takeone.mjs make <id> [--no-jev] [--about "topic"] [--screen-text] [--max-tokens N] [--set key=value]
-node bin/takeone.mjs render /path/to/take [--set fps=24]
+node bin/takeone.mjs make <id> [--no-jev] [--about "topic"] [--screen-text] [--max-tokens N] [--theme paper] [--set key=value]
+node bin/takeone.mjs render /path/to/take [--theme paper] [--set fps=24]
 ```
 
 `<id>` can also be an absolute take-directory path. `make` writes `analysis/regions.json`, `analysis/actions.json`, renderer-format `analysis/beats.json` (video-relative seconds), and one decision per line in `analysis/decisions.jsonl`; Jev responses are cached separately in `analysis/jev-cache.jsonl`. It updates `take.json` with usage and render metadata, then writes `camera.json`, `camera.cmd`, and `out/<id>.mp4`. Re-running `make` can reuse cached responses. A trim must overlap the video; only that overlap is planned. Beats are capped at 30 per minute, which may merge idle gaps.
@@ -229,7 +229,7 @@ With a [configured Jev key](#jev-key), Jev receives zone descriptions and an opt
 
 For an existing planned take, render reads `screen.webm`, `take.json` (at least `width` and `height` in source pixels), `analysis/beats.json` as a beat array, and `analysis/decisions.jsonl` as one decision per line. Each beat needs a matching decision whose A (and optional B) names refer to that beat's zones. For an existing take, `events.jsonl` may be omitted only when `take.json` has `"events": "none"`; an empty event file is also valid.
 
-`--set key=value` overrides camera settings defined in `src/camera/defaults.ts`; rerendering does not call the planner. Render writes `camera.json`, `camera.cmd`, and a silent H.264 MP4 at `out/<id>.mp4` inside the take directory (default 1920×1080 at 60 fps, or 1080×1920 at 60 fps when the take stream is portrait and no `out_w`/`out_h` override is passed). `--set quality=draft|standard|master` selects CRF 23, 18 (default), or 14; `--set preset=...` independently controls encoder speed. Output uses limited-range bt709 colour conversion and tags. The camera uses a subpixel warp: draft trades smoothness for fast previews with bilinear interpolation, standard uses cubic interpolation at output resolution, and master uses cubic at twice output resolution followed by Lanczos downsampling. Master is the slow highest-quality tier, with a render-time budget of up to 8× the original 30 fps renderer; standard targets 2.5×. Whole-screen shots of non-16:9 sources are centred on the stage background rather than cropped; zooming can crop the screen. If `take.json` omits `id`, the directory name is used; if it omits `trim_end`, the latest beat end is used.
+`--set key=value` overrides camera settings defined in `src/camera/defaults.ts`; rerendering does not call the planner. Render writes `camera.json`, `camera.cmd`, `render.log` (including libass font selection), and a silent H.264 MP4 at `out/<id>.mp4` inside the take directory (default 1920×1080 at 60 fps, or 1080×1920 at 60 fps when the take stream is portrait and no `out_w`/`out_h` override is passed). `--set quality=draft|standard|master` selects CRF 23, 18 (default), or 14; `--set preset=...` independently controls encoder speed. Output uses limited-range bt709 colour conversion and tags. The camera uses a subpixel warp: draft trades smoothness for fast previews with bilinear interpolation, standard uses cubic interpolation at output resolution, and master uses cubic at twice output resolution followed by Lanczos downsampling. Master is the slow highest-quality tier, with a render-time budget of up to 8× the original 30 fps renderer; standard targets 2.5×. Whole-screen shots of non-16:9 sources are centred on the stage background rather than cropped; zooming can crop the screen. If `take.json` omits `id`, the directory name is used; if it omits `trim_end`, the latest beat end is used.
 
 Edit a planned recording through `take.json`: `cuts[]` removes sections,
 `speed[]` sets playback rates (including detected typing), and `zooms[]` holds
@@ -267,19 +267,68 @@ Worst case at the defaults: the reserved total (planned tokens plus the 1,200-to
 
 Every render uses the same stage, all local ffmpeg/libass work at zero token cost:
 
-- **Stage**: at rest the screen sits as a rounded card (`corner_radius`, output px) with a soft drop shadow (`shadow`, opacity 0–1) on a diagonal gradient from `background` to `background_to`, inset by `stage_margin` (fraction of the stage size). The margin eases away as the camera zooms, so close-ups are all screen.
+- **Stage**: the selected theme sets the screen card, background, and typography; see the theme table below. The stage margin (`stage_margin`, fraction of stage size) eases away as the camera zooms, so close-ups are all screen.
 - **Zoom**: shots never upscale source pixels more than `max_upscale` (1.5): a clear push-in on a 1080p capture that keeps text crisp. The camera path runs through a critically damped spring (`lowpass_omega`), so moves ease in and out without overshoot. When a click opens a panel or dialog (a change region holding the click, up to half the screen), the shot holds the whole panel: per-level padding never widens a shot past `frame_max` (0.8) of the screen, and the zone itself always keeps `hold_pad` (1.08x) around it.
 - **Bookends**: the first shot waits `establish_s` so the viewer sees the whole screen first, and the camera settles back to the whole stage for the last `outro_s` (0 keeps the last shot). The video fades in from and out to `background_to` over `fade_s`.
 - **Clicks**: every click and drag press gets a press dot and an expanding `accent` ring with a white halo, lasting `ripple_ms` (0 turns it off) and growing to `ripple_r` output px at rest. The ripple is drawn in source space, so it zooms with the content.
 - **Pacing**: idle stretches between actions play `idle_speed` times faster (1 turns it off), keeping `idle_keep` seconds of real time around every action. The camera is solved on the output clock, so moves keep their natural speed.
-- **Titles and captions**: optional `title` and `captions` in `take.json` render as rounded pills near the bottom in `caption_font` at `caption_size` px (the title is 1.4× larger). Caption times are source-video seconds; `d` (default 3) is on-screen seconds, so reading time survives idle squeezing.
+- **Titles and captions**: optional `title` and `captions` in `take.json` render near the bottom in the selected theme's display and caption fonts at `caption_size` px (the title is 1.4× larger). Caption times are source-video seconds; `d` (default 3) is on-screen seconds, so reading time survives idle squeezing.
 
 ```json
 { "title": "Find any report in seconds",
   "captions": [{ "t": 8.4, "text": "Search filters as you type" }, { "t": 22.6, "d": 3.6, "text": "Drag to adjust retention" }] }
 ```
 
-Colours take `--set key=#RRGGBB`; `caption_font` takes letters, digits and spaces (`--set "caption_font=Inter SemiBold"`); fontconfig substitutes a system sans when the font is missing.
+Both `make` and `render` accept `--theme midnight|paper|aurora|mono|neon|brutalist|sand|terminal`.
+`midnight` is the default and keeps the existing look. A saved `"theme": "paper"`
+in `take.json` applies on every rerender; an explicit `--theme` takes precedence,
+and `--set` overrides the selected theme's tokens. `make --theme` saves the
+selection in the take; `render --theme` previews a different look without
+changing that saved selection.
+
+| Theme | Look | Display / caption font |
+|---|---|---|
+| midnight | Dark diagonal gradient | Inter SemiBold / Inter SemiBold |
+| paper | Cream paper, black hairline and ink | Instrument Serif / IBM Plex Sans |
+| aurora | Four radial colour pools with mint accents | Geist SemiBold / Geist |
+| mono | Black canvas with a white hairline | Geist SemiBold / Geist Mono |
+| neon | Violet vignette, visible pink glow and type | Space Grotesk Bold / Space Grotesk Medium |
+| brutalist | Yellow canvas, square corners, hard offset shadow | Archivo ExtraBold Expanded / IBM Plex Mono |
+| sand | Warm diagonal gradient and soft shadow | Fraunces SemiBold / Manrope Medium |
+| terminal | Green grid, square captions and mono type | JetBrains Mono Bold / JetBrains Mono |
+
+![Eight recording themes on a fictional launch board](docs/assets/themes/takeone-themes-grid.png)
+
+Theme fonts are bundled under OFL 1.1 with their licence files in
+`resources/fonts/`. Caption measurement and final rendering use the same
+libass `fontsdir`; `render.log` records the selected faces. A custom font that
+is neither installed nor bundled may be substituted through fontconfig.
+
+Colours (`background`, `background_to`, `accent`, `text`, `card`) take
+`--set key=#RRGGBB`. `caption_font` and `display_font` take letters, digits and
+spaces, for example `--set "display_font=Inter Bold"`.
+
+Additional look tokens: `bg_style=linear|solid|radial|mesh|image`,
+`bg_stops=#RRGGBB,#RRGGBB,...` (2–8 colours), `grain=0..100`,
+`shadow_blur`, `shadow_x`, `shadow_y`, `shadow_color`, `border`, `border_color`, `glow=0..1`,
+`bg_pattern=none|grid|scanlines`, `caption_rounding=0..1`,
+`caption_opacity=0..1`, `caption_border=0..16`,
+`spring_omega`, `spring_zeta=0.75..2`, and `pace=0.25..4`.
+For `bg_style=image`, supply `background_image=/path/to/image.png` (relative
+paths resolve inside the take). Recording backgrounds are deterministic stills;
+animated background drift and per-theme motion patterns belong to motion scenes.
+Overlay spring tokens adjust caption arrival time only; the recording camera
+remains critically damped. Recording `pace` scales camera holds (`dwell`,
+`dwell_k2`, `min_shot`) while keeping move durations and caption reading time.
+
+Generate the synthetic eight-theme grid and a short comparison video with
+`node scripts/theme-proof.ts tmp/theme-proof`. The fixture is a fictional
+Tidewater launch board with Umer as its demo person, with no desktop capture.
+The captured 2560×1440 fixture comes from `scripts/e2e/scene.html`; the proof
+uses `stage_margin=0.16` so background treatment is visible at thumbnail size.
+Every theme meets 4.5:1 caption contrast, including compositing over a white
+or black screen. Paper uses opaque cream labels and black ink; terminal uses
+opaque dark labels and green monospace ink.
 
 ## End-to-end take with a staged scene
 

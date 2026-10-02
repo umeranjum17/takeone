@@ -1,0 +1,167 @@
+[
+  {
+    "file": "Inter-SemiBold.ttf",
+    "family": "Inter SemiBold",
+    "source": "https://raw.githubusercontent.com/google/fonts/main/ofl/inter/Inter%5Bopsz%2Cwght%5D.ttf",
+    "source_sha256": "29160a80ff49ddcab2c97711247e08b1fab27a484a329ce8b813d820dc559031",
+    "axes": {
+      "opsz": 14.0,
+      "wght": 600
+    },
+    "sha256": "6fef0b1371ec20dffb54c860ad584d991288086cb76ac66f9c1bdee4ae617c0b",
+    "license": "inter-OFL.txt"
+  },
+  {
+    "file": "Inter-Bold.ttf",
+    "family": "Inter Bold",
+    "source": "https://raw.githubusercontent.com/google/fonts/main/ofl/inter/Inter%5Bopsz%2Cwght%5D.ttf",
+    "source_sha256": "29160a80ff49ddcab2c97711247e08b1fab27a484a329ce8b813d820dc559031",
+    "axes": {
+      "opsz": 14.0,
+      "wght": 700
+    },
+    "sha256": "e341d5b8cef94709a465b6bbdcabfacd96c32f09734a023645c759ebac87e1bb",
+    "license": "inter-OFL.txt"
+  },
+  {
+    "file": "Instrument-Serif.ttf",
+    "family": "Instrument Serif",
+    "source": "https://raw.githubusercontent.com/google/fonts/main/ofl/instrumentserif/InstrumentSerif-Regular.ttf",
+    "source_sha256": "498efd461f6ddfcb7a111bf9a565709d2085d48201d501ead960d93e84ffbb88",
+    "axes": {},
+    "sha256": "498efd461f6ddfcb7a111bf9a565709d2085d48201d501ead960d93e84ffbb88",
+    "license": "instrumentserif-OFL.txt"
+  },
+  {
+    "file": "IBM-Plex-Sans.ttf",
+    "family": "IBM Plex Sans",
+    "source": "https://raw.githubusercontent.com/IBM/plex/master/packages/plex-sans/fonts/complete/ttf/IBMPlexSans-Regular.ttf",
+    "source_sha256": "975dcda37d80f038dcd143c22e33ca2d97a0cc5a929aace1c749153b0fe1afa5",
+    "axes": {},
+    "sha256": "975dcda37d80f038dcd143c22e33ca2d97a0cc5a929aace1c749153b0fe1afa5",
+    "license": "ibmplexsans-OFL.txt"
+  },
+  {
+    "file": "Geist.ttf",
+    "family": "Geist",
+    "source": "https://raw.githubusercontent.com/google/fonts/main/ofl/geist/Geist%5Bwght%5D.ttf",
+    "source_sha256": "73894e0448cae90a92b6c2f8732b7bb9acb7b94c418bff559dad4a18e1de9659",
+    "axes": {
+      "wght": 400
+    },
+    "sha256": "52a0889eb1bd3d017ea1eef1100f8fd2f37d123bae072ca5b65386e046d0ffc2",
+    "license": "geist-OFL.txt"
+  },
+  {
+    "file": "Geist-SemiBold.ttf",
+    "family": "Geist SemiBold",
+    "source": "https://raw.githubusercontent.com/google/fonts/main/ofl/geist/Geist%5Bwght%5D.ttf",
+    "source_sha256": "73894e0448cae90a92b6c2f8732b7bb9acb7b94c418bff559dad4a18e1de9659",
+    "axes": {
+      "wght": 600
+    },
+    "sha256": "14a664caf8152809a429db7b49bdeade147fec9e8006a57604e8b53cb141b82a",
+    "license": "geist-OFL.txt"
+  },
+  {
+    "file": "Geist-Mono.ttf",
+    "family": "Geist Mono",
+    "source": "https://raw.githubusercontent.com/google/fonts/main/ofl/geistmono/GeistMono%5Bwght%5D.ttf",
+    "source_sha256": "d00e590b8eb3a59acc329b2d044fd143ae935090b7da33199ebee27cc7de8196",
+    "axes": {
+      "wght": 400
+    },
+    "sha256": "ad9c595e38f5bbe65782bf8eb141d1e464fcb085e7bc70435d6b6c94a42e8b57",
+    "license": "geistmono-OFL.txt"
+  },
+  {
+    "file": "Space-Grotesk-Medium.ttf",
+    "family": "Space Grotesk Medium",
+    "source": "https://raw.githubusercontent.com/google/fonts/main/ofl/spacegrotesk/SpaceGrotesk%5Bwght%5D.ttf",
+    "source_sha256": "acad6de1fc93436f5c0f1f4137751ef04f1aea3063e7036535970ffcfbd79f72",
+    "axes": {
+      "wght": 500
+    },
+    "sha256": "ee2b431d9b5e799169c1b7f48420277dd88334f06ab8b22655004bd03037cbc2",
+    "license": "spacegrotesk-OFL.txt"
+  },
+  {
+    "file": "Space-Grotesk-Bold.ttf",
+    "family": "Space Grotesk Bold",
+    "source": "https://raw.githubusercontent.com/google/fonts/main/ofl/spacegrotesk/SpaceGrotesk%5Bwght%5D.ttf",
+    "source_sha256": "acad6de1fc93436f5c0f1f4137751ef04f1aea3063e7036535970ffcfbd79f72",
+    "axes": {
+      "wght": 700
+    },
+    "sha256": "f8cae4f8c91c48c5b7edc7ff28c34a55e2954ef712d40953b26f8ddb2708e423",
+    "license": "spacegrotesk-OFL.txt"
+  },
+  {
+    "file": "Archivo-ExtraBold-Expanded.ttf",
+    "family": "Archivo ExtraBold Expanded",
+    "source": "https://raw.githubusercontent.com/google/fonts/main/ofl/archivo/Archivo%5Bwdth%2Cwght%5D.ttf",
+    "source_sha256": "0e094a7d3c7c4c25cf1310c4b30014f1dae9332220b1c2c88f4fa996f0b05053",
+    "axes": {
+      "wght": 800,
+      "wdth": 125
+    },
+    "sha256": "e21ec857d1d70b83a45b9c2ca29f6256323b35f05f7ab33e51a3623aaa38c6c9",
+    "license": "archivo-OFL.txt"
+  },
+  {
+    "file": "IBM-Plex-Mono.ttf",
+    "family": "IBM Plex Mono",
+    "source": "https://raw.githubusercontent.com/google/fonts/main/ofl/ibmplexmono/IBMPlexMono-Regular.ttf",
+    "source_sha256": "6a3412f058c7d8dfd9170c41e85ade48e5156ecb89356110ca57a0a27734af46",
+    "axes": {},
+    "sha256": "6a3412f058c7d8dfd9170c41e85ade48e5156ecb89356110ca57a0a27734af46",
+    "license": "ibmplexmono-OFL.txt"
+  },
+  {
+    "file": "Fraunces-SemiBold.ttf",
+    "family": "Fraunces SemiBold",
+    "source": "https://raw.githubusercontent.com/google/fonts/main/ofl/fraunces/Fraunces%5BSOFT%2CWONK%2Copsz%2Cwght%5D.ttf",
+    "source_sha256": "177ff6c0f14e5550a3c624247cd1189611d4eb65d000b14944c63d967958abbb",
+    "axes": {
+      "opsz": 9.0,
+      "wght": 600,
+      "SOFT": 0.0,
+      "WONK": 1.0
+    },
+    "sha256": "26c8d83cfddf5feb113030f5bd8d6ca9e46cf3d645885d2930086b060f757b2d",
+    "license": "fraunces-OFL.txt"
+  },
+  {
+    "file": "Manrope-Medium.ttf",
+    "family": "Manrope Medium",
+    "source": "https://raw.githubusercontent.com/google/fonts/main/ofl/manrope/Manrope%5Bwght%5D.ttf",
+    "source_sha256": "3ae11c49db0455a3cc33e37d380f20fdb8c7f8b41dc07625c177e3d87a9d6ae6",
+    "axes": {
+      "wght": 500
+    },
+    "sha256": "50e290cc297f6fc080770c30cf68519299d2b63cd567811b47380a03f2ac55d9",
+    "license": "manrope-OFL.txt"
+  },
+  {
+    "file": "JetBrains-Mono.ttf",
+    "family": "JetBrains Mono",
+    "source": "https://raw.githubusercontent.com/google/fonts/main/ofl/jetbrainsmono/JetBrainsMono%5Bwght%5D.ttf",
+    "source_sha256": "48715a42ec242c21e9f02692891e147d022299a52e48d5e413e1a942193ffeda",
+    "axes": {
+      "wght": 400
+    },
+    "sha256": "aefdffd38f816844e04fd8711d6e7d7bf4b704b1b08738fb33a86e45754fcc35",
+    "license": "jetbrainsmono-OFL.txt"
+  },
+  {
+    "file": "JetBrains-Mono-Bold.ttf",
+    "family": "JetBrains Mono Bold",
+    "source": "https://raw.githubusercontent.com/google/fonts/main/ofl/jetbrainsmono/JetBrainsMono%5Bwght%5D.ttf",
+    "source_sha256": "48715a42ec242c21e9f02692891e147d022299a52e48d5e413e1a942193ffeda",
+    "axes": {
+      "wght": 700
+    },
+    "sha256": "647351af19ac9c0790f9baa00601f6ac02494923181e2c0a1369e9d287bf029b",
+    "license": "jetbrainsmono-OFL.txt"
+  }
+]

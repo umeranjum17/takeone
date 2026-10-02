@@ -1,0 +1,65 @@
+{
+  "midnight": {
+    "seconds": 1.25,
+    "contrast": 18.734499042543195,
+    "fonts": [
+      "fontselect: (Inter SemiBold, 400, 0) -> InterSemiBold, 0, InterSemiBold"
+    ]
+  },
+  "paper": {
+    "seconds": 1.25,
+    "contrast": 17.179303975348738,
+    "fonts": [
+      "fontselect: (IBM Plex Sans, 400, 0) -> IBMPlexSans, 0, IBMPlexSans",
+      "fontselect: (Instrument Serif, 400, 0) -> InstrumentSerif-Regular, 0, InstrumentSerif-Regular"
+    ]
+  },
+  "aurora": {
+    "seconds": 1.25,
+    "contrast": 18.734499042543195,
+    "fonts": [
+      "fontselect: (Geist, 400, 0) -> Geist, 0, Geist",
+      "fontselect: (Geist SemiBold, 400, 0) -> GeistSemiBold, 0, GeistSemiBold"
+    ]
+  },
+  "mono": {
+    "seconds": 1.25,
+    "contrast": 21,
+    "fonts": [
+      "fontselect: (Geist Mono, 400, 0) -> GeistMono, 0, GeistMono",
+      "fontselect: (Geist SemiBold, 400, 0) -> GeistSemiBold, 0, GeistSemiBold"
+    ]
+  },
+  "neon": {
+    "seconds": 1.25,
+    "contrast": 9.547339428494318,
+    "fonts": [
+      "fontselect: (Space Grotesk Medium, 400, 0) -> SpaceGroteskMedium, 0, SpaceGroteskMedium",
+      "fontselect: (Space Grotesk Bold, 400, 0) -> SpaceGroteskBold, 0, SpaceGroteskBold"
+    ]
+  },
+  "brutalist": {
+    "seconds": 1.25,
+    "contrast": 14.50331468800011,
+    "fonts": [
+      "fontselect: (IBM Plex Mono, 400, 0) -> IBMPlexMono-Regular, 0, IBMPlexMono-Regular",
+      "fontselect: (Archivo ExtraBold Expanded, 400, 0) -> ArchivoExtraBoldExpanded, 0, ArchivoExtraBoldExpanded"
+    ]
+  },
+  "sand": {
+    "seconds": 1.25,
+    "contrast": 12.864695072523226,
+    "fonts": [
+      "fontselect: (Manrope Medium, 400, 0) -> ManropeMedium, 0, ManropeMedium",
+      "fontselect: (Fraunces SemiBold, 400, 0) -> FrauncesSemiBold, 0, FrauncesSemiBold"
+    ]
+  },
+  "terminal": {
+    "seconds": 1.25,
+    "contrast": 7.4497929930639835,
+    "fonts": [
+      "fontselect: (JetBrains Mono, 400, 0) -> JetBrainsMono, 0, JetBrainsMono",
+      "fontselect: (JetBrains Mono Bold, 400, 0) -> JetBrainsMonoBold, 0, JetBrainsMonoBold"
+    ]
+  }
+}

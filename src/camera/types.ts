@@ -52,6 +52,7 @@ export interface Decision {
 }
 
 export interface TakeMeta extends TakeEdits {
+  theme?: string;
   id?: string;
   width: number;
   height: number;

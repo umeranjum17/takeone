@@ -8,6 +8,7 @@ import { setKeyFromStdin } from "./secrets.ts";
 import { runCapture } from "./capture.ts";
 import { makeTake, PreflightRefusal, TakeInputError } from "./make.ts";
 import { renderTake } from "./render/render.ts";
+import { resolveTheme } from "./themes.ts";
 import { applyOverrides, type CameraDefaults, type Overrides } from "./camera/defaults.ts";
 
 export function takesDir(): string {
@@ -22,6 +23,7 @@ interface Args {
   maxTokens?: number;
   set: string[];
   camera?: CameraDefaults;
+  theme?: string;
 }
 
 /** Parse `--set key=value` pairs; numeric values stay numbers so that
@@ -33,21 +35,22 @@ export function parseSet(pairs: string[]): Overrides {
     if (!match) throw Error(`invalid --set ${pair}`);
     const [, k, v] = match;
     const n = Number(v);
-    overrides[k!] = k === "background" || !Number.isFinite(n) ? v! : n;
+    overrides[k!] = ["background", "background_to", "accent", "text", "card", "caption_font", "display_font", "bg_style", "bg_stops", "background_image"].includes(k!) || !Number.isFinite(n) ? v! : n;
   }
   return overrides as Overrides;
 }
 
-/** Camera overrides for a take dir from `--set` pairs; undefined without pairs.
+/** Resolve a take look from its saved theme, CLI selection and `--set` pairs.
  * Throws on malformed pairs. Portrait takes default to portrait output. */
-export function resolveCamera(dir: string, pairs: string[]): CameraDefaults | undefined {
-  if (pairs.length === 0) return undefined;
+export function resolveCamera(dir: string, pairs: string[], theme?: string): CameraDefaults {
   const raw = parseSet(pairs);
+  const meta = JSON.parse(readFileSync(join(dir, "take.json"), "utf8")) as { theme?: unknown };
+  const selected = theme ?? meta.theme;
   if (!("out_w" in raw) && !("out_h" in raw) && isPortraitTake(dir)) {
     raw.out_w = 1080;
     raw.out_h = 1920;
   }
-  return applyOverrides(raw);
+  return resolveTheme(selected, raw);
 }
 
 /** True when the take's stream is portrait (taller than wide). */
@@ -62,11 +65,37 @@ function isPortraitTake(dir: string): boolean {
   }
 }
 
+export function renderDimensions(aspect?: string, resolution?: string, portraitSource = false): Overrides {
+  const dimensions: Overrides = {};
+  if (aspect !== undefined) {
+    const sizes: Record<string, [number, number]> = {
+      landscape: [1920, 1080], portrait: [1080, 1920], square: [1080, 1080],
+    };
+    const size = sizes[aspect];
+    if (!size) throw Error(`unknown aspect ${aspect}; use landscape, portrait or square`);
+    [dimensions.out_w, dimensions.out_h] = size;
+  }
+  if (resolution !== undefined) {
+    if (resolution !== "4k") throw Error(`unknown resolution ${resolution}; use 4k`);
+    const resolvedAspect = aspect ?? (portraitSource ? "portrait" : "landscape");
+    const sizes: Record<string, [number, number]> = {
+      landscape: [3840, 2160], portrait: [2160, 3840], square: [3840, 3840],
+    };
+    [dimensions.out_w, dimensions.out_h] = sizes[resolvedAspect]!;
+  }
+  return dimensions;
+}
+
 function parseArgs(argv: string[]): Args {
   const a: Args = { noJev: false, screenText: false, set: [] };
   for (let i = 0; i < argv.length; i++) {
     const s = argv[i]!;
     if (s === "--no-jev") a.noJev = true;
+    else if (s === "--theme") {
+      const value = argv[++i];
+      if (!value || value.startsWith("--")) throw Error("--theme needs a theme name");
+      a.theme = value;
+    }
     else if (s === "--about") a.about = argv[++i];
     else if (s === "--screen-text") a.screenText = true;
     else if (s === "--max-tokens") a.maxTokens = Number(argv[++i]);
@@ -89,8 +118,8 @@ function parseArgs(argv: string[]): Args {
 }
 
 function usage(code: number): never {
-  console.error(`takeone make <id> [--no-jev] [--about "<topic>"] [--screen-text] [--max-tokens N] [--set key=value]
-takeone render <take-dir> [--set key=value]
+  console.error(`takeone make <id> [--no-jev] [--about "<topic>"] [--screen-text] [--max-tokens N] [--theme midnight|paper|aurora|mono|neon|brutalist|sand|terminal] [--set key=value]
+takeone render <take-dir> [--theme midnight|paper|aurora|mono|neon|brutalist|sand|terminal] [--set key=value]
 takeone key set < stdin
 takeone [list|record|stop|doctor]
 
@@ -134,44 +163,29 @@ export async function main(argv: string[]): Promise<number> {
     if (!dir) { console.error("usage: takeone render <take-dir>"); return 2; }
     try {
       const pairs: string[] = [];
+      let theme: string | undefined;
       let aspect: string | undefined;
       let resolution: string | undefined;
       let format = "mp4";
       for (let i = 0; i < args.length; i++) {
         const option = args[i];
-        if (!["--set", "--aspect", "--resolution", "--format"].includes(option!)) {
+        if (!["--set", "--theme", "--aspect", "--resolution", "--format"].includes(option!)) {
           throw Error(`unknown option ${option}`);
         }
         const value = args[++i];
-        if (value === undefined) throw Error(`${option} needs a value`);
+        if (value === undefined || value.startsWith("--")) throw Error(`${option} needs a value`);
         if (option === "--set") pairs.push(value);
+        else if (option === "--theme") theme = value;
         else if (option === "--aspect") aspect = value;
         else if (option === "--resolution") resolution = value;
         else if (option === "--format") format = value;
       }
-      const raw = parseSet(pairs);
-      if (aspect !== undefined) {
-        const sizes: Record<string, [number, number]> = {
-          landscape: [1920, 1080], portrait: [1080, 1920], square: [1080, 1080],
-        };
-        const size = sizes[aspect];
-        if (!size) throw Error(`unknown aspect ${aspect}; use landscape, portrait or square`);
-        raw.out_w = size[0]; raw.out_h = size[1];
-      }
-      if (resolution !== undefined) {
-        if (resolution !== "4k") throw Error(`unknown resolution ${resolution}; use 4k`);
-        const portrait = aspect === "portrait" || (aspect === undefined && isPortraitTake(dir));
-        raw.out_w = portrait ? 2160 : 3840;
-        raw.out_h = portrait ? 3840 : 2160;
-      }
+      const dimensions = renderDimensions(aspect, resolution, isPortraitTake(dir));
       if (!["mp4", "gif", "webm", "prores4444"].includes(format)) {
         throw Error(`unknown format ${format}; use mp4, gif, webm or prores4444`);
       }
-      if (!("out_w" in raw) && !("out_h" in raw) && isPortraitTake(dir)) {
-        raw.out_w = 1080;
-        raw.out_h = 1920;
-      }
-      const rendered = (await renderTake(dir, applyOverrides(raw))).out;
+      const camera = resolveCamera(dir, pairs, theme);
+      const rendered = (await renderTake(dir, applyOverrides(dimensions, camera))).out;
       if (format === "mp4") console.log(rendered);
       else {
         const suffix = format === "prores4444" ? "mov" : format;
@@ -210,7 +224,7 @@ export async function main(argv: string[]): Promise<number> {
     return 2;
   }
   try {
-    a.camera = resolveCamera(dir, a.set);
+    a.camera = resolveCamera(dir, a.set, a.theme);
   } catch (e) {
     console.error(`takeone make: ${e instanceof Error ? e.message : e}`);
     return 2;

@@ -95,9 +95,10 @@ test("make --no-jev renders the agreed beat/decision files into a tiny test MP4"
   const dir = newTake();
   try {
     // --set is test-only plumbing: full-size slow output stays the default.
-    assert.equal(await main(["make", dir, "--no-jev",
+    assert.equal(await main(["make", dir, "--no-jev", "--theme", "paper",
       "--set", "preset=veryfast", "--set", "out_w=320", "--set", "out_h=180",
       "--set", "ripple_ms=0", "--set", "fade_s=0"]), 0);
+    assert.equal(JSON.parse(readFileSync(join(dir, "take.json"), "utf8")).theme, "paper");
     const output = join(dir, "out", "t1.mp4");
     assert.ok(existsSync(output));
     const probe = JSON.parse(execFileSync("ffprobe", ["-v", "error", "-select_streams", "v:0", "-count_frames", "-show_entries", "stream=width,height,nb_read_frames", "-of", "json", output], { encoding: "utf8" }));

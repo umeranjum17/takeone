@@ -1,0 +1,312 @@
+{
+  "synth": {
+    "max_upscale": {
+      "value": 1.4999999990528372,
+      "target": 1.5,
+      "direction": "max",
+      "unit": "output px/source px"
+    },
+    "zoom_speed": {
+      "value": 1.1332566163742186,
+      "target": 1,
+      "direction": "max",
+      "unit": "ln/s"
+    },
+    "zoom_acceleration": {
+      "value": 4.109126524272,
+      "target": 4,
+      "direction": "max",
+      "unit": "ln/s²"
+    },
+    "zoom_opposite_hold": {
+      "value": 0.38333333333333336,
+      "target": 1.2,
+      "direction": "min",
+      "unit": "s"
+    },
+    "pan_acceleration": {
+      "value": 111345.66754810864,
+      "target": 9000,
+      "direction": "max",
+      "unit": "px/s²"
+    },
+    "pan_bounce": {
+      "value": 8,
+      "target": 0,
+      "direction": "max",
+      "unit": "flips"
+    },
+    "default_fps_error": {
+      "value": 30,
+      "target": 0,
+      "direction": "max",
+      "unit": "fps"
+    },
+    "fps_error": {
+      "value": 0,
+      "target": 0,
+      "direction": "max",
+      "unit": "fps"
+    },
+    "cadence_error": {
+      "value": 6.666666694833678e-7,
+      "target": 0.000002,
+      "direction": "max",
+      "unit": "s"
+    },
+    "size_error": {
+      "value": 0,
+      "target": 0,
+      "direction": "max",
+      "unit": "px"
+    },
+    "codec_error": {
+      "value": 0,
+      "target": 0,
+      "direction": "max",
+      "unit": ""
+    },
+    "colour_error": {
+      "value": 4,
+      "target": 0,
+      "direction": "max",
+      "unit": ""
+    },
+    "frame_count_error": {
+      "value": 0,
+      "target": 1,
+      "direction": "max",
+      "unit": "frames"
+    },
+    "hitches": {
+      "value": 4,
+      "target": 0,
+      "direction": "max",
+      "unit": "frames"
+    },
+    "determinism_error": {
+      "value": 0,
+      "target": 0,
+      "direction": "max",
+      "unit": ""
+    },
+    "subpixel_judder": {
+      "value": 0.5638439168182231,
+      "target": 0.15,
+      "direction": "max",
+      "unit": "px/frame²"
+    },
+    "caption_ocr_errors": {
+      "value": 1,
+      "target": 0,
+      "direction": "max",
+      "unit": "checkpoints"
+    },
+    "banding": {
+      "value": 408,
+      "target": 64,
+      "direction": "max",
+      "unit": "px"
+    },
+    "color_space_error": {
+      "value": 1,
+      "target": 0,
+      "direction": "max",
+      "unit": ""
+    },
+    "color_transfer_error": {
+      "value": 1,
+      "target": 0,
+      "direction": "max",
+      "unit": ""
+    },
+    "color_primaries_error": {
+      "value": 1,
+      "target": 0,
+      "direction": "max",
+      "unit": ""
+    },
+    "color_range_error": {
+      "value": 1,
+      "target": 0,
+      "direction": "max",
+      "unit": ""
+    },
+    "caption_ocr_item_0": {
+      "value": 0,
+      "target": 0,
+      "direction": "max",
+      "unit": ""
+    },
+    "caption_ocr_item_1": {
+      "value": 0,
+      "target": 0,
+      "direction": "max",
+      "unit": ""
+    },
+    "caption_ocr_item_2": {
+      "value": 1,
+      "target": 0,
+      "direction": "max",
+      "unit": ""
+    },
+    "caption_ocr_item_3": {
+      "value": 1,
+      "target": 0,
+      "direction": "max",
+      "unit": ""
+    },
+    "caption_ocr_item_4": {
+      "value": 0,
+      "target": 0,
+      "direction": "max",
+      "unit": ""
+    }
+  },
+  "portrait": {
+    "max_upscale": {
+      "value": 1.2111389895105187,
+      "target": 1.5,
+      "direction": "max",
+      "unit": "output px/source px"
+    },
+    "zoom_speed": {
+      "value": 1.0131660105909823,
+      "target": 1,
+      "direction": "max",
+      "unit": "ln/s"
+    },
+    "zoom_acceleration": {
+      "value": 3.284516122185721,
+      "target": 4,
+      "direction": "max",
+      "unit": "ln/s²"
+    },
+    "zoom_opposite_hold": {
+      "value": 0.4,
+      "target": 1.2,
+      "direction": "min",
+      "unit": "s"
+    },
+    "pan_acceleration": {
+      "value": 38677.968835383945,
+      "target": 9000,
+      "direction": "max",
+      "unit": "px/s²"
+    },
+    "pan_bounce": {
+      "value": 3,
+      "target": 0,
+      "direction": "max",
+      "unit": "flips"
+    },
+    "default_fps_error": {
+      "value": 30,
+      "target": 0,
+      "direction": "max",
+      "unit": "fps"
+    },
+    "fps_error": {
+      "value": 0,
+      "target": 0,
+      "direction": "max",
+      "unit": "fps"
+    },
+    "cadence_error": {
+      "value": 6.66666667707011e-7,
+      "target": 0.000002,
+      "direction": "max",
+      "unit": "s"
+    },
+    "size_error": {
+      "value": 0,
+      "target": 0,
+      "direction": "max",
+      "unit": "px"
+    },
+    "codec_error": {
+      "value": 0,
+      "target": 0,
+      "direction": "max",
+      "unit": ""
+    },
+    "colour_error": {
+      "value": 4,
+      "target": 0,
+      "direction": "max",
+      "unit": ""
+    },
+    "frame_count_error": {
+      "value": 1,
+      "target": 1,
+      "direction": "max",
+      "unit": "frames"
+    },
+    "hitches": {
+      "value": 0,
+      "target": 0,
+      "direction": "max",
+      "unit": "frames"
+    },
+    "determinism_error": {
+      "value": 0,
+      "target": 0,
+      "direction": "max",
+      "unit": ""
+    },
+    "subpixel_judder": {
+      "value": 0.6104811736952357,
+      "target": 0.15,
+      "direction": "max",
+      "unit": "px/frame²"
+    },
+    "caption_ocr_errors": {
+      "value": 2,
+      "target": 0,
+      "direction": "max",
+      "unit": "checkpoints"
+    },
+    "banding": {
+      "value": 66,
+      "target": 64,
+      "direction": "max",
+      "unit": "px"
+    },
+    "color_space_error": {
+      "value": 1,
+      "target": 0,
+      "direction": "max",
+      "unit": ""
+    },
+    "color_transfer_error": {
+      "value": 1,
+      "target": 0,
+      "direction": "max",
+      "unit": ""
+    },
+    "color_primaries_error": {
+      "value": 1,
+      "target": 0,
+      "direction": "max",
+      "unit": ""
+    },
+    "color_range_error": {
+      "value": 1,
+      "target": 0,
+      "direction": "max",
+      "unit": ""
+    },
+    "caption_ocr_item_0": {
+      "value": 1,
+      "target": 0,
+      "direction": "max",
+      "unit": ""
+    },
+    "caption_ocr_item_1": {
+      "value": 1,
+      "target": 0,
+      "direction": "max",
+      "unit": ""
+    }
+  }
+}

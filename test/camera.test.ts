@@ -67,10 +67,10 @@ function at(frames: ReturnType<typeof camera>, seconds: number) {
 }
 
 test("framing expands to 16:9 and respects source and upscale clamps", () => {
-  assert.equal(zMax(3840, 2160), 3);
+  assert.ok(Math.abs(zMax(3840, 2160) - 3.33) < 1e-9);
   for (let level = 0; level <= 3; level++) {
     const result = frame(zone("edge", [3600, 1900, 100, 100]), level, 3840, 2160);
-    assert.ok(result.z >= 1 && result.z <= 3);
+    assert.ok(result.z >= 1 && result.z <= zMax(3840, 2160));
     assert.ok(result.cx >= 0 && result.cx <= 3840);
     assert.ok(result.cy >= 0 && result.cy <= 2160);
   }
@@ -112,9 +112,9 @@ test("whole-screen non-16:9 frames cover the full source while 16:9 framing is u
 });
 
 test("phone footage into 16:9 zooms against the padded canvas and keeps the card centred", () => {
-  // 1080x2400 sits on a 4267-wide 16:9 canvas; zoom is measured against it.
+  // 1080x2400 sits on a stage-padded 4267-wide 16:9 canvas.
   assert.ok(zMax(1080, 2400) > 1);
-  assert.ok(Math.abs(zMax(1080, 2400) - 2400 * 16 / 9 / 1280) < 1e-9);
+  assert.ok(Math.abs(zMax(1080, 2400) - 2400 * 16 / 9 * 1.11 / 1280) < 1e-9);
   const tap: Beat = { ...beat("tap", 2, 0), zones: [zone("tap", [120, 1900, 240, 120])] };
   const frames = solveCamera([tap], [decision(tap)], {
     width: 1080, height: 2400, trim_start: 0, trim_end: 4,

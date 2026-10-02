@@ -26,11 +26,13 @@ const DUR = 44;
 
 const FONT_CANDIDATES = [
   "/usr/share/fonts/liberation/LiberationSans-Regular.ttf",
+  "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
   "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
   "/usr/share/fonts/Adwaita/AdwaitaSans-Regular.ttf",
 ];
 const FONT_BOLD_CANDIDATES = [
   "/usr/share/fonts/liberation/LiberationSans-Bold.ttf",
+  "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
   "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
   "/usr/share/fonts/Adwaita/AdwaitaSans-Bold.ttf",
 ];
