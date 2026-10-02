@@ -10,7 +10,7 @@ import type { CameraFrame, Beat, TakeMeta } from '../src/camera/types.ts';
 import { makeTake } from '../src/make.ts';
 import { encodingOptions, measureCaptions, renderTake } from '../src/render/render.ts';
 import { cameraFilter } from '../src/render/camera-filter.ts';
-import { bandFrames, bandLayout, stageFrames, stageGeometry, takeCaptions, type Band } from '../src/render/stage.ts';
+import { bandEligible, bandFrames, bandLayout, bandText, stageFrames, stageGeometry, takeCaptions, type Band } from '../src/render/stage.ts';
 import { idleSqueezes, warp } from '../src/render/pace.ts';
 
 export interface Metric { value: number; target: number; direction: 'max' | 'min'; unit: string; goalPassed: boolean }
@@ -291,12 +291,15 @@ async function main() {
     const deterministic = original === sha(video);
     const meta = json<TakeMeta>(join(dir, 'take.json'));
     const camera = json<CameraFrame[]>(join(dir, 'camera.json'));
-    let band = meta.title || meta.captions?.length ? bandLayout(meta.width, meta.height, d) : null;
-    if (band) {
+    let band: Band | null = null;
+    if ((meta.title || meta.captions?.length) && bandEligible(meta.width, meta.height, d)) {
       const duration = camera.at(-1)!.t + 1 / d.fps;
       const captions = outputCaptions(dir, meta, d, duration);
-      const ink = await measureCaptions(dir, captions, d, band);
-      band = bandLayout(meta.width, meta.height, d, captions, ink);
+      const initial = bandText(captions, [], d);
+      let ink = await measureCaptions(dir, captions, initial, true);
+      const text = bandText(captions, ink, initial);
+      if (text !== initial) ink = await measureCaptions(dir, captions, text, true);
+      band = bandLayout(meta.width, meta.height, text, captions, ink);
     }
     const frames = band ? bandFrames(camera, band, d) : stageFrames(camera, meta.width, meta.height, stageGeometry(meta.width, meta.height, d), d);
     const probe = JSON.parse(command('ffprobe', ['-v', 'error', '-count_frames', '-show_streams', '-of', 'json', video]).toString());

@@ -12,8 +12,8 @@ import { motionBlurGraph, shutterPlan } from "./motion-blur.ts";
 import { idleSqueezes, setptsExpr, warp, warpBeats } from "./pace.ts";
 import { phoneTapShots } from "./phone.ts";
 import {
-  bandFrames, bandLayout, bandText, beatClicks, captionAss, cardFilter, clickAss, measureAss, stageFrames, stageGeometry, stageImageFilter,
-  takeCaptions, type Band, type Caption, type CaptionInk,
+  bandEligible, bandFrames, bandLayout, bandText, beatClicks, captionAss, cardFilter, clickAss, measureAss, stageFrames, stageGeometry, stageImageFilter,
+  takeCaptions, type Caption, type CaptionInk,
 } from "./stage.ts";
 
 /** Text-friendly production encoder settings, also exercised by the output gate. */
@@ -85,12 +85,13 @@ export async function renderTake(dir: string, d?: CameraDefaults): Promise<{ out
   }) : solved;
   await writeFile(join(dir, "camera.json"), JSON.stringify(frames));
   const captions = takeCaptions(meta, outTime, duration);
-  let band = captions.length ? bandLayout(meta.width, meta.height, d) : null;
-  let captionInk = await measureCaptions(dir, captions, d, band);
-  // Caption text geometry; on small outputs the band text scales so the card keeps the frame.
-  const text = band ? bandText(captions, captionInk, d) : d;
-  if (text !== d) captionInk = await measureCaptions(dir, captions, text, band);
-  if (band) band = bandLayout(meta.width, meta.height, text, captions, captionInk);
+  const banded = captions.length > 0 && bandEligible(meta.width, meta.height, d);
+  let text = banded ? bandText(captions, [], d) : d;
+  let captionInk = await measureCaptions(dir, captions, text, banded);
+  const fitted = banded ? bandText(captions, captionInk, text) : text;
+  if (fitted !== text) captionInk = await measureCaptions(dir, captions, fitted, banded);
+  text = fitted;
+  const band = banded ? bandLayout(meta.width, meta.height, text, captions, captionInk) : null;
   const stage = band?.stage ?? stageGeometry(meta.width, meta.height, d);
   const commandFile = join(dir, "camera.cmd");
   // With a band the camera frames the screen alone, into the fixed card.
@@ -198,7 +199,7 @@ function filterPath(path: string): string {
 }
 
 /** Wrapped ink bounds of each caption, measured by rendering it with libass and cropdetect. */
-export async function measureCaptions(dir: string, captions: Caption[], d: CameraDefaults, band: Band | null): Promise<CaptionInk[]> {
+export async function measureCaptions(dir: string, captions: Caption[], d: CameraDefaults, band: boolean): Promise<CaptionInk[]> {
   if (captions.length === 0) return [];
   const file = join(dir, "measure.ass");
   const widths = captions.map(() => ({ w: 0, h: 0 }));

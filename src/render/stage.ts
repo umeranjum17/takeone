@@ -64,9 +64,13 @@ export function bandText(captions: Caption[], widths: (number | CaptionInk)[], d
   return fit < 1 ? { ...d, caption_size: d.caption_size * fit, caption_border: d.caption_border * fit } : d;
 }
 
+export function bandEligible(width: number, height: number, d: CameraDefaults): boolean {
+  return Math.abs(width / height - 16 / 9) <= 0.01 && Math.abs(d.out_w / d.out_h - 16 / 9) <= 0.01;
+}
+
 export function bandLayout(width: number, height: number, d: CameraDefaults, captions: Caption[] = [],
   widths: (number | CaptionInk)[] = []): Band | null {
-  if (Math.abs(width / height - 16 / 9) > 0.01 || Math.abs(d.out_w / d.out_h - 16 / 9) > 0.01) return null;
+  if (!bandEligible(width, height, d)) return null;
   const { titleH, captionH, gap, padding, band } = bandRows(captions, widths, d);
   const top = Math.round(d.out_h * d.stage_margin / (1 + 2 * d.stage_margin));
   const h = Math.floor((d.out_h - top - band) / 2) * 2;
@@ -339,8 +343,8 @@ function captionMargin(size: number, d: CameraDefaults): number {
 }
 
 const titleSize = (d: CameraDefaults, band = true) => Math.round(d.caption_size * (band ? 1.6 : 1.4));
-const textSize = (caption: Caption, d: CameraDefaults, band?: Band | null) =>
-  caption.title ? titleSize(d, Boolean(band)) : d.caption_size;
+const textSize = (caption: Caption, d: CameraDefaults, band = false) =>
+  caption.title ? titleSize(d, band) : d.caption_size;
 
 const luminance = (colour: string) => [1, 3, 5].map(i => parseInt(colour.slice(i, i + 2), 16) / 255)
   .map(v => v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4)
@@ -424,7 +428,7 @@ export function captionAss(captions: Caption[], widths: (number | CaptionInk)[],
 }
 
 /** Show caption i alone during second i, with the final wrap width, to measure its ink bounds. */
-export function measureAss(captions: Caption[], d: CameraDefaults, band?: Band | null, scaleX = 100): string {
+export function measureAss(captions: Caption[], d: CameraDefaults, band = false, scaleX = 100): string {
   let out = assHeader(d.out_w, d.out_h, d.caption_font, d.caption_size);
   captions.forEach((caption, index) => {
     const size = textSize(caption, d, band);

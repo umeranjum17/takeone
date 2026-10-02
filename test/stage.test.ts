@@ -6,7 +6,7 @@ import { hasFfmpeg } from "./helpers.ts";
 import { applyOverrides, DEFAULTS } from "../src/camera/defaults.ts";
 import type { Beat } from "../src/camera/types.ts";
 import { idleSqueezes, setptsExpr, warp } from "../src/render/pace.ts";
-import { bandLayout, bandText, captionAss, captionLayouts, takeCaptions } from "../src/render/stage.ts";
+import { bandEligible, bandLayout, bandText, captionAss, captionLayouts, takeCaptions } from "../src/render/stage.ts";
 import { measureCaptions } from "../src/render/render.ts";
 import { THEMES, resolveTheme } from "../src/themes.ts";
 
@@ -107,7 +107,7 @@ test("complete long caption ink is measured before fitting inside a band pill", 
   const text = "Review every task and share the result. ".repeat(32).trim();
   const captions = [text, `${text} ${text}`].map(text => ({ t0: 0, t1: 2, text, title: false }));
   try {
-    const ink = await measureCaptions(dir, captions, d, band);
+    const ink = await measureCaptions(dir, captions, d, true);
     band = bandLayout(1920, 1080, d, captions, ink)!;
     assert.ok(ink[0]!.w > 16000, `natural width=${ink[0]!.w}`);
     assert.ok(Math.abs(ink[1]!.w / ink[0]!.w - 2) < 0.02, `widths=${ink.map(i => i.w)}`);
@@ -142,7 +142,7 @@ test("concurrent band titles and captions retain separate measured rows in every
       const captions = takeCaptions({ width: 1920, height: 1080,
         title: "From a new idea to a complete product: plan your launch, organise every task, and review the result with your team",
         captions: [{ t: 1, d: 4, text: "Review the result" }] }, t => t, 10);
-      const ink = await measureCaptions(dir, captions, d, bandLayout(1920, 1080, d));
+      const ink = await measureCaptions(dir, captions, d, bandEligible(1920, 1080, d));
       const band = bandLayout(1920, 1080, d, captions, ink)!;
       const layouts = captionLayouts(captions, ink, d, false, band);
       assert.equal(layouts[0]!.size, Math.round(d.caption_size * 1.6), name);
@@ -184,12 +184,15 @@ test("small outputs and oversized captions scale band text, keeping distinct row
   try {
     const meta = { width: 1920, height: 1080, title: "Smoke title", captions: [{ t: 1.5, text: "Hello world" }] };
     assert.equal(bandText(takeCaptions(meta, t => t, 10), [{ w: 400, h: 50 }, { w: 300, h: 30 }], DEFAULTS), DEFAULTS);
-    for (const d of [{ ...DEFAULTS, out_w: 320, out_h: 180 }, { ...DEFAULTS, caption_size: 200, caption_border: 8 }]) {
+    for (const d of [{ ...DEFAULTS, out_w: 320, out_h: 180 }, { ...DEFAULTS, caption_size: 200, caption_border: 8 },
+      { ...DEFAULTS, out_w: 320, out_h: 180, caption_size: 200, caption_border: 8 }]) {
       const captions = takeCaptions(meta, t => t, 10);
-      const ink = await measureCaptions(dir, captions, d, bandLayout(1920, 1080, d));
-      const text = bandText(captions, ink, d);
+      const initial = bandText(captions, [], d);
+      const ink = await measureCaptions(dir, captions, initial, bandEligible(1920, 1080, d));
+      const text = bandText(captions, ink, initial);
       assert.ok(text.caption_size < d.caption_size, `${d.out_w}: text shrinks`);
-      const fitted = await measureCaptions(dir, captions, text, bandLayout(1920, 1080, text));
+      assert.equal(text.caption_border, d.caption_border * (text.caption_size / d.caption_size));
+      const fitted = await measureCaptions(dir, captions, text, bandEligible(1920, 1080, text));
       const band = bandLayout(1920, 1080, text, captions, fitted)!;
       assert.ok(band.stage.baseH >= d.out_h / 2, `${d.out_w}: card keeps most of the frame`);
       const [title, caption] = captionLayouts(captions, fitted, text, false, band);
