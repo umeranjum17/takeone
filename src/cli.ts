@@ -7,7 +7,7 @@ import { setKeyFromStdin } from "./secrets.ts";
 import { runCapture } from "./capture.ts";
 import { makeTake, PreflightRefusal, TakeInputError } from "./make.ts";
 import { renderTake } from "./render/render.ts";
-import { resolveTheme } from "./themes.ts";
+import { THEMES, resolveTheme } from "./themes.ts";
 import { isMotionTake, MOTION_USAGE, runMotion } from "./motion/cli.ts";
 import { renderMotion } from "./motion/motion.ts";
 import type { CameraDefaults, Overrides } from "./camera/defaults.ts";
@@ -98,8 +98,9 @@ function parseArgs(argv: string[]): Args {
 }
 
 function usage(code: number): never {
-  console.error(`takeone make <id> [--no-jev] [--about "<topic>"] [--screen-text] [--max-tokens N] [--theme midnight|paper|aurora|mono|neon|brutalist|sand|terminal] [--set key=value]
-takeone render <take-dir> [--theme midnight|paper|aurora|mono|neon|brutalist|sand|terminal] [--set key=value]
+  const themes = Object.keys(THEMES).join("|");
+  console.error(`takeone make <id> [--no-jev] [--about "<topic>"] [--screen-text] [--max-tokens N] [--theme ${themes}] [--set key=value]
+takeone render <take-dir> [--theme ${themes}] [--set key=value]
 ${MOTION_USAGE}
 takeone key set < stdin
 takeone [list|record|stop|doctor]
