@@ -41,7 +41,7 @@ export function stageGeometry(width: number, height: number, d: CameraDefaults):
 }
 
 /**
- * With a title or captions, a 16:9 take keeps its card fixed above a reserved
+ * With a title or captions, a 16:9 take exported at 16:9 keeps its card fixed above a reserved
  * text band and the camera moves inside the card, so text never covers the app.
  */
 export interface Band { stage: Stage; top: number; titleY: number; captionY: number; titleH: number; captionH: number }
@@ -333,8 +333,8 @@ export function takeCaptions(meta: TakeMeta, at: (t: number) => number, duration
 }
 
 /**
- * Captions as rounded pills near the bottom, sized from `widths`: ink widths
- * and heights measured with the same libass/font that renders them.
+ * Ink bounds must use the same libass/font as final rendering so row sizing
+ * and collision avoidance agree with the visible text.
  */
 export interface CaptionInk { w: number; h: number }
 

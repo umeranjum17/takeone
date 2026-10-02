@@ -26,7 +26,7 @@ export interface KeycapCue {
   w: number; h: number; size: number; widths: number[];
 }
 
-/** Project focus targets through the same camera as the footage; reserve actual caption pills. */
+/** Project focus targets through the footage camera; reserve measured title and caption bounds. */
 export function keycapObstacles(beats: Beat[], decisions: Decision[], frames: CameraFrame[], st: Stage,
   start: number, captions: Caption[], ink: CaptionInk[], d: CameraDefaults, widePhone = false, band?: Band | null): KeycapObstacle[] {
   const out: KeycapObstacle[] = [];

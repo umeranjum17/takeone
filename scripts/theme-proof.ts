@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Reproducible proof from the realistic, fictional Tidewater board.
+// Reproducible theme proof; see README.md "Look and pacing" for fixture and real-take usage.
 // node scripts/theme-proof.ts [output-dir] [--baseline path/to/old/render.ts]
 // node scripts/theme-proof.ts [output-dir] --take path/to/real/take  (grid from a real take at 1080p60)
 import assert from "node:assert/strict";

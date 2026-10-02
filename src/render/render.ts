@@ -198,7 +198,7 @@ function filterPath(path: string): string {
   return escapedOption.replace(/[\\',;\[\]]/g, "\\$&");
 }
 
-/** Wrapped ink bounds of each caption, measured by rendering it with libass and cropdetect. */
+/** Libass ink bounds: band captions use complete single lines; titles and legacy overlays use wrapping. */
 export async function measureCaptions(dir: string, captions: Caption[], d: CameraDefaults, band: boolean): Promise<CaptionInk[]> {
   if (captions.length === 0) return [];
   const file = join(dir, "measure.ass");

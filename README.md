@@ -68,7 +68,7 @@ Zoom defaults to native source pixels (1.0×), and the camera path runs through 
 
 ### Titles and captions
 
-Add a `title` and timed `captions` to `take.json` and they render in a band below the card, never over the app: the title as large display type, captions as single-line pills. Caption times are source-video seconds, and reading time survives idle squeezing.
+Add a `title` and timed `captions` to `take.json` to annotate the recording. See [Look and pacing](#look-and-pacing) for placement, sizing and timing.
 
 <p align="center">
   <picture><source srcset="docs/assets/readme/captions.webp" type="image/webp"><img src="docs/assets/readme/captions.jpg" alt="A synthetic analytics app zoomed on a Churn analysis draft panel while its Retention slider is dragged, with the caption pill Drag to adjust retention below it" width="720" /></picture>
@@ -295,13 +295,13 @@ Worst case at the defaults: the reserved total (planned tokens plus the 1,200-to
 
 Every render uses the same stage, all local ffmpeg/libass work at zero token cost:
 
-- **Stage**: the selected theme sets the screen card, background, and typography; see the theme table below. The stage margin (`stage_margin`, fraction of stage size) eases away as the camera zooms, so close-ups are all screen. A take with a title or captions instead keeps its card fixed above a reserved text band and zooms inside the card.
+- **Stage**: the selected theme sets the screen card, background, and typography; see the theme table below. The stage margin (`stage_margin`, fraction of stage size) eases away as the camera zooms, so close-ups are all screen. When the text band described below is active, the card stays fixed and the camera zooms inside it.
 - **Zoom**: shots never upscale source pixels more than `max_upscale` (1.0 by default): a 4K capture can push into native 1080p detail; a 1080p capture exported at 1080p stays wide. Upscaling remains an explicit setting. The camera path runs through a critically damped spring (`lowpass_omega`), so moves ease in and out without overshoot. See [Plan and render](#plan-and-render) for whole-element framing and static UI detection. Per-level padding never widens a shot past `frame_max` (0.8) of the screen, and the zone itself always keeps `hold_pad` (1.08x) around it.
 - **Bookends**: the first shot waits `establish_s` so the viewer sees the whole screen first, and the camera settles back to the whole stage for the last `outro_s` (0 keeps the last shot). The video fades in from and out to `background_to` over `fade_s`.
 - **Clicks**: every click and drag press gets a press dot and an expanding `accent` ring with a white halo, lasting `ripple_ms` (0 turns it off) and growing to `ripple_r` output px at rest. The ripple is drawn in source space, so it zooms with the content.
 - **Pacing**: idle stretches between actions play `idle_speed` times faster (1 turns it off), keeping `idle_keep` seconds of real time around every action. The camera is solved on the output clock, so moves keep their natural speed.
 - **Shortcut keycaps and regions**: validated Ctrl/Alt/Meta shortcuts display as keycap pills. Timed `spotlight` and `blur` rectangles in `take.json` follow source pixels through camera motion. See [recording overlays](docs/overlays.md) for the schema and a synthetic proof generator.
-- **Titles and captions**: optional `title` and `captions` in `take.json` render in the band below the card, never over the app: the title as bare display type 1.6× `caption_size`, captions as single-line pills in the caption font that shrink to fit rather than wrap. Captions keep their original timestamps, and each caption ends when the next one starts if they overlap. When a title and caption are on screen together, they occupy separate measured rows in the band below the card. Portrait sources keep the older overlay placement (title 1.4×). Caption times are source-video seconds; `d` (default 3) is on-screen seconds, so reading time survives idle squeezing.
+- **Titles and captions**: when both source and output are 16:9, optional `title` and `captions` in `take.json` render in the band below the card, never over the app: the title as bare display type 1.6× `caption_size`, captions as single-line pills in the caption font that shrink to fit rather than wrap. Text size, row padding and caption border scale down proportionally when needed to keep the band within a third of the output height. Captions keep their original timestamps, and each caption ends when the next one starts if they overlap. When a title and caption are on screen together, they occupy separate measured rows in the band below the card. Other source or output aspect ratios keep the older overlay placement (title 1.4×). Caption times are source-video seconds; `d` (default 3) is on-screen seconds, so reading time survives idle squeezing.
 
 ```json
 { "title": "Find any report in seconds",
