@@ -130,9 +130,14 @@ export async function renderTake(
   }) : decisions;
   const zooms = clock ? editZooms(meta.zooms, clock, trimStart)
     : meta.zooms?.map(z => ({ ...z, t0: trimStart + outTime(z.t0), t1: trimStart + outTime(z.t1) }));
+  const timing = { cuts: (meta.cuts ?? []).map(c => trimStart + outTime(c.t1)), arrivals: [] as import("../camera/solver.ts").CameraArrival[] };
   const frames = solveCamera(outBeats, outDecisions,
     { ...meta, zooms, trim_end: trimStart + duration },
-    edited ? d : { ...d, min_shot: d.min_shot * d.pace, dwell: d.dwell * d.pace, dwell_k2: d.dwell_k2 * d.pace });
+    edited ? d : { ...d, min_shot: d.min_shot * d.pace, dwell: d.dwell * d.pace, dwell_k2: d.dwell_k2 * d.pace }, timing);
+  await writeFile(join(dir, "camera-arrivals.json"), JSON.stringify(timing.arrivals, null, 2));
+  for (const arrival of timing.arrivals) if (arrival.lateness > 1e-9) {
+    console.warn(`Manual zoom requested at ${arrival.requested.toFixed(6)}s arrives at ${arrival.actualArrival.toFixed(6)}s (${arrival.lateness.toFixed(6)}s late): required lead ${arrival.requiredLead.toFixed(6)}s, boundary ${arrival.boundary.toFixed(6)}s; motion limits retained.`);
+  }
   await writeFile(join(dir, "camera.json"), JSON.stringify(frames));
   const stage = stageGeometry(meta.width, meta.height, d);
   const commandFile = join(dir, "camera.cmd");

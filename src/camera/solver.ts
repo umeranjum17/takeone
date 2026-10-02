@@ -1,3 +1,4 @@
+import { stageFrames, stageGeometry } from "../render/stage.ts";
 import { WIN_MAX_COVER } from "../beats/zones.ts";
 import { validateZooms } from "../render/edits.ts";
 import { DEFAULTS, type CameraDefaults } from "./defaults.ts";
@@ -29,6 +30,7 @@ interface Target {
   breathe?: boolean;
   /** An edit takes precedence over automatic shot suppression and FOLLOW. */
   manual?: "zoom" | "resume";
+  holdEnd?: number;
 }
 
 interface Move {
@@ -316,17 +318,31 @@ function buildTargets(
   const targets = shots.flatMap((shot) => {
     const targetA = frame(shot.zoneA, shot.decision.L, width, height, shot.beat.window_rect, d);
     if (shot.portraitFill) {
-      const fitZoom = baseWidth(width, height, d) / (height * d.out_w / d.out_h);
-      // Limit the first crop to a readable one-second move within the zoom
-      // speed budget. The selected region stays framed without rushing into a
-      // source-resolution zoom just to fill the portrait canvas.
-      targetA.z = Math.min(targetA.z, fitZoom, zMax(width, height, d), Math.exp(0.4));
+      // Preserve the active region framing; motion budgets determine arrival
+      // time rather than permanently limiting the crop to a tiny app strip.
+      const fillZoom = baseWidth(width, height, d) / (height * d.out_w / d.out_h);
+      targetA.z = Math.min(Math.max(targetA.z, fillZoom), zMax(width, height, d));
+    }
+    // Context regions supplied by saved analysis describe whole columns/cards.
+    // Shift within the room around the subject rather than slice a neighbor.
+    const stage = stageGeometry(width, height, d);
+    const visible = stageFrames([toFrame(targetA, width, height, d)], width, height, stage, d)[0]!;
+    const [sx, , sw] = shot.zoneA.bbox;
+    let left = sx + sw - visible.w, right = sx;
+    for (const neighbor of shot.beat.zones.filter(z => z.type === "win" && z !== shot.zoneA)) {
+      const [nx, , nw] = neighbor.bbox;
+      if (nx >= sx + sw) right = Math.min(right, nx - visible.w);
+      else if (nx + nw <= sx) left = Math.max(left, nx + nw);
+    }
+    if (left <= right && shot.beat.zones.some(z => z.type === "win" && z !== shot.zoneA)) {
+      targetA.cx = clamp(visible.x - stage.screenX, left, right) + visible.w / 2;
     }
     const result: Target[] = [{
       t: shot.arrival,
       state: targetA,
       importance: shot.decision.K,
-      startAfter: shot.beat.kind === "cut" ? cutSettledAt(shot.beat, shot.arrival, d) : undefined,
+      startAfter: shot.beat.kind === "cut" ? cutSettledAt(shot.beat, shot.arrival, d)
+        : shot.zoneA.type === "res" ? shot.zoneA.t_change ?? shot.beat.t0 : undefined,
     }];
     if (shot.zoneB !== shot.zoneA && shot.decision.B) {
       const resultTime = shot.zoneB.t_change ?? shot.beat.t1;
@@ -513,7 +529,7 @@ function sampleCamera(
       const target = targets[targetIndex]!;
       // A manual edit begins at its exact boundary and interrupts any auto move.
       const candidateMove = createMove(state, target.state, target.t, baseW, d,
-        target.manual === "zoom" ? 0
+        target.manual === "zoom" ? start
           : target.manual === "resume" ? target.t : Math.max(target.startAfter ?? 0, previousTime), Boolean(target.manual));
       const manualDue = target.manual === "zoom" ? time >= candidateMove.start
         : target.manual === "resume" && time >= target.t;
@@ -576,6 +592,93 @@ function sampleCamera(
   return frames;
 }
 
+export interface CameraArrival {
+  requested: number;
+  requiredLead: number;
+  boundary: number;
+  feasibleStart: number;
+  actualArrival: number;
+  lateness: number;
+  holdEnd: number;
+  requestedFrame: CameraFrame;
+}
+
+/** Plan against the viewport actually emitted by the padded renderer. */
+function boundedCamera(targets: Target[], width: number, height: number, start: number,
+  end: number, d: CameraDefaults, cuts: number[], arrivals: CameraArrival[]): CameraFrame[] {
+  const stage = stageGeometry(width, height, d);
+  const project = (state: CameraState) => stageFrames([toFrame(state, width, height, d)], width, height, stage, d)[0]!;
+  const path = (from: CameraState, to: CameraState, u: number): CameraFrame => {
+    const eased = smooth(clamp(u, 0, 1));
+    const a = project(from), b = project(to);
+    const w = Math.exp(lerp(Math.log(a.w), Math.log(b.w), eased));
+    const h = w * d.out_h / d.out_w;
+    // Interpolate final screen-origin projection, not a source centre which
+    // the padded renderer would clamp at a source-fill boundary.
+    const px = lerp(-a.x * d.out_w / a.w, -b.x * d.out_w / b.w, eased);
+    const py = lerp(-a.y * d.out_h / a.h, -b.y * d.out_h / b.h, eased);
+    return { t: 0, x: -px * w / d.out_w, y: -py * h / d.out_h, w, h };
+  };
+  const lead = (from: CameraState, to: CameraState) => {
+    // Differentiate the complete normalized curve, including padded edge
+    // geometry. Time dilation scales velocity by1/T and acceleration by1/T².
+    const steps = 2048;
+    const points = Array.from({ length: steps + 1 }, (_, i) => {
+      const f = path(from, to, i / steps);
+      return { z: -Math.log(f.w), x: -f.x * d.out_w / f.w, y: -f.y * d.out_h / f.h };
+    });
+    let speed = 0, za = 0, pa = 0;
+    let previous: { z: number; x: number; y: number } | undefined;
+    for (let i = 1; i < points.length; i++) {
+      const a = points[i - 1]!, b = points[i]!;
+      const v = { z: (b.z - a.z) * steps, x: (b.x - a.x) * steps, y: (b.y - a.y) * steps };
+      speed = Math.max(speed, Math.abs(v.z));
+      if (previous) {
+        za = Math.max(za, Math.abs(v.z - previous.z) * steps);
+        pa = Math.max(pa, Math.hypot(v.x - previous.x, v.y - previous.y) * steps);
+      }
+      previous = v;
+    }
+    // Sampling guard is a conservative planner margin, not a relaxed gate.
+    return Math.max(d.move_t_min, speed, Math.sqrt(za / 4), Math.sqrt(pa / 9000)) * 1.05;
+  };
+  const initial = { cx: width / 2, cy: height / 2, z: 1 };
+  const boundaryAt = (t: number) => Math.max(start, ...cuts.filter(c => c <= t));
+  const manual = targets.filter(t => t.manual === "zoom");
+  const reservations = manual.map(t => ({ from: Math.max(boundaryAt(t.t), t.t - lead(initial, t.state)), to: t.holdEnd ?? t.t }));
+  const selected = targets.filter(t => t.manual || !reservations.some(r => t.t >= r.from && t.t <= r.to));
+  const moves: { from: CameraState; to: CameraState; start: number; end: number }[] = [];
+  let state = initial;
+  let available = start;
+  for (const target of selected) {
+    const duration = lead(state, target.state);
+    const boundary = boundaryAt(target.t);
+    const feasibleStart = Math.max(boundary, available, target.startAfter ?? start, target.t - duration);
+    const arrival = feasibleStart + duration;
+    // An automatic move that would occupy a manual reservation cannot delay
+    // the edit past its clip/cut boundary. Keep the prior pose for that lead.
+    if (!target.manual && reservations.some(r => target.t < r.from && arrival > r.from)) continue;
+    moves.push({ from: state, to: target.state, start: feasibleStart, end: arrival });
+    if (target.manual === "zoom") arrivals.push({ requested: target.t - start, requiredLead: duration,
+      boundary: boundary - start, feasibleStart: feasibleStart - start, actualArrival: arrival - start,
+      lateness: Math.max(0, arrival - target.t), holdEnd: (target.holdEnd ?? target.t) - start,
+      requestedFrame: project(target.state) });
+    state = target.state;
+    available = target.manual === "zoom" ? Math.max(arrival, target.holdEnd ?? arrival)
+      : arrival + Math.max(d.dwell, d.min_shot);
+  }
+  let moveIndex = 0;
+  return Array.from({ length: Math.floor((end - start) * d.fps) + 1 }, (_, index) => {
+    const t = start + index / d.fps;
+    while (moveIndex + 1 < moves.length && moves[moveIndex + 1]!.start <= t) moveIndex++;
+    const move = moves[moveIndex];
+    const padded = !move || t < move.start ? project(initial)
+      : path(move.from, move.to, (t - move.start) / (move.end - move.start));
+    return { ...padded, x: padded.x - stage.screenX, y: padded.y - stage.screenY,
+      t: t - start, padded: { ...padded, t: t - start } };
+  });
+}
+
 function validateCameraInputs(beats: Beat[], decisions: Decision[], take: TakeMeta): void {
   const finite = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value);
   const time = (value: unknown) => finite(value) && value >= 0;
@@ -632,6 +735,7 @@ export function solveCamera(
   decisions: Decision[],
   take: TakeMeta,
   d: CameraDefaults = DEFAULTS,
+  timing?: { cuts: number[]; arrivals: CameraArrival[] },
 ): CameraFrame[] {
   validateCameraInputs(beats, decisions, take);
   validateZooms(take.zooms, take.width, take.height);
@@ -671,7 +775,7 @@ export function solveCamera(
       requested.z = Math.max(requested.z, Math.min(fitZoom, zMax(width, height, d)));
     }
     const viewport = toFrame(requested, width, height, d);
-    targets.push({ t: zoom.t0, manual: "zoom", importance: 2,
+    targets.push({ t: zoom.t0, manual: "zoom", holdEnd: zoom.t1, importance: 2,
       state: { cx: viewport.x + viewport.w / 2, cy: viewport.y + viewport.h / 2, z: baseWidth(width, height, d) / viewport.w } });
     // Resume the latest automatic framing, even if its target fell inside the edit.
     if (zoom.t1 < end && !zooms.some(z => z.t0 === zoom.t1)) targets.push({
@@ -680,5 +784,9 @@ export function solveCamera(
     });
   }
   targets.sort((a, b) => a.t - b.t || Number(a.manual !== undefined) - Number(b.manual !== undefined));
+  if (zooms.length || portraitCrop || d.out_w === d.out_h) {
+    return boundedCamera(targets, width, height, start, end, d,
+      timing?.cuts ?? take.cuts?.map(c => c.t1) ?? [], timing?.arrivals ?? []);
+  }
   return sampleCamera(targets, quietShots.map((shot) => shot.beat), decisionMap, width, height, start, end, d, zooms);
 }

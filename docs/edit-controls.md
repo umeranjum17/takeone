@@ -52,13 +52,23 @@ takeone render ~/Videos/takeone/<id> --aspect square --resolution 4k --format we
 - `kind: "type_speed"` applies to detected typing action bursts, including when
   the enclosing beat is classified as a click. It needs no timestamps. With
   video-only input and no typing events, it has no effect.
-- `zooms` frames a source-pixel rectangle `[x, y, width, height]`. The transition
-  starts at `t0`; the region holds until `t1`, when automatic framing resumes.
-  `level` defaults to `2`: `1` retains more context, `3` uses tighter padding,
-  and `0` shows the whole screen. The output aspect and maximum pixel upscale
-  still apply. The camera eases through the existing critically damped spring,
-  and pointer-follow is suspended during the edit. Allow enough time for the
-  transition and a readable hold; about four seconds is a useful starting point.
+- `zooms` frames a source-pixel rectangle `[x, y, width, height]`. The camera
+  anticipates the requested arrival at `t0` and holds until `t1`, when automatic
+  framing resumes. `level` defaults to `2`: `1` retains more context, `3` uses
+  tighter padding, and `0` shows the whole screen. Output aspect and maximum
+  pixel upscale still apply.
+- Anticipation uses the final padded viewport and respects zoom speed1ln/s,
+  zoom acceleration4ln/s², and pan acceleration9000outputpx/s². It cannot start
+  before the clip or previous cut. When there is insufficient lead, the move
+  begins at that boundary and arrives late while retaining the motion limits.
+  The CLI reports the lateness; `camera-arrivals.json` retains full-precision
+  requested arrival, required lead, boundary, feasible start, actual arrival,
+  lateness, hold end, and requested padded framing. A hold may be too short to
+  reach the framing; choose a later arrival or longer hold in that case.
+- Early edits preserve the opening frame instead of fabricating motion before
+  the clip. Landscape recordings in portrait establish wide and then crop the
+  active region with the same bounded planner. `camera.json` keeps source-space
+  framing plus the exact `padded` viewport used by these bounded moves.
 
 Precedence is cuts, timed speed, typing speed, then automatic idle speed.
 Within each array, timed intervals may touch but must not overlap; one typing
@@ -94,3 +104,19 @@ task workflow, and renders a take made only from those demo DOM screenshots.
 It saves a real before/after frame, contact sheets, a ten-second output clip,
 and aligned raw/render and before/after comparison videos. This is a staged
 fixture with exact timestamps; it does not record a desktop.
+
+For bounded camera and framing proof from that saved synthetic recording, run:
+
+```sh
+node scripts/proof-camera-contract.ts tmp/camera-contract-proof
+node scripts/proof-camera-contract.ts tmp/camera-contract-proof --reuse
+```
+
+The second command collects metadata and frames from existing outputs without
+rendering them again. The script saves portrait and square examples, manual
+requests with sufficient lead or a clip/cut boundary, the created card and whole
+columns, edited seam samples, exact arrival/hold frames, ffprobe receipts and
+source/analysis/camera/edit-clock/video hashes. Every camera budget uses the
+final padded viewport. It rejects encoded size, frame-clock or motion-budget
+failures; physical screen-corner bounce is recorded separately for review.
+Run proof work under the repository's shared heavy-job lock where applicable.
