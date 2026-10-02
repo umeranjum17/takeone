@@ -43,19 +43,25 @@ export function stageGeometry(width: number, height: number, d: CameraDefaults):
 /**
  * With a title or captions, a 16:9 take keeps its card fixed above a reserved
  * text band and the camera moves inside the card, so text never covers the app.
- * Stage px are output px here; `top`/`centre` locate the band.
  */
-export interface Band { stage: Stage; top: number; centre: number }
+export interface Band { stage: Stage; top: number; titleY: number; captionY: number; titleH: number; captionH: number }
 
-export function bandLayout(width: number, height: number, d: CameraDefaults, titleHeight = titleSize(d) * 1.3): Band | null {
+export function bandLayout(width: number, height: number, d: CameraDefaults, captions: Caption[] = [],
+  widths: (number | CaptionInk)[] = []): Band | null {
   if (Math.abs(width / height - 16 / 9) > 0.01 || Math.abs(d.out_w / d.out_h - 16 / 9) > 0.01) return null;
-  const band = Math.ceil(Math.max(titleHeight + Math.round(titleSize(d) * 0.3), d.caption_size * 2.2) + d.caption_size * 1.2);
+  const layouts = captions.map((c, i) => bandCaption(c, widths[i] ?? 0, d));
+  const titleH = Math.max(0, ...layouts.map((l, i) => captions[i]!.title ? l.h + 2 * l.rise : 0));
+  const captionH = Math.max(0, ...layouts.map((l, i) => !captions[i]!.title ? l.h + 2 * l.rise + 2 * d.caption_border : 0));
+  const gap = titleH && captionH ? d.caption_size * 0.35 : 0;
+  const padding = d.caption_size * 0.6;
+  const band = Math.ceil(titleH + captionH + gap + 2 * padding);
   const top = Math.round(d.out_h * d.stage_margin / (1 + 2 * d.stage_margin));
   const h = Math.floor((d.out_h - top - band) / 2) * 2;
-  if (h <= 0) throw new Error("title is too tall for the stage band");
+  if (h <= 0) throw new Error("text is too tall for the stage band");
   const w = even(h * d.out_w / d.out_h);
   const stage = { w: d.out_w, h: d.out_h, baseW: w, baseH: h, screenX: Math.round((d.out_w - w) / 2), screenY: top, restScale: 1 };
-  return { stage, top: top + h, centre: (top + h + d.out_h) / 2 };
+  return { stage, top: top + h, titleY: top + h + padding + titleH / 2,
+    captionY: top + h + padding + titleH + gap + captionH / 2, titleH, captionH };
 }
 
 /** Solver viewports re-expressed as full-output viewports, for code that projects source px to output px. */
@@ -291,7 +297,7 @@ export interface Caption { t0: number; t1: number; text: string; title: boolean;
  * Title plus captions from take.json, sanitised for ASS. `at` maps a video time to
  * output time; durations are output seconds so reading time survives idle squeezing.
  */
-export function takeCaptions(meta: TakeMeta, at: (t: number) => number, duration: number, band = false): Caption[] {
+export function takeCaptions(meta: TakeMeta, at: (t: number) => number, duration: number): Caption[] {
   const clean = (text: string) => text.replace(/[{}\\]/g, "").replace(/\s+/g, " ").trim();
   const out: Caption[] = [];
   const title = typeof meta.title === "string" ? clean(meta.title) : "";
@@ -305,21 +311,7 @@ export function takeCaptions(meta: TakeMeta, at: (t: number) => number, duration
     if (text && t1 > t0) out.push({ t0, t1, text, title: false, position: caption.position });
   }
   const body = out.filter(c => !c.title).sort((a, b) => a.t0 - b.t0);
-  const shown = band ? out.find(c => c.title && c.t1 > c.t0) : undefined;
-  let end = shown?.t1 ?? 0;
-  const replaceAt = shown ? body.find(c => c.t0 >= shown.t1)?.t0 ?? duration : duration;
-  for (let i = 0; i < body.length; i++) {
-    const c = body[i]!;
-    if (shown && c.t0 < shown.t1 && c.t1 > shown.t0) {
-      const readingTime = c.t1 - c.t0;
-      c.t0 = end;
-      c.t1 = Math.min(replaceAt, c.t0 + readingTime);
-      end = c.t1;
-    } else {
-      c.t1 = Math.min(c.t1, body[i + 1]?.t0 ?? duration);
-    }
-  }
-  if (shown) body.sort((a, b) => a.t0 - b.t0);
+  for (let i = 0; i + 1 < body.length; i++) body[i]!.t1 = Math.min(body[i]!.t1, body[i + 1]!.t0);
   return [...out.filter(c => c.title && c.t1 > c.t0), ...body.filter(c => c.t1 > c.t0)];
 }
 
@@ -349,21 +341,27 @@ export function titleColour(d: CameraDefaults): string {
   return contrast(d.text, d.background) >= contrast(d.card, d.background) ? d.text : d.card;
 }
 
+function bandCaption(caption: Caption, ink: number | CaptionInk, d: CameraDefaults) {
+  const inkW = typeof ink === "number" ? ink : ink.w;
+  const base = caption.title ? titleSize(d) : d.caption_size;
+  const fit = caption.title ? 1 : Math.min(1, (d.out_w * 0.9 - 2 * base * 0.75) / Math.max(1, inkW));
+  const size = base * fit;
+  const w = inkW * fit + (caption.title ? 0 : 2 * size * 0.75);
+  const inkH = typeof ink === "number" ? 0 : ink.h * fit;
+  const h = caption.title ? Math.max(size, inkH) : Math.ceil(Math.max(size * 1.9, inkH + size * 0.9));
+  return { w, h, size, rise: Math.round(size * 0.3) };
+}
+
 /** Shared geometry keeps keycap collision avoidance identical to caption placement. */
 export function captionLayouts(captions: Caption[], widths: (number | CaptionInk)[], d: CameraDefaults, widePhone = false,
   band?: Band | null) {
   if (band) return captions.map((caption, index) => {
-    const ink = widths[index] ?? 0;
-    const inkW = typeof ink === "number" ? ink : ink.w;
-    const base = textSize(caption, d, band);
-    const fit = caption.title ? 1 : Math.min(1, (d.out_w * 0.9 - 2 * base * 0.75) / Math.max(1, inkW));
-    const size = base * fit;
-    const w = inkW * size / base + (caption.title ? 0 : 2 * size * 0.75);
-    const h = caption.title ? Math.max(size, typeof ink === "number" ? 0 : ink.h) : Math.ceil(size * 1.9);
-    if (caption.title && (w > d.out_w * 0.9 || h + Math.round(size * 0.3) > d.out_h - band.top)) {
-      throw new Error("title does not fit the stage band");
+    const layout = bandCaption(caption, widths[index] ?? 0, d);
+    const rowH = caption.title ? band.titleH : band.captionH;
+    if (layout.w > d.out_w * 0.9 || layout.h + 2 * layout.rise > rowH) {
+      throw new Error("text does not fit the stage band row");
     }
-    return { cx: d.out_w / 2, cy: band.centre, w, h, size, rise: Math.round(size * 0.3) };
+    return { cx: d.out_w / 2, cy: caption.title ? band.titleY : band.captionY, ...layout };
   });
   const heights = captions.map((caption, index) => {
     const size = textSize(caption, d);

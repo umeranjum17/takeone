@@ -54,15 +54,17 @@ test("captions stop at the next mapped start in chronological order", () => {
 test("every theme keeps title and captions in the band below a fixed card", () => {
   for (const name of Object.keys(THEMES)) {
     const d = resolveTheme(name);
-    const band = bandLayout(3840, 2160, d)!;
-    const card = band.stage;
-    assert.equal(card.screenY + card.baseH, band.top, name);
     const captions = takeCaptions({ width: 3840, height: 2160, title: "From idea to launch",
       captions: [{ t: 1, text: "Umer adds a launch task" }, { t: 9, text: "a caption far too long to fit on one line ".repeat(4) }] },
-      t => t, 20, true);
-    // The band holds one line, so a caption overlapping the title waits for it.
-    assert.deepEqual(captions.map(c => c.t0), [0.35, 3.1, 9], name);
-    const layouts = captionLayouts(captions, [{ w: 600, h: 50 }, { w: 500, h: 30 }, { w: 9000, h: 30 }], d, false, band);
+      t => t, 20);
+    assert.deepEqual(captions.map(c => c.t0), [0.35, 1, 9], name);
+    const ink = [{ w: 600, h: 50 }, { w: 500, h: 30 }, { w: 9000, h: 30 }];
+    const band = bandLayout(3840, 2160, d, captions, ink)!;
+    const card = band.stage;
+    assert.equal(card.screenY + card.baseH, band.top, name);
+    const layouts = captionLayouts(captions, ink, d, false, band);
+    assert.ok(layouts[0]!.cy + layouts[0]!.h / 2 + layouts[0]!.rise
+      < layouts[1]!.cy - layouts[1]!.h / 2 - d.caption_border, name);
     for (const { cx, cy, w, h, size } of layouts) {
       assert.ok(cy - h / 2 >= band.top && cy + h / 2 <= d.out_h, `${name}: vertical`);
       assert.ok(cx - w / 2 >= 0 && cx + w / 2 <= d.out_w && size > 0, `${name}: horizontal`);
@@ -80,38 +82,33 @@ test("matching non-16:9 exports retain the overlay layout", () => {
   assert.ok(bandLayout(1920, 1080, DEFAULTS));
 });
 
-test("only title-overlapping captions queue; ordinary cues retain replacement timing", () => {
-  const meta = { width: 1920, height: 1080, title: "Demo",
-    captions: [{ t: 0, d: 0.2, text: "before" }, { t: 1, d: 1, text: "first" },
-      { t: 2, d: 2, text: "second" }, { t: 8, d: 3, text: "later" },
-      { t: 9, d: 3, text: "last" }] };
-  assert.deepEqual(takeCaptions(meta, t => t, 12, true).map(c => [c.text, c.t0, c.t1]), [
-    ["Demo", 0.35, 3.1], ["before", 0, 0.2], ["first", 3.1, 4.1],
-    ["second", 4.1, 6.1], ["later", 8, 9], ["last", 9, 12],
+test("titles preserve caption timestamps and ordinary replacement behavior", () => {
+  const meta = { width: 1920, height: 1080, title: "Demo", captions: [
+    { t: 0, d: 0.3, text: "before" }, { t: 0.1, d: 1, text: "first" },
+    { t: 1, d: 2, text: "second" }, { t: 4, d: 3, text: "ordinary" },
+  ] };
+  const result = takeCaptions(meta, t => t, 10);
+  assert.deepEqual(result.map(c => [c.text, c.t0, c.t1]), [
+    ["Demo", 0.35, 3.1], ["before", 0, 0.1], ["first", 0.1, 1], ["second", 1, 3], ["ordinary", 4, 7],
   ]);
-  const noTitle = { ...meta, title: "" };
-  assert.deepEqual(takeCaptions(noTitle, t => t, 12, true), takeCaptions(noTitle, t => t, 12));
-  const sameStart = { ...noTitle, captions: [
+  assert.deepEqual(result.filter(c => !c.title), takeCaptions({ ...meta, title: "" }, t => t, 10));
+  const sameStart = { ...meta, captions: [
     { t: 1, d: 1, text: "first" }, { t: 1, d: 1, text: "replacement" },
+    { t: 9, d: 3, text: "last" },
   ] };
-  assert.deepEqual(takeCaptions(sameStart, t => t, 10, true).map(c => [c.text, c.t0, c.t1]),
-    [["replacement", 1, 2]]);
-  const next = { ...meta, captions: [
-    { t: 0, d: 0.3, text: "before" }, { t: 0.1, d: 1, text: "deferred" },
-    { t: 1, d: 2, text: "queued" }, { t: 4, d: 3, text: "ordinary" },
-  ] };
-  assert.deepEqual(takeCaptions(next, t => t, 10, true).map(c => [c.text, c.t0, c.t1]),
-    [["Demo", 0.35, 3.1], ["before", 0, 0.1], ["deferred", 3.1, 4], ["ordinary", 4, 7]]);
+  assert.deepEqual(takeCaptions(sameStart, t => t, 10).filter(c => !c.title).map(c => [c.text, c.t0, c.t1]),
+    [["replacement", 1, 2], ["last", 9, 10]]);
 });
 
 test("complete long caption ink is measured before fitting inside a band pill", { skip: !hasFfmpeg() }, async () => {
   const dir = mkdtempSync(`${process.cwd()}/tmp-long-caption-`);
   const d = { ...DEFAULTS, card: "#000000", text: "#ffffff", caption_border: 0 };
-  const band = bandLayout(1920, 1080, d)!;
+  let band = bandLayout(1920, 1080, d)!;
   const text = "Review every task and share the result. ".repeat(32).trim();
   const captions = [text, `${text} ${text}`].map(text => ({ t0: 0, t1: 2, text, title: false }));
   try {
     const ink = await measureCaptions(dir, captions, d, band);
+    band = bandLayout(1920, 1080, d, captions, ink)!;
     assert.ok(ink[0]!.w > 16000, `natural width=${ink[0]!.w}`);
     assert.ok(Math.abs(ink[1]!.w / ink[0]!.w - 2) < 0.02, `widths=${ink.map(i => i.w)}`);
     for (let i = 0; i < captions.length; i++) {
@@ -137,26 +134,29 @@ test("complete long caption ink is measured before fitting inside a band pill", 
   }
 });
 
-test("long band titles wrap at display size and render clear of the card in every theme", { skip: !hasFfmpeg() }, async () => {
+test("concurrent band titles and captions retain separate measured rows in every theme", { skip: !hasFfmpeg() }, async () => {
   const dir = mkdtempSync(`${process.cwd()}/tmp-title-`);
   try {
     for (const name of Object.keys(THEMES)) {
       const d = resolveTheme(name);
       const captions = takeCaptions({ width: 1920, height: 1080,
         title: "From a new idea to a complete product: plan your launch, organise every task, and review the result with your team",
-        captions: [{ t: 1, d: 2, text: "Review the result" }] }, t => t, 10, true);
+        captions: [{ t: 1, d: 4, text: "Review the result" }] }, t => t, 10);
       const ink = await measureCaptions(dir, captions, d, bandLayout(1920, 1080, d));
-      const band = bandLayout(1920, 1080, d, ink[0]!.h)!;
+      const band = bandLayout(1920, 1080, d, captions, ink)!;
       const layouts = captionLayouts(captions, ink, d, false, band);
       assert.equal(layouts[0]!.size, Math.round(d.caption_size * 1.6), name);
       assert.ok(ink[0]!.h > layouts[0]!.size, `${name}: title wraps`);
       assert.equal(layouts[1]!.size, d.caption_size, name);
-      assert.ok(captions[1]!.t0 >= captions[0]!.t1, name);
-      writeFileSync(`${dir}/captions.ass`, captionAss(captions, ink, d, false, band));
+      assert.deepEqual([captions[1]!.t0, captions[1]!.t1], [1, 5], name);
+      assert.ok(layouts[0]!.cy + layouts[0]!.h / 2 + layouts[0]!.rise
+        < layouts[1]!.cy - layouts[1]!.h / 2 - d.caption_border, name);
       const background = execFileSync("ffmpeg", ["-v", "error", "-f", "lavfi", "-i",
         `color=0x${d.background.slice(1)}:s=${d.out_w}x${d.out_h}:r=1:d=1`, "-vf", "format=gray",
         "-frames:v", "1", "-f", "rawvideo", "-"], { maxBuffer: d.out_w * d.out_h * 2 });
-      for (const t of [0.4, 1, 4]) {
+      for (const t of [0.4, 1.4, 4]) for (let i = 0; i < captions.length; i++) {
+        if (captions[i]!.t0 >= t || captions[i]!.t1 <= t) continue;
+        writeFileSync(`${dir}/captions.ass`, captionAss([captions[i]!], [ink[i]!], d, false, band));
         const pixels = execFileSync("ffmpeg", ["-v", "error", "-f", "lavfi", "-i",
           `color=0x${d.background.slice(1)}:s=${d.out_w}x${d.out_h}:r=1:d=1`, "-vf",
           `settb=1/1000,setpts=PTS+${t}/TB,ass=${dir}/captions.ass:fontsdir=resources/fonts,format=gray`,
@@ -165,6 +165,9 @@ test("long band titles wrap at display size and render clear of the card in ever
         for (let y = 0; y < d.out_h; y++) for (let x = 0; x < d.out_w; x++) {
           if (Math.abs(pixels[y * d.out_w + x]! - background[y * d.out_w + x]!) <= 2) continue;
           count++;
+          const rowTop = i === 0 ? band.top : layouts[0]!.cy + layouts[0]!.h / 2 + layouts[0]!.rise;
+          const rowBottom = i === 0 ? layouts[1]!.cy - layouts[1]!.h / 2 - d.caption_border : d.out_h;
+          assert.ok(y > rowTop && y < rowBottom, `${name}: row ${i} ink at y=${y}, t=${t}`);
           assert.ok(y > band.top + d.border && y < d.out_h - 1, `${name}: ink at y=${y}, t=${t}`);
           assert.ok(x > d.out_w * 0.04 && x < d.out_w * 0.96, `${name}: ink at x=${x}, t=${t}`);
         }

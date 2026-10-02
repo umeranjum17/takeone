@@ -84,12 +84,10 @@ export async function renderTake(dir: string, d?: CameraDefaults): Promise<{ out
     return { t: f.t, x: (meta.width - w) / 2, y, w, h };
   }) : solved;
   await writeFile(join(dir, "camera.json"), JSON.stringify(frames));
-  const text = takeCaptions(meta, outTime, duration);
-  let band = text.length ? bandLayout(meta.width, meta.height, d) : null;
-  const captions = takeCaptions(meta, outTime, duration, Boolean(band));
+  const captions = takeCaptions(meta, outTime, duration);
+  let band = captions.length ? bandLayout(meta.width, meta.height, d) : null;
   const captionInk = await measureCaptions(dir, captions, d, band);
-  if (band) band = bandLayout(meta.width, meta.height, d,
-    Math.max(0, ...captions.map((c, i) => c.title ? captionInk[i]!.h : 0)));
+  if (band) band = bandLayout(meta.width, meta.height, d, captions, captionInk);
   const stage = band?.stage ?? stageGeometry(meta.width, meta.height, d);
   const commandFile = join(dir, "camera.cmd");
   // With a band the camera frames the screen alone, into the fixed card.

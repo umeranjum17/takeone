@@ -186,14 +186,18 @@ function judder(video: string, frames: CameraFrame[], meta: TakeMeta, d: typeof 
   return { rms: Math.sqrt(jitter.reduce((s, v) => s + v * v, 0) / jitter.length), samples: jitter.length };
 }
 
-function captions(video: string, dir: string, meta: TakeMeta, d: typeof DEFAULTS, duration: number, band: Band | null) {
+function outputCaptions(dir: string, meta: TakeMeta, d: typeof DEFAULTS, duration: number) {
   const beats = json<Beat[]>(join(dir, 'analysis/beats.json')).map(b => ({ ...b, actions: b.actions.map(a => {
     const v = a as { t?: number; t0?: number; t1?: number };
     return { ...v, ...(v.t === undefined ? {} : { t: v.t * 1000 }), ...(v.t0 === undefined ? {} : { t0: v.t0 * 1000 }), ...(v.t1 === undefined ? {} : { t1: v.t1 * 1000 }) };
   }) }));
   const start = meta.trim_start ?? 0;
   const squeezes = idleSqueezes(beats, start, meta.trim_end!, d);
-  const expected = takeCaptions(meta, t => warp(t - start, squeezes, d.idle_speed), duration, Boolean(band));
+  return takeCaptions(meta, t => warp(t - start, squeezes, d.idle_speed), duration);
+}
+
+function captions(video: string, dir: string, meta: TakeMeta, d: typeof DEFAULTS, duration: number, band: Band | null) {
+  const expected = outputCaptions(dir, meta, d, duration);
   const assTime = (s: string) => s.split(':').reduce((n, part) => n * 60 + Number(part), 0);
   const pills = readFileSync(join(dir, 'captions.ass'), 'utf8').split('\n').flatMap(line => {
     if (!line.startsWith('Dialogue:') || !line.includes('\\p1}')) return [];
@@ -290,9 +294,9 @@ async function main() {
     let band = meta.title || meta.captions?.length ? bandLayout(meta.width, meta.height, d) : null;
     if (band) {
       const duration = camera.at(-1)!.t + 1 / d.fps;
-      const captions = takeCaptions(meta, t => t, duration, true);
+      const captions = outputCaptions(dir, meta, d, duration);
       const ink = await measureCaptions(dir, captions, d, band);
-      band = bandLayout(meta.width, meta.height, d, Math.max(0, ...captions.map((c, i) => c.title ? ink[i]!.h : 0)));
+      band = bandLayout(meta.width, meta.height, d, captions, ink);
     }
     const frames = band ? bandFrames(camera, band, d) : stageFrames(camera, meta.width, meta.height, stageGeometry(meta.width, meta.height, d), d);
     const probe = JSON.parse(command('ffprobe', ['-v', 'error', '-count_frames', '-show_streams', '-of', 'json', video]).toString());
