@@ -4,7 +4,7 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { DEFAULTS } from "../src/camera/defaults.ts";
-import { solveCamera } from "../src/camera/solver.ts";
+import { manualZoomLimitWarning, solveCamera } from "../src/camera/solver.ts";
 import type { Beat, TakeMeta } from "../src/camera/types.ts";
 import { editBeats, editTimeline, editZooms, validateEdits } from "../src/render/edits.ts";
 import { renderTake } from "../src/render/render.ts";
@@ -79,12 +79,32 @@ test("manual zoom pre-rolls to its region and rejects holds shorter than 0.5 sec
   const take = { ...meta, trim_start: 0, trim_end: 8, zooms: [requested] };
   const frames = solveCamera([], [], take, d);
   const requestedFrame = frames[Math.round(requested.t0 * d.fps)]!;
-  assert.ok(requestedFrame.w < 250, `requested region reached by t0: ${requestedFrame.w}`);
-  assert.ok(Math.abs(requestedFrame.x + requestedFrame.w / 2 - 320) < 2);
+  assert.ok(requestedFrame.x <= requested.bbox[0]
+    && requestedFrame.x + requestedFrame.w >= requested.bbox[0] + requested.bbox[2],
+  `requested region is framed by t0: ${requestedFrame.x}, ${requestedFrame.w}`);
   for (const frame of frames.slice(2 * d.fps, 2.6 * d.fps)) {
-    assert.ok(frame.w < 250, `manual framing held through t1: ${frame.w}`);
+    assert.ok(frame.x <= requested.bbox[0]
+      && frame.x + frame.w >= requested.bbox[0] + requested.bbox[2],
+    `manual framing held through t1: ${frame.x}, ${frame.w}`);
   }
   assert.throws(() => solveCamera([], [], { ...take, zooms: [{ ...requested, t1: 2.49 }] }, d), /0.5s hold/);
+});
+
+test("square 4K manual zoom moves to the native upscale boundary after stage padding", () => {
+  const square4k = { ...DEFAULTS, out_w: 3840, out_h: 3840 };
+  const take = { width: 2560, height: 1440, trim_end: 8,
+    zooms: [{ t0: 2, t1: 6, bbox: [940, 430, 680, 640] as [number, number, number, number], level: 3 as const }] };
+  const sourceFrames = solveCamera([], [], take, square4k);
+  const stage = stageGeometry(take.width, take.height, square4k);
+  const frames = stageFrames(sourceFrames, take.width, take.height, stage, square4k);
+  const metrics = cameraMetrics(frames, square4k.fps, square4k.out_w, square4k.out_h, square4k.min_shot);
+  assert.ok(frames[0]!.w > frames[2 * square4k.fps]!.w,
+    `manual zoom changes visible viewport ${frames[0]!.w} -> ${frames[2 * square4k.fps]!.w}`);
+  assert.ok(metrics.max_upscale.value <= 1.5, `visible viewport upscale ${metrics.max_upscale.value}`);
+  assert.ok(metrics.zoom_speed.value <= 1, `visible zoom speed ${metrics.zoom_speed.value}`);
+  assert.ok(metrics.zoom_acceleration.value <= 4, `visible zoom acceleration ${metrics.zoom_acceleration.value}`);
+  assert.ok(metrics.pan_acceleration.value <= 9000, `visible pan acceleration ${metrics.pan_acceleration.value}`);
+  assert.match(manualZoomLimitWarning(take, square4k) ?? "", /requested .*x, achieved 1\.11x/);
 });
 
 test("wide source in portrait establishes then crops to an active region within one second", () => {
@@ -96,10 +116,19 @@ test("wide source in portrait establishes then crops to an active region within 
   assert.ok(frames.every(frame => 180 / frame.w <= portrait.max_upscale + 1e-8));
   const stage = stageGeometry(640, 360, portrait);
   const staged = stageFrames(frames, 640, 360, stage, portrait);
+  const metrics = cameraMetrics(staged, portrait.fps, portrait.out_w, portrait.out_h, portrait.min_shot);
+  assert.ok(metrics.max_upscale.value <= 1.5, `portrait upscale ${metrics.max_upscale.value}`);
+  assert.ok(metrics.zoom_speed.value <= 1, `portrait visible zoom speed ${metrics.zoom_speed.value}`);
+  assert.ok(metrics.zoom_acceleration.value <= 4,
+    `portrait visible zoom acceleration ${metrics.zoom_acceleration.value}`);
+  assert.ok(metrics.pan_acceleration.value <= 9000,
+    `portrait visible pan acceleration ${metrics.pan_acceleration.value}`);
+  const active = { x: 280 + stage.screenX, y: 120 + stage.screenY, w: 120, h: 40 };
   for (const frame of staged.slice(3 * portrait.fps, 6 * portrait.fps)) {
-    assert.ok(frame.y >= stage.screenY - 1e-6, `portrait crop starts inside screen: ${frame.y}`);
-    assert.ok(frame.y + frame.h <= stage.screenY + 360 + 1e-6,
-      `portrait crop ends inside screen: ${frame.y + frame.h}`);
+    assert.ok(frame.x <= active.x && frame.x + frame.w >= active.x + active.w,
+      `portrait viewport keeps the active region horizontally: ${frame.x}, ${frame.w}`);
+    assert.ok(frame.y <= active.y && frame.y + frame.h >= active.y + active.h,
+      `portrait viewport keeps the active region vertically: ${frame.y}, ${frame.h}`);
   }
 });
 

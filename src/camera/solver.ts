@@ -45,14 +45,31 @@ const clamp = (value: number, min: number, max: number) =>
 const lerp = (a: number, b: number, u: number) => a + (b - a) * u;
 const smooth = (u: number) => u * u * u * (u * (u * 6 - 15) + 10);
 
-/** Width of the output-aspect canvas the source sits in; z = 1 shows all of it. */
+/** Width of the padded output-aspect stage in source-space pixels. */
 export function baseWidth(width: number, height: number, d: CameraDefaults = DEFAULTS): number {
-  return Math.max(width, height * d.out_w / d.out_h);
+  const contentWidth = Math.max(width, height * d.out_w / d.out_h);
+  // Camera coordinates include the card's rest margin. This keeps the zoom
+  // budget attached to the final visible viewport, including at very large
+  // output sizes where the margin is needed to reach the source's native cap.
+  return contentWidth * (1 + 2 * d.stage_margin);
 }
 
 /** Deepest zoom, measured against the aspect-padded canvas, that keeps within max_upscale. */
 export function zMax(width: number, height: number, d: CameraDefaults = DEFAULTS): number {
   return Math.max(1, baseWidth(width, height, d) / (d.out_w / d.max_upscale));
+}
+
+/** Describe manual requests reduced by the native-pixel upscale ceiling. */
+export function manualZoomLimitWarning(take: TakeMeta, d: CameraDefaults = DEFAULTS): string | undefined {
+  const limit = zMax(take.width, take.height, d);
+  const uncappedDefaults = { ...d, max_upscale: 1e9 };
+  const capped = (take.zooms ?? []).flatMap((zoom, index) => {
+    const region: Zone = { name: "manual", type: "act", bbox: zoom.bbox };
+    const requested = frame(region, zoom.level ?? 2, take.width, take.height, undefined, uncappedDefaults).z;
+    if (requested <= limit + 1e-8) return [];
+    return [`zoom ${index + 1}: requested ${requested.toFixed(2)}x, achieved ${limit.toFixed(2)}x`];
+  });
+  return capped.length ? `Camera upscale limit capped manual framing (${capped.join("; ")}).` : undefined;
 }
 
 /** Convert a camera centre to an output-aspect viewport, allowing padded overscan. */
@@ -66,18 +83,22 @@ function toFrame(
   const aspect = d.out_w / d.out_h;
   const aspectDelta = Math.abs(width / height / aspect - 1);
   const nonWide = aspectDelta > 1e-9;
-  // Keep the viewport at the output aspect; padded overscan shrinks with zoom.
-  const w = nonWide ? baseWidth(width, height, d) / z : Math.min(width / z, height * aspect);
+  // The camera now moves across the padded stage itself. This makes the
+  // solver's viewport the same viewport the renderer finally exposes.
+  const w = baseWidth(width, height, d) / z;
   const h = w / aspect;
   // Overscan remains centred until the requested crop fits; pan eases into the
   // newly available margin to avoid a one-frame jump at the source boundary.
   const place = (centre: number, view: number, size: number) => {
-    if (!nonWide) return clamp(centre - view / 2, 0, Math.max(0, size - view));
-    const easeBoundary = aspectDelta > 0.01;
-    const u = easeBoundary ? smooth(clamp((size - view) / (size * 0.75), 0, 1)) : 1;
+    if (view > size) {
+      const wideIntoPortrait = d.out_h > d.out_w && width / height > aspect;
+      return wideIntoPortrait ? centre - view / 2 : (size - view) / 2;
+    }
+    const easeBoundary = aspectDelta > 0.01 || d.stage_margin > 0;
+    const edgeSpan = d.out_h > d.out_w ? 0.25 : 0.75;
+    const u = easeBoundary ? smooth(clamp((size - view) / (size * edgeSpan), 0, 1)) : 1;
     const effectiveCentre = size / 2 + (centre - size / 2) * u;
-    return view > size ? (size - view) / 2
-      : clamp(effectiveCentre - view / 2, 0, Math.max(0, size - view));
+    return clamp(effectiveCentre - view / 2, 0, size - view);
   };
   const x = place(state.cx, w, width);
   const y = place(state.cy, h, height);
@@ -296,7 +317,10 @@ function buildTargets(
     const targetA = frame(shot.zoneA, shot.decision.L, width, height, shot.beat.window_rect, d);
     if (shot.portraitFill) {
       const fitZoom = baseWidth(width, height, d) / (height * d.out_w / d.out_h);
-      targetA.z = Math.max(targetA.z, Math.min(fitZoom, zMax(width, height, d)));
+      // Limit the first crop to a readable one-second move within the zoom
+      // speed budget. The selected region stays framed without rushing into a
+      // source-resolution zoom just to fill the portrait canvas.
+      targetA.z = Math.min(targetA.z, fitZoom, zMax(width, height, d), Math.exp(0.4));
     }
     const result: Target[] = [{
       t: shot.arrival,
@@ -359,6 +383,7 @@ function createMove(from: CameraState, to: CameraState, arrival: number, baseW: 
     : Math.abs(Math.log(to.z / from.z));
   if (manual) duration = Math.max(duration, 1.875 * travel, Math.sqrt(5.78 * travel * (hop ? 2 : 1) / 4));
   else if (d.out_h > d.out_w) duration = Math.max(duration, 2 * travel);
+  if (manual) duration *= 1.35;
   const start = Math.max(arrival - duration, startAfter);
   return { from, to, mid, start, end: start + duration, hop };
 }
@@ -620,7 +645,7 @@ export function solveCamera(
   if (portraitCrop) {
     const active = shots.find((shot) => shot.beat.zones.some((zone) => zone.type !== "all"));
     if (active) {
-      active.arrival = Math.min(active.arrival, start + 1);
+      active.arrival = Math.min(active.arrival, start + 1 - 2 / d.lowpass_omega);
       active.zoneA = active.beat.zones.filter((zone) => zone.type !== "all")
         .sort((a, b) => Math.abs((a.t_change ?? active.beat.anchor_t) - active.beat.anchor_t)
           - Math.abs((b.t_change ?? active.beat.anchor_t) - active.beat.anchor_t))[0]!;
@@ -643,7 +668,7 @@ export function solveCamera(
       requested.z = Math.max(requested.z, Math.min(fitZoom, zMax(width, height, d)));
     }
     const viewport = toFrame(requested, width, height, d);
-    targets.push({ t: Math.max(start, zoom.t0 - 2 / d.lowpass_omega), manual: "zoom", importance: 2,
+    targets.push({ t: Math.max(start, zoom.t0 - 3 / d.lowpass_omega), manual: "zoom", importance: 2,
       state: { cx: viewport.x + viewport.w / 2, cy: viewport.y + viewport.h / 2, z: baseWidth(width, height, d) / viewport.w } });
     // Resume the latest automatic framing, even if its target fell inside the edit.
     if (zoom.t1 < end && !zooms.some(z => z.t0 === zoom.t1)) targets.push({

@@ -2,7 +2,6 @@
 // source space (so they zoom with the content) and captions drawn in output space.
 // Everything here is local ffmpeg/libass work and costs zero tokens.
 import type { CameraDefaults } from "../camera/defaults.ts";
-import { zMax } from "../camera/solver.ts";
 import type { Beat, CameraFrame, TakeMeta } from "../camera/types.ts";
 
 export interface Stage {
@@ -41,20 +40,17 @@ export function stageGeometry(width: number, height: number, d: CameraDefaults):
 }
 
 /**
- * Map solver viewports (source px) onto the stage. At rest the whole stage shows;
- * zooming eases the margin away so the deepest zoom still fills the frame with screen.
+ * Map solver viewports (stage-space source px) onto the stage. The solver and
+ * renderer share one padded viewport, so padding cannot change camera timing.
  */
 export function stageFrames(frames: CameraFrame[], width: number, height: number, st: Stage, d: CameraDefaults): CameraFrame[] {
-  const top = zMax(width, height, d);
   const aspect = d.out_w / d.out_h;
   const portraitCrop = d.out_h > d.out_w && width / height > aspect;
   const portraitFillWidth = height * aspect;
   return frames.map((f) => {
-    const zoom = st.baseW / f.w;
-    const keep = top > 1 ? 1 - smooth(clamp((zoom - 1) / (top - 1), 0, 1)) : 1;
     const naturalW = portraitCrop
       ? Math.min(st.w, Math.max(portraitFillWidth, f.w))
-      : Math.min(st.w, f.w * (1 + 2 * d.stage_margin * keep));
+      : Math.min(st.w, f.w);
     const w = naturalW;
     let h = Math.min(st.h, w / aspect);
     const cx = f.x + f.w / 2 + st.screenX;
@@ -71,9 +67,9 @@ export function stageFrames(frames: CameraFrame[], width: number, height: number
     return {
       t: f.t,
       x: portraitCrop ? clamp(cx, centerX - halfX, centerX + halfX) - w / 2
-        : clamp(cx - w / 2, 0, st.w - w),
+        : w > st.w ? (st.w - w) / 2 : clamp(cx - w / 2, 0, st.w - w),
       y: portraitCrop ? clamp(cy, centerY - halfY, centerY + halfY) - h / 2
-        : clamp(cy - h / 2, 0, st.h - h),
+        : h > st.h ? (st.h - h) / 2 : clamp(cy - h / 2, 0, st.h - h),
       w,
       h,
     };
