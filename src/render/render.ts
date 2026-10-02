@@ -6,7 +6,7 @@ import { resolveTheme } from "../themes.ts";
 import { basename, dirname, join, resolve } from "node:path";
 import type { CameraDefaults } from "../camera/defaults.ts";
 import { actionCameraMilliseconds } from "../beats/clock.ts";
-import { solveCamera } from "../camera/solver.ts";
+import { manualZoomLimitWarning, solveCamera } from "../camera/solver.ts";
 import type { Beat, Decision, TakeMeta } from "../camera/types.ts";
 import { blurGraph, keycapAss, keycapObstacles, overlayRegions, spotlightAss } from "./overlays.ts";
 import { motionBlurGraph, shutterPlan } from "./motion-blur.ts";
@@ -65,6 +65,8 @@ export async function renderTake(
 
   const trimEnd = meta.trim_end ?? Math.max(0, ...beats.map((beat) => beat.t1));
   const trimStart = meta.trim_start ?? 0;
+  const cameraWarning = manualZoomLimitWarning(meta, d);
+  if (cameraWarning) console.warn(cameraWarning);
   // Everything after this point runs on the output clock, with idle gaps squeezed.
   const squeezes = idleSqueezes(beats, trimStart, trimEnd, d);
   const edited = Boolean(meta.cuts?.length || meta.speed?.length);
