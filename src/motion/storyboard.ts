@@ -66,14 +66,21 @@ function validateVisibleScene(s: Scene, start: number, duration: number, fps: nu
   const end = start + Math.round(duration * fps) / fps;
   if (s.pattern === "zoom-tour") {
     if (s.at! < start - 1e-9 || s.at! + s.d > end + 1e-9) throw new StoryboardError(path, "visible window truncates camera moves and reading holds");
-    return;
   }
-  const reading = readingFloor(sceneTexts(s).join(" "));
-  if (!reading) return;
-  const readableAt = Math.max(start, s.at! + sceneRevealDuration(s));
-  const firstFrame = Math.ceil((readableAt - start) * fps - 1e-9);
+  const holds = s.pattern === "zoom-tour" ? [] : [{ text: sceneTexts(s).join(" "), reveal: sceneRevealDuration(s) }];
+  if (s.pattern === "hero-reveal" || s.pattern === "zoom-tour") {
+    const device = s.device ?? "browser";
+    const text = device === "browser" ? "Design preview" : device === "phone" ? "9:41" : "";
+    holds.push({ text, reveal: s.pattern === "hero-reveal" ? .6 : 0 });
+  }
   const lastFrame = Math.min(Math.round(duration * fps) - 1, Math.ceil((s.at! + s.d - start) * fps - 1e-9) - 1);
-  if (lastFrame / fps + 1e-9 < firstFrame / fps + reading) throw new StoryboardError(path, "visible window is under reveal and reading-time floor");
+  for (const { text, reveal } of holds) {
+    const reading = readingFloor(text);
+    if (!reading) continue;
+    const readableAt = Math.max(start, s.at! + reveal);
+    const firstFrame = Math.ceil((readableAt - start) * fps - 1e-9);
+    if (lastFrame / fps + 1e-9 < firstFrame / fps + reading) throw new StoryboardError(path, "visible window is under reveal and reading-time floor");
+  }
 }
 
 function scene(raw: unknown, path: string): Scene {

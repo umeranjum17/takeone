@@ -210,6 +210,34 @@ test("counter and device labels receive reveal and reading holds in every layout
 });
 
 
+test("hero and tour device copy gets its post-reveal hold in every visible window",()=>{
+  const tiles=["TL","TR","BL","BR"].map(id=>({id,offset_s:0}));
+  for(const pattern of ["hero-reveal","zoom-tour"] as const) {
+    for(const device of [undefined,"browser","phone"] as const) {
+      const floor=device==="phone" ? 1.1 : 1.4;
+      const minimum=floor+(pattern==="hero-reveal" ? .6 : 0);
+      const scene={pattern,device,title:pattern==="hero-reveal" ? "Launch" : undefined,d:minimum};
+      const layouts=(s:typeof scene)=>[
+        {kind:"single"},
+        {kind:"bento",grid:"2x2",master:{d:6,scenes:[s]},tiles},
+        ...["A","B","C","D"].map(id=>({kind:"bento",grid:"pinwheel-3x2",tiles:Object.fromEntries(["A","B","C","D"].map(key=>[key,[key===id ? s : {...s,d:6}]]))})),
+      ];
+      for(const layout of layouts(scene))assert.throws(()=>validateStoryboard({...board(),scenes:[scene],layout}),/reveal and reading-time/);
+      const full={...scene,d:minimum+1/60};
+      for(const layout of layouts(full))validateStoryboard({...board(),scenes:[full],layout});
+      for(const id of ["TL","TR","BL","BR"]) {
+        for(const offset_s of [4-floor,minimum-6]) {
+          const layout={kind:"bento",grid:"2x2",master:{d:6,scenes:[{...scene,d:4}]},tiles:tiles.map(tile=>({...tile,offset_s:tile.id===id ? offset_s : 0}))};
+          assert.throws(()=>validateStoryboard({...board(),layout}),/visible window.*reading/);
+        }
+      }
+    }
+    for(const device of ["none","laptop"] as const)validateStoryboard({...board(),scenes:[{pattern,device,title:pattern==="hero-reveal" ? "Launch" : undefined,d:pattern==="hero-reveal" ? 1.6 : .5}]});
+  }
+  assert.throws(()=>validateStoryboard({...board(),scenes:[{pattern:"hero-reveal",title:"Launch",device:"browser",d:1.6}]}),/reading-time/);
+  assert.throws(()=>validateStoryboard({...board(),scenes:[{pattern:"zoom-tour",device:"browser",d:.5}]}),/reading-time/);
+});
+
 test("effective bento windows preserve required reveals and holds",()=>{
   const spinner={pattern:"fragment",kind:"spinner",d:5};
   const counter={pattern:"fragment",kind:"counter",d:2.7};
