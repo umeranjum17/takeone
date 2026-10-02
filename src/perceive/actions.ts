@@ -205,7 +205,7 @@ export function actionsFromEvents(
         acts.push({
           k: "drag",
           path: visiblePtr.filter(p => p.t >= e.t && p.t <= (visiblePtr.at(-1)?.t ?? e.t)).map(({ t, x, y }) => ({ t, x, y })),
-          subject: dragSubject(frames, e.t, p0),
+          subject: dragSubject(frames, e.t, lastPtr?.t ?? e.t, p0, pointerAt, opts.stream),
           t0: e.t,
           t1: lastPtr?.t ?? e.t,
           from: p0,
@@ -225,7 +225,7 @@ export function actionsFromEvents(
         acts.push({
           k: "drag",
           path: visiblePtr.filter(p => p.t >= e.t && p.t <= up.t).map(({ t, x, y }) => ({ t, x, y })),
-          subject: dragSubject(frames, e.t, p0),
+          subject: dragSubject(frames, e.t, Math.min(up.t, opts.endMs ?? up.t), p0, pointerAt, opts.stream),
           t0: e.t,
           t1: up.t,
           from: p0,
@@ -373,13 +373,23 @@ function bboxAreaOf(b: BBox): number {
 }
 
 /** A conservative grab footprint from the first visible object change. */
-function dragSubject(frames: FrameRegions[], t: number, point: [number, number]): BBox | undefined {
+function dragSubject(
+  frames: FrameRegions[], t0: number, t1: number, from: [number, number],
+  pointerAt: (t: number) => [number, number] | null, stream: { w: number; h: number },
+): BBox | undefined {
   for (const f of frames) {
-    if (f.t < t || f.t > t + 300 || f.cut) continue;
+    if (f.t < t0 || f.t > t1 || f.cut) continue;
+    const point = pointerAt(f.t);
+    if (!point) continue;
     const candidates = f.regions.filter(r => r.area_frac < 0.2
       && point[0] >= r.bbox[0] && point[0] <= r.bbox[0] + r.bbox[2]
       && point[1] >= r.bbox[1] && point[1] <= r.bbox[1] + r.bbox[3]);
-    if (candidates.length) return candidates.sort((a, b) => b.area_frac - a.area_frac)[0]!.bbox;
+    for (const candidate of candidates.sort((a, b) => b.area_frac - a.area_frac)) {
+      const [x, y, w, h] = candidate.bbox;
+      const subject: BBox = [x + from[0] - point[0], y + from[1] - point[1], w, h];
+      if (subject[0] >= 0 && subject[1] >= 0 && w > 0 && h > 0
+        && subject[0] + w <= stream.w && subject[1] + h <= stream.h) return subject;
+    }
   }
   return undefined;
 }

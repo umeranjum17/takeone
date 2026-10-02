@@ -784,3 +784,57 @@ test("a dwell before a curved drag cannot hide the object or regress the next ac
   const invalid = { ...drag, actions: [{ ...g, path: [{ t: 3000, x: NaN, y: 1400 }] }] };
   assert.throws(() => camera([invalid], [decision(invalid)], 8), /invalid/);
 });
+
+test("paused pickup resolves the moving card across the gesture and unknown bounds cannot pass", async () => {
+  const { actionsFromEvents } = await import("../src/perceive/actions.ts");
+  const { gestures, gesturePointer, applyDragVisibility } = await import("../src/camera/gesture.ts");
+  const { framingCoverage, contains } = await import("../scripts/check-framing.ts");
+  const events = [
+    { k: "ptr" as const, t: 8000, x: 2500, y: 1000 },
+    { k: "btn" as const, t: 8000, b: "left", down: true },
+    { k: "ptr" as const, t: 8600, x: 2500, y: 1000 },
+    { k: "ptr" as const, t: 10000, x: 3300, y: 1000 },
+    { k: "ptr" as const, t: 11000, x: 2500, y: 1000 },
+    { k: "btn" as const, t: 12000, b: "left", down: false },
+  ];
+  const changed = { t: 10000, changed_frac: 0.025, cut: false,
+    regions: [{ bbox: [2800, 900, 1000, 200] as [number, number, number, number], area_frac: 0.025 }] };
+  const previous: Beat = { ...beat("settled-card", 4, 2000), t0: 0, t1: 7,
+    zones: [zone("card", [2000, 900, 1000, 200])] };
+  const next: Beat = { ...beat("after-drop", 13, 2500), t0: 12.1, t1: 15 };
+  for (const released of [true, false]) {
+    for (const known of [true, false]) {
+      const actions = actionsFromEvents(released ? events : events.slice(0, -1),
+        known ? [changed] : [{ ...changed, t: 13000 }], { stream: { w: 3840, h: 2160 }, pointer: "mapped", endMs: 12000 });
+      const drag: Beat = { ...beat("paused-card", 8, 2000, "drag"), t0: 7.5, t1: 12,
+        zones: [zone("card", [2000, 900, 1000, 200])], actions };
+      const g = gestures(drag)[0]!;
+      assert.ok(g);
+      assert.deepEqual(g.subject, known ? [2000, 900, 1000, 200] : undefined);
+      assert.deepEqual(gesturePointer(g, 8.5), [2500, 1000]);
+      assert.deepEqual(gesturePointer(g, 10), [3300, 1000]);
+      assert.deepEqual(gesturePointer(g, 11), [2500, 1000]);
+      const beats = [previous, drag, next];
+      const baseline = camera(beats.map(b => ({ ...b, actions: [] })), beats.map(b => decision(b)), 16);
+      const solved = camera(beats, beats.map(b => decision(b)), 16);
+      const rows = framingCoverage(beats, baseline, solved);
+      assert.ok(rows.every(r => r.lost === 0), JSON.stringify(rows));
+      assert.equal(rows[1]!.passed, known, JSON.stringify(rows));
+      for (const f of solved.filter(f => f.t >= g.t0 / 1000 && f.t <= g.t1 / 1000)) {
+        const [x, y] = gesturePointer(g, f.t);
+        assert.ok(contains(f, [x - 500, y - 100, 1000, 200]), JSON.stringify(f));
+        assert.ok(contains(f, [x - 8, y - 8, 32, 40]), JSON.stringify(f));
+        if (!known) assert.ok(contains(f, [0, 0, 3840, 2160]), JSON.stringify(f));
+      }
+      const reported = [{ t: 10, x: 1540, y: 460, w: 1920, h: 1080 }];
+      assert.equal(framingCoverage([drag], reported, reported)[0]!.passed, false);
+      for (const [out_w, out_h] of [[1920, 1080], [1080, 1920], [2560, 1080]]) {
+        const aspect = out_w! / out_h!;
+        const before = [{ t: 10, x: 1540, y: 500, w: 1920, h: 1920 / aspect }];
+        const safe = applyDragVisibility(before, [drag], 3840, 2160, 0, { ...DEFAULTS, out_w: out_w!, out_h: out_h! });
+        assert.ok(contains(safe[0]!, [2800, 900, 1000, 200]));
+        if (!known) assert.ok(contains(safe[0]!, [0, 0, 3840, 2160]));
+      }
+    }
+  }
+});

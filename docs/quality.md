@@ -141,8 +141,11 @@ visible.
 Drag actions preserve the sampled pointer path through planning and pacing.
 The camera reserves the object's swept footprint ahead of the drag, rather
 than following an earlier dwell. When available, the first changed region
-containing the grab point supplies a conservative object footprint; otherwise
-the action region and cursor path provide the framing context. The handoff to
+containing the pointer during the gesture supplies a conservative object
+footprint mapped back to the grab point. This includes paused pickups and
+returns before release. When the object bounds are unknown, the camera retains
+the whole source; the framing checker fails unknown-object drags rather than
+treating cursor coverage as proof of whole-object visibility. The handoff to
 the following action retains that context, including when a shot is omitted
 by the camera's movement budget.
 

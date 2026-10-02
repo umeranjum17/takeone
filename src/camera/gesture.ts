@@ -34,12 +34,13 @@ export function gesturePointer(g: Gesture, time: number): [number, number] {
 
 /** Reserve the whole swept object and cursor, so the camera need not chase or lag behind a drag. */
 export function gestureZone(g: Gesture, width: number, height: number): Zone {
+  if (!g.subject) return { name: "gesture", type: "all", bbox: [0, 0, width, height] };
   const points = [g.from, g.to, ...(g.path ?? []).map(p => [p.x, p.y])];
   const left = Math.min(g.bbox[0], ...points.map(p => p[0]!));
   const top = Math.min(g.bbox[1], ...points.map(p => p[1]!));
   const right = Math.max(g.bbox[0] + g.bbox[2], ...points.map(p => p[0]!));
   const bottom = Math.max(g.bbox[1] + g.bbox[3], ...points.map(p => p[1]!));
-  const subject = g.subject ?? [g.from[0] - 24, g.from[1] - 24, 48, 48];
+  const subject = g.subject;
   // Include cursor ink, not only its hotspot, and preserve the grab offset.
   const x = Math.max(0, left + Math.min(-8, subject[0]! - g.from[0]));
   const y = Math.max(0, top + Math.min(-8, subject[1]! - g.from[1]));
