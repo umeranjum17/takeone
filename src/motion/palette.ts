@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { imageSize } from "./ingest.ts";
 
-/** Deterministic palette sampling from an ingested PNG. Quantize a fixed pixel lattice, never a random sample. */
+/** Decode an ingested image to RGB before quantizing a fixed pixel lattice, never a random sample. */
 export function samplePalette(file: string): { background: string; accent: string; accent_text: string } {
   const { width, height } = imageSize(file);
   if (![width, height].every(n => Number.isInteger(n) && n >= 1 && n <= 16384)) throw new Error(`${file}: image dimensions must be in 1..16384`);
