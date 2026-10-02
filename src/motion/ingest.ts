@@ -19,7 +19,7 @@ export function validateStateNames(names: Iterable<string>): void {
 }
 
 export function imageSize(file: string): { width: number; height: number } {
-  const probe = JSON.parse(execFileSync("ffprobe", ["-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height", "-of", "json", file], { encoding: "utf8" })) as { streams: { width: number; height: number }[] };
+  const probe = JSON.parse(execFileSync("ffprobe", ["-v", "error", "-protocol_whitelist", "file,pipe", "-select_streams", "v:0", "-show_entries", "stream=width,height", "-of", "json", file], { encoding: "utf8", timeout: 30000, maxBuffer: 1024 * 1024 })) as { streams: { width: number; height: number }[] };
   const s = probe.streams[0];
   if (!s) throw new Error(`${file}: not an image`);
   return { width: s.width, height: s.height };

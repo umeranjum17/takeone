@@ -1,9 +1,13 @@
 import test from "node:test";
 import { spawn, spawnSync } from "node:child_process";
 import { setTimeout as delay } from "node:timers/promises";
-import { encodeFrames } from "../src/motion/render.ts";
+import { encodeFrames, withPage } from "../src/motion/render.ts";
 import vm from "node:vm";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { join, resolve } from "node:path";
+import { crc32, deflateSync } from "node:zlib";
+import { samplePalette } from "../src/motion/palette.ts";
+import { writePage } from "../src/motion/motion.ts";
 import { motionPage } from "../src/motion/page.ts";
 import { INGEST_CLOCK } from "../src/motion/ingest-clock.ts";
 import assert from "node:assert/strict";
@@ -20,6 +24,70 @@ import { sceneCameras } from "../src/motion/camera.ts";
 import type { Storyboard } from "../src/motion/types.ts";
 
 const board=()=>({version:1,source:{kind:"image",files:["board.png"]},theme:{name:"editorial"},screens:{S1:{file:"board.png",width:2560,height:1440}},scenes:[{pattern:"hero-reveal",d:3,screen:"S1",title:"Launch"}],regions:[]});
+test("accepted image representations retain their palette in themed fragments",async()=>{
+  const dir=mkdtempSync(resolve(".motion-palette-test-"));
+  const chunk=(type:string,data:Buffer)=>{
+    const head=Buffer.alloc(8),crc=Buffer.alloc(4);
+    head.writeUInt32BE(data.length);head.write(type,4);
+    crc.writeUInt32BE(crc32(Buffer.concat([head.subarray(4),data])));
+    return Buffer.concat([head,data,crc]);
+  };
+  try {
+    for(const [name,depth,colour,interlace] of [
+      ["rgb",8,2,0],["indexed",8,3,0],["grey",8,0,0],["grey1",1,0,0],["grey16",16,0,0],["rgb16",16,2,0],["interlaced",8,2,1],
+    ] as const) {
+      const header=Buffer.alloc(13);header.writeUInt32BE(64);header.writeUInt32BE(64,4);header[8]=depth;header[9]=colour;header[12]=interlace;
+      const passes=interlace ? [[0,0,8,8],[4,0,8,8],[0,4,4,8],[2,0,4,4],[0,2,2,4],[1,0,2,2],[0,1,1,2]] : [[0,0,1,1]];
+      const rows:Buffer[]=[];
+      for(const [x,y,dx,dy] of passes) {
+        const w=Math.ceil((64-x!)/dx!),h=Math.ceil((64-y!)/dy!);
+        for(let j=0;j<h;j++) {
+          const row=Buffer.alloc(1+Math.ceil(w*(colour===2?3:1)*depth/8));
+          if(depth===1)row.fill(255,1);
+          else for(let i=0;i<w;i++) {
+            const values=colour===2 ? [0,85,255] : colour===3 ? [0] : [170];
+            values.forEach((v,k)=>{const at=1+(i*values.length+k)*depth/8;if(depth===16)row.writeUInt16BE(v*257,at);else row[at]=v;});
+          }
+          rows.push(row);
+        }
+      }
+      writeFileSync(join(dir,`${name}.png`),Buffer.concat([Buffer.from([137,80,78,71,13,10,26,10]),chunk("IHDR",header),
+        ...(colour===3?[chunk("PLTE",Buffer.from([0,85,255]))]:[]),chunk("IDAT",deflateSync(Buffer.concat(rows))),chunk("IEND",Buffer.alloc(0))]));
+    }
+    const jpeg=spawnSync("ffmpeg",["-nostdin","-v","error","-threads","1","-i",join(dir,"rgb.png"),"-frames:v","1","-threads","1","-q:v","1",join(dir,"screen.jpg")],{encoding:"utf8",timeout:30000});
+    assert.equal(jpeg.status,0,jpeg.stderr);
+    for(const name of ["rgb","indexed","grey","grey1","grey16","rgb16","interlaced","screen"]) {
+      const file=join(dir,name==="screen"?"screen.jpg":`${name}.png`);
+      const palette=samplePalette(file);
+      assert.deepEqual(samplePalette(file),palette);
+      if(name.startsWith("grey"))assert.equal(palette.background,name==="grey1"?"#ffffff":"#aaaaaa");
+      else {
+        const rgb=palette.accent.slice(1).match(/../g)!.map(v=>parseInt(v,16));
+        assert.ok(rgb[2]!>=238 && rgb[0]!<=17 && Math.abs(rgb[1]!-85)<=17,JSON.stringify(palette));
+      }
+      for(const theme of ["editorial","midnight"]) {
+        const sb=validateStoryboard({...board(),theme:{name:theme},source:{kind:"image",files:[file]},screens:{},scenes:[{pattern:"fragment",kind:"chip",d:3}]});
+        await ingest(dir,sb);
+        assert.deepEqual(readFileSync(join(dir,sb.screens.S1!.file)),readFileSync(file));
+        const html=writePage(dir,sb).html;
+        await withPage(html,1920,1080,async b=>{
+          await b.evaluate("__seek(1500)");
+          const actual=await b.evaluate<{background:string;foreground:string;x:number;y:number}>(`(()=>{const el=document.querySelector('[data-pattern="fragment"] > div > div');const style=getComputedStyle(el),r=el.getBoundingClientRect();return {background:style.backgroundColor,foreground:style.color,x:Math.floor(r.x+16),y:Math.floor(r.y+r.height/2)};})()`);
+          const cssRgb=(hex:string)=>`rgb(${hex.slice(1).match(/../g)!.map(v=>parseInt(v,16)).join(", ")})`;
+          assert.equal(actual.background,cssRgb(palette.accent));
+          assert.equal(actual.foreground,cssRgb(palette.accent_text));
+          const shot=await b.send<{data:string}>("Page.captureScreenshot",{format:"png",clip:{x:actual.x,y:actual.y,width:1,height:1,scale:1}});
+          const pixel=decodePng(Buffer.from(shot.data,"base64"));
+          assert.deepEqual([...pixel.data.slice(0,3)],palette.accent.slice(1).match(/../g)!.map(v=>parseInt(v,16)));
+        });
+      }
+    }
+    writeFileSync(join(dir,"invalid.png"),"not an image");
+    assert.throws(()=>samplePalette(join(dir,"invalid.png")));
+    assert.throws(()=>samplePalette(join(dir,"missing.png")));
+  } finally {rmSync(dir,{recursive:true,force:true});}
+});
+
 test("validator rejects off-beat cuts and snaps a one-frame drift",()=>{
   const tempo={bpm:120,phase_s:0,snap:"beat" as const};
   assert.throws(()=>beatTime(1.1,tempo,60,"cut"),/off the beat/);
