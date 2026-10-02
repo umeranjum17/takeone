@@ -54,12 +54,12 @@ export function validateEdits(meta: TakeMeta): void {
   validateZooms(meta.zooms, meta.width, meta.height);
 }
 
-export function validateZooms(zooms: unknown, width: number, height: number): void {
+export function validateZooms(zooms: unknown, width: number, height: number, minimumHold = 0.5): void {
   const spans = list(zooms, "zooms").map((v, i) => {
     range(v, `zooms[${i}]`);
     const z = v as ManualZoom;
     const b = z.bbox;
-    if (z.t1 - z.t0 < 0.5) fail(`zooms[${i}]: interval must allow a 0.5s hold`);
+    if (z.t1 - z.t0 < minimumHold) fail(`zooms[${i}]: interval must allow a 0.5s hold`);
     if (!Array.isArray(b) || b.length !== 4 || !b.every(finite) || b[0] < 0 || b[1] < 0
       || b[2] <= 0 || b[3] <= 0 || b[0] + b[2] > width || b[1] + b[3] > height) fail(`zooms[${i}].bbox`);
     if (z.level !== undefined && (!Number.isInteger(z.level) || z.level < 0 || z.level > 3)) fail(`zooms[${i}].level`);
@@ -124,18 +124,21 @@ export function editBeats(beats: Beat[], clock: EditTimeline, start: number): Be
     const t0 = s(beat.t0), t1 = s(beat.t1);
     if (t1 <= t0) return [];
     const actions = beat.actions.flatMap(action => {
-      const a = action as { t?: number; t0?: number; t1?: number };
+      const a = action as { t?: number; t0?: number; t1?: number; path?: { t: number; x: number; y: number }[] };
       if (a.t !== undefined) return clock.contains(a.t / 1000) ? [{ ...a, t: ms(a.t) }] : [];
       if (a.t0 !== undefined && a.t1 !== undefined) {
         if (ms(a.t1) <= ms(a.t0)) return [];
         // Do not invent a drag press when its actual press was removed.
         if ((a as { k?: string }).k === "drag" && !clock.contains(a.t0 / 1000)) return [];
-        return [{ ...a, t0: ms(a.t0), t1: ms(a.t1) }];
+        return [{ ...a, t0: ms(a.t0), t1: ms(a.t1),
+          ...(a.path ? { path: a.path.filter(p => clock.contains(p.t / 1000)).map(p => ({ ...p, t: ms(p.t) })) } : {}),
+        }];
       }
       return [a];
     });
     return [{ ...beat, t0, t1, anchor_t: s(beat.anchor_t), actions,
       camera_suppressed: !clock.contains(beat.anchor_t),
+      dialog_results: beat.dialog_results?.filter(result => clock.contains(result.t)).map(result => ({ ...result, t: s(result.t) })),
       zones: beat.zones.map(zone => zone.t_change === undefined ? zone : { ...zone, t_change: s(zone.t_change) }),
       changed_frac: beat.changed_frac?.filter(sample => clock.contains(sample.t)).map(sample => ({ ...sample, t: s(sample.t) })),
     }];

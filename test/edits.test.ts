@@ -7,9 +7,10 @@ import { DEFAULTS } from "../src/camera/defaults.ts";
 import { manualZoomLimitWarning, solveCamera } from "../src/camera/solver.ts";
 import type { Beat, TakeMeta } from "../src/camera/types.ts";
 import { editBeats, editTimeline, editZooms, validateEdits } from "../src/render/edits.ts";
-import { renderTake } from "../src/render/render.ts";
-import { stageFrames, stageGeometry } from "../src/render/stage.ts";
+import { measureCaptions, renderTake } from "../src/render/render.ts";
+import { bandFrames, bandLayout, bandText, takeCaptions, stageFrames, stageGeometry } from "../src/render/stage.ts";
 import { cameraMetrics } from "../scripts/quality.ts";
+import { gestures, gestureZone } from "../src/camera/gesture.ts";
 import { hasFfmpeg } from "./helpers.ts";
 
 const d = { ...DEFAULTS, idle_speed: 1, out_w: 320, out_h: 180, caption_size: 14, fade_s: 0, preset: "ultrafast" };
@@ -161,7 +162,7 @@ test("wide source in portrait establishes then crops to an active region within 
   }
 });
 
-test("portrait manual zoom holds the requested region without stage bands", () => {
+test("portrait manual zoom holds the requested region in the padded stage", () => {
   const portrait = { ...d, out_w: 180, out_h: 320, outro_s: 0 };
   const zoom = { t0: 2, t1: 6, bbox: [250, 110, 160, 90] as [number,number,number,number], level: 2 as const };
   const frames = solveCamera([], [], { width: 640, height: 360, trim_end: 8, zooms: [zoom] }, portrait);
@@ -170,8 +171,10 @@ test("portrait manual zoom holds the requested region without stage bands", () =
   assert.ok(camera.y <= zoom.bbox[1] && camera.y + camera.h >= zoom.bbox[1] + zoom.bbox[3]);
   const stage = stageGeometry(640, 360, portrait);
   const [staged] = stageFrames([camera], 640, 360, stage, portrait);
-  assert.ok(Math.abs(staged!.y - stage.screenY) < 0.01);
-  assert.ok(Math.abs(staged!.y + staged!.h - stage.screenY - 360) < 0.01);
+  assert.ok(staged!.x <= stage.screenX + zoom.bbox[0]);
+  assert.ok(staged!.x + staged!.w >= stage.screenX + zoom.bbox[0] + zoom.bbox[2]);
+  assert.ok(staged!.y <= stage.screenY + zoom.bbox[1]);
+  assert.ok(staged!.y + staged!.h >= stage.screenY + zoom.bbox[1] + zoom.bbox[3]);
 });
 
 test("portrait stage mapping stays continuous as the crop reaches screen fill", () => {
@@ -258,6 +261,16 @@ test("render reruns edits from take.json, preserves captions reading time and is
     assert.match(emitted, /Dialogue: 3,0:00:02\.50,0:00:05\.50,.*Keep reading/);
     const frames = JSON.parse(readFileSync(join(dir,"camera.json"),"utf8"));
     assert.equal(frames.length,361);
+    const geometry = JSON.parse(readFileSync(join(dir,"render-camera.json"),"utf8"));
+    const captions = takeCaptions({ ...meta, captions: [{t:6,d:3,text:"Keep reading"}] },
+      t => editTimeline({ ...meta, cuts:[{t0:4,t1:6}],speed:[{kind:"type_speed",rate:2}] },[beat],1,11,d).at(t),6);
+    const initial = bandText(captions,[],d);
+    let ink = await measureCaptions(dir,captions,initial,true);
+    const text = bandText(captions,ink,initial);
+    if (text !== initial) ink = await measureCaptions(dir,captions,text,true);
+    const band = bandLayout(640,360,text,captions,ink)!;
+    assert.deepEqual(geometry.frames,bandFrames(frames,band,d));
+    assert.deepEqual(geometry.sourceOrigin,{x:0,y:0});
     const rerun = await renderTake(dir,d);
     assert.deepEqual(readFileSync(rerun.out),bytes);
   } finally { rmSync(dir,{recursive:true,force:true}); }
@@ -294,4 +307,83 @@ test("square manual zoom bounds full-path pan acceleration", () => {
     previous = velocity;
   }
   assert.ok(peak <= 9000, `square pan acceleration ${peak} px/s²`);
+});
+
+
+test("nested edited timestamps retain only surviving samples on the camera clock", () => {
+  const drag: Beat = { ...beat, kind: "drag", anchor_t: 4,
+    actions: [{k:"drag",t0:4000,t1:6000,from:[100,100],to:[500,250],bbox:[100,100,400,150],
+      path:[{t:4500,x:200,y:150},{t:5000,x:300,y:180},{t:5500,x:400,y:200}]}],
+    dialog_results:[{t:4,bbox:[100,100,100,100]},{t:5,bbox:[200,100,100,100]}] };
+  const clock = editTimeline({...meta,speed:[{t0:1,t1:11,rate:2}],cuts:[{t0:5,t1:5.2}]},[drag],1,11,d);
+  const mapped = editBeats([drag],clock,1)[0]!;
+  const g = gestures(mapped)[0]!;
+  assert.equal(g.t0,(1+clock.at(4))*1000);
+  assert.equal(g.t1,(1+clock.at(6))*1000);
+  assert.deepEqual(g.path!.map(p=>p.t),[4.5,5.5].map(t=>(1+clock.at(t))*1000));
+  assert.deepEqual(mapped.dialog_results,[{t:1+clock.at(4),bbox:[100,100,100,100]}]);
+  assert.ok(solveCamera([mapped],[],{width:640,height:360,trim_start:1,trim_end:1+clock.duration},d).length>0);
+});
+
+test("valid source zoom holds survive speed cuts and idle compression", () => {
+  const zoom = {t0:4,t1:4.6,bbox:[250,130,140,60] as [number,number,number,number],level:2 as const};
+  for (const edits of [{speed:[{t0:0,t1:8,rate:2}]},{cuts:[{t0:4.1,t1:4.5}]},{}]) {
+    const take = {width:640,height:360,trim_end:8,zooms:[zoom],...edits};
+    validateEdits(take);
+    const clock = editTimeline(take,[],0,8,{...d,idle_speed:4});
+    const zooms = editZooms(take.zooms,clock,0);
+    assert.ok(zooms[0]!.t1-zooms[0]!.t0<0.5);
+    const timing = {cuts:[],arrivals:[] as import("../src/camera/solver.ts").CameraArrival[],zoomClock:"output" as const};
+    const frames = solveCamera([],[],{...take,zooms,trim_end:clock.duration},d,timing);
+    assert.ok(frames.length>0);
+    assert.equal(timing.arrivals[0]!.holdEnd,zooms[0]!.t1);
+  }
+  assert.throws(()=>validateEdits({width:640,height:360,zooms:[{...zoom,t1:4.3}]}),/0.5s hold/);
+});
+
+test("manual portrait whole-stage and wide rectangles remain fully visible", () => {
+  const portrait = {...DEFAULTS,out_w:1080,out_h:1920,outro_s:0};
+  const stage = stageGeometry(2560,1440,portrait);
+  for (const zoom of [
+    {t0:5,t1:10,bbox:[1100,600,100,100] as [number,number,number,number],level:0 as const},
+    {t0:5,t1:10,bbox:[0,0,2560,1440] as [number,number,number,number],level:2 as const},
+  ]) {
+    const raw = solveCamera([],[],{width:2560,height:1440,trim_end:12,zooms:[zoom]},portrait);
+    const frames = stageFrames(raw,2560,1440,stage,portrait);
+    const box = zoom.level===0 ? [0,0,2560,1440] : zoom.bbox;
+    for (const f of frames.filter(f=>f.t>=6&&f.t<10)) {
+      assert.ok(f.x<=stage.screenX+box[0]! && f.x+f.w>=stage.screenX+box[0]!+box[2]!);
+      assert.ok(f.y<=stage.screenY+box[1]! && f.y+f.h>=stage.screenY+box[1]!+box[3]!);
+    }
+    assert.deepEqual(frames[6*60],{...frames[9*60]!,t:6});
+  }
+});
+
+test("bounded portrait square and manual paths reserve drag visibility and motion budgets", () => {
+  const drag: Beat = {id:"drag",kind:"drag",t0:3,t1:8,anchor_t:3,
+    zones:[{name:"press",type:"act",bbox:[100,100,100,100]}],
+    actions:[{k:"drag",t0:4000,t1:7000,from:[150,150],to:[2300,1200],bbox:[150,150,2150,1050],
+      path:[{t:5500,x:1200,y:1300}]}]};
+  const select = {beat:"drag",A:"press",L:3 as const,K:1 as const,p:0,conf:1,decided_by:"heuristic"};
+  for (const settings of [{out_w:1080,out_h:1920},{out_w:1080,out_h:1080},{out_w:1920,out_h:1080}]) {
+    const camera = {...DEFAULTS,...settings,outro_s:0};
+    for (const known of [false,true]) {
+      const g = {...gestures(drag)[0]!,...(known?{whole_object:[100,100,100,100] as [number,number,number,number]}:{})};
+      const action = {...drag,actions:[g]};
+      const zooms = [{t0:2,t1:9,bbox:[100,100,100,100] as [number,number,number,number],level:3 as const}];
+      const raw = solveCamera([action],[select],{width:2560,height:1440,trim_end:12,
+        ...(settings.out_h===1080?{zooms}:{})},camera);
+      const stage = stageGeometry(2560,1440,camera);
+      const frames = stageFrames(raw,2560,1440,stage,camera);
+      const box = gestureZone(g,2560,1440).bbox;
+      for (const f of frames.filter(f=>f.t>=4&&f.t<=7)) {
+        assert.ok(f.x<=stage.screenX+box[0]+1e-8 && f.x+f.w>=stage.screenX+box[0]+box[2]-1e-8);
+        assert.ok(f.y<=stage.screenY+box[1]+1e-8 && f.y+f.h>=stage.screenY+box[1]+box[3]-1e-8);
+      }
+      const metrics = cameraMetrics(frames,60,camera.out_w,camera.out_h,camera.min_shot);
+      for (const key of ["max_upscale","zoom_speed","zoom_acceleration","pan_acceleration"]) {
+        assert.equal(metrics[key]!.goalPassed,true,`${key}: ${metrics[key]!.value}`);
+      }
+    }
+  }
 });

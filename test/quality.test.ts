@@ -61,6 +61,11 @@ test('golden comparison executes ffmpeg and flags visibly degraded frames', asyn
     assert.equal(degraded.framesBelow095.length, 12);
     assert.equal(degraded.vmaf, null);
     assert.ok(degraded.mode.includes('SSIM only'));
+    const filters = execFileSync('ffmpeg',['-filters'],{encoding:'utf8',stdio:['ignore','pipe','ignore']});
+    if (filters.includes('libvmaf')) {
+      assert.ok(compare(black,black,dir,true).vmaf! >= 95);
+      assert.ok(compare(white,black,dir,true).vmaf! < 95);
+    }
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 

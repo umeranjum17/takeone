@@ -5,6 +5,7 @@ import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from
 import { join, resolve } from "node:path";
 import { DEFAULTS } from "../src/camera/defaults.ts";
 import { renderTake } from "../src/render/render.ts";
+import { cameraMetrics } from "./quality.ts";
 import { editTimeline } from "../src/render/edits.ts";
 import type { Beat, CameraFrame, TakeMeta } from "../src/camera/types.ts";
 
@@ -47,23 +48,6 @@ const cases: Record<string, Partial<TakeMeta>> = {
   after:{cuts:[{t0:7,t1:8}],speed:[{kind:"type_speed",rate:2}],zooms:[{t0:2,t1:8,bbox:[400,350,1200,90],level:3}]},
 };
 const d = {...DEFAULTS,idle_speed:1,out_w:1920,out_h:1080,preset:"fast"};
-function cameraMetrics(frames: CameraFrame[]) {
-  let zoomSpeed = 0, zoomAcceleration = 0, panAcceleration = 0;
-  let previous: { z: number; x: number; y: number } | undefined;
-  for (let i = 1; i < frames.length; i++) {
-    const a = frames[i - 1]!, b = frames[i]!, dt = b.t - a.t;
-    const z = Math.log(a.w / b.w) / dt;
-    const x = ((b.x + b.w / 2) - (a.x + a.w / 2)) / dt * d.out_w / b.w;
-    const y = ((b.y + b.h / 2) - (a.y + a.h / 2)) / dt * d.out_w / b.w;
-    zoomSpeed = Math.max(zoomSpeed, Math.abs(z));
-    if (previous) {
-      zoomAcceleration = Math.max(zoomAcceleration, Math.abs(z - previous.z) / dt);
-      panAcceleration = Math.max(panAcceleration, Math.hypot(x - previous.x, y - previous.y) / dt);
-    }
-    previous = {z,x,y};
-  }
-  return {zoomSpeed,zoomAcceleration,panAcceleration};
-}
 const manifest: Record<string, unknown> = {};
 for (const [name, edits] of Object.entries(cases)) {
   const dir = join(root,name);
@@ -82,15 +66,15 @@ for (const [name, edits] of Object.entries(cases)) {
   // Align raw and rendered footage through the exact same edit map.
   ff(["-i",source,"-i",video,"-filter_complex",`[0:v]${clock.filter},fps=60,scale=960:540[raw];[1:v]scale=960:540[render];[raw][render]hstack[v]`,
     "-map","[v]","-t",String(result.seconds),"-c:v","libx264","-preset","fast","-crf","20",join(root,`takeone-edit-controls-${name}-raw-vs-render.mp4`)]);
-  const frames = JSON.parse(readFileSync(join(dir,"camera.json"),"utf8")) as CameraFrame[];
+  const frames = JSON.parse(readFileSync(join(dir,"render-camera.json"),"utf8")).frames as CameraFrame[];
   const probe = JSON.parse(execFileSync("ffprobe",["-v","error","-count_frames","-show_streams","-of","json",video],{encoding:"utf8"}));
   const stream = probe.streams[0];
-  const metrics = cameraMetrics(frames);
-  const maxUpscale = Math.max(...frames.map(f => d.out_w / f.w));
+  const metrics = cameraMetrics(frames, d.fps, d.out_w, d.out_h, d.min_shot);
+  const maxUpscale = metrics.max_upscale!.value;
   if (stream.r_frame_rate !== "60/1" || stream.width !== 1920 || stream.height !== 1080
     || stream.color_space !== "bt709" || stream.color_range !== "tv"
     || Math.abs(Number(stream.nb_read_frames) - frames.length) > 1 || maxUpscale > 1.5
-    || metrics.zoomSpeed > 1 || metrics.zoomAcceleration > 4 || metrics.panAcceleration > 9000) {
+    || metrics.zoom_speed!.value > 1 || metrics.zoom_acceleration!.value > 4 || metrics.pan_acceleration!.value > 9000) {
     throw new Error(`synth-edits: ${name} failed video or camera gates`);
   }
   const arrivals = (edits.zooms ?? []).map(z => Math.min(result.seconds-0.1,clock.at(z.t0)+2));

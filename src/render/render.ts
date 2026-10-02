@@ -90,7 +90,7 @@ export async function renderTake(
   }) : decisions;
   const zooms = clock ? editZooms(meta.zooms, clock, trimStart)
     : meta.zooms?.map(z => ({ ...z, t0: trimStart + outTime(z.t0), t1: trimStart + outTime(z.t1) }));
-  const timing = { cuts: (meta.cuts ?? []).map(c => trimStart + outTime(c.t1)), arrivals: [] as import("../camera/solver.ts").CameraArrival[] };
+  const timing = { zoomClock: "output" as const, cuts: (meta.cuts ?? []).map(c => trimStart + outTime(c.t1)), arrivals: [] as import("../camera/solver.ts").CameraArrival[] };
   const tapShots = meta.device === "android" ? phoneTapShots(outBeats, meta.width, meta.height) : null;
   const solved = solveCamera(tapShots?.beats ?? outBeats, tapShots?.decisions ?? outDecisions, { ...meta, zooms, trim_end: trimStart + duration },
     edited ? d : { ...d, min_shot: d.min_shot * d.pace, dwell: d.dwell * d.pace, dwell_k2: d.dwell_k2 * d.pace }, timing);
@@ -121,6 +121,8 @@ export async function renderTake(
   const commandFile = join(dir, "camera.cmd");
   // With a band the camera frames the screen alone, into the fixed card.
   const stageCamera = band ? bandFrames(frames, band, d) : stageFrames(frames, meta.width, meta.height, stage, d);
+  await writeFile(join(dir, "render-camera.json"), JSON.stringify({ frames: stageCamera,
+    sourceOrigin: band ? { x: 0, y: 0 } : { x: stage.screenX, y: stage.screenY } }));
   const view = band ? { ...d, out_w: stage.baseW, out_h: stage.baseH } : d;
   const [cameraFrames, cameraW, cameraH] = band ? [frames, meta.width, meta.height] : [stageCamera, stage.w, stage.h];
   const shutter = shutterPlan(cameraFrames, cameraW, cameraH, view);

@@ -1,4 +1,4 @@
-import { applyDragVisibility, gestures } from "./gesture.ts";
+import { applyDragVisibility, gestures, gestureZone } from "./gesture.ts";
 import { stageFrames, stageGeometry } from "../render/stage.ts";
 import { WIN_MAX_COVER } from "../beats/zones.ts";
 import { validateZooms } from "../render/edits.ts";
@@ -788,12 +788,14 @@ export interface CameraArrival {
 
 /** Plan against the viewport actually emitted by the padded renderer. */
 function boundedCamera(targets: Target[], width: number, height: number, start: number,
-  end: number, d: CameraDefaults, cuts: number[], arrivals: CameraArrival[]): CameraFrame[] {
+  end: number, d: CameraDefaults, cuts: number[], arrivals: CameraArrival[], beats: Beat[]): CameraFrame[] {
   const stage = stageGeometry(width, height, d);
   const project = (state: CameraState) => stageFrames([toFrame(state, width, height, d)], width, height, stage, d)[0]!;
+  const dragBoxes = beats.flatMap(beat => gestures(beat).map(g => gestureZone(g, width, height).bbox));
   const path = (a: CameraFrame, b: CameraFrame, u: number): CameraFrame => {
     const eased = smooth(clamp(u, 0, 1));
-    const w = Math.exp(lerp(Math.log(a.w), Math.log(b.w), eased));
+    const w = dragBoxes.length ? 1 / lerp(1 / a.w, 1 / b.w, eased)
+      : Math.exp(lerp(Math.log(a.w), Math.log(b.w), eased));
     const h = w * d.out_h / d.out_w;
     // Interpolate final screen-origin projection, not a source centre which
     // the padded renderer would clamp at a source-fill boundary.
@@ -825,7 +827,17 @@ function boundedCamera(targets: Target[], width: number, height: number, start: 
     return Math.max(d.move_t_min, speed, Math.sqrt(za / 4), Math.sqrt(pa / 9000)) * 1.05;
   };
   const initial = project({ cx: width / 2, cy: height / 2, z: 1 });
-  const endpoint = (target: Target) => target.viewport ?? project(target.state);
+  const endpoint = (target: Target) => {
+    const view = target.viewport ?? project(target.state);
+    if (!dragBoxes.length) return view;
+    const left = Math.min(view.x, ...dragBoxes.map(b => b[0] + stage.screenX));
+    const top = Math.min(view.y, ...dragBoxes.map(b => b[1] + stage.screenY));
+    const right = Math.max(view.x + view.w, ...dragBoxes.map(b => b[0] + b[2] + stage.screenX));
+    const bottom = Math.max(view.y + view.h, ...dragBoxes.map(b => b[1] + b[3] + stage.screenY));
+    const w = Math.max(right - left, (bottom - top) * d.out_w / d.out_h);
+    const h = w * d.out_h / d.out_w;
+    return { ...view, x: (left + right - w) / 2, y: (top + bottom - h) / 2, w, h };
+  };
   const boundaryAt = (t: number) => Math.max(start, ...cuts.filter(c => c <= t));
   const manual = targets.filter(t => t.manual === "zoom");
   const reservations = manual.map(t => ({ from: Math.max(boundaryAt(t.t), t.t - lead(initial, endpoint(t))), to: t.holdEnd ?? t.t }));
@@ -939,10 +951,10 @@ export function solveCamera(
   decisions: Decision[],
   take: TakeMeta,
   d: CameraDefaults = DEFAULTS,
-  timing?: { cuts: number[]; arrivals: CameraArrival[] },
+  timing?: { cuts: number[]; arrivals: CameraArrival[]; zoomClock?: "output" },
 ): CameraFrame[] {
   validateCameraInputs(beats, decisions, take);
-  validateZooms(take.zooms, take.width, take.height);
+  validateZooms(take.zooms, take.width, take.height, timing?.zoomClock === "output" ? 0 : 0.5);
   const start = take.trim_start ?? 0;
   const end = take.trim_end ?? Math.max(0, ...beats.flatMap(beat => [beat.t1, ...gestures(beat).map(g => g.t1 / 1000)]));
   if (end <= start) throw new Error("invalid camera trim duration");
@@ -975,10 +987,6 @@ export function solveCamera(
   for (const zoom of zooms) {
     const region: Zone = { name: "manual", type: "act", bbox: zoom.bbox };
     const requested = frame(region, zoom.level ?? 2, width, height, undefined, d);
-    if (portraitCrop) {
-      const fitZoom = baseWidth(width, height, d) / (height * d.out_w / d.out_h);
-      requested.z = Math.max(requested.z, Math.min(fitZoom, zMax(width, height, d)));
-    }
     const viewport = toFrame(requested, width, height, d);
     targets.push({ t: zoom.t0, manual: "zoom", holdEnd: zoom.t1, importance: 2,
       state: { cx: viewport.x + viewport.w / 2, cy: viewport.y + viewport.h / 2, z: baseWidth(width, height, d) / viewport.w } });
@@ -992,7 +1000,7 @@ export function solveCamera(
   targets.sort((a, b) => a.t - b.t || Number(a.manual !== undefined) - Number(b.manual !== undefined));
   if (zooms.length || portraitCrop || d.out_w === d.out_h) {
     return boundedCamera(targets, width, height, start, end, d,
-      timing?.cuts ?? take.cuts?.map(c => c.t1) ?? [], timing?.arrivals ?? []);
+      timing?.cuts ?? take.cuts?.map(c => c.t1) ?? [], timing?.arrivals ?? [], visibleBeats);
   }
   const frames = sampleCamera(targets, visibleBeats.map((beat) => ({ ...beat,
     kind: quietShots.some((shot) => shot.beat === beat) ? beat.kind : "idle",
