@@ -667,7 +667,11 @@ function sampleCamera(
       const urgent = Boolean(targets[targetIndex]!.reveal);
       const target = targets[targetIndex]!;
       // A manual edit begins at its exact boundary and interrupts any auto move.
-      const manualDue = target.manual !== undefined && time >= target.t;
+      const candidateMove = createMove(state, target.state, target.t, baseW, d,
+        target.manual === "zoom" ? 0
+          : target.manual === "resume" ? target.t : Math.max(target.startAfter ?? 0, previousTime), Boolean(target.manual));
+      const manualDue = target.manual === "zoom" ? time >= candidateMove.start
+        : target.manual === "resume" && time >= target.t;
       if (target.manual === "resume" && !manualDue) break;
       if (!manualDue && zooms.some(z => time >= z.t0 && time < z.t1)) break;
       if (!manualDue && !urgent && move && previousTime < heldUntil) break;
@@ -676,13 +680,12 @@ function sampleCamera(
       // Include result, breathe and outro targets: arrivals alone do not enforce
       // a visible hold between opposite zooms once the spring settles.
       const zoomHold = reversing ? Math.max(heldUntil, lastZoomMotion + d.min_shot) : heldUntil;
-      const candidateMove = createMove(state, target.state, target.t, baseW, d,
-        target.manual === "zoom" ? 0 : manualDue ? target.t : urgent ? Math.max(start, target.startAfter ?? start, previousTime)
-          : Math.max(target.startAfter ?? 0, zoomHold, previousTime), Boolean(target.manual));
-      if (candidateMove.start > time) break;
+      const scheduledMove = target.manual === "zoom" ? candidateMove : createMove(state, target.state, target.t, baseW, d,
+        manualDue ? target.t : urgent ? Math.max(start, target.startAfter ?? start, previousTime) : Math.max(target.startAfter ?? 0, zoomHold, previousTime), Boolean(target.manual));
+      if (scheduledMove.start > time) break;
       targetIndex++;
       if (!urgent && !target.manual && canHold(state, target, width, height, d)) continue;
-      move = candidateMove;
+      move = scheduledMove;
       if (urgent) break;
     }
 
@@ -848,7 +851,7 @@ export function solveCamera(
       requested.z = Math.max(requested.z, Math.min(fitZoom, zMax(width, height, d)));
     }
     const viewport = toFrame(requested, width, height, d);
-    targets.push({ t: Math.max(start, zoom.t0 - 3 / d.lowpass_omega), manual: "zoom", importance: 2,
+    targets.push({ t: zoom.t0, manual: "zoom", importance: 2,
       state: { cx: viewport.x + viewport.w / 2, cy: viewport.y + viewport.h / 2, z: baseWidth(width, height, d) / viewport.w } });
     // Resume the latest automatic framing, even if its target fell inside the edit.
     if (zoom.t1 < end && !zooms.some(z => z.t0 === zoom.t1)) targets.push({
