@@ -189,7 +189,7 @@ export function actionsFromEvents(
     const e = events[i]!;
     if (e.k === "win") atWin = e.rect === null ? null : { cls: e.cls, rect: e.rect };
     if (e.k === "btn") {
-      if (!e.down) continue;
+      if (!e.down || e.t > (opts.endMs ?? Infinity)) continue;
       const upIndex = ups.get(i);
       const up = upIndex === undefined ? null : { t: events[upIndex]!.t };
       if (upIndex !== undefined) used.add(upIndex);
@@ -198,18 +198,18 @@ export function actionsFromEvents(
       if (!p0) continue;
       if (!up) {
         if (pointerAt(e.t) === null) continue;
-        // button never released: treat as drag end at the last pointer sample
         const last = visiblePtr.at(-1);
         const lastPtr = last && last.t >= e.t && !pointerLosses.some((loss) => loss > last.t && loss <= (opts.endMs ?? Infinity)) ? last : null;
         const p1: [number, number] = lastPtr ? [lastPtr.x, lastPtr.y] : p0;
+        const end = opts.endMs ?? lastPtr?.t ?? e.t;
         acts.push({
           k: "drag",
-          path: visiblePtr.filter(p => p.t >= e.t && p.t <= (visiblePtr.at(-1)?.t ?? e.t)).map(({ t, x, y }) => ({ t, x, y })),
+          path: visiblePtr.filter(p => p.t >= e.t && p.t <= end).map(({ t, x, y }) => ({ t, x, y })),
           t0: e.t,
-          t1: lastPtr?.t ?? e.t,
+          t1: end,
           from: p0,
           to: p1,
-          bbox: pathBBox(visiblePtr, e.t, lastPtr?.t ?? e.t, p0, p1),
+          bbox: pathBBox(visiblePtr, e.t, end, p0, p1),
           window_cls: atWin?.cls ?? "",
         });
         continue;

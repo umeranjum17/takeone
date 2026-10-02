@@ -821,7 +821,7 @@ test("paused pickup rejects changed-pixel footprints and preserves established w
       assert.deepEqual(gesturePointer(g, 10), [3300, 1000]);
       assert.deepEqual(gesturePointer(g, 11), [2500, 1000]);
       assert.equal(g.t0, 8000);
-      assert.equal(g.t1, released ? 12000 : 11000);
+      assert.equal(g.t1, 12000);
       const warped = warpBeats([drag], 0, [{ a: 0, b: 1 }], 4)[0]!;
       assert.deepEqual(gestures(warped)[0]!.whole_object, g.whole_object);
       assert.deepEqual(gesturePointer(gestures(warped)[0]!, 9.25), [3300, 1000]);
@@ -850,4 +850,71 @@ test("paused pickup rejects changed-pixel footprints and preserves established w
       }
     }
   }
+});
+
+test("unreleased drag protects every stationary held-tail frame through recording end", async () => {
+  const { actionsFromEvents } = await import("../src/perceive/actions.ts");
+  const { segmentBeats } = await import("../src/beats/segment.ts");
+  const { zonesForBeat } = await import("../src/beats/zones.ts");
+  const { idleSqueezes, warp } = await import("../src/render/pace.ts");
+  const { gestures, gesturePointer } = await import("../src/camera/gesture.ts");
+  const { framingCoverage, contains } = await import("../scripts/check-framing.ts");
+  const stream = { w: 3840, h: 2160 };
+  const windowRect: [number, number, number, number] = [0, 0, 1920, 1080];
+  const events = [
+    { k: "win" as const, t: 0, cls: "board", title: "Tidewater", rect: windowRect },
+    { k: "ptr" as const, t: 8000, x: 1100, y: 800 },
+    { k: "btn" as const, t: 8000, b: "left", down: true },
+    { k: "ptr" as const, t: 10000, x: 3300, y: 800 },
+  ];
+  for (const endMs of [30000, 25000]) {
+    const extracted = actionsFromEvents(events, [], { stream, pointer: "mapped", endMs });
+    const held = extracted.find(a => a.k === "drag")!;
+    assert.equal(held.t1, endMs);
+    assert.deepEqual(held.to, [3300, 800]);
+    assert.deepEqual(held.path, [{ t: 8000, x: 1100, y: 800 }, { t: 10000, x: 3300, y: 800 }]);
+    const planned = segmentBeats(extracted, [], { stream, takeMs: 30000, startMs: 0, endMs });
+    const beats: Beat[] = JSON.parse(JSON.stringify(planned.map(b => ({
+      ...b, t0: b.t0 / 1000, t1: b.t1 / 1000, anchor_t: b.anchor_t / 1000,
+      window_rect: windowRect,
+      zones: zonesForBeat(b, { stream, scale: 1, winRect: windowRect, frames: [] })
+        .map(z => ({ name: z.name, type: z.kind, bbox: z.bbox })),
+    }))));
+    assert.ok(!beats.some(b => b.kind === "idle" && b.t1 > 10));
+    for (const start of [0, 5]) {
+      const end = endMs / 1000;
+      const squeezes = idleSqueezes(beats, start, end, DEFAULTS);
+      assert.ok(squeezes.every(s => s.b <= 8 - start));
+      const duration = warp(end - start, squeezes, DEFAULTS.idle_speed);
+      const warped = warpBeats(beats, start, squeezes, DEFAULTS.idle_speed)
+        .filter(b => b.t1 > start && b.t0 < start + duration);
+      const tail = warp(10 - start, squeezes, DEFAULTS.idle_speed);
+      const dragBeat = warped.find(b => gestures(b).length)!;
+      const g = gestures(dragBeat)[0]!;
+      assert.equal(g.t1 / 1000, start + duration);
+      assert.deepEqual(gesturePointer(g, start + duration), [3300, 800]);
+      const take = { width: stream.w, height: stream.h, trim_start: start, trim_end: start + duration };
+      const decisions = warped.map(b => decision(b));
+      const baseline = solveCamera(warped.map(b => ({ ...b, actions: [] })), decisions, take, DEFAULTS);
+      const solved = solveCamera(warped, decisions, take, DEFAULTS);
+      const rows = framingCoverage(warped, baseline, solved, start);
+      assert.ok(rows.every(r => r.lost === 0), JSON.stringify(rows));
+      const heldFrames = solved.filter(f => f.t >= tail);
+      assert.ok(heldFrames.length >= (end - 10) * DEFAULTS.fps);
+      for (const f of heldFrames) {
+        assert.ok(contains(f, [0, 0, 3840, 2160]), JSON.stringify(f));
+        assert.ok(contains(f, [3200, 700, 400, 200]), JSON.stringify(f));
+        assert.ok(contains(f, [3292, 792, 32, 40]), JSON.stringify(f));
+      }
+      assert.ok(rows.find(r => r.beat === dragBeat.id)!.dragFrames >= heldFrames.length);
+      g.whole_object = [1000, 700, 400, 200];
+      const established = solveCamera(warped, decisions, take, DEFAULTS);
+      assert.ok(framingCoverage(warped, baseline, established, start).every(r => r.passed));
+      const clipped = established.map(f => f.t >= tail ? { ...f, x: 0, y: 0, w: 1920, h: 1080 } : f);
+      assert.ok(framingCoverage(warped, baseline, clipped, start).some(r => r.dragLost >= heldFrames.length));
+    }
+  }
+  const released = actionsFromEvents([...events,
+    { k: "btn", t: 12000, b: "left", down: false }], [], { stream, pointer: "mapped", endMs: 30000 });
+  assert.equal(released.find(a => a.k === "drag")!.t1, 12000);
 });

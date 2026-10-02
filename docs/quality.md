@@ -139,6 +139,8 @@ reports how many before frames contained the region, so an untested region is
 visible.
 
 Drag actions preserve the sampled pointer path through planning and pacing.
+An unreleased drag lasts until the known video/trim end, holding its final
+pointer position through the stationary tail. Released drags end at release.
 The camera reserves the object's swept footprint ahead of the drag, rather
 than following an earlier dwell. `whole_object` represents explicitly established
 complete object bounds at pickup, preserved with the recorded path through
