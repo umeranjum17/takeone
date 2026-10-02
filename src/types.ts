@@ -42,6 +42,9 @@ export type Action =
       k: "drag";
       t0: number;
       t1: number;
+      /** Recorded pointer samples on the event clock, preserving pauses and curves. */
+      path?: { t: number; x: number; y: number }[];
+      whole_object?: BBox;
       from: [number, number];
       to: [number, number];
       bbox: BBox;

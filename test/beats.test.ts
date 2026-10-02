@@ -143,7 +143,13 @@ test("trim keeps actions starting inside inclusive bounds, clamps ends and regio
       const beats = segmentBeats([action], frames, bounds);
       assert.deepEqual(beats.map((b) => [b.kind, b.t0, b.t1]), [[action.k, beat0, beat1]], action.k);
       if (action.k === "type") assert.deepEqual((beats[0]!.actions[0] as typeof action).region, inside.bbox);
-      else assert.deepEqual(beats[0]!.actions[0], { ...action, t1: beat1 });
+      else if (action.k === "drag") {
+        const retained = beats[0]!.actions[0] as typeof action;
+        assert.equal(retained.t0, action.t0);
+        assert.equal(retained.t1, beat1);
+        assert.deepEqual(retained.from, action.from);
+        assert.deepEqual(retained.to, action.to);
+      } else assert.deepEqual(beats[0]!.actions[0], { ...action, t1: beat1 });
     }
   }
   assert.deepEqual(segmentBeats([click(1500), click(3500)], [], bounds).filter((b) => b.kind !== "idle"), []);
@@ -279,4 +285,48 @@ test("intent actions outrank longer dwells and incidental travel", () => {
   }
   assert.equal(segmentBeats([dwell], [], opts())[0]!.kind, "dwell");
   assert.equal(segmentBeats([dwell, travel], [], opts())[0]!.kind, "travel");
+});
+
+test("trim clips intersecting drags and preserves raw history", () => {
+  const drag = (t0: number, t1: number): Extract<Action, { k: "drag" }> => ({ k: "drag", t0, t1,
+    from: [10, 10], to: [80, 10], bbox: [10, 10, 70, 0],
+    path: [{ t: t0, x: 10, y: 10 }, { t: t1, x: 80, y: 10 }], window_cls: "chromium" });
+  for (const [t0, t1, retained] of [[0, 1999, false], [0, 2000, true], [0, 4000, true], [3000, 4000, true], [3001, 4000, false]] as const) {
+    const action = drag(t0, t1);
+    const beats = segmentBeats([action], [], { ...opts(), startMs: 2000, endMs: 3000 });
+    const owned = beats.flatMap(b => b.actions);
+    assert.equal(owned.length, retained ? 1 : 0);
+    if (retained) {
+      const clipped = owned[0] as Extract<Action, { k: "drag" }>;
+      assert.equal(clipped.t0, Math.max(2000, t0));
+      assert.equal(clipped.t1, Math.min(3000, t1));
+      assert.ok(clipped.path!.every(p => p.t >= clipped.t0 && p.t <= clipped.t1));
+      assert.deepEqual(clipped.path![0], { t: clipped.t0, x: clipped.from[0], y: clipped.from[1] });
+    }
+    assert.equal(action.t0, t0);
+    assert.equal(action.t1, t1);
+    assert.ok(beats.every(b => b.t0 >= 2000 && b.t1 <= 3000));
+  }
+});
+
+test("trim interpolates both endpoints, sweep and trusted object in both axes", () => {
+  for (const reverse of [false, true]) {
+    const path = [{ t: 1000, x: 100, y: 100 }, { t: 2000, x: 300, y: 500 }, { t: 3000, x: 500, y: 100 }]
+      .map(p => reverse ? { ...p, x: 600 - p.x, y: 600 - p.y } : p);
+    const a: Extract<Action, { k: "drag" }> = { k: "drag", t0: 1000, t1: 3000,
+      from: [path[0]!.x, path[0]!.y], to: [path[2]!.x, path[2]!.y],
+      path, bbox: [100, 100, 400, 400], whole_object: [path[0]!.x - 20, path[0]!.y - 30, 40, 60], window_cls: "board" };
+    const b = segmentBeats([a], [], { ...opts(), startMs: 1500, endMs: 2500 })[0]!;
+    const g = b.actions[0] as typeof a;
+    const from = reverse ? [400, 300] : [200, 300];
+    const to = reverse ? [200, 300] : [400, 300];
+    assert.deepEqual(g.from, from);
+    assert.deepEqual(g.to, to);
+    assert.deepEqual(g.whole_object, [from[0]! - 20, from[1]! - 30, 40, 60]);
+    assert.deepEqual(g.bbox, reverse ? [200, 100, 200, 200] : [200, 300, 200, 200]);
+    assert.deepEqual(g.path, [{ t: 1500, x: from[0], y: from[1] }, path[1], { t: 2500, x: to[0], y: to[1] }]);
+    assert.deepEqual([b.t0, b.t1], [1500, 2500]);
+    assert.equal(a.t0, 1000);
+    assert.equal(a.t1, 3000);
+  }
 });

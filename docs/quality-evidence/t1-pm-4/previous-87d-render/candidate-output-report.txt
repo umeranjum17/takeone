@@ -1,0 +1,27 @@
+Renderer source HEAD: 87d47178573488510efcff493c583f01e7b3b29c
+Comparison baseline: main commit 684fb6c4f6b1216c5b2aab1f5ebfc35a16569bf3
+
+Tidewater source: scored headless board take from scripts/e2e/scene.html at /home/umer/.treehouse/takeone-9abf5c/11/takeone/tmp/real/screen.webm. The source is 3840x2160 at 60 fps with its matching recorded events and analysis plan; it is not a synthetic quality fixture.
+Tidewater source path: /home/umer/.treehouse/takeone-9abf5c/11/takeone/tmp/real/screen.webm
+Raw source SHA-256: bfe7d750c092c13db9db04781d927b7f5d711e7b2a91b10be0d825dfe497cfc7
+Plan bundle SHA-256: 8abb4ec5807c45bc3621755427e4500d771c609d846157856b9f9f5be0990c7e
+Plan bundle inputs, in digest order: events.jsonl, frames.tsv, take.json, analysis/actions.json, analysis/beats.json, analysis/decisions.jsonl, analysis/regions.json; digest is SHA-256 of the sha256sum records generated in that order from inside the plan directory.
+Render API: renderTake("tmp/t1-pm-4-real", DEFAULTS), imported from this candidate's src/render/render.ts.
+Actual Tidewater MP4 SHA-256: 8bc097b6e6e309228a9708ba8e7117c61834274c3a7c9dacee87f36bbc2e6fc9
+Tidewater strip SHA-256: a75b3e4b98ab9edea0c12c18ad52d3d68c67e932464b3762f618d32fcf0f599e
+Tidewater camera SHA-256: 858655007ac0a49c6d8323e74cb4de3ab6508469d2e560301f974a55fc6ec72d
+Tidewater base-main camera SHA-256: 3abfc680da0efa92ac914fde58c9db99609e06aedc0414a0f27a5a8290f5685f
+Flat reviewer copies: /home/umer/.treehouse/takeone-9abf5c/11/takeone/tmp/evidence/t1-pm-4/takeone-drag-candidate-real-after.mp4, takeone-drag-candidate-real-strip.png, takeone-drag-candidate-camera.json
+Output: H.264, 1920x1080, 60 fps, 2396 frames, 39.933333 s. Actual drag spans 16.65–18.583333 s; 117 frames, zero clipped subject/cursor frames.
+
+Acme synthetic source was freshly generated with scripts/synth-take.ts and planned/rendered with this candidate's makeTake, noJev: true, DEFAULTS fps 60 and Liberation Sans captions.
+Acme raw source SHA-256: facebfa2992afd438fbcd439b68b213db7240db4fdde33256631d6ffdb929a6c
+Acme plan bundle SHA-256: e211a5e22067904adc8782977fbcf2fa6f3b2b810dd4fee56b7ad68133987092
+Acme after MP4 SHA-256: 559f665cd6a95ade93499f26cccc26565219633bd9157a081e8a1f4095ac5efa
+Acme after-half sheet SHA-256: f6afe3e9e67ab5d45cd88af43965a2f64b71c550848e84e6da623d86486ef015
+Acme after camera SHA-256: 661eaa322a9a556939107a5f904b8708b78f9788e1a902148fc0b478c9cb10e3
+Acme base-main camera SHA-256: ede5b58da2374a44a743f6533bb357968fc6d8ac03b0fffe934964816109b63a
+Flat reviewer copies: /home/umer/.treehouse/takeone-9abf5c/11/takeone/tmp/evidence/t1-pm-4/takeone-drag-candidate-acme-after.mp4, takeone-drag-candidate-acme-after-half-sheet.png, takeone-drag-candidate-acme-camera.json, takeone-drag-candidate-acme-before-camera.json
+Acme output: 1920x1080, 60 fps, 1941 frames; camera timeline 32.345 s and MP4 duration 32.350 s. The 16–30 s interval contains 841 frames; all 841 retain the thumb and cursor within the rendered crop.
+
+Per-beat result table is candidate-beat-results.txt. Camera comparisons use scripts/check-framing.ts with the committed output-clock-beats.json, current-main camera, and current-candidate camera. All rows pass with zero regressions and zero clipped drag frames.

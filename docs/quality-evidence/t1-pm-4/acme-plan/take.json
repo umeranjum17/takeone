@@ -1,0 +1,40 @@
+{
+ "id": "synth-demo",
+ "stream": {
+  "w": 1920,
+  "h": 1080
+ },
+ "width": 1920,
+ "height": 1080,
+ "fps": 30,
+ "pointer": "hyprland",
+ "scale": 1,
+ "offset_ms": 0,
+ "title": "Find any report in seconds",
+ "captions": [
+  {
+   "t": 8.4,
+   "text": "Search filters as you type"
+  },
+  {
+   "t": 19.2,
+   "text": "Open a report for details"
+  },
+  {
+   "t": 22.6,
+   "d": 3.6,
+   "text": "Drag to adjust retention"
+  },
+  {
+   "t": 33.2,
+   "text": "Export in one click"
+  }
+ ],
+ "jev": {
+  "input_tokens": 0,
+  "usd": 0,
+  "failed": 0
+ },
+ "trim_start": 0,
+ "trim_end": 44
+}

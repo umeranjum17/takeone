@@ -24,6 +24,30 @@ export function actEnd(a: Action): number {
   return a.k === "click" || a.k === "shortcut" || a.k === "focus" || a.k === "cut" ? a.t : a.t1;
 }
 
+function trimDrag(a: Extract<Action, { k: "drag" }>, start: number, end: number): Action {
+  const t0 = Math.max(a.t0, start), t1 = Math.min(a.t1, end);
+  if (t0 === a.t0 && t1 === a.t1) return a;
+  const points = [{ t: a.t0, x: a.from[0], y: a.from[1] }, ...(a.path ?? []),
+    { t: a.t1, x: a.to[0], y: a.to[1] }].sort((p, q) => p.t - q.t);
+  const at = (t: number): [number, number] => {
+    const i = points.findIndex(p => p.t >= t);
+    const b = points[i < 0 ? points.length - 1 : i]!;
+    const p = points[i < 0 ? points.length - 1 : Math.max(0, i - 1)]!;
+    const u = b.t > p.t ? (t - p.t) / (b.t - p.t) : 0;
+    return [p.x + (b.x - p.x) * u, p.y + (b.y - p.y) * u];
+  };
+  const from = at(t0), to = at(t1);
+  const path = [{ t: t0, x: from[0], y: from[1] }, ...points.filter(p => p.t > t0 && p.t < t1),
+    ...(t1 > t0 ? [{ t: t1, x: to[0], y: to[1] }] : [])];
+  const xs = path.map(p => p.x), ys = path.map(p => p.y);
+  const bbox: BBox = [Math.min(...xs), Math.min(...ys), Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys)];
+  const whole_object: BBox | undefined = a.whole_object && [
+    a.whole_object[0] + from[0] - a.from[0], a.whole_object[1] + from[1] - a.from[1],
+    a.whole_object[2], a.whole_object[3],
+  ];
+  return { ...a, t0, t1, from, to, path, bbox, ...(whole_object ? { whole_object } : {}) };
+}
+
 function actPoint(a: Action): [number, number] | null {
   switch (a.k) {
     case "click":
@@ -101,7 +125,9 @@ export function segmentBeats(
   const start = o.startMs ?? -Infinity;
   const end = o.endMs ?? Infinity;
   const scopedFrames = frames.filter((frame) => frame.t >= start && frame.t <= end);
-  const scoped = actions.filter((a) => actStart(a) >= start && actStart(a) <= end).map((a): Action => {
+  const scoped = actions.filter(a => actStart(a) <= end
+    && (a.k === "drag" ? actEnd(a) >= start : actStart(a) >= start)).map((a): Action => {
+    if (a.k === "drag") return trimDrag(a, start, end);
     if (!("t1" in a)) return a;
     const bounded = { ...a, t1: Math.min(a.t1, end) };
     if (bounded.k !== "type" || !bounded.region) return bounded;
@@ -231,7 +257,7 @@ export function segmentBeats(
         const a = merged[i]!;
         const b = merged[i + 1]!;
         if (sameWindowOnly && (isCutBeat(a) || isCutBeat(b) || a.window_cls !== b.window_cls)) continue;
-        const d = b.t1 - a.t0;
+        const d = Math.max(a.t1, b.t1) - a.t0;
         if (d < bd) {
           bd = d;
           bi = i;
@@ -242,7 +268,7 @@ export function segmentBeats(
     const a = merged[bi]!;
     const b = merged[bi + 1]!;
     a.actions.push(...b.actions);
-    a.t1 = b.t1;
+    a.t1 = Math.max(a.t1, b.t1);
     merged.splice(bi + 1, 1);
   }
 

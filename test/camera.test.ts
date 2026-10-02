@@ -6,9 +6,12 @@ import test from "node:test";
 import { applyOverrides, DEFAULTS } from "../src/camera/defaults.ts";
 import { clippedFractions, HIGH_CLIP_FRACTION, frame, moveDuration, solveCamera, zMax } from "../src/camera/solver.ts";
 import type { Beat, Decision, Zone } from "../src/camera/types.ts";
+import type { Event } from "../src/types.ts";
 import { renderTake } from "../src/render/render.ts";
 import { dialogResults } from "../src/perceive/dialogs.ts";
-import { warpBeats } from "../src/render/pace.ts";
+import { idleSqueezes, warp, warpBeats } from "../src/render/pace.ts";
+import { actionCameraMilliseconds } from "../src/beats/clock.ts";
+import { framingCoverage } from "../scripts/check-framing.ts";
 import { hasFfmpeg } from "./helpers.ts";
 
 // Only tests pass a fast preset and tiny output: shipped output stays
@@ -182,6 +185,25 @@ test("minimum shot length drops an arrival that is too close to the previous one
   const withShortShot = camera([first, tooSoon], [decision(first), decision(tooSoon)], 5);
   const withoutShortShot = camera([first], [decision(first)], 5);
   assert.deepEqual(at(withShortShot, 4), at(withoutShortShot, 4));
+});
+
+test("Tidewater b3 retains the typed region after a simultaneous whole-screen cut", async () => {
+  const root = new URL("../docs/quality-evidence/t1-pm-4/", import.meta.url);
+  const json = async (path: string) => JSON.parse(await readFile(new URL(path, root), "utf8"));
+  const take = await json("tidewater-plan/take.json");
+  const beats: Beat[] = (await json("tidewater-plan/analysis/beats.json"))
+    .map((b: Beat) => ({ ...b, actions: b.actions.map(actionCameraMilliseconds) }));
+  const decisions: Decision[] = (await readFile(new URL("tidewater-plan/analysis/decisions.jsonl", root), "utf8"))
+    .trim().split("\n").map(line => JSON.parse(line));
+  const squeezes = idleSqueezes(beats, 0, take.trim_end, DEFAULTS);
+  const outputBeats = warpBeats(beats, 0, squeezes, DEFAULTS.idle_speed);
+  const frames = solveCamera(outputBeats, decisions,
+    { ...take, trim_end: warp(take.trim_end, squeezes, DEFAULTS.idle_speed) });
+  const coverage = framingCoverage(outputBeats, await json("tidewater-main-before-camera.json"), frames);
+  const typing = coverage.find(row => row.beat === "b3")!;
+  assert.equal(typing.before, 134, "exercise the recorded baseline-visible frames");
+  assert.equal(typing.lost, 0, "retain the whole declared typed region, including its top edge");
+  assert.ok(coverage.every(row => row.lost === 0), JSON.stringify(coverage));
 });
 
 test("redundant beats do not consume the move-rate budget", () => {
@@ -741,5 +763,371 @@ test("master blur preserves full-resolution chroma through production rendering"
     }
   } finally {
     await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("a dwell before a curved drag cannot hide the object or regress the next action", async () => {
+  const { actionsFromEvents } = await import("../src/perceive/actions.ts");
+  const { gestures, gesturePointer } = await import("../src/camera/gesture.ts");
+  const { framingCoverage } = await import("../scripts/check-framing.ts");
+  const { warpBeats } = await import("../src/render/pace.ts");
+  const actions = actionsFromEvents([
+    { k: "ptr", t: 2000, x: 400, y: 900 },
+    { k: "btn", t: 2000, b: "left", down: true },
+    { k: "ptr", t: 2500, x: 400, y: 900 },
+    { k: "ptr", t: 3000, x: 1700, y: 1400 },
+    { k: "ptr", t: 4000, x: 3000, y: 900 },
+    { k: "btn", t: 4000, b: "left", down: false },
+  ], [{ t: 2100, changed_frac: 0.02, cut: false,
+    regions: [{ bbox: [200, 800, 500, 200], area_frac: 0.012 }] }],
+  { stream: { w: 3840, h: 2160 }, pointer: "mapped" });
+  const drag: Beat = { ...beat("drag-resolve", 1.5, 300, "drag"), t0: 1, t1: 5,
+    actions: [{ k: "dwell", t0: 1000, t1: 1900, x: 3500, y: 100 }, ...actions],
+    zones: [zone("object", [200, 800, 500, 200])] };
+  const g = gestures(drag)[0]!;
+  drag.actions.push({ ...g, k: "travel" });
+  assert.equal(gestures(drag).length, 1);
+  assert.equal(g.whole_object, undefined);
+  g.whole_object = [200, 800, 500, 200];
+  assert.deepEqual(gesturePointer(g, 2.5), [400, 900]);
+  assert.deepEqual(gesturePointer(g, 3), [1700, 1400]);
+  const warped = warpBeats([drag], 0, [{ a: 0, b: 1 }], 4)[0]!;
+  assert.deepEqual(gesturePointer(gestures(warped)[0]!, 2.25), [1700, 1400]);
+  const next = beat("handoff", 5.5, 3300);
+  next.t0 = 5.2;
+  next.t1 = 7;
+  const solved = camera([drag, next], [decision(drag), decision(next)], 8);
+  const rows = framingCoverage([drag, next], solved, solved);
+  assert.ok(rows.every(r => r.passed), JSON.stringify(rows));
+  assert.equal(rows[0]!.dragFrames, 121);
+  // Prove the check catches a lost acted-on control, not merely missing cursors.
+  const clipped = solved.map(f => f.t >= next.t0 && f.t <= next.t1
+    ? { ...f, x: 0, y: 0, w: 100, h: 100 } : f);
+  assert.ok(framingCoverage([drag, next], solved, clipped)[1]!.lost > 0);
+  const invalid = { ...drag, actions: [{ ...g, path: [{ t: 3000, x: NaN, y: 1400 }] }] };
+  assert.throws(() => camera([invalid], [decision(invalid)], 8), /invalid/);
+});
+
+test("paused pickup rejects changed-pixel footprints and preserves established whole objects", async () => {
+  const { actionsFromEvents } = await import("../src/perceive/actions.ts");
+  const { gestures, gesturePointer, applyDragVisibility } = await import("../src/camera/gesture.ts");
+  const { framingCoverage, contains } = await import("../scripts/check-framing.ts");
+  const events: Event[] = [
+    { k: "ptr" as const, t: 8000, x: 2500, y: 1000 },
+    { k: "btn" as const, t: 8000, b: "left", down: true },
+    { k: "ptr" as const, t: 8600, x: 2500, y: 1000 },
+    { k: "ptr" as const, t: 10000, x: 3300, y: 1000 },
+    { k: "ptr" as const, t: 11000, x: 2500, y: 1000 },
+    { k: "btn" as const, t: 12000, b: "left", down: false },
+  ];
+  const changed = { t: 10000, changed_frac: 0.025, cut: false,
+    regions: [{ bbox: [2800, 900, 1000, 200] as [number, number, number, number], area_frac: 0.025 }] };
+  const highlight = { t: 8100, changed_frac: 0.005, cut: false,
+    regions: [{ bbox: [2400, 900, 200, 200] as [number, number, number, number], area_frac: 0.005 }] };
+  const previous: Beat = { ...beat("settled-card", 4, 2000), t0: 0, t1: 7,
+    zones: [zone("card", [2000, 900, 1000, 200])] };
+  const next: Beat = { ...beat("after-drop", 13, 2500), t0: 12.1, t1: 15 };
+  for (const released of [true, false]) {
+    for (const known of [true, false]) {
+      const actions = actionsFromEvents(released ? events : events.slice(0, -1),
+        [highlight, changed, { ...changed, t: 13000 }], { stream: { w: 3840, h: 2160 }, pointer: "mapped", endMs: 12000 });
+      const drag: Beat = { ...beat("paused-card", 8, 2000, "drag"), t0: 7.5, t1: 12,
+        zones: [zone("card", [2000, 900, 1000, 200])], actions };
+      const g = gestures(drag)[0]!;
+      assert.ok(g);
+      assert.equal(g.whole_object, undefined);
+      assert.equal((g as { subject?: unknown }).subject, undefined);
+      if (known) g.whole_object = [2000, 900, 1000, 200];
+      else Object.assign(g, { subject: [2400, 900, 200, 200] });
+      assert.deepEqual(gesturePointer(g, 8.5), [2500, 1000]);
+      assert.deepEqual(gesturePointer(g, 10), [3300, 1000]);
+      assert.deepEqual(gesturePointer(g, 11), [2500, 1000]);
+      assert.equal(g.t0, 8000);
+      assert.equal(g.t1, 12000);
+      const warped = warpBeats([drag], 0, [{ a: 0, b: 1 }], 4)[0]!;
+      assert.deepEqual(gestures(warped)[0]!.whole_object, g.whole_object);
+      assert.deepEqual(gesturePointer(gestures(warped)[0]!, 9.25), [3300, 1000]);
+      const beats = [previous, drag, next];
+      const baseline = camera(beats.map(b => ({ ...b, actions: [] })), beats.map(b => decision(b)), 16);
+      const solved = camera(beats, beats.map(b => decision(b)), 16);
+      const rows = framingCoverage(beats, baseline, solved);
+      assert.ok(rows.every(r => r.lost === 0), JSON.stringify(rows));
+      assert.equal(rows[1]!.passed, known, JSON.stringify(rows));
+      for (const f of solved.filter(f => f.t >= g.t0 / 1000 && f.t <= g.t1 / 1000)) {
+        const [x, y] = gesturePointer(g, f.t);
+        assert.ok(contains(f, [x - 500, y - 100, 1000, 200]), JSON.stringify(f));
+        assert.ok(contains(f, [x - 8, y - 8, 32, 40]), JSON.stringify(f));
+        if (!known) assert.ok(contains(f, [0, 0, 3840, 2160]), JSON.stringify(f));
+      }
+      const reported = [{ t: 10, x: 1463.2, y: 416.8, w: 2073.6, h: 1166.4 }];
+      assert.equal(framingCoverage([drag], reported, reported)[0]!.passed, false);
+      const invalid = { ...drag, actions: [{ ...g, whole_object: [2000, 900, 2000, 200] }] };
+      assert.throws(() => camera([invalid], [decision(invalid)], 16), /invalid/);
+      for (const [out_w, out_h] of [[1920, 1080], [1080, 1920], [2560, 1080]]) {
+        const aspect = out_w! / out_h!;
+        const before = [{ t: 10, x: 1540, y: 500, w: 1920, h: 1920 / aspect }];
+        const safe = applyDragVisibility(before, [drag], 3840, 2160, 0, { ...DEFAULTS, out_w: out_w!, out_h: out_h! });
+        assert.ok(contains(safe[0]!, [2800, 900, 1000, 200]));
+        if (!known) assert.ok(contains(safe[0]!, [0, 0, 3840, 2160]));
+      }
+    }
+  }
+});
+
+test("unreleased drag protects every stationary held-tail frame through recording end", async () => {
+  const { actionsFromEvents } = await import("../src/perceive/actions.ts");
+  const { segmentBeats } = await import("../src/beats/segment.ts");
+  const { zonesForBeat } = await import("../src/beats/zones.ts");
+  const { idleSqueezes, warp } = await import("../src/render/pace.ts");
+  const { gestures, gesturePointer } = await import("../src/camera/gesture.ts");
+  const { framingCoverage, contains } = await import("../scripts/check-framing.ts");
+  const stream = { w: 3840, h: 2160 };
+  const windowRect: [number, number, number, number] = [0, 0, 1920, 1080];
+  const events: Event[] = [
+    { k: "win" as const, t: 0, cls: "board", title: "Tidewater", rect: windowRect },
+    { k: "ptr" as const, t: 8000, x: 1100, y: 800 },
+    { k: "btn" as const, t: 8000, b: "left", down: true },
+    { k: "ptr" as const, t: 10000, x: 3300, y: 800 },
+  ];
+  for (const endMs of [30000, 25000]) {
+    const extracted = actionsFromEvents(events, [], { stream, pointer: "mapped", endMs });
+    const held = extracted.find(a => a.k === "drag")!;
+    assert.equal(held.t1, endMs);
+    assert.deepEqual(held.to, [3300, 800]);
+    assert.deepEqual(held.path, [{ t: 8000, x: 1100, y: 800 }, { t: 10000, x: 3300, y: 800 }]);
+    const planned = segmentBeats(extracted, [], { stream, takeMs: 30000, startMs: 0, endMs });
+    const beats: Beat[] = JSON.parse(JSON.stringify(planned.map(b => ({
+      ...b, t0: b.t0 / 1000, t1: b.t1 / 1000, anchor_t: b.anchor_t / 1000,
+      window_rect: windowRect,
+      zones: zonesForBeat(b, { stream, scale: 1, winRect: windowRect, frames: [] })
+        .map(z => ({ name: z.name, type: z.kind, bbox: z.bbox })),
+    }))));
+    assert.ok(!beats.some(b => b.kind === "idle" && b.t1 > 10));
+    for (const start of [0, 5]) {
+      const end = endMs / 1000;
+      const squeezes = idleSqueezes(beats, start, end, DEFAULTS);
+      assert.ok(squeezes.every(s => s.b <= 8 - start));
+      const duration = warp(end - start, squeezes, DEFAULTS.idle_speed);
+      const warped = warpBeats(beats, start, squeezes, DEFAULTS.idle_speed)
+        .filter(b => b.t1 > start && b.t0 < start + duration);
+      const tail = warp(10 - start, squeezes, DEFAULTS.idle_speed);
+      const dragBeat = warped.find(b => gestures(b).length)!;
+      const g = gestures(dragBeat)[0]!;
+      assert.equal(g.t1 / 1000, start + duration);
+      assert.deepEqual(gesturePointer(g, start + duration), [3300, 800]);
+      const take = { width: stream.w, height: stream.h, trim_start: start, trim_end: start + duration };
+      const decisions = warped.map(b => decision(b));
+      const baseline = solveCamera(warped.map(b => ({ ...b, actions: [] })), decisions, take, DEFAULTS);
+      const solved = solveCamera(warped, decisions, take, DEFAULTS);
+      const rows = framingCoverage(warped, baseline, solved, start);
+      assert.ok(rows.every(r => r.lost === 0), JSON.stringify(rows));
+      const heldFrames = solved.filter(f => f.t >= tail);
+      assert.ok(heldFrames.length >= (end - 10) * DEFAULTS.fps);
+      for (const f of heldFrames) {
+        assert.ok(contains(f, [0, 0, 3840, 2160]), JSON.stringify(f));
+        assert.ok(contains(f, [3200, 700, 400, 200]), JSON.stringify(f));
+        assert.ok(contains(f, [3292, 792, 32, 40]), JSON.stringify(f));
+      }
+      assert.ok(rows.find(r => r.beat === dragBeat.id)!.dragFrames >= heldFrames.length);
+      g.whole_object = [1000, 700, 400, 200];
+      const established = solveCamera(warped, decisions, take, DEFAULTS);
+      assert.ok(framingCoverage(warped, baseline, established, start).every(r => r.passed));
+      const clipped = established.map(f => f.t >= tail ? { ...f, x: 0, y: 0, w: 1920, h: 1080 } : f);
+      assert.ok(framingCoverage(warped, baseline, clipped, start).some(r => r.dragLost >= heldFrames.length));
+    }
+  }
+  const released = actionsFromEvents([...events,
+    { k: "btn", t: 12000, b: "left", down: false }], [], { stream, pointer: "mapped", endMs: 30000 });
+  assert.equal(released.find(a => a.k === "drag")!.t1, 12000);
+});
+
+test("overlapping buttons retain the longer drag through its stationary tail", async () => {
+  const { actionsFromEvents } = await import("../src/perceive/actions.ts");
+  const { segmentBeats } = await import("../src/beats/segment.ts");
+  const { zonesForBeat } = await import("../src/beats/zones.ts");
+  const { idleSqueezes, warp } = await import("../src/render/pace.ts");
+  const { gestures } = await import("../src/camera/gesture.ts");
+  const { framingCoverage, contains } = await import("../scripts/check-framing.ts");
+  const stream = { w: 3840, h: 2160 };
+  const rect: [number, number, number, number] = [0, 0, 1920, 1080];
+  const events: Event[] = [
+    { k: "win" as const, t: 0, cls: "board", title: "Tidewater", rect },
+    { k: "ptr" as const, t: 8000, x: 1100, y: 800 },
+    { k: "btn" as const, t: 8000, b: "left", down: true },
+    { k: "ptr" as const, t: 10000, x: 3300, y: 800 },
+    { k: "ptr" as const, t: 12000, x: 500, y: 800 },
+    { k: "btn" as const, t: 12000, b: "right", down: true },
+    { k: "btn" as const, t: 13000, b: "right", down: false },
+    { k: "ptr" as const, t: 14000, x: 3300, y: 800 },
+  ];
+  const actions = actionsFromEvents(events, [], { stream, pointer: "mapped", endMs: 30000 });
+  assert.deepEqual(actions.filter(a => a.k === "drag").map(a => [a.t0, a.t1]), [[8000, 30000], [12000, 13000]]);
+  const capped = segmentBeats(actions, [], { stream, takeMs: 1000, startMs: 0, endMs: 30000 });
+  assert.equal(capped.length, 1);
+  assert.equal(capped[0]!.t1, 30000);
+  const beats: Beat[] = segmentBeats(actions, [], { stream, takeMs: 30000, startMs: 0, endMs: 30000 }).map(b => ({
+    ...b, t0: b.t0 / 1000, t1: b.t1 / 1000, anchor_t: b.anchor_t / 1000, window_rect: rect,
+    zones: zonesForBeat(b, { stream, scale: 1, winRect: rect, frames: [] })
+      .map(z => ({ name: z.name, type: z.kind, bbox: z.bbox })),
+  }));
+  const squeezes = idleSqueezes(beats, 0, 30, DEFAULTS);
+  const end = warp(30, squeezes, DEFAULTS.idle_speed);
+  const tail = warp(14, squeezes, DEFAULTS.idle_speed);
+  const warped = warpBeats(beats, 0, squeezes, DEFAULTS.idle_speed);
+  for (const shortened of [false, true]) {
+    const owners = JSON.parse(JSON.stringify(warped)) as Beat[];
+    const owner = owners.find(b => gestures(b).some(g => g.t1 / 1000 === end))!;
+    if (shortened) owner.t1 = warp(13, squeezes, DEFAULTS.idle_speed);
+    for (const start of [0, tail]) {
+      const take = { width: 3840, height: 2160, trim_start: start, trim_end: end };
+      const decisions = owners.map(b => decision(b));
+      const solved = solveCamera(owners, decisions, take, DEFAULTS);
+      const held = solved.filter(f => f.t + start >= tail);
+      assert.ok(held.length > 100);
+      for (const f of held) {
+        assert.ok(contains(f, [0, 0, 3840, 2160]), JSON.stringify(f));
+        assert.ok(contains(f, [3292, 792, 32, 40]), JSON.stringify(f));
+      }
+      const unknown = framingCoverage(owners, solved, solved, start).find(r => r.beat === owner.id)!;
+      assert.ok(unknown.dragFrames >= held.length);
+      assert.ok(unknown.dragLost >= held.length);
+      for (const b of owners) for (const g of gestures(b)) g.whole_object = [g.from[0] - 100, 700, 400, 200];
+      const checked = framingCoverage(owners, solved, solved, start).find(r => r.beat === owner.id)!;
+      assert.equal(checked.dragLost, 0);
+      const clipped = solved.map(f => f.t + start >= tail ? { ...f, x: 0, y: 0, w: 1920, h: 1080 } : f);
+      assert.ok(framingCoverage(owners, solved, clipped, start).find(r => r.beat === owner.id)!.dragLost >= held.length);
+      for (const b of owners) for (const g of gestures(b)) delete g.whole_object;
+    }
+    const implicit = solveCamera(owners, owners.map(b => decision(b)), { width: 3840, height: 2160 }, DEFAULTS);
+    assert.ok(Math.abs(implicit.at(-1)!.t - end) < 1 / DEFAULTS.fps);
+  }
+});
+
+test("planning retains released and unreleased drags crossing the actual trim boundary", async () => {
+  const { actionsFromEvents } = await import("../src/perceive/actions.ts");
+  const { actionVideoSeconds, actionCameraMilliseconds } = await import("../src/beats/clock.ts");
+  const { segmentBeats } = await import("../src/beats/segment.ts");
+  const { zonesForBeat } = await import("../src/beats/zones.ts");
+  const { idleSqueezes, warp } = await import("../src/render/pace.ts");
+  const { gestures, gesturePointer } = await import("../src/camera/gesture.ts");
+  const { framingCoverage, contains } = await import("../scripts/check-framing.ts");
+  const stream = { w: 3840, h: 2160 };
+  const rect: [number, number, number, number] = [0, 0, 1920, 1080];
+  const events: Event[] = [
+    { k: "win" as const, t: 0, cls: "board", title: "Tidewater", rect },
+    { k: "ptr" as const, t: 8000, x: 1100, y: 800 },
+    { k: "btn" as const, t: 8000, b: "left", down: true },
+    { k: "ptr" as const, t: 10000, x: 3300, y: 800 },
+    { k: "ptr" as const, t: 12000, x: 500, y: 800 },
+    { k: "btn" as const, t: 12000, b: "right", down: true },
+    { k: "btn" as const, t: 12100, b: "right", down: false },
+    { k: "ptr" as const, t: 14000, x: 3300, y: 800 },
+  ];
+  for (const released of [false, true]) for (const endMs of [25000, 30000]) {
+    const history: Event[] = released ? [...events, { k: "btn" as const, t: 28000, b: "left", down: false }] : events;
+    const bounds = { stream, startMs: 9000, endMs };
+    const actions = actionsFromEvents(history, [], { ...bounds, pointer: "mapped" });
+    const drag = actions.find(a => a.k === "drag")!;
+    assert.equal(drag.t0, 8000);
+    const planned = segmentBeats(actions, [], { ...bounds, takeMs: 30000 });
+    const owner = planned.find(b => b.actions.some(a => a.k === "drag"))!;
+    assert.ok(owner);
+    assert.equal(owner.t0, 9000);
+    assert.equal(owner.t1, Math.min(endMs, drag.t1));
+    assert.ok(planned.every(b => b.t0 >= 9000 && b.t1 <= endMs));
+    const retained = owner.actions.find(a => a.k === "drag") as typeof drag;
+    assert.equal(retained.t0, 9000);
+    assert.equal(retained.t1, Math.min(endMs, drag.t1));
+    assert.deepEqual(retained.from, [2200, 800]);
+    assert.deepEqual(retained.path![0], { t: 9000, x: 2200, y: 800 });
+    assert.equal(drag.t0, 8000);
+    const beats: Beat[] = JSON.parse(JSON.stringify(planned.map(b => ({
+      ...b, t0: b.t0 / 1000, t1: b.t1 / 1000, anchor_t: b.anchor_t / 1000, window_rect: rect,
+      actions: b.actions.map(a => actionVideoSeconds(a, 0)),
+      zones: zonesForBeat(b, { stream, scale: 1, winRect: rect, frames: [] })
+        .map(z => ({ name: z.name, type: z.kind, bbox: z.bbox })),
+    }))));
+    for (const b of beats) b.actions = b.actions.map(actionCameraMilliseconds);
+    const start = 9;
+    const end = endMs / 1000;
+    const squeezes = idleSqueezes(beats, start, end, DEFAULTS);
+    const duration = warp(end - start, squeezes, DEFAULTS.idle_speed);
+    const warped = warpBeats(beats, start, squeezes, DEFAULTS.idle_speed);
+    const take = { width: stream.w, height: stream.h, trim_start: start, trim_end: start + duration };
+    const decisions = warped.map(b => decision(b));
+    const solved = solveCamera(warped, decisions, take, DEFAULTS);
+    const heldBeat = warped.find(b => gestures(b).length)!;
+    const g = gestures(heldBeat)[0]!;
+    const held = solved.filter(f => f.t + start >= g.t0 / 1000 && f.t + start <= g.t1 / 1000);
+    assert.ok(held.length > 900);
+    for (const f of held) {
+      const [x, y] = gesturePointer(g, f.t + start);
+      assert.ok(contains(f, [0, 0, 3840, 2160]), JSON.stringify(f));
+      assert.ok(contains(f, [x - 8, y - 8, 32, 40]), JSON.stringify(f));
+    }
+    const unknown = framingCoverage(warped, solved, solved, start).find(r => r.beat === heldBeat.id)!;
+    assert.equal(unknown.dragFrames, held.length);
+    assert.equal(unknown.dragLost, held.length);
+    g.whole_object = [2100, 700, 400, 200];
+    const established = solveCamera(warped, decisions, take, DEFAULTS);
+    const baseline = solveCamera(warped.map(b => ({ ...b, actions: [] })), decisions, take, DEFAULTS);
+    const rows = framingCoverage(warped, baseline, established, start);
+    assert.ok(rows.every(r => r.lost === 0));
+    assert.equal(rows.find(r => r.beat === heldBeat.id)!.dragLost, 0);
+    const clipped = established.map(f => f.t + start >= 16 ? { ...f, x: 0, y: 0, w: 1920, h: 1080 } : f);
+    assert.ok(framingCoverage(warped, baseline, clipped, start).find(r => r.beat === heldBeat.id)!.dragLost > 0);
+  }
+});
+
+test("make and render clocks retain a drag crossing the first video frame without negative history", async () => {
+  const { actionsFromEvents } = await import("../src/perceive/actions.ts");
+  const { segmentBeats } = await import("../src/beats/segment.ts");
+  const { actionVideoSeconds, actionCameraMilliseconds } = await import("../src/beats/clock.ts");
+  const { gestures, gesturePointer } = await import("../src/camera/gesture.ts");
+  const { framingCoverage, contains } = await import("../scripts/check-framing.ts");
+  const rect: [number, number, number, number] = [0, 0, 1920, 1080];
+  for (const released of [false, true]) {
+    const events: Event[] = [
+      { k: "win" as const, t: 0, cls: "board", title: "Tidewater", rect },
+      { k: "ptr" as const, t: 900, x: 1100, y: 800 },
+      { k: "btn" as const, t: 900, b: "left", down: true },
+      { k: "ptr" as const, t: 1100, x: 1500, y: 1000 },
+      { k: "ptr" as const, t: 2000, x: 3300, y: 1000 },
+      ...(released ? [{ k: "btn" as const, t: 3000, b: "left" as const, down: false }] : []),
+    ];
+    const stream = { w: 3840, h: 2160 };
+    const bounds = { stream, startMs: 1000, endMs: 3000 };
+    const raw = actionsFromEvents(events, [], { ...bounds, pointer: "mapped" });
+    const rawDrag = raw.find(a => a.k === "drag")!;
+    assert.equal(rawDrag.t0, 900);
+    const planned = segmentBeats(raw, [], { ...bounds, takeMs: 3000 });
+    const clipped = planned.flatMap(b => b.actions).find(a => a.k === "drag")!;
+    assert.deepEqual(clipped.from, [1300, 900]);
+    assert.deepEqual(clipped.path![0], { t: 1000, x: 1300, y: 900 });
+    assert.equal(rawDrag.t0, 900);
+    const seconds = (ms: number) => (ms - 1000) / 1000;
+    const serialized = JSON.stringify(planned.map(b => ({ ...b,
+      t0: seconds(b.t0), t1: seconds(b.t1), anchor_t: seconds(b.anchor_t), window_rect: rect,
+      actions: b.actions.map(a => actionVideoSeconds(a, 1000)),
+      zones: [zone("card", [1000, 700, 400, 200])],
+    })));
+    const beats = JSON.parse(serialized) as Beat[];
+    for (const b of beats) b.actions = b.actions.map(actionCameraMilliseconds);
+    const g = gestures(beats.find(b => gestures(b).length)!)[0]!;
+    assert.equal(g.t0, 0);
+    assert.equal(g.t1, 2000);
+    assert.ok(g.path!.every(p => p.t >= 0));
+    assert.deepEqual(g.path!.map(p => p.t), [0, 100, 1000, 2000]);
+    const decisions = beats.map(b => decision(b));
+    const take = { width: 3840, height: 2160, trim_start: 0, trim_end: 2 };
+    const frames = solveCamera(beats, decisions, take, DEFAULTS);
+    for (const f of frames) {
+      const [x, y] = gesturePointer(g, f.t);
+      assert.ok(contains(f, [0, 0, 3840, 2160]));
+      assert.ok(contains(f, [x - 8, y - 8, 32, 40]));
+    }
+    g.whole_object = [1200, 800, 400, 200];
+    const established = solveCamera(beats, decisions, take, DEFAULTS);
+    assert.ok(framingCoverage(beats, frames, established).every(r => r.passed));
   }
 });

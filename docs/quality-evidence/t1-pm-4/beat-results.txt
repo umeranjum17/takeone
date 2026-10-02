@@ -1,0 +1,20 @@
+Acme — actual baseline/current render camera paths, output clock
+beat | frames | before visible | after visible | regressions | drag frames | drag clipped | result
+b1 | 197 | 197 | 197 | 0 | 0 | 0 | PASS
+b2 | 166 | 2 | 2 | 0 | 0 | 0 | PASS
+b3 | 577 | 577 | 577 | 0 | 0 | 0 | PASS
+b4 | 676 | 0 | 676 | 0 | 222 | 0 | PASS
+b5 | 209 | 181 | 209 | 0 | 0 | 0 | PASS
+
+Tidewater — main baseline/current render camera paths, output clock
+beat | frames | before visible | after visible | regressions | drag frames | drag clipped | result
+b1 | 166 | 166 | 166 | 0 | 0 | 0 | PASS
+b2 | 1 | 0 | 0 | 0 | 0 | 0 | PASS
+b3 | 191 | 136 | 136 | 0 | 0 | 0 | PASS
+b4 | 339 | 339 | 339 | 0 | 0 | 0 | PASS
+b5 | 1 | 0 | 0 | 0 | 0 | 0 | PASS
+b6 | 908 | 850 | 908 | 0 | 117 | 0 | PASS
+b7 | 270 | 270 | 270 | 0 | 0 | 0 | PASS
+b8 | 3 | 0 | 0 | 0 | 0 | 0 | PASS
+b9 | 145 | 94 | 145 | 0 | 0 | 0 | PASS
+b10 | 124 | 124 | 124 | 0 | 0 | 0 | PASS

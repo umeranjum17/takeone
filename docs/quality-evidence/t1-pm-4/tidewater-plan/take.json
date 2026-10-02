@@ -1,0 +1,41 @@
+{
+ "id": "headless-demo",
+ "stream": {
+  "w": 3840,
+  "h": 2160
+ },
+ "scale": 2,
+ "offset_ms": 0,
+ "fps": 60,
+ "started_at": "2026-01-01T00:00:00.000Z",
+ "stopped_at": "2026-01-01T00:00:43.083Z",
+ "pointer": "mapped",
+ "events": "on",
+ "monitor": null,
+ "warnings": [],
+ "clock": {
+  "offsetMs": 0,
+  "medianMs": 0,
+  "spreadMs": 0,
+  "frames": 2585
+ },
+ "source": {
+  "kind": "headless-demo",
+  "css": {
+   "w": 1920,
+   "h": 1080
+  },
+  "browser": "151.0.7922.34",
+  "sha256": "e11fc9ce65c96313476f7ee9844b6fb6a9220fb048693cfe9eee00acf4170a9f"
+ },
+ "title": "From idea to launch",
+ "jev": {
+  "input_tokens": 0,
+  "usd": 0,
+  "failed": 0
+ },
+ "width": 3840,
+ "height": 2160,
+ "trim_start": 0,
+ "trim_end": 43.1
+}

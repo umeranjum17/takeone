@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { resolveTheme } from "../themes.ts";
 import { basename, join, resolve } from "node:path";
 import type { CameraDefaults } from "../camera/defaults.ts";
+import { actionCameraMilliseconds } from "../beats/clock.ts";
 import { solveCamera } from "../camera/solver.ts";
 import type { Beat, Decision, TakeMeta } from "../camera/types.ts";
 import { blurGraph, keycapAss, keycapObstacles, overlayRegions, spotlightAss } from "./overlays.ts";
@@ -51,12 +52,7 @@ export async function renderTake(dir: string, d?: CameraDefaults): Promise<{ out
   if (phone) d = { ...d, corner_radius: 36, stage_margin: Math.max(0.16, d.stage_margin) };
   const beats = JSON.parse(await readFile(join(dir, "analysis/beats.json"), "utf8")) as Beat[];
   // The planner stores seconds; the existing FOLLOW solver consumes action timestamps in ms.
-  if ("stream" in meta) for (const beat of beats) beat.actions = beat.actions.map((action) => {
-    const a = action as { t?: number; t0?: number; t1?: number };
-    return { ...a, ...(a.t === undefined ? {} : { t: a.t * 1000 }),
-      ...(a.t0 === undefined ? {} : { t0: a.t0 * 1000 }),
-      ...(a.t1 === undefined ? {} : { t1: a.t1 * 1000 }) };
-  });
+  if ("stream" in meta) for (const beat of beats) beat.actions = beat.actions.map(actionCameraMilliseconds);
   const decisionLines = await readFile(join(dir, "analysis/decisions.jsonl"), "utf8");
   const decisions = decisionLines.split(/\r?\n/).filter(Boolean)
     .map((line) => JSON.parse(line) as Decision);

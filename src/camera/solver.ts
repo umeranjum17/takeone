@@ -1,3 +1,4 @@
+import { applyDragVisibility, gestures } from "./gesture.ts";
 import { WIN_MAX_COVER } from "../beats/zones.ts";
 import { DEFAULTS, type CameraDefaults } from "./defaults.ts";
 import type {
@@ -307,6 +308,10 @@ function applyDwellAndShotLength(shots: Shot[], d: CameraDefaults): Shot[] {
   let wide = true;
   for (const shot of shots) {
     if (shot.beat.kind === "scroll" || shot.beat.kind === "idle") continue;
+    // A simultaneous subject shot already covers the cut's arrival. Accepting
+    // a redundant wide cut would let shot spacing discard that subject instead.
+    if (shot.beat.kind === "cut" && wholeStage(shot) && shots.some((other) =>
+      other.beat.anchor_t === shot.beat.anchor_t && !wholeStage(other))) continue;
     if (wide && wholeStage(shot)) continue;
     const previous = accepted.at(-1);
     if (previous) {
@@ -707,7 +712,22 @@ function validateCameraInputs(beats: Beat[], decisions: Decision[], take: TakeMe
       || new Set(beat.zones.map((zone) => zone.name)).size !== beat.zones.length
       || beat.actions.some((action) => {
         if (!action || typeof action !== "object") return true;
-        const event = action as { k?: string; t?: unknown; x?: unknown; y?: unknown };
+        const event = action as { k?: string; t?: unknown; x?: unknown; y?: unknown;
+          t0?: number; t1?: number; from?: number[]; to?: number[]; bbox?: number[];
+          whole_object?: number[]; path?: { t: number; x: number; y: number }[] };
+        if (event.k === "drag" || event.k === "travel") {
+          const point = (p: unknown) => Array.isArray(p) && p.length === 2 && p.every(finite)
+            && p[0]! >= 0 && p[0]! <= take.width && p[1]! >= 0 && p[1]! <= take.height;
+          if (!finite(event.t0) || event.t0 < 0 || !finite(event.t1) || event.t1 < event.t0
+            || !point(event.from) || !point(event.to)
+            || !Array.isArray(event.bbox) || event.bbox.length !== 4 || !event.bbox.every(finite)
+            || event.bbox[0]! < 0 || event.bbox[1]! < 0 || event.bbox[2]! < 0 || event.bbox[3]! < 0
+            || event.bbox[0]! + event.bbox[2]! > take.width || event.bbox[1]! + event.bbox[3]! > take.height
+            || (event.whole_object !== undefined && !rect(event.whole_object, take.width, take.height))
+            || (event.path !== undefined && (!Array.isArray(event.path) || event.path.some((p, i) =>
+              !p || !time(p.t) || p.t < event.t0! || p.t > event.t1! || !point([p.x, p.y])
+              || (i > 0 && p.t < event.path![i - 1]!.t))))) return true;
+        }
         return (event.t !== undefined && !time(event.t))
           || ((event.k === "ptr" || event.x !== undefined || event.y !== undefined)
             && (!finite(event.x) || !finite(event.y)
@@ -734,18 +754,20 @@ export function solveCamera(
 ): CameraFrame[] {
   validateCameraInputs(beats, decisions, take);
   const start = take.trim_start ?? 0;
-  const end = take.trim_end ?? Math.max(0, ...beats.map((beat) => beat.t1));
+  const end = take.trim_end ?? Math.max(0, ...beats.flatMap(beat => [beat.t1, ...gestures(beat).map(g => g.t1 / 1000)]));
   if (end <= start) throw new Error("invalid camera trim duration");
   const width = take.width;
   const height = take.height;
   const decisionMap = new Map(decisions.map((decision) => [decision.beat, decision]));
-  const visibleBeats = beats.filter((beat) => beat.t1 > start && beat.t0 < end);
+  const visibleBeats = beats.filter(beat => (beat.t1 > start && beat.t0 < end)
+    || gestures(beat).some(g => g.t1 / 1000 > start && g.t0 / 1000 < end));
   const shots = buildShots(beats, decisions, start, d)
     .filter((shot) => visibleBeats.includes(shot.beat));
   const quietShots = applyDwellAndShotLength(shots, d).filter((shot) => shot.arrival < end);
   const targets = applyMoveRateLimit(buildTargets(quietShots, visibleBeats, width, height, start, end, d), width, height, d);
-  return sampleCamera(targets, visibleBeats.map((beat) => ({ ...beat,
+  const frames = sampleCamera(targets, visibleBeats.map((beat) => ({ ...beat,
     kind: quietShots.some((shot) => shot.beat === beat) ? beat.kind : "idle",
     actions: quietShots.some((shot) => shot.beat === beat) ? beat.actions : [],
   })), decisionMap, width, height, start, end, d);
+  return applyDragVisibility(frames, visibleBeats, width, height, start, d);
 }

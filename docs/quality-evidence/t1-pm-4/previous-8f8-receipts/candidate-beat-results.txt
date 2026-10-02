@@ -1,0 +1,27 @@
+Baseline: main commit 684fb6c4f6b1216c5b2aab1f5ebfc35a16569bf3
+Renderer candidate: 8f8cf08903046cf9fb258dc4eb84dfb70b3fb27e
+Comparison: current-candidate camera paths on the output clock; every frame checks acted-on bbox and drag subject/cursor.
+
+Tidewater real take
+beat | frames | before visible | after visible | regressions | drag frames | drag clipped | result
+b1 | 166 | 166 | 166 | 0 | 0 | 0 | PASS
+b2 | 1 | 0 | 0 | 0 | 0 | 0 | PASS
+b3 | 191 | 134 | 134 | 0 | 0 | 0 | PASS
+b4 | 339 | 339 | 339 | 0 | 0 | 0 | PASS
+b5 | 1 | 0 | 0 | 0 | 0 | 0 | PASS
+b6 | 908 | 851 | 908 | 0 | 117 | 0 | PASS
+b7 | 270 | 270 | 270 | 0 | 0 | 0 | PASS
+b8 | 3 | 0 | 0 | 0 | 0 | 0 | PASS
+b9 | 145 | 94 | 145 | 0 | 0 | 0 | PASS
+b10 | 124 | 124 | 124 | 0 | 0 | 0 | PASS
+
+Acme synthetic camera take
+beat | frames | before visible | after visible | regressions | drag frames | drag clipped | result
+b1 | 197 | 197 | 197 | 0 | 0 | 0 | PASS
+b2 | 166 | 166 | 166 | 0 | 0 | 0 | PASS
+b3 | 577 | 525 | 577 | 0 | 0 | 0 | PASS
+b4 | 676 | 589 | 676 | 0 | 222 | 0 | PASS
+b5 | 209 | 175 | 209 | 0 | 0 | 0 | PASS
+
+Acme rendered crop, 16–30 s: 841 frames; retention thumb misses 0; cursor misses 0.
+Tidewater rendered drag, 16.65–18.583333 s: 117 frames; dragged-card and cursor misses 0.
