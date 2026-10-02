@@ -38,3 +38,14 @@ test("framing CLI rejects a beat with no corresponding frames", () => {
   assert.equal(result.status, 1, result.stderr + result.stdout);
   assert.match(result.stdout, /empty \| 0 \| 0 \| 0 \| 0 \| 0 \| 0 \| FAIL/);
 });
+
+test("framing CLI checks a held gesture beyond its shortened owner", () => {
+  for (const to of [[20, 20], [200, 20]]) {
+    const result = run({ id: "held", t0: 15, t1: 15.5, kind: "drag", zones: [], actions: [{
+      k: "drag", t0: 15000, t1: 16100, from: [20, 20], to,
+      bbox: [20, 20, 180, 0], whole_object: [10, 10, 20, 20],
+    }] }, "16");
+    assert.equal(result.status, to[0] === 20 ? 0 : 1, result.stderr + result.stdout);
+    assert.match(result.stdout, /held \| 3 \| 0 \| 0 \| 0 \| 3 \|/);
+  }
+});

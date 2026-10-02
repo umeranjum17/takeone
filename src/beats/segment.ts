@@ -231,7 +231,7 @@ export function segmentBeats(
         const a = merged[i]!;
         const b = merged[i + 1]!;
         if (sameWindowOnly && (isCutBeat(a) || isCutBeat(b) || a.window_cls !== b.window_cls)) continue;
-        const d = b.t1 - a.t0;
+        const d = Math.max(a.t1, b.t1) - a.t0;
         if (d < bd) {
           bd = d;
           bi = i;
@@ -242,7 +242,7 @@ export function segmentBeats(
     const a = merged[bi]!;
     const b = merged[bi + 1]!;
     a.actions.push(...b.actions);
-    a.t1 = b.t1;
+    a.t1 = Math.max(a.t1, b.t1);
     merged.splice(bi + 1, 1);
   }
 

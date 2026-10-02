@@ -33,17 +33,20 @@ export function framingCoverage(beats: Beat[], before: CameraFrame[], after: Cam
     const acted = beat.kind === "type"
       ? beat.zones.find(z => z.type === "txt") ?? beat.zones.find(z => z.type === "act")
       : beat.zones.find(z => z.type === "act") ?? beat.zones.find(z => z.type === "txt");
+    const drags = gestures(beat);
     for (let i = 0; i < after.length; i++) {
       const t = after[i]!.t + start;
-      if (t < beat.t0 || t > beat.t1) continue;
+      const inBeat = t >= beat.t0 && t <= beat.t1;
+      const active = drags.filter(g => g.t0 / 1000 <= t && g.t1 / 1000 >= t);
+      if (!inBeat && !active.length) continue;
       row.frames++;
-      if (acted) {
+      if (acted && inBeat) {
         const wasVisible = contains(before[i]!, acted.bbox);
         const isVisible = contains(after[i]!, acted.bbox);
         row.before += Number(wasVisible); row.after += Number(isVisible);
         row.lost += Number(wasVisible && !isVisible);
       }
-      for (const g of gestures(beat).filter(g => g.t0 / 1000 <= t && g.t1 / 1000 >= t)) {
+      for (const g of active) {
         const [x, y] = gesturePointer(g, t);
         const subject = g.whole_object;
         const object = subject ? [subject[0] + x - g.from[0], subject[1] + y - g.from[1], subject[2], subject[3]] : undefined;

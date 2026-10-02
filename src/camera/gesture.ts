@@ -72,8 +72,8 @@ export function applyDragVisibility(
     const next = beats[index + 1];
     const nextAct = next?.zones.find(z => z.type === "act");
     if (nextAct) zones.push(nextAct);
-    const a = beat.t0;
-    const b = nextAct ? next!.t1 : beat.t1;
+    const a = Math.min(beat.t0, ...drags.map(g => g.t0 / 1000));
+    const b = Math.max(beat.t1, ...drags.map(g => g.t1 / 1000), nextAct ? next!.t1 : beat.t1);
     let required = 0;
     for (const f of frames) {
       const t = f.t + start;

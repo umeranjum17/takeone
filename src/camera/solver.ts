@@ -1,4 +1,4 @@
-import { applyDragVisibility } from "./gesture.ts";
+import { applyDragVisibility, gestures } from "./gesture.ts";
 import { WIN_MAX_COVER } from "../beats/zones.ts";
 import { DEFAULTS, type CameraDefaults } from "./defaults.ts";
 import type {
@@ -750,12 +750,13 @@ export function solveCamera(
 ): CameraFrame[] {
   validateCameraInputs(beats, decisions, take);
   const start = take.trim_start ?? 0;
-  const end = take.trim_end ?? Math.max(0, ...beats.map((beat) => beat.t1));
+  const end = take.trim_end ?? Math.max(0, ...beats.flatMap(beat => [beat.t1, ...gestures(beat).map(g => g.t1 / 1000)]));
   if (end <= start) throw new Error("invalid camera trim duration");
   const width = take.width;
   const height = take.height;
   const decisionMap = new Map(decisions.map((decision) => [decision.beat, decision]));
-  const visibleBeats = beats.filter((beat) => beat.t1 > start && beat.t0 < end);
+  const visibleBeats = beats.filter(beat => (beat.t1 > start && beat.t0 < end)
+    || gestures(beat).some(g => g.t1 / 1000 > start && g.t0 / 1000 < end));
   const shots = buildShots(beats, decisions, start, d)
     .filter((shot) => visibleBeats.includes(shot.beat));
   const quietShots = applyDwellAndShotLength(shots, d).filter((shot) => shot.arrival < end);

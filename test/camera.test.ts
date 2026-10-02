@@ -918,3 +918,65 @@ test("unreleased drag protects every stationary held-tail frame through recordin
     { k: "btn", t: 12000, b: "left", down: false }], [], { stream, pointer: "mapped", endMs: 30000 });
   assert.equal(released.find(a => a.k === "drag")!.t1, 12000);
 });
+
+test("overlapping buttons retain the longer drag through its stationary tail", async () => {
+  const { actionsFromEvents } = await import("../src/perceive/actions.ts");
+  const { segmentBeats } = await import("../src/beats/segment.ts");
+  const { zonesForBeat } = await import("../src/beats/zones.ts");
+  const { idleSqueezes, warp } = await import("../src/render/pace.ts");
+  const { gestures } = await import("../src/camera/gesture.ts");
+  const { framingCoverage, contains } = await import("../scripts/check-framing.ts");
+  const stream = { w: 3840, h: 2160 };
+  const rect: [number, number, number, number] = [0, 0, 1920, 1080];
+  const events = [
+    { k: "win" as const, t: 0, cls: "board", title: "Tidewater", rect },
+    { k: "ptr" as const, t: 8000, x: 1100, y: 800 },
+    { k: "btn" as const, t: 8000, b: "left", down: true },
+    { k: "ptr" as const, t: 10000, x: 3300, y: 800 },
+    { k: "ptr" as const, t: 12000, x: 500, y: 800 },
+    { k: "btn" as const, t: 12000, b: "right", down: true },
+    { k: "btn" as const, t: 13000, b: "right", down: false },
+    { k: "ptr" as const, t: 14000, x: 3300, y: 800 },
+  ];
+  const actions = actionsFromEvents(events, [], { stream, pointer: "mapped", endMs: 30000 });
+  assert.deepEqual(actions.filter(a => a.k === "drag").map(a => [a.t0, a.t1]), [[8000, 30000], [12000, 13000]]);
+  const capped = segmentBeats(actions, [], { stream, takeMs: 1000, startMs: 0, endMs: 30000 });
+  assert.equal(capped.length, 1);
+  assert.equal(capped[0]!.t1, 30000);
+  const beats: Beat[] = segmentBeats(actions, [], { stream, takeMs: 30000, startMs: 0, endMs: 30000 }).map(b => ({
+    ...b, t0: b.t0 / 1000, t1: b.t1 / 1000, anchor_t: b.anchor_t / 1000, window_rect: rect,
+    zones: zonesForBeat(b, { stream, scale: 1, winRect: rect, frames: [] })
+      .map(z => ({ name: z.name, type: z.kind, bbox: z.bbox })),
+  }));
+  const squeezes = idleSqueezes(beats, 0, 30, DEFAULTS);
+  const end = warp(30, squeezes, DEFAULTS.idle_speed);
+  const tail = warp(14, squeezes, DEFAULTS.idle_speed);
+  const warped = warpBeats(beats, 0, squeezes, DEFAULTS.idle_speed);
+  for (const shortened of [false, true]) {
+    const owners = JSON.parse(JSON.stringify(warped)) as Beat[];
+    const owner = owners.find(b => gestures(b).some(g => g.t1 / 1000 === end))!;
+    if (shortened) owner.t1 = warp(13, squeezes, DEFAULTS.idle_speed);
+    for (const start of [0, tail]) {
+      const take = { width: 3840, height: 2160, trim_start: start, trim_end: end };
+      const decisions = owners.map(b => decision(b));
+      const solved = solveCamera(owners, decisions, take, DEFAULTS);
+      const held = solved.filter(f => f.t + start >= tail);
+      assert.ok(held.length > 100);
+      for (const f of held) {
+        assert.ok(contains(f, [0, 0, 3840, 2160]), JSON.stringify(f));
+        assert.ok(contains(f, [3292, 792, 32, 40]), JSON.stringify(f));
+      }
+      const unknown = framingCoverage(owners, solved, solved, start).find(r => r.beat === owner.id)!;
+      assert.ok(unknown.dragFrames >= held.length);
+      assert.ok(unknown.dragLost >= held.length);
+      for (const b of owners) for (const g of gestures(b)) g.whole_object = [g.from[0] - 100, 700, 400, 200];
+      const checked = framingCoverage(owners, solved, solved, start).find(r => r.beat === owner.id)!;
+      assert.equal(checked.dragLost, 0);
+      const clipped = solved.map(f => f.t + start >= tail ? { ...f, x: 0, y: 0, w: 1920, h: 1080 } : f);
+      assert.ok(framingCoverage(owners, solved, clipped, start).find(r => r.beat === owner.id)!.dragLost >= held.length);
+      for (const b of owners) for (const g of gestures(b)) delete g.whole_object;
+    }
+    const implicit = solveCamera(owners, owners.map(b => decision(b)), { width: 3840, height: 2160 }, DEFAULTS);
+    assert.ok(Math.abs(implicit.at(-1)!.t - end) < 1 / DEFAULTS.fps);
+  }
+});
