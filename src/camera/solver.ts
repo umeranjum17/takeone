@@ -308,6 +308,10 @@ function applyDwellAndShotLength(shots: Shot[], d: CameraDefaults): Shot[] {
   let wide = true;
   for (const shot of shots) {
     if (shot.beat.kind === "scroll" || shot.beat.kind === "idle") continue;
+    // A simultaneous subject shot already covers the cut's arrival. Accepting
+    // a redundant wide cut would let shot spacing discard that subject instead.
+    if (shot.beat.kind === "cut" && wholeStage(shot) && shots.some((other) =>
+      other.beat.anchor_t === shot.beat.anchor_t && !wholeStage(other))) continue;
     if (wide && wholeStage(shot)) continue;
     const previous = accepted.at(-1);
     if (previous) {

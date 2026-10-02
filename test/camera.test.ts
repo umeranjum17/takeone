@@ -8,7 +8,9 @@ import { clippedFractions, HIGH_CLIP_FRACTION, frame, moveDuration, solveCamera,
 import type { Beat, Decision, Zone } from "../src/camera/types.ts";
 import { renderTake } from "../src/render/render.ts";
 import { dialogResults } from "../src/perceive/dialogs.ts";
-import { warpBeats } from "../src/render/pace.ts";
+import { idleSqueezes, warp, warpBeats } from "../src/render/pace.ts";
+import { actionCameraMilliseconds } from "../src/beats/clock.ts";
+import { framingCoverage } from "../scripts/check-framing.ts";
 import { hasFfmpeg } from "./helpers.ts";
 
 // Only tests pass a fast preset and tiny output: shipped output stays
@@ -182,6 +184,25 @@ test("minimum shot length drops an arrival that is too close to the previous one
   const withShortShot = camera([first, tooSoon], [decision(first), decision(tooSoon)], 5);
   const withoutShortShot = camera([first], [decision(first)], 5);
   assert.deepEqual(at(withShortShot, 4), at(withoutShortShot, 4));
+});
+
+test("Tidewater b3 retains the typed region after a simultaneous whole-screen cut", async () => {
+  const root = new URL("../docs/quality-evidence/t1-pm-4/", import.meta.url);
+  const json = async (path: string) => JSON.parse(await readFile(new URL(path, root), "utf8"));
+  const take = await json("tidewater-plan/take.json");
+  const beats: Beat[] = (await json("tidewater-plan/analysis/beats.json"))
+    .map((b: Beat) => ({ ...b, actions: b.actions.map(actionCameraMilliseconds) }));
+  const decisions: Decision[] = (await readFile(new URL("tidewater-plan/analysis/decisions.jsonl", root), "utf8"))
+    .trim().split("\n").map(line => JSON.parse(line));
+  const squeezes = idleSqueezes(beats, 0, take.trim_end, DEFAULTS);
+  const outputBeats = warpBeats(beats, 0, squeezes, DEFAULTS.idle_speed);
+  const frames = solveCamera(outputBeats, decisions,
+    { ...take, trim_end: warp(take.trim_end, squeezes, DEFAULTS.idle_speed) });
+  const coverage = framingCoverage(outputBeats, await json("tidewater-main-before-camera.json"), frames);
+  const typing = coverage.find(row => row.beat === "b3")!;
+  assert.equal(typing.before, 134, "exercise the recorded baseline-visible frames");
+  assert.equal(typing.lost, 0, "retain the whole declared typed region, including its top edge");
+  assert.ok(coverage.every(row => row.lost === 0), JSON.stringify(coverage));
 });
 
 test("redundant beats do not consume the move-rate budget", () => {
