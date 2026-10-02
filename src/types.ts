@@ -44,8 +44,7 @@ export type Action =
       t1: number;
       /** Recorded pointer samples on the event clock, preserving pauses and curves. */
       path?: { t: number; x: number; y: number }[];
-      /** First changed region containing the grab point, before the object travels. */
-      subject?: BBox;
+      whole_object?: BBox;
       from: [number, number];
       to: [number, number];
       bbox: BBox;

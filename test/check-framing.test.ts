@@ -25,6 +25,12 @@ test("framing CLI aligns trim-relative frames to output-clock beats", () => {
   const result = run({ id: "trimmed", t0: 16, t1: 16.1, kind: "type", zones: [], actions: [] }, "16");
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /trimmed \| 3 \| 0 \| 0 \| 0 \| 0 \| 0 \| PASS/);
+  const drag = { k: "drag", t0: 16000, t1: 16100, from: [20, 20], to: [20, 20], bbox: [20, 20, 0, 0] };
+  for (const footprint of [{}, { subject: [15, 15, 10, 10] }, { whole_object: [10, 10, 20, 20] }]) {
+    const checked = run({ id: "drag", t0: 16, t1: 16.1, kind: "drag", zones: [],
+      actions: [{ ...drag, ...footprint }] }, "16");
+    assert.equal(checked.status, "whole_object" in footprint ? 0 : 1, checked.stderr + checked.stdout);
+  }
 });
 
 test("framing CLI rejects a beat with no corresponding frames", () => {

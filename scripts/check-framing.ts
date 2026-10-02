@@ -45,7 +45,7 @@ export function framingCoverage(beats: Beat[], before: CameraFrame[], after: Cam
       }
       for (const g of gestures(beat).filter(g => g.t0 / 1000 <= t && g.t1 / 1000 >= t)) {
         const [x, y] = gesturePointer(g, t);
-        const subject = g.subject;
+        const subject = g.whole_object;
         const object = subject ? [subject[0] + x - g.from[0], subject[1] + y - g.from[1], subject[2], subject[3]] : undefined;
         row.dragFrames++;
         row.dragLost += Number(!object || !contains(after[i]!, object) || !contains(after[i]!, [x - 8, y - 8, 32, 40]));

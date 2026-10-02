@@ -140,12 +140,13 @@ visible.
 
 Drag actions preserve the sampled pointer path through planning and pacing.
 The camera reserves the object's swept footprint ahead of the drag, rather
-than following an earlier dwell. When available, the first changed region
-containing the pointer during the gesture supplies a conservative object
-footprint mapped back to the grab point. This includes paused pickups and
-returns before release. When the object bounds are unknown, the camera retains
-the whole source; the framing checker fails unknown-object drags rather than
-treating cursor coverage as proof of whole-object visibility. The handoff to
+than following an earlier dwell. `whole_object` represents explicitly established
+complete object bounds at pickup, preserved with the recorded path through
+planning and pacing. Changed-pixel regions cannot establish these bounds;
+extraction leaves them unknown. Historical inferred `subject` fields are not
+trusted. When the whole object is unknown, the camera retains the whole source
+and the framing checker fails the drag rather than treating cursor or partial
+region coverage as proof of whole-object visibility. The handoff to
 the following action retains that context, including when a shot is omitted
 by the camera's movement budget.
 
