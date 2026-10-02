@@ -7,7 +7,9 @@ import { setKeyFromStdin } from "./secrets.ts";
 import { runCapture } from "./capture.ts";
 import { makeTake, PreflightRefusal, TakeInputError } from "./make.ts";
 import { renderTake } from "./render/render.ts";
-import { resolveTheme } from "./themes.ts";
+import { THEMES, resolveTheme } from "./themes.ts";
+import { isMotionTake, MOTION_USAGE, runMotion } from "./motion/cli.ts";
+import { renderMotion } from "./motion/motion.ts";
 import type { CameraDefaults, Overrides } from "./camera/defaults.ts";
 
 export function takesDir(): string {
@@ -96,8 +98,10 @@ function parseArgs(argv: string[]): Args {
 }
 
 function usage(code: number): never {
-  console.error(`takeone make <id> [--no-jev] [--about "<topic>"] [--screen-text] [--max-tokens N] [--theme midnight|paper|aurora|mono|neon|brutalist|sand|terminal] [--set key=value]
-takeone render <take-dir> [--theme midnight|paper|aurora|mono|neon|brutalist|sand|terminal] [--set key=value]
+  const themes = Object.keys(THEMES).join("|");
+  console.error(`takeone make <id> [--no-jev] [--about "<topic>"] [--screen-text] [--max-tokens N] [--theme ${themes}] [--set key=value]
+takeone render <take-dir> [--theme ${themes}] [--set key=value]
+${MOTION_USAGE}
 takeone key set < stdin
 takeone [list|record|stop|doctor]
 
@@ -136,9 +140,27 @@ export async function main(argv: string[]): Promise<number> {
     return runRecorderCommand(cmd ?? "list", rest);
   }
   if (cmd === "--help" || cmd === "-h" || cmd === "help") usage(0);
+  if (cmd === "motion") {
+    try {
+      return await runMotion(rest, takesDir());
+    } catch (e) {
+      console.error(`takeone motion: ${e instanceof Error ? e.message : e}`);
+      return 1;
+    }
+  }
   if (cmd === "render") {
     const [dir, ...args] = rest;
     if (!dir) { console.error("usage: takeone render <take-dir>"); return 2; }
+    if (isMotionTake(dir)) {
+      try {
+        if (args.length) throw Error("a motion take rerenders from its storyboard.json; edit it instead of passing options");
+        console.log((await renderMotion(dir)).out);
+        return 0;
+      } catch (e) {
+        console.error(e instanceof Error ? e.message : e);
+        return 1;
+      }
+    }
     try {
       const pairs: string[] = [];
       let theme: string | undefined;
@@ -158,7 +180,7 @@ export async function main(argv: string[]): Promise<number> {
     }
   }
   if (cmd !== "make") {
-    console.error(`takeone: unknown command "${cmd}". Use "make", "render", "record", "stop", "doctor" or "list".`);
+    console.error(`takeone: unknown command "${cmd}". Use "make", "render", "motion", "record", "stop", "doctor" or "list".`);
     return 2;
   }
   const a = parseArgs(rest);

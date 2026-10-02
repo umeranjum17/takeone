@@ -28,6 +28,10 @@ export const THEMES = {
     display_font: "JetBrains Mono Bold", caption_font: "JetBrains Mono", bg_style: "solid", grain: 2,
     stage_margin: 0.13, bg_pattern: "grid", shadow: 0.4, corner_radius: 8, border: 1, border_color: "#3fb950",
     caption_rounding: 0.08, caption_opacity: 1, caption_border: 1, pace: 0.9 },
+  // Cream and ink, type-led (motion recipes). Display face is the bundled Instrument Serif.
+  editorial: { background: "#f1f1ec", background_to: "#f1f1ec", accent: "#0b0b0b", text: "#0b0b0b", card: "#ffffff",
+    display_font: "Instrument Serif", caption_font: "Geist", bg_style: "solid", grain: 0, stage_margin: 0.1,
+    shadow: 0, corner_radius: 28, border: 1, border_color: "#0b0b0b", caption_rounding: 1, caption_opacity: 1, pace: 1 },
 } satisfies Record<string, Overrides>;
 export type ThemeName = keyof typeof THEMES;
 

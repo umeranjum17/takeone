@@ -1,0 +1,26 @@
+// A short fast fragment span over the real Tidewater scene exercises subframe accumulation.
+import { execFileSync } from "node:child_process";
+import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { join, resolve } from "node:path";
+import { blurPlan } from "../src/motion/blur.ts";
+import { writePage } from "../src/motion/motion.ts";
+import { renderFrames } from "../src/motion/render.ts";
+import { validateStoryboard } from "../src/motion/storyboard.ts";
+const dir=resolve("tmp/motion-blur-proof"),root=resolve("tmp/evidence/t1-l8");mkdirSync(dir,{recursive:true});mkdirSync(root,{recursive:true});
+const sb=validateStoryboard({version:1,id:"blur",source:{kind:"image"},screens:{S1:{file:resolve("resources/demo/tidewater-board.png"),width:2560,height:1440}},theme:{name:"editorial"},output:{workers:8,preset:"fast"},scenes:[{pattern:"hero-reveal",d:6,screen:"S1",title:"Keep work moving",device:"browser"}]});
+const {html}=writePage(dir,sb);
+const extra=`const original=window.setup;window.setup=async()=>{await original();const chip=FRAGMENTS.chip({text:'High priority'});chip.dataset.moves='';chip.style.cssText+=';position:absolute;left:680px;top:240px;z-index:100';$('#stage').append(chip);TICKS.push(ms=>{const p=Math.max(0,Math.min(1,(ms-2500)/100));chip.style.transform='translateX('+(420*p)+'px)';});};`;
+writeFileSync(html,readFileSync(html,"utf8").replace('</body>',`<script>${extra}</script></body>`));
+const planned=await blurPlan(html,sb,360);
+const args={html,width:1920,height:1080,fps:60,frames:360,workers:8,crf:18,preset:"fast"};
+const off=await renderFrames({...args,mp4:join(root,"takeone-motion-blur-before.mp4")});
+const on=await renderFrames({...args,plan:planned.plan,mp4:join(root,"takeone-motion-blur-after.mp4")});
+const again=await renderFrames({...args,plan:planned.plan,mp4:join(dir,"again.mp4")});
+const decoded=(file:string)=>execFileSync("ffmpeg",["-v","error","-i",file,"-f","framemd5","-"],{encoding:"utf8",maxBuffer:16e6});
+const deterministic=decoded(join(root,"takeone-motion-blur-after.mp4"))===decoded(join(dir,"again.mp4"));
+const ratio=(on.render_s+on.concat_s)/(off.render_s+off.concat_s);
+writeFileSync(join(root,"takeone-motion-blur.json"),JSON.stringify({...planned.metrics,ratio,off_s:off.render_s+off.concat_s,on_s:on.render_s+on.concat_s,deterministic,time_pass:ratio<=2,spacing_pass:planned.metrics.maxSpacingPx<=2},null,2));
+for(const phase of ["before","after"])execFileSync("ffmpeg",["-v","error","-y","-ss","2.55","-i",join(root,`takeone-motion-blur-${phase}.mp4`),"-frames:v","1",join(root,`takeone-motion-blur-${phase}.png`)]);
+copyFileSync(html,join(dir,"fixture.html"));
+console.log(JSON.stringify({ratio,deterministic,metrics:planned.metrics}));
+if(!deterministic||ratio>2||planned.metrics.maxSpacingPx>2)process.exitCode=1;

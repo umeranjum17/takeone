@@ -62,5 +62,13 @@
       "fontselect: (JetBrains Mono, 400, 0) -> JetBrainsMono, 0, JetBrainsMono",
       "fontselect: (JetBrains Mono Bold, 400, 0) -> JetBrainsMonoBold, 0, JetBrainsMonoBold"
     ]
+  },
+  "editorial": {
+    "seconds": 4.6,
+    "contrast": 19.682627652657427,
+    "fonts": [
+      "fontselect: (Geist, 400, 0) -> Geist, 0, Geist",
+      "fontselect: (Instrument Serif, 400, 0) -> InstrumentSerif-Regular, 0, InstrumentSerif-Regular"
+    ]
   }
 }

@@ -13,5 +13,6 @@ build-time work; rendering requires neither fontTools nor a font download.
 
 Libass uses this directory for both caption measurement and final rendering.
 The recording renderer writes `render.log` next to the take so selected faces
-can be inspected. See the [theme table](../../README.md#look-and-pacing) for the
-display and caption fonts selected by each theme.
+can be inspected. The [shared theme registry](../../src/themes.ts) owns the
+display and caption font selections for recording themes. Motion font
+selection and coverage requirements are documented in [Motion renders](../../docs/motion.md).
