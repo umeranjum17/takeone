@@ -84,8 +84,12 @@ export async function renderTake(dir: string, d?: CameraDefaults): Promise<{ out
     return { t: f.t, x: (meta.width - w) / 2, y, w, h };
   }) : solved;
   await writeFile(join(dir, "camera.json"), JSON.stringify(frames));
-  const hasText = takeCaptions(meta, outTime, duration).length > 0;
-  const band = hasText ? bandLayout(meta.width, meta.height, d) : null;
+  const text = takeCaptions(meta, outTime, duration);
+  let band = text.length ? bandLayout(meta.width, meta.height, d) : null;
+  const captions = takeCaptions(meta, outTime, duration, Boolean(band));
+  const captionInk = await measureCaptions(dir, captions, d, band);
+  if (band) band = bandLayout(meta.width, meta.height, d,
+    Math.max(0, ...captions.map((c, i) => c.title ? captionInk[i]!.h : 0)));
   const stage = band?.stage ?? stageGeometry(meta.width, meta.height, d);
   const commandFile = join(dir, "camera.cmd");
   // With a band the camera frames the screen alone, into the fixed card.
@@ -114,9 +118,7 @@ export async function renderTake(dir: string, d?: CameraDefaults): Promise<{ out
   const clicksAss = clickAss(beatClicks(outBeats), meta.width, meta.height, trimStart,
     band ? { ...stage, restScale: stage.baseW / meta.width } : stage, d);
   await writeFile(clicksFile, clicksAss);
-  const captions = takeCaptions(meta, outTime, duration, Boolean(band));
   const captionsFile = join(dir, "captions.ass");
-  const captionInk = await measureCaptions(dir, captions, d, band);
   const widePhone = phone && d.out_w > d.out_h;
   const captionsAss = captionAss(captions, captionInk, d, widePhone, band);
   await writeFile(captionsFile, captionsAss);
@@ -195,7 +197,7 @@ function filterPath(path: string): string {
 }
 
 /** Wrapped ink bounds of each caption, measured by rendering it with libass and cropdetect. */
-async function measureCaptions(dir: string, captions: Caption[], d: CameraDefaults, band: Band | null): Promise<CaptionInk[]> {
+export async function measureCaptions(dir: string, captions: Caption[], d: CameraDefaults, band: Band | null): Promise<CaptionInk[]> {
   if (captions.length === 0) return [];
   const file = join(dir, "measure.ass");
   await writeFile(file, measureAss(captions, d, band));
@@ -204,8 +206,7 @@ async function measureCaptions(dir: string, captions: Caption[], d: CameraDefaul
   const widths = captions.map(() => ({ w: 0, h: 0 }));
   for (const match of log.matchAll(/x1:(-?\d+) x2:(-?\d+) y1:(-?\d+) y2:(-?\d+).*? t:(\d+(?:\.\d+)?)/g)) {
     const index = Math.round(Number(match[5]));
-    // Band lines never wrap; they are measured at quarter width so long ones still fit the frame.
-    if (index < widths.length) widths[index] = { w: Math.max(0, Number(match[2]) - Number(match[1]) + 1) * (band ? 4 : 1),
+    if (index < widths.length) widths[index] = { w: Math.max(0, Number(match[2]) - Number(match[1]) + 1) * (band && !captions[index]!.title ? 4 : 1),
       h: Math.max(0, Number(match[4]) - Number(match[3]) + 1) };
   }
   return widths;

@@ -7,6 +7,7 @@ import { applyOverrides, DEFAULTS } from "../src/camera/defaults.ts";
 import type { Beat } from "../src/camera/types.ts";
 import { idleSqueezes, setptsExpr, warp } from "../src/render/pace.ts";
 import { bandLayout, captionAss, captionLayouts, takeCaptions } from "../src/render/stage.ts";
+import { measureCaptions } from "../src/render/render.ts";
 import { THEMES, resolveTheme } from "../src/themes.ts";
 
 const clickAt = (t: number): Beat => ({
@@ -69,6 +70,68 @@ test("every theme keeps title and captions in the band below a fixed card", () =
     assert.ok(layouts[0]!.size > layouts[1]!.size, `${name}: title outranks captions`);
   }
   assert.equal(bandLayout(1080, 2340, DEFAULTS), null);
+});
+
+test("matching non-16:9 exports retain the overlay layout", () => {
+  for (const [width, height] of [[1080, 1920], [1080, 1080], [1440, 1080]]) {
+    assert.equal(bandLayout(width!, height!, { ...DEFAULTS, out_w: width!, out_h: height! }), null);
+  }
+  assert.equal(bandLayout(1920, 1080, { ...DEFAULTS, out_w: 1080, out_h: 1080 }), null);
+  assert.ok(bandLayout(1920, 1080, DEFAULTS));
+});
+
+test("band captions queue behind the title and each other without extending the video", () => {
+  const meta = { width: 1920, height: 1080, title: "Demo",
+    captions: [{ t: 1, d: 1, text: "first" }, { t: 2, d: 2, text: "second" },
+      { t: 4, d: 1, text: "third" }, { t: 8, d: 3, text: "last" }] };
+  const captions = takeCaptions(meta, t => t, 10, true);
+  assert.deepEqual(captions.map(c => [c.text, c.t0, c.t1]), [
+    ["Demo", 0.35, 3.1], ["first", 3.1, 4.1], ["second", 4.1, 6.1],
+    ["third", 6.1, 7.1], ["last", 8, 10],
+  ]);
+  const sameStart = takeCaptions({ ...meta, title: "", captions: [
+    { t: 1, d: 1, text: "first" }, { t: 1, d: 1, text: "second" },
+  ] }, t => t, 10, true);
+  assert.deepEqual(sameStart.map(c => [c.text, c.t0, c.t1]), [["first", 1, 2], ["second", 2, 3]]);
+});
+
+test("long band titles wrap at display size and render clear of the card in every theme", { skip: !hasFfmpeg() }, async () => {
+  const dir = mkdtempSync(`${process.cwd()}/tmp-title-`);
+  try {
+    for (const name of Object.keys(THEMES)) {
+      const d = resolveTheme(name);
+      const captions = takeCaptions({ width: 1920, height: 1080,
+        title: "From a new idea to a complete product: plan your launch, organise every task, and review the result with your team",
+        captions: [{ t: 1, d: 2, text: "Review the result" }] }, t => t, 10, true);
+      const ink = await measureCaptions(dir, captions, d, bandLayout(1920, 1080, d));
+      const band = bandLayout(1920, 1080, d, ink[0]!.h)!;
+      const layouts = captionLayouts(captions, ink, d, false, band);
+      assert.equal(layouts[0]!.size, Math.round(d.caption_size * 1.6), name);
+      assert.ok(ink[0]!.h > layouts[0]!.size, `${name}: title wraps`);
+      assert.equal(layouts[1]!.size, d.caption_size, name);
+      assert.ok(captions[1]!.t0 >= captions[0]!.t1, name);
+      writeFileSync(`${dir}/captions.ass`, captionAss(captions, ink, d, false, band));
+      const background = execFileSync("ffmpeg", ["-v", "error", "-f", "lavfi", "-i",
+        `color=0x${d.background.slice(1)}:s=${d.out_w}x${d.out_h}:r=1:d=1`, "-vf", "format=gray",
+        "-frames:v", "1", "-f", "rawvideo", "-"], { maxBuffer: d.out_w * d.out_h * 2 });
+      for (const t of [0.4, 1, 4]) {
+        const pixels = execFileSync("ffmpeg", ["-v", "error", "-f", "lavfi", "-i",
+          `color=0x${d.background.slice(1)}:s=${d.out_w}x${d.out_h}:r=1:d=1`, "-vf",
+          `settb=1/1000,setpts=PTS+${t}/TB,ass=${dir}/captions.ass:fontsdir=resources/fonts,format=gray`,
+          "-frames:v", "1", "-f", "rawvideo", "-"], { maxBuffer: d.out_w * d.out_h * 2 });
+        let count = 0;
+        for (let y = 0; y < d.out_h; y++) for (let x = 0; x < d.out_w; x++) {
+          if (Math.abs(pixels[y * d.out_w + x]! - background[y * d.out_w + x]!) <= 2) continue;
+          count++;
+          assert.ok(y > band.top + d.border && y < d.out_h - 1, `${name}: ink at y=${y}, t=${t}`);
+          assert.ok(x > d.out_w * 0.04 && x < d.out_w * 0.96, `${name}: ink at x=${x}, t=${t}`);
+        }
+        assert.ok(count > 100, `${name}: visible ink at t=${t}`);
+      }
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 // Inspect rendered white ink, rather than ASS source, for layout regressions.

@@ -47,12 +47,12 @@ export function stageGeometry(width: number, height: number, d: CameraDefaults):
  */
 export interface Band { stage: Stage; top: number; centre: number }
 
-export function bandLayout(width: number, height: number, d: CameraDefaults): Band | null {
-  // ponytail: portrait sources keep overlay captions until a phone stage lands.
-  if (Math.abs(width / height - d.out_w / d.out_h) > 0.01) return null;
-  const band = Math.ceil(Math.max(titleSize(d) * 1.3, d.caption_size * 1.9) + d.caption_size * 1.2);
+export function bandLayout(width: number, height: number, d: CameraDefaults, titleHeight = titleSize(d) * 1.3): Band | null {
+  if (Math.abs(width / height - 16 / 9) > 0.01 || Math.abs(d.out_w / d.out_h - 16 / 9) > 0.01) return null;
+  const band = Math.ceil(Math.max(titleHeight + Math.round(titleSize(d) * 0.3), d.caption_size * 2.2) + d.caption_size * 1.2);
   const top = Math.round(d.out_h * d.stage_margin / (1 + 2 * d.stage_margin));
   const h = Math.floor((d.out_h - top - band) / 2) * 2;
+  if (h <= 0) throw new Error("title is too tall for the stage band");
   const w = even(h * d.out_w / d.out_h);
   const stage = { w: d.out_w, h: d.out_h, baseW: w, baseH: h, screenX: Math.round((d.out_w - w) / 2), screenY: top, restScale: 1 };
   return { stage, top: top + h, centre: (top + h + d.out_h) / 2 };
@@ -305,13 +305,17 @@ export function takeCaptions(meta: TakeMeta, at: (t: number) => number, duration
     if (text && t1 > t0) out.push({ t0, t1, text, title: false, position: caption.position });
   }
   const body = out.filter(c => !c.title).sort((a, b) => a.t0 - b.t0);
-  // The band holds one line: captions wait for the title, keeping their reading time.
-  const shown = out.find(c => c.title);
-  if (band && shown) for (const c of body) if (c.t0 < shown.t1) {
-    c.t1 = Math.min(duration, c.t1 + shown.t1 - c.t0);
-    c.t0 = shown.t1;
+  if (band) {
+    let end = out.find(c => c.title)?.t1 ?? 0;
+    for (const c of body) {
+      const readingTime = c.t1 - c.t0;
+      c.t0 = Math.max(c.t0, end);
+      c.t1 = Math.min(duration, c.t0 + readingTime);
+      end = c.t1;
+    }
+  } else {
+    for (let i = 0; i + 1 < body.length; i++) body[i]!.t1 = Math.min(body[i]!.t1, body[i + 1]!.t0);
   }
-  for (let i = 0; i + 1 < body.length; i++) body[i]!.t1 = Math.min(body[i]!.t1, body[i + 1]!.t0);
   return [...out.filter(c => c.title && c.t1 > c.t0), ...body.filter(c => c.t1 > c.t0)];
 }
 
@@ -348,11 +352,13 @@ export function captionLayouts(captions: Caption[], widths: (number | CaptionInk
     const ink = widths[index] ?? 0;
     const inkW = typeof ink === "number" ? ink : ink.w;
     const base = textSize(caption, d, band);
-    // One line always: long text shrinks to fit rather than wrapping out of the band.
-    const fit = Math.min(1, (d.out_w * 0.9 - 2 * base * 0.75) / Math.max(1, inkW));
+    const fit = caption.title ? 1 : Math.min(1, (d.out_w * 0.9 - 2 * base * 0.75) / Math.max(1, inkW));
     const size = Math.max(1, Math.floor(base * fit));
     const w = inkW * fit + (caption.title ? 0 : 2 * size * 0.75);
-    const h = caption.title ? Math.max(size, typeof ink === "number" ? 0 : ink.h * fit) : Math.ceil(size * 1.9);
+    const h = caption.title ? Math.max(size, typeof ink === "number" ? 0 : ink.h) : Math.ceil(size * 1.9);
+    if (caption.title && (w > d.out_w * 0.9 || h + Math.round(size * 0.3) > d.out_h - band.top)) {
+      throw new Error("title does not fit the stage band");
+    }
     return { cx: d.out_w / 2, cy: band.centre, w, h, size, rise: Math.round(size * 0.3) };
   });
   const heights = captions.map((caption, index) => {
@@ -390,7 +396,8 @@ export function captionAss(captions: Caption[], widths: (number | CaptionInk)[],
     const time = `${assTime(caption.t0)},${assTime(caption.t1)}`;
     const font = caption.title ? d.display_font : d.caption_font;
     if (band && caption.title) {
-      out += `Dialogue: 3,${time},Default,,0,0,0,,{\\q2\\an5${move}${fade}\\fs${size}\\fn${font}\\1c${assColour(titleColour(d))}\\bord0\\shad0}${caption.text}\n`;
+      const margin = captionMargin(size, d);
+      out += `Dialogue: 3,${time},Default,,${margin},${margin},0,,{\\q0\\an5${move}${fade}\\fs${size}\\fn${font}\\1c${assColour(titleColour(d))}\\bord0\\shad0}${caption.text}\n`;
       return;
     }
     out += `Dialogue: 2,${time},Default,,0,0,0,,{\\an7${move}${fade}\\bord${d.caption_border}\\3c${assColour(d.text)}\\shad0\\blur0.6`
@@ -407,7 +414,7 @@ export function measureAss(captions: Caption[], d: CameraDefaults, band?: Band |
   captions.forEach((caption, index) => {
     const size = textSize(caption, d, band);
     const margin = captionMargin(size, d);
-    out += `Dialogue: 0,${assTime(index)},${assTime(index + 1)},Default,,${margin},${margin},0,,{\\q${band ? 2 : 0}\\an5\\pos(${d.out_w / 2},${d.out_h / 2})${band ? "\\fscx25" : ""}\\fs${size}\\fn${caption.title ? d.display_font : d.caption_font}}${caption.text}\n`;
+    out += `Dialogue: 0,${assTime(index)},${assTime(index + 1)},Default,,${margin},${margin},0,,{\\q${band && !caption.title ? 2 : 0}\\an5\\pos(${d.out_w / 2},${d.out_h / 2})${band && !caption.title ? "\\fscx25" : ""}\\fs${size}\\fn${caption.title ? d.display_font : d.caption_font}}${caption.text}\n`;
   });
   return out;
 }

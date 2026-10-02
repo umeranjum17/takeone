@@ -8,7 +8,7 @@ import { pathToFileURL } from 'node:url';
 import { DEFAULTS } from '../src/camera/defaults.ts';
 import type { CameraFrame, Beat, TakeMeta } from '../src/camera/types.ts';
 import { makeTake } from '../src/make.ts';
-import { encodingOptions, renderTake } from '../src/render/render.ts';
+import { encodingOptions, measureCaptions, renderTake } from '../src/render/render.ts';
 import { cameraFilter } from '../src/render/camera-filter.ts';
 import { bandFrames, bandLayout, stageFrames, stageGeometry, takeCaptions, type Band } from '../src/render/stage.ts';
 import { idleSqueezes, warp } from '../src/render/pace.ts';
@@ -287,7 +287,13 @@ async function main() {
     const deterministic = original === sha(video);
     const meta = json<TakeMeta>(join(dir, 'take.json'));
     const camera = json<CameraFrame[]>(join(dir, 'camera.json'));
-    const band = meta.title || meta.captions?.length ? bandLayout(meta.width, meta.height, d) : null;
+    let band = meta.title || meta.captions?.length ? bandLayout(meta.width, meta.height, d) : null;
+    if (band) {
+      const duration = camera.at(-1)!.t + 1 / d.fps;
+      const captions = takeCaptions(meta, t => t, duration, true);
+      const ink = await measureCaptions(dir, captions, d, band);
+      band = bandLayout(meta.width, meta.height, d, Math.max(0, ...captions.map((c, i) => c.title ? ink[i]!.h : 0)));
+    }
     const frames = band ? bandFrames(camera, band, d) : stageFrames(camera, meta.width, meta.height, stageGeometry(meta.width, meta.height, d), d);
     const probe = JSON.parse(command('ffprobe', ['-v', 'error', '-count_frames', '-show_streams', '-of', 'json', video]).toString());
     const stream = probe.streams[0];
