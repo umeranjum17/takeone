@@ -131,6 +131,26 @@ test("portrait stage mapping stays continuous as the crop reaches screen fill", 
   assert.ok(metrics.zoom_acceleration.value <= 4, `stage zoom acceleration ${metrics.zoom_acceleration.value}`);
 });
 
+test("portrait stage crop keeps its aspect while crossing the source-fill boundary", () => {
+  const portrait = { ...DEFAULTS, out_w: 1080, out_h: 1920 };
+  const width = 2560, height = 1440, aspect = portrait.out_w / portrait.out_h;
+  const fill = height * aspect;
+  const stage = stageGeometry(width, height, portrait);
+  const frames = [1.0998, 1.0999, 1.1, 1.1001, 1.1002].map((ratio, i) => {
+    const w = fill * ratio, h = w / aspect;
+    return { t: i / portrait.fps, x: width / 2 - w / 2, y: height / 2 - h / 2, w, h };
+  });
+  const staged = stageFrames(frames, width, height, stage, portrait);
+  for (const frame of staged) {
+    assert.ok(Math.abs(frame.h / frame.w - 1 / aspect) < 1e-9,
+      `portrait viewport aspect ${frame.w}:${frame.h}`);
+  }
+  const metrics = cameraMetrics(staged, portrait.fps, portrait.out_w, portrait.out_h, portrait.min_shot);
+  assert.ok(metrics.zoom_speed.value <= 1, `stage zoom speed ${metrics.zoom_speed.value}`);
+  assert.ok(metrics.zoom_acceleration.value <= 4, `stage zoom acceleration ${metrics.zoom_acceleration.value}`);
+  assert.ok(metrics.pan_acceleration.value <= 9000, `stage pan acceleration ${metrics.pan_acceleration.value}`);
+});
+
 test("stage edge clamp eases across the source-to-card boundary", () => {
   const portrait = { ...d, out_w: 180, out_h: 320 };
   const stage = stageGeometry(640, 360, portrait);
