@@ -271,11 +271,25 @@ test("render reruns edits from take.json, preserves captions reading time and is
     const band = bandLayout(640,360,text,captions,ink)!;
     assert.deepEqual(geometry.frames,bandFrames(frames,band,d,640,360));
     assert.deepEqual(geometry.sourceOrigin,{x:stageGeometry(640,360,d).screenX,y:stageGeometry(640,360,d).screenY});
+    const cardRgb = [1,3,5].map(i => parseInt(d.card.slice(i,i+2),16));
+    const source = execFileSync("ffmpeg",["-v","error","-ss",String(meta.trim_start),"-i",join(dir,"screen.webm"),
+      "-frames:v","1","-pix_fmt","rgb24","-f","rawvideo","-"]);
+    let brightest = 0;
+    for (let i=3;i<source.length;i+=3) {
+      if (source[i]!+source[i+1]!+source[i+2]! > source[brightest]!+source[brightest+1]!+source[brightest+2]!) brightest=i;
+    }
+    const sourceRgb = [...source.subarray(brightest,brightest+3)];
+    assert.equal(sourceRgb.length,3);
+    assert.ok(sourceRgb.some((v,c)=>Math.abs(v-cardRgb[c]!)>64));
     for (const [x,y] of [[0.5,0.025],[0.5,0.975],[0.025,0.5],[0.975,0.5]]) {
       const margin = execFileSync("ffmpeg",["-v","error","-i",result.out,"-vf",
-        `crop=2:2:${Math.floor(band.stage.screenX+band.stage.baseW*x!)}:${Math.floor(band.stage.screenY+band.stage.baseH*y!)},format=gray`,
+        `crop=2:2:${Math.floor(band.stage.screenX+band.stage.baseW*x!)}:${Math.floor(band.stage.screenY+band.stage.baseH*y!)},format=rgb24`,
         "-frames:v","1","-f","rawvideo","-"]);
-      assert.ok([...margin].every(v=>v>220),`padded card margin ${x},${y}: ${[...margin]}`);
+      assert.equal(margin.length,12);
+      assert.ok([...margin].every((v,i)=>Math.abs(v-cardRgb[i%3]!)<=8),`padded card margin ${x},${y}: ${[...margin]}`);
+      for (let i=0;i<margin.length;i+=3) {
+        assert.ok(sourceRgb.some((v,c)=>Math.abs(v-margin[i+c]!)>64),`source contrast at card margin ${x},${y}`);
+      }
     }
     const rerun = await renderTake(dir,d);
     assert.deepEqual(readFileSync(rerun.out),bytes);
