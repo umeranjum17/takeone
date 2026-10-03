@@ -219,14 +219,20 @@ try {execFileSync("tesseract",["--version"],{stdio:"ignore"});hasOcr=true;} catc
 test("keycaps are OCR legible at both shortcut holds", {skip:!hasFfmpeg()||!hasOcr},()=>{
   const dir=mkdtempSync(`${process.cwd()}/tmp-keycap-ocr-`);
   try {
-    writeFileSync(`${dir}/keys.ass`,keycapAss(beats([
-      {k:"shortcut",t:500,combo:"Ctrl+K"},{k:"shortcut",t:2500,combo:"Ctrl+S"}]),0,5,DEFAULTS));
+    const b=beats([{k:"shortcut",t:500,combo:"Ctrl+K"},{k:"shortcut",t:2500,combo:"Ctrl+S"}]);
+    writeFileSync(`${dir}/keys.ass`,keycapAss(b,0,5,DEFAULTS));
     for(const [t,key] of [[1,"K"],[3,"S"]] as const){
-      const png=`${dir}/${key}.png`;
-      execFileSync("ffmpeg",["-y","-v","error","-f","lavfi","-i","color=black:s=1920x1080:r=10:d=4",
-        "-vf",`ass=${dir}/keys.ass:fontsdir=resources/fonts,select=gte(t\\,${t}),crop=650:180:635:710,format=gray,lut=y='if(gt(val,160),0,255)'`,"-frames:v","1",png]);
-      const text=execFileSync("tesseract",[png,"stdout","--psm","7"],{encoding:"utf8",stdio:["ignore","pipe","ignore"]});
-      assert.equal(text.trim().replace(/\s+/g," "),`Ctrl + ${key}`);
+      const cue=keycapCues(b,0,5,DEFAULTS).find(c=>c.keys.at(-1)===key)!;
+      let x=cue.cx-cue.w/2+cue.size*0.45;
+      // Separate cells are words/single glyphs, rather than one widely spaced line.
+      for(const [label,w,psm] of [["Ctrl",cue.widths[0]!,"7"],["+",cue.size*0.65,"10"],[key,cue.widths[1]!,"10"]] as const){
+        const png=`${dir}/${key}-${label}.png`;
+        execFileSync("ffmpeg",["-y","-v","error","-f","lavfi","-i","color=black:s=1920x1080:r=10:d=4",
+          "-vf",`ass=${dir}/keys.ass:fontsdir=resources/fonts,select=gte(t\\,${t}),crop=${Math.round(w)}:${Math.round(cue.h)}:${Math.round(x)}:${Math.round(cue.cy-cue.h/2)},scale=iw*2:ih*2:flags=lanczos,format=gray,lut=y='if(gt(val,160),0,255)'`,"-frames:v","1",png]);
+        const text=execFileSync("tesseract",[png,"stdout","--psm",psm],{encoding:"utf8",stdio:["ignore","pipe","ignore"]});
+        assert.equal(text.trim(),label);
+        x+=w;
+      }
     }
   } finally {rmSync(dir,{recursive:true,force:true});}
 });

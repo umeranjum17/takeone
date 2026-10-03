@@ -103,7 +103,8 @@ export function motionBlurGraph(frames: CameraFrame[], plan: ReturnType<typeof s
   }
   const countExpr = frameExpr(counts).replaceAll("in-1", `floor(n/${plan.samples})`);
   const endExpr = `eq(round(${frameExpr(ends).replaceAll("in-1", "n")}),1)`;
-  return `[c4]fps=${d.fps * plan.samples}:round=up:start_time=0,tpad=stop_mode=clone:stop=${plan.samples},`
+  // Pad before resampling: older fps filters can discard the last image at EOF.
+  return `[c4]tpad=stop_mode=clone:stop=1,fps=${d.fps * plan.samples}:round=up:start_time=0,`
     + `trim=end_frame=${frames.length * plan.samples},select='lt(mod(n,${plan.samples}),round(${countExpr}))',`
     + `setpts=N/(${d.fps * plan.samples}*TB),${cameraFilter(sampled.map((f, i) => ({ ...f, t: i / (d.fps * plan.samples) })), width, height, { ...d, fps: d.fps * plan.samples })},`
     + `sendcmd=c='${commands.join(";")}',tmix@shutter=frames=${plan.samples + 1}:enable='${endExpr}',`
