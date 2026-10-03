@@ -80,17 +80,6 @@ export function bandLayout(width: number, height: number, d: CameraDefaults, cap
     captionY: top + h + padding + titleH + gap + captionH / 2, titleH, captionH };
 }
 
-/** Legacy unpadded projection; sampling and exported geometry use stageFrames and bandFrames. */
-export function bandViewports(frames: CameraFrame[], d: CameraDefaults, width: number, height: number): CameraFrame[] {
-  const st = stageGeometry(width, height, d);
-  return stageFrames(frames, width, height, st, d).map(f => {
-    // This rescaled view omits the source pad ring, so it cannot describe
-    // rendered rest padding or position overlays on the sampled composite.
-    return { t: f.t, x: f.x * width / st.w, y: f.y * height / st.h,
-      w: f.w * width / st.w, h: f.h * height / st.h };
-  });
-}
-
 /** Solver viewports re-expressed as full-output viewports, for code that projects source px to output px. */
 export function bandFrames(frames: CameraFrame[], band: Band, d: CameraDefaults, width: number, height: number): CameraFrame[] {
   const { screenX, screenY, baseW, baseH } = band.stage;

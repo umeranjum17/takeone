@@ -109,7 +109,8 @@ export function motionBlurGraph(frames: CameraFrame[], plan: ReturnType<typeof s
  * unchanged warp sample that restores coverage for minified frames (measured
  * RMS 0.10 vs 0.28); magnified frames keep the untouched raw pixels, so zoomed
  * text is never filtered. */
-export function cameraGraph(frames: CameraFrame[], plan: ReturnType<typeof shutterPlan>, width: number, height: number, d: CameraDefaults, gate = 1.45): string {
+export function cameraGraph(frames: CameraFrame[], plan: ReturnType<typeof shutterPlan>, width: number, height: number, d: CameraDefaults): string {
+  const gate = 1.45;
   const w = Math.round(width / gate), h = Math.round(height / gate);
   const minified = frames.map(f => f.w / d.out_w >= width / w - 1e-9 && f.h / d.out_h >= height / h - 1e-9);
   if (!minified.some(Boolean)) return motionBlurGraph(frames, plan, width, height, d);
