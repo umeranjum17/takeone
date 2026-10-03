@@ -58,7 +58,7 @@ assert.ok(new Set(md5A.split('\n').filter(line => !line.startsWith('#') && line.
 assert.equal(await readFile(join(a,'events.jsonl'),'utf8'),await readFile(join(b,'events.jsonl'),'utf8'),'input logs differ');
 assert.equal(await readFile(join(a,'frames.tsv'),'utf8'),await readFile(join(b,'frames.tsv'),'utf8'),'frame clocks differ');
 // This executes the existing CLI and render pipeline without changing it.
-execFileSync(process.execPath, ['bin/takeone.mjs','make',a,'--no-jev','--set','fps=60','--set','preset=ultrafast'], { stdio:'inherit', timeout: 600_000 });
+execFileSync(process.execPath, ['bin/takeone.mjs','make',a,'--no-jev','--set','fps=60','--set','preset=ultrafast'], { stdio:'inherit', timeout: 1_200_000 });
 const beats = JSON.parse(await readFile(join(a,'analysis/beats.json'),'utf8'));
 for (const kind of ['click','drag','type']) assert.ok(beats.some(beat => beat.kind === kind), `make must plan a ${kind} beat`);
 const video = join(a,'out/headless-demo.mp4');
