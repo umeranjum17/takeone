@@ -84,7 +84,10 @@ export function bandLayout(width: number, height: number, d: CameraDefaults, cap
 export function bandViewports(frames: CameraFrame[], d: CameraDefaults, width: number, height: number): CameraFrame[] {
   const st = stageGeometry(width, height, d);
   return stageFrames(frames, width, height, st, d).map(f => {
-    return { t: f.t, x: f.x - st.screenX, y: f.y - st.screenY, w: f.w, h: f.h };
+    // The band already supplies the card's outer margin. Map the padded
+    // camera continuously onto its unpadded source rather than nesting margins.
+    return { t: f.t, x: f.x * width / st.w, y: f.y * height / st.h,
+      w: f.w * width / st.w, h: f.h * height / st.h };
   });
 }
 
