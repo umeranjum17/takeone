@@ -14,7 +14,7 @@ import { idleSqueezes, setptsExpr, warp, warpBeats } from "./pace.ts";
 import { phoneTapShots } from "./phone.ts";
 import { editBeats, editTimeline, editZooms, validateEdits } from "./edits.ts";
 import {
-  bandEligible, bandFrames, bandViewports, bandLayout, bandText, beatClicks, captionAss, cardFilter, clickAss, measureAss, stageFrames, stageGeometry, stageImageFilter,
+  bandEligible, bandFrames, bandLayout, bandText, beatClicks, captionAss, cardFilter, clickAss, measureAss, stageFrames, stageGeometry, stageImageFilter,
   takeCaptions, type Caption, type CaptionInk,
 } from "./stage.ts";
 
@@ -122,8 +122,8 @@ export async function renderTake(
   await writeFile(join(dir, "render-camera.json"), JSON.stringify({ frames: stageCamera,
     sourceOrigin: { x: sourceStage.screenX, y: sourceStage.screenY } }));
   const view = band ? { ...d, out_w: stage.baseW, out_h: stage.baseH } : d;
-  const [cameraFrames, cameraW, cameraH] = band ? [bandViewports(frames, d, meta.width, meta.height).map(f => ({ ...f,
-    x: f.x + sourceStage.screenX, y: f.y + sourceStage.screenY })), sourceStage.w, sourceStage.h] : [stageCamera, stage.w, stage.h];
+  // Sample the padded composite at rest; zoomed viewports crop inside the source.
+  const [cameraFrames, cameraW, cameraH] = band ? [stageFrames(frames, meta.width, meta.height, sourceStage, d), sourceStage.w, sourceStage.h] : [stageCamera, stage.w, stage.h];
   const shutter = shutterPlan(cameraFrames, cameraW, cameraH, view);
   await writeFile(join(dir, "motion-blur.json"), JSON.stringify(shutter.metrics, null, 2));
   const camera = motionBlurGraph(cameraFrames, shutter, cameraW, cameraH, view);
