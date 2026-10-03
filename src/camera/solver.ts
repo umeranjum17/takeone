@@ -880,7 +880,7 @@ function boundedCamera(targets: Target[], width: number, height: number, start: 
     let view = normalize(wholeElementViewport(requested, zone, contextZones, width, height, d) ?? project(requested));
     const before = holds.flatMap((hold, i) => {
       const t = Math.min(hold.end, t0 - lead(hold.view, view));
-      return t >= hold.start + (i ? Math.max(d.dwell, d.min_shot) : 0) && t <= t0 ? [t] : [];
+      return t >= hold.start && t <= t0 ? [t] : [];
     });
     const a = before.length ? Math.max(...before) : start;
     if (!before.length) view = initial;

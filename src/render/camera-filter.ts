@@ -37,7 +37,8 @@ export function frameExpr(values: number[], tolerance = 0.001): string {
 }
 
 /** A flat-to-flat transform is an affine crop: no rotation or lens distortion.
- * v360 samples the native stage directly into export pixels with Lanczos.
+ * Minified views sample at twice the native grid density, then integrate
+ * export-pixel coverage with an area reduction.
  * RGB16 preserves fractional colour/edge precision until the final conversion.
  * Its normalized coordinates use (input size - 1) and output pixel centres.
  */
@@ -52,6 +53,10 @@ export function cameraFilter(frames: CameraFrame[], width: number, height: numbe
   const first = frames[0];
   if (!first || width < 2 || height < 2) throw new Error("invalid camera surface");
   const initial = parameters(first);
+  // One reconstruction rule for the complete path: at least two samples per
+  // source texel along each axis when export pixels cover multiple texels.
+  const footprint = Math.max(...frames.map(f => Math.max(f.w / d.out_w, f.h / d.out_h)));
+  const density = footprint > 1 ? 2 * Math.ceil(footprint) : 1;
   let previous = first;
   let applied = Object.fromEntries(Object.entries(initial).map(([key, value]) => [key, value.toFixed(10)]));
   const commands: string[] = [];
@@ -74,6 +79,7 @@ export function cameraFilter(frames: CameraFrame[], width: number, height: numbe
   const control = commands.length ? `sendcmd=commands='${commands.join(";")};',` : "";
   const settings = Object.entries(initial).map(([key, value]) => `${key}=${value.toFixed(10)}`).join(":");
   // Lanczos normalizes its kernel coefficients, preserving flat card colours.
-  return `format=gbrp16le,${control}v360=input=flat:output=flat:w=${d.out_w}:h=${d.out_h}:ih_fov=90:iv_fov=90:${settings}`
-    + `:interp=${d.quality === "draft" ? "linear" : "lanczos"},setsar=1`;
+  return `format=gbrp16le,${control}v360=input=flat:output=flat:w=${d.out_w * density}:h=${d.out_h * density}:ih_fov=90:iv_fov=90:${settings}`
+    + `:interp=${density > 1 || d.quality === "draft" ? "linear" : "lanczos"}`
+    + (density > 1 ? `,scale=${d.out_w}:${d.out_h}:flags=area` : "") + ",setsar=1";
 }
