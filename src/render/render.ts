@@ -79,9 +79,9 @@ export async function renderTake(
   const byId = new Map(outBeats.map(b => [b.id, b]));
   const outDecisions = clock ? decisions.flatMap(decision => {
     const beat = byId.get(decision.beat);
-    if (!beat) return [];
+    if (!beat || beat.camera_suppressed) return [];
     const kept = (name: string | undefined) => beat.zones.some(z => z.name === name);
-    const A = kept(decision.A) ? decision.A : beat.zones[0]?.name ?? decision.A;
+    const A = kept(decision.A) ? decision.A : beat.zones[0]!.name;
     const B = kept(decision.B) ? decision.B : A;
     return [{ ...decision, A, B }];
   }) : decisions;

@@ -120,7 +120,8 @@ export function cameraGraph(frames: CameraFrame[], plan: ReturnType<typeof shutt
     if (minified[i] === minified[i - 1]) continue;
     expr = `if(lt(t,${Math.max(0, frames[i]!.t - 0.5 / d.fps).toFixed(9)}),${minified[i] ? 0 : hidden},${expr})`;
   }
-  return `[c4]split=2[pf][praw];[pf]scale=${w}:${h}:flags=area,scale=${width}:${height}:flags=bilinear[pup];`
-    + `[pup][praw]overlay=x='${expr}':y=0:shortest=1[camin];`
+  const sampling = d.quality === "master" ? "444" : "420";
+  return `[c4]split=2[pf][praw];[pf]scale=${w}:${h}:flags=area,scale=${width}:${height}:flags=bilinear,format=yuv${sampling}p[pup];`
+    + `[pup][praw]overlay=x='${expr}':y=0:shortest=1:format=yuv${sampling}[camin];`
     + motionBlurGraph(frames, plan, width, height, d).replaceAll("[c4]", "[camin]");
 }

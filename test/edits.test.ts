@@ -25,6 +25,42 @@ const beat: Beat = { id: "typing", kind: "type", t0: 1, t1: 11, anchor_t: 2, zon
 ] };
 const decision = { beat: beat.id, A: "all", L: 0 as const, K: 1 as const, p: 0, conf: 1, decided_by: "heuristic" };
 
+test("cutting the sole camera zone retains actions and renders the surviving beat", { skip: !hasFfmpeg() }, async () => {
+  const settings = { ...d, fps: 10, motion_blur: 0 };
+  const take: TakeMeta = { width: 640, height: 360, trim_end: 12, cuts: [{ t0: 4, t1: 7 }] };
+  const prepared: Beat = { id: "sole-zone", kind: "click", t0: 0, t1: 12, anchor_t: 5,
+    zones: [{ name: "result", type: "res", bbox: [280, 120, 120, 40], t_change: 5 }],
+    actions: [{ k: "click", t: 2000, x: 320, y: 150 }, { k: "click", t: 10000, x: 320, y: 150 }] };
+  for (const anchor_t of [5, 2]) {
+    const source = { ...prepared, anchor_t };
+    const clock = editTimeline(take, [source], 0, 12, settings);
+    const edited = editBeats([source], clock, 0);
+    assert.equal(edited[0]!.camera_suppressed, true);
+    assert.deepEqual(edited[0]!.zones, []);
+    assert.deepEqual(edited[0]!.actions, [prepared.actions[0], { ...prepared.actions[1], t: 7000 }]);
+    for (const output of [{ out_w: 320, out_h: 180 }, { out_w: 180, out_h: 320 }, { out_w: 180, out_h: 180 }]) {
+      assert.equal(solveCamera(edited, [], { ...take, trim_end: clock.duration }, { ...settings, ...output }).length, 91);
+    }
+  }
+  mkdirSync(join(process.cwd(), "tmp"), { recursive: true });
+  const dir = mkdtempSync(join(process.cwd(), "tmp/empty-zones-test-"));
+  try {
+    mkdirSync(join(dir, "analysis"));
+    writeFileSync(join(dir, "take.json"), JSON.stringify(take));
+    writeFileSync(join(dir, "analysis/beats.json"), JSON.stringify([prepared]));
+    writeFileSync(join(dir, "analysis/decisions.jsonl"), JSON.stringify({ ...decision, beat: prepared.id, A: "result", B: "result" }));
+    execFileSync("ffmpeg", ["-y", "-v", "error", "-f", "lavfi", "-i", "color=blue:s=640x360:r=10:d=12",
+      "-c:v", "libvpx-vp9", "-deadline", "realtime", "-cpu-used", "8", join(dir, "screen.webm")]);
+    const result = await renderTake(dir, settings);
+    assert.equal(result.seconds, 9);
+    const probe = JSON.parse(execFileSync("ffprobe", ["-v", "error", "-count_frames", "-show_streams", "-of", "json", result.out], { encoding: "utf8" }));
+    assert.equal(Number(probe.streams[0].nb_read_frames), 90);
+    const clicks = readFileSync(join(dir, "clicks.ass"), "utf8");
+    assert.match(clicks, /Dialogue: .*0:00:02\./);
+    assert.match(clicks, /Dialogue: .*0:00:07\./);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
 test("cut, region speed, typing speed and idle speed share one clock with explicit precedence", () => {
   const take = { ...meta, cuts: [{ t0: 4, t1: 6 }], speed: [
     { kind: "type_speed" as const, rate: 3 }, { t0: 7, t1: 9, rate: 0.5 },

@@ -3,12 +3,33 @@ import { execFileSync } from "node:child_process";
 import test from "node:test";
 import { applyOverrides, DEFAULTS } from "../src/camera/defaults.ts";
 import { cameraFilter } from "../src/render/camera-filter.ts";
-import { motionBlurGraph, shutterFrame, shutterPlan } from "../src/render/motion-blur.ts";
+import { cameraGraph, motionBlurGraph, shutterFrame, shutterPlan } from "../src/render/motion-blur.ts";
 import { hasFfmpeg } from "./helpers.ts";
 
 const d = { ...DEFAULTS, out_w: 160, out_h: 90, fps: 60 };
 const frames = Array.from({ length: 12 }, (_, i) => ({ t: i / 60, x: i < 3 ? 0 : Math.min(6, i - 3) * 20,
   y: 0, w: 160, h: 90 }));
+
+test("minified-view selector preserves raw magnified chroma in each quality mode", { skip: !hasFfmpeg() }, () => {
+  const path = [
+    { t: 0, x: 0, y: 0, w: 320, h: 180 },
+    { t: 1 / 60, x: 0, y: 0, w: 160, h: 90 },
+  ];
+  for (const quality of ["master", "standard"] as const) {
+    const settings = { ...d, quality, motion_blur: 0 };
+    const format = quality === "master" ? "yuv444p" : "yuv420p";
+    const decode = (graph: string) => execFileSync("ffmpeg", ["-v", "error", "-f", "lavfi", "-i",
+      `nullsrc=s=320x180:r=60,format=${format},geq=lum=128:cb='64+128*mod(X,2)':cr='64+128*mod(Y,2)'`,
+      "-filter_complex_threads", "1", "-filter_complex", graph, "-map", "[camera]",
+      "-frames:v", "2", "-pix_fmt", format, "-f", "rawvideo", "-"], { maxBuffer: 100000 });
+    const plan = shutterPlan(path, 320, 180, settings);
+    const selected = decode(cameraGraph(path, plan, 320, 180, settings).replaceAll("[c4]", "[0:v]"));
+    const raw = decode(motionBlurGraph(path, plan, 320, 180, settings).replaceAll("[c4]", "[0:v]"));
+    const frameBytes = 160 * 90 * (quality === "master" ? 3 : 1.5);
+    assert.equal(selected.length, 2 * frameBytes);
+    assert.deepEqual(selected.subarray(frameBytes), raw.subarray(frameBytes), `${quality} raw-selected frame`);
+  }
+});
 
 test("shutter is centred, clamps bookends, and samples fast pans within two pixels", () => {
   const plan = shutterPlan(frames, 320, 90, d);

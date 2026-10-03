@@ -1013,8 +1013,8 @@ export function solveCamera(
   const decisionMap = new Map(decisions.map((decision) => [decision.beat, decision]));
   const visibleBeats = beats.filter(beat => (beat.t1 > start && beat.t0 < end)
     || gestures(beat).some(g => g.t1 / 1000 > start && g.t0 / 1000 < end));
-  const shots = buildShots(beats, decisions, start, d)
-    .filter((shot) => visibleBeats.includes(shot.beat) && !shot.beat.camera_suppressed);
+  const shots = buildShots(beats.filter(beat => !beat.camera_suppressed), decisions, start, d)
+    .filter((shot) => visibleBeats.includes(shot.beat));
   const portraitCrop = d.out_h > d.out_w && width / height > d.out_w / d.out_h;
   if (portraitCrop) {
     const active = shots.find((shot) => shot.beat.zones.some((zone) => zone.type !== "all"));

@@ -136,11 +136,12 @@ export function editBeats(beats: Beat[], clock: EditTimeline, start: number): Be
       }
       return [a];
     });
+    const zones = beat.zones.filter(zone => zone.t_change === undefined || clock.contains(zone.t_change))
+      .map(zone => zone.t_change === undefined ? zone : { ...zone, t_change: s(zone.t_change) });
     return [{ ...beat, t0, t1, anchor_t: s(beat.anchor_t), actions,
-      camera_suppressed: !clock.contains(beat.anchor_t),
+      camera_suppressed: !clock.contains(beat.anchor_t) || zones.length === 0,
       dialog_results: beat.dialog_results?.filter(result => clock.contains(result.t)).map(result => ({ ...result, t: s(result.t) })),
-      zones: beat.zones.filter(zone => zone.t_change === undefined || clock.contains(zone.t_change))
-        .map(zone => zone.t_change === undefined ? zone : { ...zone, t_change: s(zone.t_change) }),
+      zones,
       changed_frac: beat.changed_frac?.filter(sample => clock.contains(sample.t)).map(sample => ({ ...sample, t: s(sample.t) })),
     }];
   });
