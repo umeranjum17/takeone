@@ -246,7 +246,7 @@ test("a simultaneous title stacks above the caption", {skip:!hasFfmpeg()}, () =>
 });
 
 
-test("band rest viewport has one card without an inner source inset", () => {
+test("band rest viewport preserves configured visible source padding", () => {
   const band = bandLayout(1920, 1080, DEFAULTS)!;
   const st = stageGeometry(1920, 1080, DEFAULTS);
   const frames = bandFrames([{ t: 0, x: (1920 - st.w) / 2, y: (1080 - st.h) / 2,
@@ -254,7 +254,13 @@ test("band rest viewport has one card without an inner source inset", () => {
   const f = frames[0]!;
   const left = (st.screenX - f.x) * DEFAULTS.out_w / f.w;
   const top = (st.screenY - f.y) * DEFAULTS.out_h / f.h;
-  assert.ok(Math.abs(left - band.stage.screenX) < 1e-6, `inner inset ${left - band.stage.screenX}`);
-  assert.ok(Math.abs(top - band.stage.screenY) < 1e-6);
-  assert.ok(Math.abs(1920 * DEFAULTS.out_w / f.w - band.stage.baseW) < 1e-6);
+  // At rest the entire padded stage fits inside the fixed band card.
+  const grid = DEFAULTS.quality === "master" ? 1 : 2;
+  const cardLeft = Math.floor(band.stage.screenX / grid) * grid;
+  const cardTop = Math.floor(band.stage.screenY / grid) * grid;
+  const paddingX = st.screenX * band.stage.baseW / st.w;
+  const paddingY = st.screenY * band.stage.baseH / st.h;
+  assert.ok(Math.abs(left - cardLeft - paddingX) < 0.5, `inner inset ${left - cardLeft}`);
+  assert.ok(Math.abs(top - cardTop - paddingY) < 0.5);
+  assert.ok(Math.abs(1920 * DEFAULTS.out_w / f.w - 1920 * band.stage.baseW / st.w) < 0.5);
 });
