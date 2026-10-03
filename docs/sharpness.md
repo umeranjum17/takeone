@@ -47,8 +47,14 @@ percentages of OCR confidence or perceptual quality.
 The final graph uses `v360` with flat input/output, no rotation, and independent
 horizontal/vertical field of view and offsets. This is an affine camera crop,
 not a spherical lens effect. It maps native source pixels directly into export
-pixels in one Lanczos resample in a 16-bit RGB intermediate; draft uses linear. There is no pre-scale,
-intermediate upscale or final dimensional resize. Colour-matrix conversion
+pixels in one Lanczos resample in a 16-bit RGB intermediate; draft uses linear.
+For minified views, `cameraGraph` first area-downsamples the padded composite
+by approximately 1.45 per axis and restores its dimensions with bilinear
+upsampling to suppress hard-edge aliasing. This branch is selected only when
+both viewport-to-output dimension ratios reach the corresponding rounded
+downsampling ratio;
+other views use the untouched composite. The camera warp has no final
+dimensional resize. Colour-matrix conversion
 still uses `scale` without changing dimensions. Frame commands preserve
 fractional positions; updates fall between frame timestamps to avoid rounding
 an update into the following frame.

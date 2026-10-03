@@ -7,7 +7,7 @@ import type { Beat, CameraFrame, TakeMeta } from "../camera/types.ts";
 export interface Stage {
   w: number;
   h: number;
-  /** Aspect-padded source canvas the solver frames (the source itself when it is 16:9). */
+  /** Source canvas padded to output aspect, before adding the stage margin. */
   baseW: number;
   baseH: number;
   /** Top-left of the source screen on the stage. */

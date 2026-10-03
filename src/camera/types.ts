@@ -38,7 +38,7 @@ export interface Beat {
   dialog_results?: { t: number; bbox: [number, number, number, number] }[];
   /** Cut beats: changed_frac at each analysis frame after the cut (video-relative s). */
   changed_frac?: { t: number; f: number }[];
-  /** Render-time only: a cut removed the anchor, but surviving actions still draw clicks. */
+  /** Render-time only: a cut removed the anchor or all zones; surviving actions still draw clicks. */
   camera_suppressed?: boolean;
 }
 

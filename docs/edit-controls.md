@@ -14,6 +14,8 @@ defaults to 1080×1920 portrait output and other sources to 1920×1080 landscape
 unless `--set out_w=...` or `--set out_h=...` supplies custom dimensions.
 `--resolution 4k` selects 3840×2160 landscape, 2160×3840 portrait, or
 3840×3840 square output. Without `--aspect`, 4K orientation follows the source.
+Source orientation uses `take.json`'s `stream.w` / `stream.h` when present,
+otherwise its `width` / `height`; this also determines the default output size.
 Explicit `--set out_w=...` / `--set out_h=...` dimensions are overridden by
 these presets.
 
