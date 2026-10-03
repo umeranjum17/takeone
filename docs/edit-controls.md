@@ -19,7 +19,8 @@ these presets.
 
 `--format mp4|gif|webm|prores4444` selects the output container/encoding and
 defaults to `mp4`. GIF output is encoded at 15 fps and scaled to at most 1080
-pixels wide; WebM uses VP9, and `prores4444` writes a ProRes 4444 `.mov` file.
+pixels on each axis, preserving aspect ratio without upscaling; WebM uses VP9,
+and `prores4444` writes a ProRes 4444 `.mov` file.
 These three formats are transcoded from the rendered MP4, which is retained;
 ProRes cannot restore detail or chroma discarded by that intermediate.
 For example:

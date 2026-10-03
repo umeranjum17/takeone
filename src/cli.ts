@@ -213,7 +213,7 @@ export async function main(argv: string[]): Promise<number> {
         const suffix = format === "prores4444" ? "mov" : format;
         const output = rendered.replace(/\.mp4$/, `.${suffix}`);
         if (format === "gif") {
-          execFileSync("ffmpeg", ["-y", "-i", rendered, "-vf", "fps=15,scale='min(1080,iw)':-2:flags=lanczos,split[s0][s1];[s0]palettegen[p];[s1][p]paletteuse", output], { stdio: "ignore" });
+          execFileSync("ffmpeg", ["-y", "-i", rendered, "-vf", "fps=15,scale='min(1080,iw)':'min(1080,ih)':force_original_aspect_ratio=decrease:flags=lanczos,split[s0][s1];[s0]palettegen[p];[s1][p]paletteuse", output], { stdio: "ignore" });
         } else if (format === "webm") {
           execFileSync("ffmpeg", ["-y", "-i", rendered, "-c:v", "libvpx-vp9", "-b:v", "0", "-crf", "32", output], { stdio: "ignore" });
         } else {
