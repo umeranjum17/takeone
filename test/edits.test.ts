@@ -28,9 +28,9 @@ const decision = { beat: beat.id, A: "all", L: 0 as const, K: 1 as const, p: 0, 
 test("cutting the sole camera zone retains actions and renders the surviving beat", { skip: !hasFfmpeg() }, async () => {
   const settings = { ...d, fps: 10, motion_blur: 0 };
   const take: TakeMeta = { width: 640, height: 360, trim_end: 12, cuts: [{ t0: 4, t1: 7 }] };
-  const prepared: Beat = { id: "sole-zone", kind: "click", t0: 0, t1: 12, anchor_t: 5,
+  const prepared = { id: "sole-zone", kind: "click", t0: 0, t1: 12, anchor_t: 5,
     zones: [{ name: "result", type: "res", bbox: [280, 120, 120, 40], t_change: 5 }],
-    actions: [{ k: "click", t: 2000, x: 320, y: 150 }, { k: "click", t: 10000, x: 320, y: 150 }] };
+    actions: [{ k: "click", t: 2000, x: 320, y: 150 }, { k: "click", t: 10000, x: 320, y: 150 }] } satisfies Beat;
   for (const anchor_t of [5, 2]) {
     const source = { ...prepared, anchor_t };
     const clock = editTimeline(take, [source], 0, 12, settings);
