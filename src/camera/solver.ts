@@ -213,6 +213,15 @@ export function frame(
   const boxes = zone.boxes ?? [];
   zone = withContext(zone, boxes, width, height);
 
+  // A tall edge-to-edge surface needs its complete source card, rather than
+  // a crop that removes the outer margin while retaining only its target box.
+  if (d.out_h > d.out_w && zone.bbox[3] >= height / 2
+    && (zone.bbox[1] === 0 || zone.bbox[1] + zone.bbox[3] === height)) {
+    const w = Math.max(zone.bbox[2], height * d.out_w / d.out_h) * (1 + 2 * d.stage_margin);
+    return { cx: zone.bbox[0] + zone.bbox[2] / 2, cy: height / 2,
+      z: clamp(baseWidth(width, height, d) / w, 1, zMax(width, height, d)) };
+  }
+
   const [x, y, zoneW, zoneH] = zone.bbox;
   // A fullscreen window gives no context framing (L1 would be the whole
   // screen), so L1 pads the zone instead, as zones.ts drops such a `win`.
@@ -866,7 +875,9 @@ function boundedCamera(targets: Target[], width: number, height: number, start: 
     ...moves.map((move, i) => ({ start: move.end, end: moves[i + 1]?.start ?? end, view: move.to }))];
   const reserve = (t0: number, t1: number, zone: Zone) => {
     t1 = Math.min(end, Math.max(t1, t0 + Math.max(d.dwell, d.min_shot)));
-    let view = project(frame(zone, 2, width, height, undefined, d));
+    const requested = frame(zone, 2, width, height, undefined, d);
+    const contextZones = beats.filter(beat => beat.t0 <= t0 && beat.t1 >= t0).flatMap(beat => beat.zones);
+    let view = normalize(wholeElementViewport(requested, zone, contextZones, width, height, d) ?? project(requested));
     const before = holds.flatMap((hold, i) => {
       const t = Math.min(hold.end, t0 - lead(hold.view, view));
       return t >= hold.start + (i ? Math.max(d.dwell, d.min_shot) : 0) && t <= t0 ? [t] : [];

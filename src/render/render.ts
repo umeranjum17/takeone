@@ -122,7 +122,7 @@ export async function renderTake(
   await writeFile(join(dir, "render-camera.json"), JSON.stringify({ frames: stageCamera,
     sourceOrigin: { x: sourceStage.screenX, y: sourceStage.screenY } }));
   const view = band ? { ...d, out_w: stage.baseW, out_h: stage.baseH } : d;
-  const [cameraFrames, cameraW, cameraH] = band ? [bandViewports(frames, d, meta.width, meta.height), meta.width, meta.height] : [stageCamera, stage.w, stage.h];
+  const [cameraFrames, cameraW, cameraH] = band ? [stageFrames(frames, meta.width, meta.height, sourceStage, d), sourceStage.w, sourceStage.h] : [stageCamera, stage.w, stage.h];
   const shutter = shutterPlan(cameraFrames, cameraW, cameraH, view);
   await writeFile(join(dir, "motion-blur.json"), JSON.stringify(shutter.metrics, null, 2));
   const camera = motionBlurGraph(cameraFrames, shutter, cameraW, cameraH, view);
@@ -175,7 +175,7 @@ export async function renderTake(
     `[0:v]${clock?.filter ?? `setpts='${setptsExpr(squeezes, d.idle_speed)}'`},fps=${d.fps}${clicksOverlay},scale=in_color_matrix=auto:out_color_matrix=bt601,format=${pixelFormat}[region0]`,
     ...(blurs.length ? [blurGraph(blurs, pixelFormat)] : []),
     (band ? [
-      `[region${blurs.length}]null${spotlightOverlay},format=gbrp16le[raw]`,
+      `[region${blurs.length}]null${spotlightOverlay},format=gbrp16le,pad=${sourceStage.w}:${sourceStage.h}:${sourceStage.screenX}:${sourceStage.screenY}:color=${d.card}[raw]`,
       `${camera.replace(/^\[c4\]/, "[raw]")};[camera]null[screen]`,
       cardFilter(stage.baseW, stage.baseH, stage, d, still),
       `[c4]trim=end=${duration}${captionsOverlay}${keysOverlay}`,
