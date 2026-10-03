@@ -8,6 +8,7 @@ import {DEFAULTS} from '../src/camera/defaults.ts';
 import {renderTake} from '../src/render/render.ts';
 import {editTimeline} from '../src/render/edits.ts';
 import {cameraMetrics,reversals} from '../scripts/quality.ts';
+import type {CameraFrame} from '../src/camera/types.ts';
 const args=process.argv.slice(2);
 const root=resolve(args[0] && !args[0].startsWith('--') ? args.shift()! : 'tmp/camera-contract-proof');
 const reuse=args.includes('--reuse'); const caseAt=args.indexOf('--case'); const selected=caseAt>=0?args[caseAt+1]:undefined;
@@ -53,7 +54,7 @@ for(const name of (selected?[selected]:['portrait','square1920','manual','manual
  console.log(reuse?'collect':'render',name);
  const result=reuse?{out:video,seconds:JSON.parse(readFileSync(join(dir,'edit-clock.json'),'utf8')).duration}:await renderTake(dir,d);
  if(!reuse)copyFileSync(result.out,video);
- const raw=JSON.parse(readFileSync(join(dir,'camera.json'),'utf8'));const geometry=JSON.parse(readFileSync(join(dir,'render-camera.json'),'utf8')),frames=geometry.frames;writeFileSync(join(dir,'padded-camera.json'),JSON.stringify(frames));
+ const raw=JSON.parse(readFileSync(join(dir,'camera.json'),'utf8'));const geometry=JSON.parse(readFileSync(join(dir,'render-camera.json'),'utf8')),frames:CameraFrame[]=geometry.frames;writeFileSync(join(dir,'padded-camera.json'),JSON.stringify(frames));
  const savedTake=JSON.parse(readFileSync(join(dir,'take.json'),'utf8'));
  const savedBeats=JSON.parse(readFileSync(join(dir,'analysis/beats.json'),'utf8'));
  const clock=editTimeline(savedTake,savedBeats,0,12,d);writeFileSync(join(dir,'edit-clock.json'),JSON.stringify({duration:clock.duration,filter:clock.filter,samples:Array.from({length:721},(_,i)=>({source:i/60,output:clock.at(i/60),retained:clock.contains(i/60)}))},null,2));

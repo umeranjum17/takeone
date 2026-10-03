@@ -80,12 +80,12 @@ export function bandLayout(width: number, height: number, d: CameraDefaults, cap
     captionY: top + h + padding + titleH + gap + captionH / 2, titleH, captionH };
 }
 
-/** A fixed band card supplies the outer frame, including the source's rest margin. */
+/** Legacy unpadded projection; sampling and exported geometry use stageFrames and bandFrames. */
 export function bandViewports(frames: CameraFrame[], d: CameraDefaults, width: number, height: number): CameraFrame[] {
   const st = stageGeometry(width, height, d);
   return stageFrames(frames, width, height, st, d).map(f => {
-    // The band already supplies the card's outer margin. Map the padded
-    // camera continuously onto its unpadded source rather than nesting margins.
+    // This rescaled view omits the source pad ring, so it cannot describe
+    // rendered rest padding or position overlays on the sampled composite.
     return { t: f.t, x: f.x * width / st.w, y: f.y * height / st.h,
       w: f.w * width / st.w, h: f.h * height / st.h };
   });

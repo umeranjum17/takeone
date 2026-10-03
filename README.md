@@ -60,7 +60,7 @@ At rest the screen sits as a rounded card with a soft shadow on a gradient. The 
 
 ### Close-ups that stay crisp
 
-Zoom defaults to native source pixels (1.0×), and the camera path runs through a critically damped spring, so moves ease in and out without overshoot or jitter.
+Zoom defaults to native source pixels (1.0×). See [Look and pacing](#look-and-pacing) for camera motion and framing.
 
 <p align="center">
   <picture><source srcset="docs/assets/readme/close-up.webp" type="image/webp"><img src="docs/assets/readme/close-up.jpg" alt="A tight, sharp close-up of the board's overflow menu open under the pointer, listing Export board as CSV, Archive done tasks and Board settings above the Activity feed" width="720" /></picture>
@@ -78,7 +78,7 @@ Add a `title` and timed `captions` to `take.json` to annotate the recording. See
 
 1. **Record.** `takeone record` captures the desktop through desklink's view-only portal session and, when evdev is readable, the pointer, clicks, wheel, key classes and focused window. Typed characters are never recorded. `takeone record --android <serial>` records a phone or emulator into the same take format instead, and `takeone record --ios-sim` records the booted iOS Simulator on macOS, video-only with no touch events (see [Recording](#recording)).
 2. **Make.** `takeone make` segments the take into beats (at most 30 per minute), finds the regions that changed, and decides each beat's shot. Jev decides the beats that need judgement, from zone descriptions and an optional `--about` topic; idle and cut beats are decided locally. A token preflight refuses the whole run before any call if the plan would exceed its cap, and `--no-jev` keeps every decision local.
-3. **Render.** The camera path is solved on the output clock, eased through a spring and rendered with ffmpeg and libass into a silent H.264 MP4 (1920×1080, or 1080×1920 when the take stream is portrait and no `out_w`/`out_h` override is passed): stage, click rings, shortcut keycaps, timed spotlight and blur regions, idle speed-up, titles and captions. Rerendering with new `--set` values never calls the planner.
+3. **Render.** The camera path is solved on the output clock and rendered with ffmpeg and libass into a silent H.264 MP4: stage, click rings, shortcut keycaps, timed spotlight and blur regions, idle speed-up, titles and captions. Rerendering with new `--set` values never calls the planner.
 
 ## Download / Install
 
@@ -272,19 +272,13 @@ With a [configured Jev key](#jev-key), Jev receives zone descriptions and an opt
 
 For an existing planned recording take, render reads `screen.webm`, `take.json` (at least `width` and `height` in source pixels), `analysis/beats.json` as a beat array, and `analysis/decisions.jsonl` as one decision per line. Each beat needs a matching decision whose A (and optional B) names refer to that beat's zones. For an existing recording take, `events.jsonl` may be omitted only when `take.json` has `"events": "none"`; an empty event file is also valid. Motion takes use the [motion rerender contract](docs/motion.md) instead.
 
-`--set key=value` overrides camera settings defined in `src/camera/defaults.ts`; rerendering does not call the planner. Render writes `camera.json`, `camera.cmd`, `render.log` (including libass font selection), and a silent H.264 MP4 at `out/<id>.mp4` inside the take directory (default 1920×1080 at 60 fps, or 1080×1920 at 60 fps when the take stream is portrait and no `out_w`/`out_h` override is passed). `--set quality=draft|standard|master` selects CRF 23 (draft) or 12 (standard and master); `--set preset=...` independently controls encoder speed. Output uses limited-range bt709 colour conversion and tags. See [native-pixel sharpness qualification](docs/sharpness.md) for the camera sampler, output measurements and capture limitations. Standard and master use animation encoder tuning; master encodes yuv444p and requires a player supporting H.264 High 4:4:4 Predictive. Draft and standard use compatible yuv420p. Zoom defaults to `max_upscale=1.0`; use `--set max_upscale=1.5` only to opt into enlarging source pixels. Whole-screen shots of non-16:9 sources are centred on the stage background rather than cropped; zooming can crop the screen. If `take.json` omits `id`, the directory name is used; if it omits `trim_end`, the latest beat end is used.
+`--set key=value` overrides camera settings defined in `src/camera/defaults.ts`; rerendering does not call the planner. Render writes `camera.json`, `camera.cmd`, `render.log` (including libass font selection), and a silent H.264 MP4 at `out/<id>.mp4` inside the take directory (60 fps by default; see [output dimensions and formats](docs/edit-controls.md#output-aspect-and-format) for source-aware defaults, aspect presets, 4K and additional exports). `--set quality=draft|standard|master` selects CRF 23 (draft) or 12 (standard and master); `--set preset=...` independently controls encoder speed. Output uses limited-range bt709 colour conversion and tags. See [native-pixel sharpness qualification](docs/sharpness.md) for the camera sampler, output measurements and capture limitations. Standard and master use animation encoder tuning; master encodes yuv444p and requires a player supporting H.264 High 4:4:4 Predictive. Draft and standard use compatible yuv420p. Zoom defaults to `max_upscale=1.0`; use `--set max_upscale=1.5` only to opt into enlarging source pixels. Whole-screen shots of non-16:9 sources are centred on the stage background rather than cropped; zooming can crop the screen. If `take.json` omits `id`, the directory name is used; if it omits `trim_end`, the latest beat end is used.
 
 `--set motion_blur=0..1` controls camera blur (default 1). Fast pans and zooms use a centred 180° shutter at full strength, with enough camera samples to keep neighbouring samples within 2 output pixels. Slow moves and holds stay sharp; captions remain sharp throughout. Source images are held fixed during each exposure, so changing UI does not smear between frames. `motion_blur=0` disables sampling. Render writes the sampling count, peak spacing and estimated warp work to `motion-blur.json`.
 
-Edit a planned recording through `take.json`: `cuts[]` removes sections,
-`speed[]` sets playback rates (including detected typing), and `zooms[]` holds
-manual source-pixel regions. Rerender to apply them without replanning. See
-[edit controls](docs/edit-controls.md) for the schema and synthetic fixtures.
-
-Edit a planned recording through `take.json`: `cuts[]` removes sections,
-`speed[]` sets playback rates (including detected typing), and `zooms[]` holds
-manual source-pixel regions. Rerender to apply them without replanning. See
-[edit controls](docs/edit-controls.md) for the schema and synthetic fixtures.
+Edit a planned recording through `take.json` and rerender without replanning.
+See [edit controls](docs/edit-controls.md) for cuts, playback rates, manual zooms,
+arrival receipts and synthetic fixtures.
 
 ## Cost per minute of video (measured)
 
@@ -318,12 +312,12 @@ Worst case at the defaults: the reserved total (planned tokens plus the 1,200-to
 Every recording render uses the same stage, all local ffmpeg/libass work at zero token cost:
 
 - **Stage**: the selected theme sets the screen card, background, and typography; see the theme preview below. The stage margin (`stage_margin`, fraction of stage size) eases away as the camera zooms, so close-ups are all screen. When the text band described below is active, the card stays fixed and the camera zooms inside it.
-- **Zoom**: shots never upscale source pixels more than `max_upscale` (1.0 by default): a 4K capture can push into native 1080p detail; a 1080p capture exported at 1080p stays wide. Upscaling remains an explicit setting. The camera path runs through a critically damped spring (`lowpass_omega`), so moves ease in and out without overshoot. See [Plan and render](#plan-and-render) for whole-element framing and static UI detection. Per-level padding never widens a shot past `frame_max` (0.8) of the screen, and the zone itself always keeps `hold_pad` (1.08x) around it.
-- **Bookends**: the first shot waits `establish_s` so the viewer sees the whole screen first, and the camera settles back to the whole stage for the last `outro_s` (0 keeps the last shot). The video fades in from and out to `background_to` over `fade_s`.
+- **Zoom**: shots never upscale source pixels more than `max_upscale` (1.0 by default): a 4K capture can push into native 1080p detail; a 1080p capture exported at 1080p stays wide. Upscaling remains an explicit setting. Landscape automatic moves use a critically damped spring (`lowpass_omega`). Manual zooms and portrait or square output use the bounded planner described in [edit controls](docs/edit-controls.md). See [Plan and render](#plan-and-render) for whole-element framing and static UI detection. Per-level padding never widens a shot past `frame_max` (0.8) of the screen, and the zone itself always keeps `hold_pad` (1.08x) around it.
+- **Bookends**: automatic framing requests an opening hold (`establish_s`) and a return to the whole stage at `outro_s` before the end (0 keeps the last shot). Portrait reframing and manual holds follow the [edit-control timing](docs/edit-controls.md); motion limits can delay arrival. The video fades in from and out to `background_to` over `fade_s`.
 - **Clicks**: every click and drag press gets a press dot and an expanding `accent` ring with a white halo, lasting `ripple_ms` (0 turns it off) and growing to `ripple_r` output px at rest. The ripple is drawn in source space, so it zooms with the content.
 - **Pacing**: idle stretches between actions play `idle_speed` times faster (1 turns it off), keeping `idle_keep` seconds of real time around every action. The camera is solved on the output clock, so moves keep their natural speed.
 - **Shortcut keycaps and regions**: validated Ctrl/Alt/Meta shortcuts display as keycap pills. Timed `spotlight` and `blur` rectangles in `take.json` follow source pixels through camera motion. See [recording overlays](docs/overlays.md) for the schema and a synthetic proof generator.
-- **Titles and captions**: when both source and output are 16:9, optional `title` and `captions` in `take.json` render in the band below the card, never over the app: the title as bare display type 1.6× `caption_size`, captions as single-line pills in the caption font that shrink to fit rather than wrap. Text size, row padding and caption border scale down proportionally when needed to keep the band within a third of the output height. Captions keep their original timestamps, and each caption ends when the next one starts if they overlap. When a title and caption are on screen together, they occupy separate measured rows in the band below the card. Other source or output aspect ratios keep the older overlay placement (title 1.4×). Caption times are source-video seconds; `d` (default 3) is on-screen seconds, so reading time survives idle squeezing.
+- **Titles and captions**: when both source and output are 16:9, optional `title` and `captions` in `take.json` render in the band below the card, never over the app: the title as bare display type 1.6× `caption_size`, captions as single-line pills in the caption font that shrink to fit rather than wrap. Text size, row padding and caption border scale down proportionally when needed to keep the band within a third of the output height. Caption starts follow the edit clock; see [edit timing](docs/edit-controls.md) for cuts and speed changes. Each caption ends when the next one starts if they overlap. When a title and caption are on screen together, they occupy separate measured rows in the band below the card. Other source or output aspect ratios keep the older overlay placement (title 1.4×). Caption times are source-video seconds; `d` (default 3) is on-screen seconds, so reading time survives idle squeezing.
 
 ```json
 { "title": "Find any report in seconds",
@@ -358,8 +352,8 @@ Additional look tokens: `bg_style=linear|solid|radial|mesh|image`,
 For `bg_style=image`, supply `background_image=/path/to/image.png` (relative
 paths resolve inside the take). Recording backgrounds are deterministic stills;
 animated background drift and per-theme motion patterns belong to motion scenes.
-Overlay spring tokens adjust caption arrival time only; the recording camera
-remains critically damped. Recording `pace` scales camera holds (`dwell`,
+Overlay spring tokens adjust caption arrival time only; see
+[Look and pacing](#look-and-pacing) for recording camera motion. Recording `pace` scales camera holds (`dwell`,
 `dwell_k2`, `min_shot`) while keeping move durations and caption reading time.
 
 The nine-theme preview and comparison assets are generated by

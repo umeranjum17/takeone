@@ -117,7 +117,7 @@ export async function renderTake(
   const sourceStage = stageGeometry(meta.width, meta.height, d);
   const stage = band?.stage ?? sourceStage;
   const commandFile = join(dir, "camera.cmd");
-  // With a band the camera frames the screen alone, into the fixed card.
+  // With a band, project the padded source viewport into the fixed card.
   const stageCamera = band ? bandFrames(frames, band, d, meta.width, meta.height) : stageFrames(frames, meta.width, meta.height, stage, d);
   await writeFile(join(dir, "render-camera.json"), JSON.stringify({ frames: stageCamera,
     sourceOrigin: { x: sourceStage.screenX, y: sourceStage.screenY } }));

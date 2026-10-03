@@ -10,15 +10,18 @@ renderer writes `trim_start` / `trim_end` in source-video seconds.
 
 `render` accepts `--aspect landscape|portrait|square`, which selects 1920×1080,
 1080×1920, or 1080×1080 output. Without this option, portrait source video
-defaults to portrait output and other sources to landscape. `--resolution 4k`
-selects 3840×2160, or 2160×3840 for portrait output; if both options are given,
-the resolution selects the size while the aspect selects its orientation.
+defaults to 1080×1920 portrait output and other sources to 1920×1080 landscape,
+unless `--set out_w=...` or `--set out_h=...` supplies custom dimensions.
+`--resolution 4k` selects 3840×2160 landscape, 2160×3840 portrait, or
+3840×3840 square output. Without `--aspect`, 4K orientation follows the source.
 Explicit `--set out_w=...` / `--set out_h=...` dimensions are overridden by
 these presets.
 
 `--format mp4|gif|webm|prores4444` selects the output container/encoding and
 defaults to `mp4`. GIF output is encoded at 15 fps and scaled to at most 1080
 pixels wide; WebM uses VP9, and `prores4444` writes a ProRes 4444 `.mov` file.
+These three formats are transcoded from the rendered MP4, which is retained;
+ProRes cannot restore detail or chroma discarded by that intermediate.
 For example:
 
 ```sh
@@ -57,8 +60,8 @@ takeone render ~/Videos/takeone/<id> --aspect square --resolution 4k --format we
   framing resumes. `level` defaults to `2`: `1` retains more context, `3` uses
   tighter padding, and `0` shows the whole screen. Output aspect and maximum
   pixel upscale still apply.
-- Anticipation uses the final padded viewport and respects zoom speed1ln/s,
-  zoom acceleration4ln/s², and pan acceleration9000outputpx/s². It cannot start
+- Anticipation uses the final padded viewport and respects zoom speed 1 ln/s,
+  zoom acceleration 4 ln/s², and pan acceleration 9,000 output px/s². It cannot start
   before the clip or previous cut. When there is insufficient lead, the move
   begins at that boundary and arrives late while retaining the motion limits.
   The CLI reports the lateness; `camera-arrivals.json` retains full-precision
@@ -70,12 +73,20 @@ takeone render ~/Videos/takeone/<id> --aspect square --resolution 4k --format we
   active region with the same bounded planner. `camera.json` keeps source-space
   framing plus the exact `padded` viewport used by these bounded moves.
 
+When the native-pixel cap widens a manual request, the CLI reports its requested
+and achieved zoom factors. See [render settings](../README.md#render-an-existing-take)
+for the default cap and explicit upscale override. `render-camera.json` records
+the final output projection and padded source origin. For a fixed card with a
+text band, the establishing/rest view includes the configured source padding
+inside the card; zoomed views crop into the source without adding nested margins.
+
 Precedence is cuts, timed speed, typing speed, then automatic idle speed.
 Within each array, timed intervals may touch but must not overlap; one typing
 rule is allowed. Arrays can be empty or omitted. Unsorted intervals work.
 Out-of-trim edits are ignored, and partially overlapping intervals are clipped.
 A cut that removes all footage is an error. Invalid edits name their field.
-The rectangle must lie inside the source image.
+Manual zoom intervals must last at least 0.5 source seconds, even outside the
+current trim. The rectangle must lie inside the source image.
 
 Footage, camera, and click effects share one source-to-output map. Caption starts
 follow that map; their durations remain **output seconds** so speed-up never
