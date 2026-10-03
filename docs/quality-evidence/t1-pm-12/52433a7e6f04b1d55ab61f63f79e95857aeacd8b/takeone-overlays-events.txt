@@ -1,0 +1,3 @@
+result: "[{\"k\":\"shortcut\",\"t\":2923.7000000476837,\"combo\":\"Ctrl+K\",\"trusted\":true,\"theme\":\"light\"},{\"k\":\"shortcut\",\"t\":7236,\"combo\":\"Ctrl+S\",\"trusted\":true,\"theme\":\"light\"},{\"k\":\"shortcut\",\"t\":12715.700000047684,\"combo\":\"Ctrl+K\",\"trusted\":true,\"theme\":\"dark\"},{\"k\":\"shortcut\",\"t\":16905.5,\"combo\":\"Ctrl+S\",\"trusted\":true,\"theme\":\"dark\"}]"
+help[1]:
+  Run `chrome-devtools-axi snapshot` to see current page state

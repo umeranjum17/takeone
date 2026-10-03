@@ -130,7 +130,7 @@ export async function renderTake(dir: string, d?: CameraDefaults): Promise<{ out
   await writeFile(keyMaskFile, keycapMaskAss(outBeats, trimStart, duration, d, keyObstacles));
   await writeFile(keysFile, keys);
   const spotlightFile = join(dir, "spotlight.ass");
-  const spotlight = spotlightAss(spotlights, meta.width, meta.height, view, { frames: band ? frames : stageCamera, stage: band ? { ...stage, screenX: 0, screenY: 0 } : stage });
+  const spotlight = spotlightAss(spotlights, meta.width, meta.height, view, { frames: cameraFrames, stage: band ? { ...stage, screenX: 0, screenY: 0 } : stage, shutter });
   await writeFile(spotlightFile, spotlight);
   const keysOverlay = hasDialogue(keys) ? `,ass=${filterPath(keysFile)}:fontsdir=${filterPath(FONTS_DIR)}` : "";
 

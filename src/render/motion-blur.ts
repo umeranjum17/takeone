@@ -33,6 +33,7 @@ function pathDisplacements(frames: CameraFrame[], from: number, to: number, widt
 export function shutterPlan(frames: CameraFrame[], width: number, height: number, d: CameraDefaults) {
   const half = d.motion_blur / 4; // 180 degrees at strength 1
   const groups = new Map<number, number[]>();
+  const counts: number[] = [];
   let maxSpacing = 0;
   let work = 0;
   let blurredFrames = 0;
@@ -53,6 +54,7 @@ export function shutterPlan(frames: CameraFrame[], width: number, height: number
     let gap = spacing(count);
     while (gap > 2 && count < 1023) gap = spacing(++count);
     if (gap > 2) throw new Error("camera shutter needs more than 1023 samples; reduce motion_blur or camera speed");
+    counts.push(count);
     maxSpacing = Math.max(maxSpacing, gap);
     const indices = groups.get(count) ?? [];
     indices.push(i);
@@ -61,10 +63,16 @@ export function shutterPlan(frames: CameraFrame[], width: number, height: number
     if (count > 1) blurredFrames++;
     samples = Math.max(samples, count);
   }
-  return { groups, samples, half, metrics: { strength: d.motion_blur, shutterDegrees: 180 * d.motion_blur,
+  return { groups, counts, samples, half, metrics: { strength: d.motion_blur, shutterDegrees: 180 * d.motion_blur,
     frames: frames.length, blurredFrames, samples, maxSpacingPx: maxSpacing,
     warpWorkRatio: work / frames.length,
     tiers: [...groups].map(([samples, indices]) => ({ samples, frames: indices.length })) } };
+}
+
+export function shutterFrames(frames: CameraFrame[], plan: ReturnType<typeof shutterPlan>, index: number): CameraFrame[] {
+  const count = plan.counts[index]!;
+  return Array.from({ length: count }, (_, j) => count === 1 ? frames[index]!
+    : shutterFrame(frames, index - plan.half + 2 * plan.half * j / (count - 1)));
 }
 
 /** Duplicate source images by reference, discard unneeded samples before the
@@ -73,8 +81,7 @@ export function shutterPlan(frames: CameraFrame[], width: number, height: number
  */
 export function motionBlurGraph(frames: CameraFrame[], plan: ReturnType<typeof shutterPlan>, width: number, height: number, d: CameraDefaults): string {
   if (!plan.metrics.blurredFrames) return `[c4]${cameraFilter(frames, width, height, d)}[camera]`;
-  const counts = frames.map(() => 1);
-  for (const [count, indices] of plan.groups) for (const i of indices) counts[i] = count;
+  const counts = plan.counts;
   const sampled: CameraFrame[] = [];
   const ends: number[] = [];
   const commands: string[] = [];
@@ -89,8 +96,8 @@ export function motionBlurGraph(frames: CameraFrame[], plan: ReturnType<typeof s
       commands.push(`${(Math.max(0, sampled.length - 0.5) / (d.fps * plan.samples)).toFixed(9)} tmix@shutter weights ${weights}`);
       previous = count;
     }
-    for (let j = 0; j < count; j++) {
-      sampled.push(count === 1 ? frames[i]! : shutterFrame(frames, i - plan.half + 2 * plan.half * j / (count - 1)));
+    for (const [j, frame] of shutterFrames(frames, plan, i).entries()) {
+      sampled.push(frame);
       ends.push(j === count - 1 ? 1 : 0);
     }
   }

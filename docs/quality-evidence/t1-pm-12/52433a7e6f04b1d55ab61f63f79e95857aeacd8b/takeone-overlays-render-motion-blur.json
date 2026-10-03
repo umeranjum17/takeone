@@ -1,0 +1,39 @@
+{
+  "strength": 1,
+  "shutterDegrees": 180,
+  "frames": 1231,
+  "blurredFrames": 74,
+  "samples": 8,
+  "maxSpacingPx": 1.9952759260178674,
+  "warpWorkRatio": 1.2672623883021934,
+  "tiers": [
+    {
+      "samples": 1,
+      "frames": 1157
+    },
+    {
+      "samples": 3,
+      "frames": 16
+    },
+    {
+      "samples": 4,
+      "frames": 10
+    },
+    {
+      "samples": 5,
+      "frames": 10
+    },
+    {
+      "samples": 6,
+      "frames": 11
+    },
+    {
+      "samples": 7,
+      "frames": 17
+    },
+    {
+      "samples": 8,
+      "frames": 10
+    }
+  ]
+}

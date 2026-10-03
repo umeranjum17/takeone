@@ -2,6 +2,8 @@ import type { Beat, CameraFrame, Decision, TakeMeta } from "../camera/types.ts";
 import type { CameraDefaults } from "../camera/defaults.ts";
 import { assHeader, assTime, captionLayouts, drawing, roundRect, type Band, type Caption, type CaptionInk, type Stage } from "./stage.ts";
 
+import { shutterFrames, type shutterPlan } from "./motion-blur.ts";
+
 const modifiers = ["Ctrl", "Alt", "Meta", "Shift"];
 const names = new Set(["Esc", "Enter", "Backspace", "Tab", "Space", "Home", "End", "PageUp", "PageDown",
   "Up", "Down", "Left", "Right", "Insert", "Delete", "Minus", "Equal", "LeftBracket", "RightBracket",
@@ -205,21 +207,25 @@ export function overlayRegions(meta: TakeMeta, kind: "spotlight" | "blur", at: (
 
 /** White rounded holes on black, composited as a union and softly feathered. */
 export function spotlightAss(regions: TimedRegion[], w: number, h: number, d: CameraDefaults,
-  camera?: { frames: CameraFrame[]; stage: Stage }): string {
+  camera?: { frames: CameraFrame[]; stage: Stage; shutter: ReturnType<typeof shutterPlan> }): string {
   let ass = assHeader(w, h, d.caption_font, d.caption_size);
   for (const region of regions) {
     // The camera's visible source bounds matter too: a hole must not hit an output edge.
-    const views = camera ? camera.frames.filter(f => f.t < region.t1 && f.t + 1 / d.fps > region.t0)
-      : [{ t: region.t0, x: 0, y: 0, w, h }];
+    const views = camera ? camera.frames.map((f, index) => ({ ...f, index })).filter(f => f.t < region.t1 && f.t + 1 / d.fps > region.t0)
+      : [{ t: region.t0, x: 0, y: 0, w, h, index: 0 }];
     for (const view of views) {
-      const px = Math.max(view.w / d.out_w, view.h / d.out_h);
+      const exposure = camera ? shutterFrames(camera.frames, camera.shutter, view.index) : [view];
+      const px = Math.max(...exposure.map(f => Math.max(f.w / d.out_w, f.h / d.out_h)));
       const inset = Math.min(6 * px, w / 4, h / 4);
-      const vx = view.x - (camera?.stage.screenX ?? 0);
-      const vy = view.y - (camera?.stage.screenY ?? 0);
+      const bounds = exposure.map(f => {
+        const pad = Math.min(6 * Math.max(f.w / d.out_w, f.h / d.out_h), w / 4, h / 4);
+        const x = f.x - (camera?.stage.screenX ?? 0), y = f.y - (camera?.stage.screenY ?? 0);
+        return { left: x + pad, top: y + pad, right: x + f.w - pad, bottom: y + f.h - pad };
+      });
       const [x, y, rw, rh] = region.rect;
-      const left = Math.max(inset, x, vx + inset), top = Math.max(inset, y, vy + inset);
-      const right = Math.min(w - inset, x + rw, vx + view.w - inset);
-      const bottom = Math.min(h - inset, y + rh, vy + view.h - inset);
+      const left = Math.max(inset, x, ...bounds.map(b => b.left)), top = Math.max(inset, y, ...bounds.map(b => b.top));
+      const right = Math.min(w - inset, x + rw, ...bounds.map(b => b.right));
+      const bottom = Math.min(h - inset, y + rh, ...bounds.map(b => b.bottom));
       if (right <= left || bottom <= top) continue;
       const radius = Math.min(12 * px, (right - left) / 2, (bottom - top) / 2);
       const frame = Math.round(view.t * d.fps);
