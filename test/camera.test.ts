@@ -8,6 +8,7 @@ import { baseWidth, clippedFractions, HIGH_CLIP_FRACTION, frame, moveDuration, s
 import type { Beat, Decision, Zone } from "../src/camera/types.ts";
 import type { Event } from "../src/types.ts";
 import { renderTake } from "../src/render/render.ts";
+import { stageFrames, stageGeometry } from "../src/render/stage.ts";
 import { dialogResults } from "../src/perceive/dialogs.ts";
 import { idleSqueezes, warp, warpBeats } from "../src/render/pace.ts";
 import { actionCameraMilliseconds } from "../src/beats/clock.ts";
@@ -68,6 +69,30 @@ test("automatic portrait fill retains a wide active subject without window zones
     assert.ok(f.w >= 1400 * d.hold_pad - 1e-6, `subject-fit width at ${f.t}: ${f.w}`);
     assert.ok(f.x <= 500 && f.x + f.w >= 1900, `whole subject horizontally at ${f.t}`);
     assert.ok(f.y <= 400 && f.y + f.h >= 800, `whole subject vertically at ${f.t}`);
+  }
+});
+
+test("automatic portrait fill preserves composed panels and their shifted center", () => {
+  const d = { ...DEFAULTS, out_w: 1080, out_h: 1920, outro_s: 0 };
+  const boxes: Zone["bbox"][] = [[800, 200, 600, 1100], [1400, 200, 600, 1100], [2000, 200, 600, 1100]];
+  const active: Zone = { name: "active", type: "act", bbox: [1400, 700, 100, 100], boxes };
+  const b: Beat = { id: "composed-active", kind: "click", t0: 2, t1: 10, anchor_t: 2,
+    zones: [active], actions: [] };
+  const composed = frame(active, 2, 3000, 1500, undefined, d);
+  const w = baseWidth(3000, 1500, d) / composed.z;
+  const h = w * d.out_h / d.out_w;
+  const stage = stageGeometry(3000, 1500, d);
+  const expected = stageFrames([{ t: 0, x: composed.cx - w / 2, y: composed.cy - h / 2, w, h }],
+    3000, 1500, stage, d)[0]!;
+  const frames = solveCamera([b], [{ ...decision(b), L: 2 }], { width: 3000, height: 1500, trim_end: 10 }, d);
+  const emitted = stageFrames(frames, 3000, 1500, stage, d);
+  for (const f of emitted.filter(f => f.t >= 5 && f.t <= 9)) {
+    for (const axis of ["x", "y", "w", "h"] as const) {
+      assert.ok(Math.abs(f[axis] - expected[axis]) < 1e-6, `composed ${axis} at ${f.t}`);
+    }
+    const source = { ...f, x: f.x - stage.screenX, y: f.y - stage.screenY };
+    assert.equal(clippedFractions(source, [active.bbox, boxes[1]!]).every(fraction => fraction === 0), true);
+    assert.ok(clippedFractions(source, boxes).every(fraction => fraction === 0 || fraction >= HIGH_CLIP_FRACTION));
   }
 });
 

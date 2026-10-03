@@ -478,7 +478,10 @@ function buildTargets(
       // time rather than permanently limiting the crop to a tiny app strip.
       const fillZoom = baseWidth(width, height, d) / (height * d.out_w / d.out_h);
       const fitWidth = Math.max(subject.bbox[2], subject.bbox[3] * d.out_w / d.out_h) * d.hold_pad;
-      targetA.z = Math.min(Math.max(targetA.z, fillZoom), baseWidth(width, height, d) / fitWidth, zMax(width, height, d));
+      const z = Math.min(Math.max(targetA.z, fillZoom), baseWidth(width, height, d) / fitWidth, zMax(width, height, d));
+      const crop = toFrame({ ...targetA, z }, width, height, d);
+      if (clippedFractions(crop, [subject.bbox])[0] === 0
+        && clippedFractions(crop, boxesFor(shot.zoneA)).every(f => f === 0 || f >= HIGH_CLIP_FRACTION)) targetA.z = z;
     }
     const viewport = wholeElementViewport(targetA, shot.zoneA, shot.beat.zones, width, height, d);
     const result: Target[] = [{
