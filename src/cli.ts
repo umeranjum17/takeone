@@ -55,13 +55,15 @@ export function resolveCamera(dir: string, pairs: string[], theme?: string): Cam
   return resolveTheme(selected, raw);
 }
 
-/** True when the take's stream is portrait (taller than wide). */
+/** True when the take's source dimensions are portrait (taller than wide). */
 function isPortraitTake(dir: string): boolean {
   try {
     const m = JSON.parse(readFileSync(join(dir, "take.json"), "utf8")) as {
       stream?: { w: number; h: number };
+      width?: number; height?: number;
     };
-    return !!m.stream && m.stream.h > m.stream.w;
+    return m.stream ? m.stream.h > m.stream.w
+      : m.width !== undefined && m.height !== undefined && m.height > m.width;
   } catch {
     return false;
   }
