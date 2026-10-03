@@ -58,6 +58,42 @@ function decision(b: Beat, importance: 0 | 1 | 2 = 1): Decision {
 // Motion mechanics may explicitly opt into upscaling; native-default limits are tested separately.
 const noBookends = { ...DEFAULTS, max_upscale: 1.5, establish_s: 0, outro_s: 0 };
 
+test("automatic portrait fill retains a wide active subject without window zones", () => {
+  const d = { ...DEFAULTS, out_w: 1080, out_h: 1920, outro_s: 0 };
+  const b: Beat = { id: "wide-active", kind: "click", t0: 2, t1: 10, anchor_t: 2,
+    zones: [zone("active", [500, 400, 1400, 400])], actions: [] };
+  const frames = solveCamera([b], [decision(b)], { width: 2560, height: 1440, trim_end: 10 }, d);
+  assert.ok(frames.some(f => f.w < frames[0]!.w - 100), "automatic framing moves in");
+  for (const f of frames.filter(f => f.t >= 5 && f.t <= 9)) {
+    assert.ok(f.w >= 1400 * d.hold_pad - 1e-6, `subject-fit width at ${f.t}: ${f.w}`);
+    assert.ok(f.x <= 500 && f.x + f.w >= 1900, `whole subject horizontally at ${f.t}`);
+    assert.ok(f.y <= 400 && f.y + f.h >= 800, `whole subject vertically at ${f.t}`);
+  }
+});
+
+test("automatic payoff reservations preserve manual anticipation and holds", () => {
+  const zooms = [{ t0: 6, t1: 15, bbox: [0, 600, 100, 100] as [number, number, number, number] }];
+  const take = { width: 2560, height: 1440, trim_end: 20, zooms };
+  for (const output of [{ out_w: 1080, out_h: 1080 }, { out_w: 1080, out_h: 1920 }, { out_w: 1920, out_h: 1080 }]) {
+    const d = { ...DEFAULTS, ...output, outro_s: 0 };
+    const baselineTiming = { cuts: [], arrivals: [] as import("../src/camera/solver.ts").CameraArrival[] };
+    const baseline = solveCamera([], [], take, d, baselineTiming);
+    for (const t_change of [5, 10, 14, 16]) {
+      const b: Beat = { id: "payoff", kind: "click", t0: t_change - 1, t1: t_change + 3,
+        anchor_t: t_change - 1, actions: [], zones: [
+          { name: "all", type: "all", bbox: [0, 0, 2560, 1440] },
+          { name: "result", type: "res", bbox: [2100, 600, 200, 200], t_change },
+        ] };
+      for (const B of ["result", undefined]) {
+        const actual = solveCamera([b], [{ ...decision(b), A: "all", B, L: 0 }], take, d);
+        const first = Math.ceil(baselineTiming.arrivals[0]!.feasibleStart * d.fps);
+        assert.deepEqual(actual.slice(first, 15 * d.fps + 1), baseline.slice(first, 15 * d.fps + 1),
+          `${output.out_w}x${output.out_h} payoff ${t_change}, B=${B}`);
+      }
+    }
+  }
+});
+
 // Rest-width assertions use baseWidth after the accepted padded-viewport change.
 // Mechanics tests opt out of the opening hold and closing wide shot.
 function camera(beats: Beat[], decisions: Decision[], end = 8) {

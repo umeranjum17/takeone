@@ -472,11 +472,13 @@ function buildTargets(
     const framed = (zone: Zone): CameraState => frame({ ...zone, boxes: boxesFor(zone) },
       shot.decision.L, width, height, shot.beat.window_rect, d);
     const targetA = framed(shot.zoneA);
+    const subject = withContext(shot.zoneA, boxesFor(shot.zoneA), width, height);
     if (shot.portraitFill) {
       // Preserve the active region framing; motion budgets determine arrival
       // time rather than permanently limiting the crop to a tiny app strip.
       const fillZoom = baseWidth(width, height, d) / (height * d.out_w / d.out_h);
-      targetA.z = Math.min(Math.max(targetA.z, fillZoom), zMax(width, height, d));
+      const fitWidth = Math.max(subject.bbox[2], subject.bbox[3] * d.out_w / d.out_h) * d.hold_pad;
+      targetA.z = Math.min(Math.max(targetA.z, fillZoom), baseWidth(width, height, d) / fitWidth, zMax(width, height, d));
     }
     const viewport = wholeElementViewport(targetA, shot.zoneA, shot.beat.zones, width, height, d);
     const result: Target[] = [{
@@ -484,7 +486,7 @@ function buildTargets(
       state: targetA,
       viewport,
       importance: shot.decision.K,
-      subject: withContext(shot.zoneA, boxesFor(shot.zoneA), width, height),
+      subject,
       boxes: boxesFor(shot.zoneA),
       startAfter: shot.beat.kind === "cut" ? cutSettledAt(shot.beat, shot.arrival, d)
         : shot.zoneA.type === "res" ? shot.zoneA.t_change ?? shot.beat.t0 : undefined,
@@ -859,10 +861,15 @@ function boundedCamera(targets: Target[], width: number, height: number, start: 
     if (target.manual !== "zoom" && reservations.some(r => target.t < r.from
       && arrival + Math.max(d.dwell, d.min_shot) > r.from)) continue;
     moves.push({ from: state, to: destination, start: feasibleStart, end: arrival });
-    if (target.manual === "zoom") arrivals.push({ requested: target.t - start, requiredLead: duration,
-      boundary: boundary - start, feasibleStart: feasibleStart - start, actualArrival: arrival - start,
-      lateness: Math.max(0, arrival - target.t), holdEnd: (target.holdEnd ?? target.t) - start,
-      requestedFrame: destination });
+    if (target.manual === "zoom") {
+      const reservation = reservations[manual.indexOf(target)]!;
+      reservation.from = Math.min(reservation.from, feasibleStart);
+      reservation.to = Math.max(reservation.to, arrival);
+      arrivals.push({ requested: target.t - start, requiredLead: duration,
+        boundary: boundary - start, feasibleStart: feasibleStart - start, actualArrival: arrival - start,
+        lateness: Math.max(0, arrival - target.t), holdEnd: (target.holdEnd ?? target.t) - start,
+        requestedFrame: destination });
+    }
     state = destination;
     available = target.manual === "zoom" ? Math.max(arrival, target.holdEnd ?? arrival)
       : arrival + Math.max(d.dwell, d.min_shot);
@@ -891,7 +898,7 @@ function boundedCamera(targets: Target[], width: number, height: number, start: 
     const b = after.length ? Math.min(...after) : end;
     return { t0, t1, zone, view, a, b, from: at(a), to: after.length ? at(b) : view };
   };
-  const visibility: ReturnType<typeof reserve>[] = [];
+  let visibility: ReturnType<typeof reserve>[] = [];
   const drags = beats.flatMap(beat => gestures(beat)).filter(g => g.t1 / 1000 >= start && g.t0 / 1000 <= end)
     .sort((a, b) => a.t0 - b.t0);
   for (const drag of drags) {
@@ -906,11 +913,14 @@ function boundedCamera(targets: Target[], width: number, height: number, start: 
   // ordinary shot dwell would defer its target or a following action takes over.
   for (const payoff of payoffs) {
     let hold = reserve(payoff.t, payoff.t + Math.max(d.dwell, d.min_shot), payoff.zone);
-    while (visibility.some(previous => hold.a <= previous.b && hold.b >= previous.a)) {
-      const index = visibility.findIndex(previous => hold.a <= previous.b && hold.b >= previous.a);
-      const previous = visibility.splice(index, 1)[0]!;
+    const remaining = [...visibility];
+    while (remaining.some(previous => hold.a <= previous.b && hold.b >= previous.a)) {
+      const index = remaining.findIndex(previous => hold.a <= previous.b && hold.b >= previous.a);
+      const previous = remaining.splice(index, 1)[0]!;
       hold = reserve(Math.min(previous.t0, hold.t0), Math.max(previous.t1, hold.t1), mergeZones(previous.zone, hold.zone));
     }
+    if (reservations.some(r => hold.a <= r.to && hold.b >= r.from)) continue;
+    visibility = remaining;
     visibility.push(hold);
   }
   return Array.from({ length: Math.floor((end - start) * d.fps) + 1 }, (_, index) => {
