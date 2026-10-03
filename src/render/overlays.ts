@@ -20,7 +20,7 @@ export function shortcutKeys(combo: unknown): string[] | null {
 }
 
 type Rect = [number, number, number, number];
-export interface KeycapObstacle { t0: number; t1: number; rect: Rect; kind?: "text" }
+export interface KeycapObstacle { t0: number; t1: number; rect: Rect; kind?: "text" | "top-text" }
 export interface KeycapCue {
   t0: number; t1: number; keys: string[]; cx: number; cy: number;
   w: number; h: number; size: number; widths: number[];
@@ -60,7 +60,8 @@ export function keycapObstacles(beats: Beat[], decisions: Decision[], frames: Ca
   const layouts = captionLayouts(captions, ink, d, widePhone, band);
   captions.forEach((caption, i) => {
     const { cx, cy, w, h, rise } = layouts[i]!;
-    out.push({ t0: caption.t0, t1: caption.t1, kind: "text", rect: [cx - w / 2, cy - h / 2, w, h + rise] });
+    const top = !band && widePhone && !caption.title && caption.position !== "bottom";
+    out.push({ t0: caption.t0, t1: caption.t1, kind: top ? "top-text" : "text", rect: [cx - w / 2, cy - h / 2, w, h + rise] });
   });
   return out;
 }
@@ -138,7 +139,7 @@ export function keycapMaskAss(beats: Beat[], start: number, duration: number, d:
 export function keycapBackdropGraph(duration: number, d: CameraDefaults, maskPath: string): string {
   return `[keycapInput]format=gbrp,split[keycapSharp][keycapBackdrop];`
     + `[keycapBackdrop]gblur=sigma=${8 * d.out_h / 1080}:steps=3[keycapFrost];`
-    + `color=c=black:s=${d.out_w}x${d.out_h}:r=${d.fps}:d=${duration},ass=${maskPath},format=gbrp[keycapMask];`
+    + `color=c=black:s=${d.out_w}x${d.out_h}:r=${d.fps}:d=${duration},format=yuv444p,ass=${maskPath},format=gray,format=gbrp[keycapMask];`
     + `[keycapSharp][keycapFrost][keycapMask]maskedmerge[keycapOutput]`;
 }
 
@@ -221,8 +222,9 @@ export function spotlightAss(regions: TimedRegion[], w: number, h: number, d: Ca
       const bottom = Math.min(h - inset, y + rh, vy + view.h - inset);
       if (right <= left || bottom <= top) continue;
       const radius = Math.min(12 * px, (right - left) / 2, (bottom - top) / 2);
-      const t0 = Math.max(region.t0, view.t);
-      const t1 = camera ? Math.min(region.t1, view.t + 1 / d.fps) : region.t1;
+      const frame = Math.round(view.t * d.fps);
+      const t0 = Math.max(Math.ceil(region.t0 * d.fps), camera ? frame : 0) / 100;
+      const t1 = Math.min(Math.ceil(region.t1 * d.fps), camera ? frame + 1 : Infinity) / 100;
       ass += drawing(t0, t1, "#ffffff", 0, roundRect(left, top, right - left, bottom - top, radius))
         .replace("\\p1}", `\\blur${3 * px}\\p1}`);
     }
@@ -235,9 +237,9 @@ export function spotlightGraph(regions: TimedRegion[], w: number, h: number, dur
   d: CameraDefaults, maskPath: string): string {
   const active = regions.map(r => `gte(t,${r.t0})*lt(t,${r.t1})`).join("+");
   const sigma = 1.5 * Math.max(w / d.out_w, h / d.out_h);
-  return `[spotlightInput]split[spotlightSharp][spotlightBackdrop];`
+  return `[spotlightInput]format=gbrp,split[spotlightSharp][spotlightBackdrop];`
     + `[spotlightBackdrop]gblur=sigma=${sigma},drawbox=c=0x172333@0.38:t=fill[spotlightDim];`
-    + `color=c=black:s=${w}x${h}:r=${d.fps}:d=${duration},ass=${maskPath},format=gray,negate[spotlightMask];`
+    + `color=c=black:s=${w}x${h}:r=${d.fps}:d=${duration},format=yuv444p,settb=1/100,setpts=N,ass=${maskPath},settb=1/${d.fps},setpts=N,format=gray,format=gbrp,negate[spotlightMask];`
     + `[spotlightSharp][spotlightDim][spotlightMask]maskedmerge=enable='${active}'[screen]`;
 }
 
