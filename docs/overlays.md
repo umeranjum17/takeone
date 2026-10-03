@@ -6,7 +6,8 @@ Only a validated key name paired with Ctrl, Alt or Meta reaches the overlay;
 Shift may accompany one of those modifiers. Bare keys, Shift-only typing, key
 releases, typed text and malformed combinations produce no keycap. Each shortcut
 holds for 2.2 output seconds, ending when the next starts.
-The bevelled cells have a subtle shadow. Standard shortcuts have a `+` join;
+The pill blurs the footage behind it and uses translucent fills, a subtle light inner
+border and a soft shadow. Every key uses the bundled Inter SemiBold font. Standard shortcuts have a `+` join;
 `--set keycap_style=mac` uses ordered symbols such as ⌃⌥⇧⌘K without separators. A soft critical spring brings
 them in; the last 250 ms fade out. Their size stays constant during camera motion.
 The dock clears selected focus targets, spotlight and blur regions, and the measured

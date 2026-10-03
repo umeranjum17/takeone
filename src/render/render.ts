@@ -8,7 +8,7 @@ import type { CameraDefaults } from "../camera/defaults.ts";
 import { actionCameraMilliseconds } from "../beats/clock.ts";
 import { solveCamera } from "../camera/solver.ts";
 import type { Beat, Decision, TakeMeta } from "../camera/types.ts";
-import { blurGraph, keycapAss, keycapObstacles, overlayRegions, spotlightAss, spotlightGraph } from "./overlays.ts";
+import { blurGraph, keycapAss, keycapBackdropGraph, keycapMaskAss, keycapObstacles, overlayRegions, spotlightAss, spotlightGraph } from "./overlays.ts";
 import { motionBlurGraph, shutterPlan } from "./motion-blur.ts";
 import { idleSqueezes, setptsExpr, warp, warpBeats } from "./pace.ts";
 import { phoneTapShots } from "./phone.ts";
@@ -122,9 +122,12 @@ export async function renderTake(dir: string, d?: CameraDefaults): Promise<{ out
   await writeFile(captionsFile, captionsAss);
 
   const keysFile = join(dir, "keycaps.ass");
-  const keys = keycapAss(outBeats, trimStart, duration, d,
-    keycapObstacles(outBeats, decisions, stageCamera, band ? { ...stage, screenX: 0, screenY: 0 } : stage,
-      trimStart, captions, captionInk, text, widePhone, band, [...spotlights, ...blurs]));
+  const keyObstacles = keycapObstacles(outBeats, decisions, stageCamera,
+    band ? { ...stage, screenX: 0, screenY: 0 } : stage,
+    trimStart, captions, captionInk, text, widePhone, band, [...spotlights, ...blurs]);
+  const keys = keycapAss(outBeats, trimStart, duration, d, keyObstacles);
+  const keyMaskFile = join(dir, "keycaps-mask.ass");
+  await writeFile(keyMaskFile, keycapMaskAss(outBeats, trimStart, duration, d, keyObstacles));
   await writeFile(keysFile, keys);
   const spotlightFile = join(dir, "spotlight.ass");
   const spotlight = spotlightAss(spotlights, meta.width, meta.height, d, { frames: stageCamera, stage: band ? { ...stage, screenX: 0, screenY: 0 } : stage });
@@ -148,14 +151,19 @@ export async function renderTake(dir: string, d?: CameraDefaults): Promise<{ out
       spotlightGraph(spotlights, meta.width, meta.height, duration, d, filterPath(spotlightFile))
         .replace(/\[screen\]$/, band ? "[raw]" : "[screen]"),
     ] : [`[region${blurs.length}]null${band ? "[raw]" : "[screen]"}`]),
-    (band ? [
+    ...(band ? [
       `${camera.replace(/^\[c4\]/, "[raw]")};[camera]null[screen]`,
       cardFilter(stage.baseW, stage.baseH, stage, d, still),
-      `[c4]trim=end=${duration}${captionsOverlay}${keysOverlay}`,
+      `[c4]trim=end=${duration}[composed]`,
     ] : [
       cardFilter(meta.width, meta.height, stage, d, still),
-      `${camera};[camera]trim=end=${duration}${captionsOverlay}${keysOverlay}`,
-    ]).join(";")
+      `${camera};[camera]trim=end=${duration}[composed]`,
+    ]),
+    ...(hasDialogue(keys) ? [
+      `[composed]null[keycapInput]`,
+      keycapBackdropGraph(duration, d, filterPath(keyMaskFile)),
+    ] : []),
+    `${hasDialogue(keys) ? "[keycapOutput]" : "[composed]"}null${captionsOverlay}${keysOverlay}`
       + (fade > 0 ? `,fade=t=in:st=0:d=${fade}:color=${background},fade=t=out:st=${duration - fade}:d=${fade}:color=${background}` : "")
       + `,scale=in_color_matrix=bt601:out_color_matrix=bt709:out_range=tv,format=${pixelFormat},setparams=range=limited:color_primaries=bt709:color_trc=bt709:colorspace=bt709`,
   ].join(";");

@@ -4,7 +4,7 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { DEFAULTS, applyOverrides } from "../src/camera/defaults.ts";
 import type { Beat } from "../src/camera/types.ts";
-import { blurGraph, keycapAss, keycapCues, keycapObstacles, overlayRegions, shortcutKeys, spotlightAss, spotlightGraph } from "../src/render/overlays.ts";
+import { blurGraph, keycapAss, keycapBackdropGraph, keycapMaskAss, keycapCues, keycapObstacles, overlayRegions, shortcutKeys, spotlightAss, spotlightGraph } from "../src/render/overlays.ts";
 import { warpBeats } from "../src/render/pace.ts";
 import { hasFfmpeg } from "./helpers.ts";
 
@@ -106,10 +106,29 @@ test("keycaps are OCR legible at both shortcut holds", {skip:!hasFfmpeg()||!hasO
     for(const [t,key] of [[1,"K"],[3,"S"]] as const){
       const png=`${dir}/${key}.png`;
       execFileSync("ffmpeg",["-y","-v","error","-f","lavfi","-i","color=black:s=1920x1080:r=10:d=4",
-        "-vf",`ass=${dir}/keys.ass,select=gte(t\\,${t}),crop=650:180:635:710,format=gray,lut=y='if(gt(val,160),0,255)'`,"-frames:v","1",png]);
+        "-vf",`ass=${dir}/keys.ass:fontsdir=resources/fonts,select=gte(t\\,${t}),crop=650:180:635:710,format=gray,lut=y='if(gt(val,160),0,255)'`,"-frames:v","1",png]);
       const text=execFileSync("tesseract",[png,"stdout","--psm","7"],{encoding:"utf8",stdio:["ignore","pipe","ignore"]});
       assert.equal(text.trim().replace(/\s+/g," "),`Ctrl + ${key}`);
     }
+  } finally {rmSync(dir,{recursive:true,force:true});}
+});
+
+test("keycap glass blurs only its backdrop and stays translucent on light and dark", {skip:!hasFfmpeg()},()=>{
+  const dir=mkdtempSync(`${process.cwd()}/tmp-keycap-glass-`);
+  try {
+    const b=beats([{k:"shortcut",t:0,combo:"Ctrl+K"}]);
+    const cue=keycapCues(b,0,2,d)[0]!;
+    writeFileSync(`${dir}/mask.ass`,keycapMaskAss(b,0,2,d));
+    writeFileSync(`${dir}/keys.ass`,keycapAss(b,0,2,d));
+    const graph=`[0:v]format=yuv420p[keycapInput];${keycapBackdropGraph(2,d,`${dir}/mask.ass`)};[keycapOutput]ass=${dir}/keys.ass:fontsdir=resources/fonts,select=gte(t\\,1),format=gray[out]`;
+    const pixels=(source:string)=>execFileSync("ffmpeg",["-v","error","-f","lavfi","-i",source,
+      "-filter_complex",graph,"-map","[out]","-frames:v","1","-f","rawvideo","-"],{maxBuffer:1_000_000});
+    const x=Math.round(cue.cx),y=Math.round(cue.cy+cue.h*0.35),at=y*640+x;
+    const light=pixels("color=white:s=640x360:r=60:d=2"),dark=pixels("color=black:s=640x360:r=60:d=2");
+    assert.ok(light[at]!-dark[at]!>60,"the backdrop shows through the glass fill");
+    const pattern=pixels("nullsrc=s=640x360:r=60:d=2,geq=lum='mod(X+Y,2)*255':cb=128:cr=128");
+    assert.ok(Math.abs(pattern[at]!-pattern[at+1]!)<10,"detail behind the dock is frosted");
+    assert.ok(Math.abs(pattern[30*640+30]!-pattern[30*640+31]!)>200,"detail outside the dock stays sharp");
   } finally {rmSync(dir,{recursive:true,force:true});}
 });
 
