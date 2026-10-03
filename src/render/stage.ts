@@ -94,10 +94,14 @@ export function bandViewports(frames: CameraFrame[], d: CameraDefaults, width: n
 /** Solver viewports re-expressed as full-output viewports, for code that projects source px to output px. */
 export function bandFrames(frames: CameraFrame[], band: Band, d: CameraDefaults, width: number, height: number): CameraFrame[] {
   const { screenX, screenY, baseW, baseH } = band.stage;
+  // The final card overlay aligns its origin to the output chroma grid.
+  const grid = d.quality === "master" ? 1 : 2;
+  const left = Math.floor(screenX / grid) * grid;
+  const top = Math.floor(screenY / grid) * grid;
   const source = stageGeometry(width, height, d);
-  return bandViewports(frames, d, width, height)
-    .map(f => ({ t: f.t, x: f.x + source.screenX - screenX * f.w / baseW,
-    y: f.y + source.screenY - screenY * f.h / baseH,
+  return stageFrames(frames, width, height, source, d)
+    .map(f => ({ t: f.t, x: f.x - left * f.w / baseW,
+    y: f.y - top * f.h / baseH,
     w: f.w * d.out_w / baseW, h: f.h * d.out_h / baseH }));
 }
 
