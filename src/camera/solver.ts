@@ -784,7 +784,8 @@ export interface CameraArrival {
 
 /** Plan against the viewport actually emitted by the padded renderer. */
 function boundedCamera(targets: Target[], width: number, height: number, start: number,
-  end: number, d: CameraDefaults, cuts: number[], arrivals: CameraArrival[], beats: Beat[]): CameraFrame[] {
+  end: number, d: CameraDefaults, cuts: number[], arrivals: CameraArrival[], beats: Beat[],
+  payoffs: { t: number; zone: Zone }[]): CameraFrame[] {
   const stage = stageGeometry(width, height, d);
   const aspect = d.out_w / d.out_h;
   const normalize = (view: CameraFrame): CameraFrame => {
@@ -886,6 +887,17 @@ function boundedCamera(targets: Target[], width: number, height: number, start: 
     let hold = reserve(Math.max(start, drag.t0 / 1000), Math.min(end, drag.t1 / 1000), gestureZone(drag, width, height));
     while (visibility.length && hold.a <= visibility.at(-1)!.b) {
       const previous = visibility.pop()!;
+      hold = reserve(Math.min(previous.t0, hold.t0), Math.max(previous.t1, hold.t1), mergeZones(previous.zone, hold.zone));
+    }
+    visibility.push(hold);
+  }
+  // A selected payoff is context that must already fit at reveal, even when
+  // ordinary shot dwell would defer its target or a following action takes over.
+  for (const payoff of payoffs) {
+    let hold = reserve(payoff.t, payoff.t + Math.max(d.dwell, d.min_shot), payoff.zone);
+    while (visibility.some(previous => hold.a <= previous.b && hold.b >= previous.a)) {
+      const index = visibility.findIndex(previous => hold.a <= previous.b && hold.b >= previous.a);
+      const previous = visibility.splice(index, 1)[0]!;
       hold = reserve(Math.min(previous.t0, hold.t0), Math.max(previous.t1, hold.t1), mergeZones(previous.zone, hold.zone));
     }
     visibility.push(hold);
@@ -1025,9 +1037,20 @@ export function solveCamera(
     });
   }
   targets.sort((a, b) => a.t - b.t || Number(a.manual !== undefined) - Number(b.manual !== undefined));
-  if (zooms.length || portraitCrop || d.out_w === d.out_h) {
+  // Native portrait output also crosses source-fill boundaries. Plan its
+  // emitted projection directly, just like landscape-to-portrait framing.
+  if (zooms.length || d.out_h > d.out_w || d.out_w === d.out_h) {
     return boundedCamera(targets, width, height, start, end, d,
-      timing?.cuts ?? take.cuts?.map(c => c.t1) ?? [], timing?.arrivals ?? [], visibleBeats);
+      timing?.cuts ?? take.cuts?.map(c => c.t1) ?? [], timing?.arrivals ?? [], visibleBeats,
+      visibleBeats.filter(beat => !beat.camera_suppressed).flatMap(beat => {
+        const decision = decisionMap.get(beat.id)!;
+        return beat.zones.filter(zone => zone.type === "res"
+          && (zone.name === decision.A || zone.name === decision.B
+            || beat.zones.some(selected => selected.type === "all"
+              && (selected.name === decision.A || selected.name === decision.B))))
+          .filter(zone => (zone.t_change ?? beat.anchor_t) >= start && (zone.t_change ?? beat.anchor_t) < end)
+          .map(zone => ({ t: zone.t_change ?? beat.anchor_t, zone }));
+      }));
   }
   const frames = sampleCamera(targets, visibleBeats.map((beat) => ({ ...beat,
     kind: quietShots.some((shot) => shot.beat === beat) ? beat.kind : "idle",

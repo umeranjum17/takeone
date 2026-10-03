@@ -128,3 +128,51 @@ test('golden comparison pairs frames across container timestamp precision', asyn
     assert.deepEqual(result.framesBelow095, []);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
+
+// Metrology only: a stable straight card boundary cannot qualify the rich demo.
+test('stable boundary judder calibration traverses the production renderer', async (t) => {
+  const { execFileSync } = await import('node:child_process');
+  const { mkdirSync, mkdtempSync, readFileSync, writeFileSync, rmSync } = await import('node:fs');
+  const { resolve, join } = await import('node:path');
+  const { DEFAULTS } = await import('../src/camera/defaults.ts');
+  const { renderTake } = await import('../src/render/render.ts');
+  const dir = mkdtempSync(resolve('tmp/judder-calibration-'));
+  const d = { ...DEFAULTS, out_w: 480, out_h: 854, idle_speed: 1, fade_s: 0 };
+  try {
+    mkdirSync(join(dir, 'analysis'));
+    writeFileSync(join(dir, 'take.json'), JSON.stringify({ id: 'calibration', width: 640, height: 1440,
+      trim_start: 0, trim_end: 6 }));
+    writeFileSync(join(dir, 'analysis/beats.json'), JSON.stringify([
+      { id: 'focus', kind: 'click', t0: 2, t1: 5, anchor_t: 2, actions: [],
+        zones: [{ name: 'control', type: 'act', bbox: [160, 240, 320, 600] }] },
+    ]));
+    writeFileSync(join(dir, 'analysis/decisions.jsonl'), JSON.stringify({ beat: 'focus', A: 'control',
+      B: 'control', L: 2, K: 1, p: 0, conf: 1, decided_by: 'heuristic' }) + '\n');
+    execFileSync('ffmpeg', ['-nostdin', '-v', 'error', '-f', 'lavfi', '-i', 'color=white:s=640x1440:r=60:d=6',
+      '-c:v', 'libvpx-vp9', '-lossless', '1', join(dir, 'screen.webm')]);
+    const { out } = await renderTake(dir, d);
+    const camera = JSON.parse(readFileSync(join(dir, 'render-camera.json'), 'utf8'));
+    const rows = execFileSync('ffmpeg', ['-nostdin', '-v', 'error', '-i', out, '-vf',
+      `crop=iw:3:0:${Math.floor(d.out_h / 2)}:exact=1`, '-pix_fmt', 'gray', '-f', 'rawvideo', '-'],
+      { maxBuffer: 128 * 1024 * 1024 });
+    const residuals: (number | null)[] = [];
+    const second: number[] = [];
+    for (let i = 0; i < Math.min(camera.frames.length, rows.length / (3 * d.out_w)); i++) {
+      const f = camera.frames[i];
+      const expected = (camera.sourceOrigin.x - f.x) * d.out_w / f.w;
+      const edge = expected > 8 && expected < d.out_w - 8 && f.t > 0.5
+        ? edgePosition(rows.subarray(i * 3 * d.out_w + d.out_w, i * 3 * d.out_w + 2 * d.out_w), expected) : null;
+      residuals.push(edge === null ? null : edge - expected);
+      if (i < 2) continue;
+      const a = residuals[i - 2], b = residuals[i - 1], c = residuals[i];
+      if (a != null && b != null && c != null
+        && Math.max(Math.abs(f.x - camera.frames[i - 1].x), Math.abs(f.w - camera.frames[i - 1].w)) > 0.01) second.push(c - 2 * b + a);
+    }
+    assert.ok(second.length > 20, `moving edge samples ${second.length}`);
+    const rms = Math.sqrt(second.reduce((sum, v) => sum + v * v, 0) / second.length);
+    t.diagnostic(`stable calibration RMS ${rms}, moving samples ${second.length}; rich demo remains independently gated`);
+    assert.ok(rms <= 0.15, `stable boundary judder ${rms} > 0.15`);
+    const shutter = JSON.parse(readFileSync(join(dir, 'motion-blur.json'), 'utf8'));
+    assert.ok(shutter.blurredFrames > 0, 'production shutter actually sampled motion');
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});

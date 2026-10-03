@@ -92,6 +92,47 @@ test("automatic resume preserves the full next identical manual hold", () => {
   assert.equal(timing.arrivals[1]!.holdEnd,12);
 });
 
+test("native portrait automatic moves obey final viewport acceleration limits", () => {
+  const camera = { ...DEFAULTS, out_w: 1080, out_h: 1920 };
+  const first: Beat = { id: "top", kind: "click", t0: 1.08, t1: 3.08, anchor_t: 1.08,
+    zones: [{ name: "control", type: "act", bbox: [180, 516, 720, 768] },
+      { name: "result", type: "res", bbox: [0, 0, 1080, 2104], t_change: 3.08 }],
+    actions: [{ k: "click", t: 1080, x: 300, y: 600 }] };
+  const second: Beat = { id: "bottom", kind: "click", t0: 3.08, t1: 5.08, anchor_t: 3.08,
+    zones: [{ name: "control", type: "act", bbox: [0, 1084, 916, 1184] }],
+    actions: [{ k: "click", t: 5080, x: 540, y: 2000 }] };
+  const decisions = [first, second].map(b => ({ ...decision, beat: b.id, A: "control",
+    B: b === first ? "result" : "control", L: 2 as const }));
+  const frames = solveCamera([first, second], decisions,
+    { width: 1080, height: 2400, trim_start: 0, trim_end: 10 }, camera);
+  const emitted = stageFrames(frames, 1080, 2400, stageGeometry(1080, 2400, camera), camera);
+  assert.ok(emitted.some(f => Math.abs(f.w - emitted[0]!.w) > 10), "automatic camera actually moves");
+  const metrics = cameraMetrics(emitted, 60, 1080, 1920, camera.min_shot);
+  for (const name of ["pan_acceleration", "zoom_speed", "zoom_acceleration"]) {
+    assert.ok(metrics[name]!.goalPassed, `${name}: ${metrics[name]!.value}`);
+  }
+});
+
+test("portrait selected payoff stays whole at reveal and through its hold", () => {
+  const camera = { ...DEFAULTS, out_w: 1080, out_h: 1920 };
+  const beats: Beat[] = [
+    { id: "action", kind: "click", t0: 1.08, t1: 3.08, anchor_t: 1.08,
+      zones: [{ name: "control", type: "act", bbox: [180, 516, 720, 768] },
+        { name: "payoff", type: "res", bbox: [0, 0, 1080, 2104], t_change: 3.08 }], actions: [] },
+    { id: "next", kind: "click", t0: 3.08, t1: 5.08, anchor_t: 3.08,
+      zones: [{ name: "control", type: "act", bbox: [0, 1084, 916, 1184] }], actions: [] },
+  ];
+  const decisions = beats.map(b => ({ ...decision, beat: b.id, A: "control",
+    B: b.id === "action" ? "payoff" : "control", L: 2 as const }));
+  const frames = solveCamera(beats, decisions, { width: 1080, height: 2400, trim_end: 10 }, camera);
+  for (const f of frames.filter(f => f.t >= 3.08 && f.t <= 3.08 + camera.min_shot)) {
+    assert.ok(f.x <= 0 && f.y <= 0 && f.x + f.w >= 1080 && f.y + f.h >= 2104,
+      `whole selected payoff at ${f.t}: ${JSON.stringify(f)}`);
+  }
+  const control = frames[2 * camera.fps]!;
+  assert.ok(control.w < frames[0]!.w, "controls retain enlarged framing");
+});
+
 test("manual zoom pre-rolls to its region and rejects holds shorter than 0.5 seconds", () => {
   const requested = { t0: 2, t1: 2.6, bbox: [250, 130, 140, 60] as [number,number,number,number], level: 3 as const };
   const take = { ...meta, trim_start: 0, trim_end: 8, zooms: [requested] };

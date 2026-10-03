@@ -80,11 +80,23 @@ export function bandLayout(width: number, height: number, d: CameraDefaults, cap
     captionY: top + h + padding + titleH + gap + captionH / 2, titleH, captionH };
 }
 
+/** A fixed band card supplies the outer frame; its camera frames only source pixels. */
+export function bandViewports(frames: CameraFrame[], d: CameraDefaults, width: number, height: number): CameraFrame[] {
+  const st = stageGeometry(width, height, d);
+  return stageFrames(frames, width, height, st, d).map(f => {
+    const w = Math.min(width, f.w), h = w * height / width;
+    return { t: f.t, x: clamp(f.x - st.screenX + (f.w - w) / 2, 0, width - w),
+      y: clamp(f.y - st.screenY + (f.h - h) / 2, 0, height - h), w, h };
+  });
+}
+
 /** Solver viewports re-expressed as full-output viewports, for code that projects source px to output px. */
 export function bandFrames(frames: CameraFrame[], band: Band, d: CameraDefaults, width: number, height: number): CameraFrame[] {
   const { screenX, screenY, baseW, baseH } = band.stage;
-  return stageFrames(frames, width, height, stageGeometry(width, height, d), d)
-    .map(f => ({ t: f.t, x: f.x - screenX * f.w / baseW, y: f.y - screenY * f.h / baseH,
+  const source = stageGeometry(width, height, d);
+  return bandViewports(frames, d, width, height)
+    .map(f => ({ t: f.t, x: f.x + source.screenX - screenX * f.w / baseW,
+    y: f.y + source.screenY - screenY * f.h / baseH,
     w: f.w * d.out_w / baseW, h: f.h * d.out_h / baseH }));
 }
 

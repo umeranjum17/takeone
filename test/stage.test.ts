@@ -6,7 +6,7 @@ import { hasFfmpeg } from "./helpers.ts";
 import { applyOverrides, DEFAULTS } from "../src/camera/defaults.ts";
 import type { Beat } from "../src/camera/types.ts";
 import { idleSqueezes, setptsExpr, warp } from "../src/render/pace.ts";
-import { bandEligible, bandLayout, bandText, captionAss, captionLayouts, takeCaptions } from "../src/render/stage.ts";
+import { bandEligible, bandFrames, bandLayout, stageGeometry, bandText, captionAss, captionLayouts, takeCaptions } from "../src/render/stage.ts";
 import { measureCaptions } from "../src/render/render.ts";
 import { THEMES, resolveTheme } from "../src/themes.ts";
 
@@ -243,4 +243,18 @@ test("a simultaneous title stacks above the caption", {skip:!hasFfmpeg()}, () =>
   const ink=inkBands([{t0:0,t1:2,text:"TakeOne demo",title:true},{t0:0,t1:2,text:"Select a card",title:false}],[260,180]);
   assert.equal(ink.bands.length,2, `ink rows=${ink.bands}`);
   assert.ok(ink.bands[1]!-ink.bands[0]!>45, `ink rows=${ink.bands}`);
+});
+
+
+test("band rest viewport has one card without an inner source inset", () => {
+  const band = bandLayout(1920, 1080, DEFAULTS)!;
+  const st = stageGeometry(1920, 1080, DEFAULTS);
+  const frames = bandFrames([{ t: 0, x: (1920 - st.w) / 2, y: (1080 - st.h) / 2,
+    w: st.w, h: st.h }], band, DEFAULTS, 1920, 1080);
+  const f = frames[0]!;
+  const left = (st.screenX - f.x) * DEFAULTS.out_w / f.w;
+  const top = (st.screenY - f.y) * DEFAULTS.out_h / f.h;
+  assert.ok(Math.abs(left - band.stage.screenX) < 1e-6, `inner inset ${left - band.stage.screenX}`);
+  assert.ok(Math.abs(top - band.stage.screenY) < 1e-6);
+  assert.ok(Math.abs(1920 * DEFAULTS.out_w / f.w - band.stage.baseW) < 1e-6);
 });
