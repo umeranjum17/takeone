@@ -26,6 +26,8 @@ interface Target {
   subject?: Zone;
   boxes?: Box[];
   startAfter?: number;
+  /** Observed video-only subject: centre it once, rather than waiting for clipping. */
+  screenChange?: boolean;
   /** A long-idle widen: quiet by definition, so exempt from the rate cap. */
   breathe?: boolean;
   /** A disappearing subject cannot wait behind ordinary shot holds. */
@@ -300,6 +302,17 @@ function isDeadzone(state: CameraState, target: CameraState, baseW: number, d: C
 /** A nearby target may still need a correction when the current hold cuts its context. */
 function canHold(state: CameraState, target: Target, width: number, height: number, d: CameraDefaults): boolean {
   if (!isDeadzone(state, target.state, baseWidth(width, height, d), d)) return false;
+  if (target.screenChange) {
+    const viewW = baseWidth(width, height, d) / state.z;
+    const viewH = viewW * d.out_h / d.out_w;
+    // Edge clamping can make distinct subjects' composed camera centres nearly
+    // identical. Apply the attention deadzone to the observed subject itself,
+    // so a new edge subject still gets its planned composition and zoom.
+    const [x, y, w, h] = target.subject?.bbox
+      ?? [target.state.cx, target.state.cy, 0, 0];
+    if (Math.abs(x + w / 2 - state.cx) > viewW * d.deadzone_margin
+      || Math.abs(y + h / 2 - state.cy) > viewH * d.deadzone_margin) return false;
+  }
   if (!target.boxes?.length || !target.subject) return true;
   const crop = toFrame(state, width, height, d);
   const [x, y, w, h] = target.subject.bbox;
@@ -423,7 +436,9 @@ function buildTargets(
       importance: shot.decision.K,
       subject: withContext(shot.zoneA, boxesFor(shot.zoneA), width, height),
       boxes: boxesFor(shot.zoneA),
+      screenChange: shot.beat.kind === "change",
       startAfter: shot.beat.kind === "cut" ? cutSettledAt(shot.beat, shot.arrival, d)
+        : shot.beat.kind === "change" ? shot.beat.anchor_t
         : shot.zoneA.type === "res" ? shot.zoneA.t_change ?? shot.beat.t0 : undefined,
     }];
     if (shot.zoneB !== shot.zoneA && shot.decision.B) {

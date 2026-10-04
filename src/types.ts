@@ -105,6 +105,7 @@ export interface Zone {
 }
 
 export type BeatKind =
+  | "change"
   | "click"
   | "type"
   | "drag"

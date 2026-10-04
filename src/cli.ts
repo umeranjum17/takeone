@@ -230,6 +230,7 @@ interface Flags {
   state?: string;
   android?: string;
   iosSim?: boolean;
+  iosUdid?: string;
   touchOffsetMs?: number;
 }
 
@@ -247,7 +248,7 @@ function parseFlags(args: string[]): Flags {
   for (let i = 0; i < rest.length; i += 2) {
     const name = rest[i]!;
     const value = rest[i + 1];
-    if (!["--fps", "--bitrate", "--root", "--state-dir", "--android", "--touch-offset-ms"].includes(name) || value === undefined || value === "" || value.startsWith("--") || seen.has(name)) {
+    if (!["--fps", "--bitrate", "--root", "--state-dir", "--android", "--touch-offset-ms", "--ios-udid"].includes(name) || value === undefined || value === "" || value.startsWith("--") || seen.has(name)) {
       fail({ code: "invalid-arguments", message: `invalid record option: ${name}`, hint: "run `takeone --help`" });
     }
     seen.add(name);
@@ -261,8 +262,12 @@ function parseFlags(args: string[]): Flags {
       const number = Number(value);
       if (!Number.isSafeInteger(number)) fail({ code: "invalid-arguments", message: `${name} must be an integer`, hint: "run `takeone --help`" });
       flags.touchOffsetMs = number;
-    } else if (name === "--root") flags.root = value;
+    } else if (name === "--ios-udid") flags.iosUdid = value;
+    else if (name === "--root") flags.root = value;
     else flags.state = value;
+  }
+  if (flags.iosUdid !== undefined && !flags.iosSim) {
+    fail({ code: "invalid-arguments", message: "--ios-udid needs --ios-sim", hint: "run `takeone --help`" });
   }
   if (flags.android === undefined && flags.touchOffsetMs !== undefined) {
     fail({ code: "invalid-arguments", message: "--touch-offset-ms needs --android", hint: "run `takeone --help`" });
@@ -398,6 +403,7 @@ async function recordIosSim(flags: Flags): Promise<void> {
   const { toonTable } = await import("./toon.js");
   try {
     const result = await runIosSimRecord({
+      ...(flags.iosUdid === undefined ? {} : { udid: flags.iosUdid }),
       ...(flags.root === undefined ? {} : { takesRoot: flags.root }),
       ...(flags.state === undefined ? {} : { stateDirPath: flags.state }),
     });
@@ -471,7 +477,7 @@ USAGE:
   takeone                 list takes
   takeone record [--fps 30] [--bitrate 40000]   record the desktop (asks screen-share consent)
   takeone record --android <serial> [--touch-offset-ms 0]   record a phone or emulator into a take
-  takeone record --ios-sim   record the booted iOS Simulator into a take (macOS only)
+  takeone record --ios-sim [--ios-udid UUID]   record the booted iOS Simulator into a take (macOS only)
   takeone stop            stop the active recording
   takeone doctor          check what the recorder needs on this machine`);
     return 0;

@@ -200,7 +200,7 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
   writeFileSync(join(analysisDir, "actions.json"), JSON.stringify({ take: take.id, actions }, null, 1));
 
   // 2 segment -------------------------------------------------------------
-  const beats = segmentBeats(actions, scopedFrames, { stream: take.stream, takeMs, startMs, endMs });
+  const beats = segmentBeats(actions, scopedFrames, { stream: take.stream, takeMs, startMs, endMs, videoOnly: take.events === "none" });
   const uiBoxes = analyzeUiBoxes(dec, take.stream, startMs, endMs, beats.flatMap(b =>
     [b.anchor_t, ...b.actions.map(actStart), resultTime(b, scopedFrames) ?? b.anchor_t]));
   writeFileSync(join(analysisDir, "ui-boxes.json"), JSON.stringify(uiBoxes, null, 1));

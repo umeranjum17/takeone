@@ -291,7 +291,7 @@ function showsWords(kind: ZoneKind, beat: Beat, stream: { w: number; h: number }
     case "txt":
       return "the area where text was typed";
     case "res":
-      return "a region that changed after the action";
+      return beat.kind === "change" ? "a region that changed in the app view" : "a region that changed after the action";
     case "path":
       return "the path the pointer moved along";
     case "win": {
@@ -320,6 +320,7 @@ function activityWords(kind: ZoneKind, beat: Beat, t: number | undefined): strin
       return dur >= 2 ? "text typed here for a while" : "text typed here briefly";
     }
     case "res": {
+      if (beat.kind === "change") return "changed as the app view updated";
       if (t === undefined) return "changed after the action";
       return `appeared ${delayWords(t - beat.anchor_t)} after the action`;
     }

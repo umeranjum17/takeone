@@ -17,6 +17,7 @@ import {
   moveRawIntoTake,
   offsetMsFromStartLine,
   parseBootedDevices,
+  selectSimulator,
   probeVideoSize,
   refuseUnlessMac,
   writeIosTake,
@@ -164,6 +165,8 @@ test("record --ios-sim refuses on Linux and rejects conflicting flags", () => {
       ["record", "--ios-sim", "--fps", "30"],
       ["record", "--ios-sim", "--touch-offset-ms", "5"],
       ["record", "--ios-sim", "--ios-sim"],
+      ["record", "--ios-udid", "4B99DA96-A371-4E6A-B80D-54997B1AFB48"],
+      ["record", "--ios-sim", "--ios-udid"],
     ]) {
       const result = run(args);
       assert.equal(result.status, 1, `${args.join(" ")}: ${result.stderr}`);
@@ -171,5 +174,23 @@ test("record --ios-sim refuses on Linux and rejects conflicting flags", () => {
     }
   } finally {
     rmSync(base, { recursive: true, force: true });
+  }
+});
+
+
+test("explicit Simulator selection is isolated from other booted devices", () => {
+  const own = "4B99DA96-A371-4E6A-B80D-54997B1AFB48";
+  const other = "22A5721E-B243-45E8-A9BC-681C439A966D";
+  const json = JSON.stringify({ devices: { runtime: [
+    { udid: other, state: "Booted" }, { udid: own, state: "Booted" },
+  ] } });
+  assert.equal(selectSimulator(json, own.toLowerCase()), own);
+  assert.equal(selectSimulator(json), "booted");
+  for (const invalid of ["booted", "--help", "", "not-a-uuid"]) {
+    assert.throws(() => selectSimulator(json, invalid), (e: unknown) => e instanceof IosRecordError && e.code === "invalid-simulator");
+  }
+  for (const devices of [[], [{ udid: own, state: "Shutdown" }], [{ udid: other, state: "Booted" }]]) {
+    assert.throws(() => selectSimulator(JSON.stringify({ devices: { runtime: devices } }), own),
+      (e: unknown) => e instanceof IosRecordError && e.code === "no-simulator");
   }
 });

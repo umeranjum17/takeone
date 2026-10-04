@@ -34,6 +34,8 @@ export type BBoxFits = { bbox: [number, number, number, number] };
 function heuristicA(beat: Beat): string {
   const z = (k: string) => beat.zones.find((x) => x.kind === k);
   switch (beat.kind) {
+    case "change":
+      return z("res")?.name ?? z("all")!.name;
     case "click":
     case "dwell":
     case "shortcut":
@@ -61,6 +63,8 @@ function heuristicB(beat: Beat, A: string): string {
 
 function heuristicL(kind: Beat["kind"]): Tightness {
   switch (kind) {
+    case "change":
+      return 2;
     case "click":
     case "dwell":
     case "shortcut":

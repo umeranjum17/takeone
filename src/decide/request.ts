@@ -79,7 +79,10 @@ export function whatHappened(beat: Beat): string {
         break;
     }
   }
-  if (parts.length === 0) parts.push("Nothing happened; the screen was idle");
+  if (parts.length === 0) parts.push(beat.kind === "change"
+    ? "The app view changed; no input events were recorded"
+    : beat.kind === "cut" ? "The screen changed at once; no input events were recorded"
+    : "Nothing happened; the screen was idle");
   let s = parts.join(", then ") + ".";
   const res = beat.zones.find((z) => z.kind === "res");
   if (res) {
@@ -159,7 +162,7 @@ export function buildQuestions(state: JevRequest["state"], askKeyMoment: boolean
   return q;
 }
 
-/** Mirror of @byokit/decide@0.4.3's internal wire(): Question -> planner JSON.
+/** Mirror of @byokit/decide@0.6.0's internal wire(): Question -> planner JSON.
  *  buildRequest bodies must stay byte-identical to what decide's jev backend
  *  sends; test/jev.test.ts asserts that equality against a fake transport. */
 function toWire(questions: Record<string, Question>): Record<string, unknown> {
@@ -169,7 +172,9 @@ function toWire(questions: Record<string, Question>): Record<string, unknown> {
         return [k, { type: "choice", instructions: q.instructions ?? "Which option fits the state?", criteria: q.options }];
       if (q.kind === "yesno")
         return [k, { type: "noul", instructions: q.question, ...(q.yes && q.no ? { criteria: { true: q.yes, false: q.no } } : {}) }];
-      return [k, { type: "score", instructions: q.instructions ?? "Where does the state fall on this scale?", criteria: q.levels }];
+      if (q.kind === "score")
+        return [k, { type: "score", instructions: q.instructions ?? "Where does the state fall on this scale?", criteria: q.levels }];
+      throw new Error(`unsupported planner question kind: ${q.kind}`);
     }),
   );
 }
