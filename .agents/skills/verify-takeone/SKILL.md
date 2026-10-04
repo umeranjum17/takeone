@@ -20,7 +20,7 @@ npm run build      # rebuild after pulling; dist/ must be newer than src/
 node bin/takeone.mjs --help   # readiness: exits 0 and prints the usage block
 ```
 
-Prerequisites: Node ≥ 22.18 (`node --version`), `ffmpeg` and `ffprobe` on PATH. Optional: `tesseract` (only for `--screen-text` OCR), Hyprland/Wayland (only for desktop recording). Planning and rendering an existing take need none of the capture prerequisites.
+Prerequisites: Node ≥ 22.19 (`node --version`), `ffmpeg` and `ffprobe` on PATH. Optional: `tesseract` (only for `--screen-text` OCR), Hyprland/Wayland (only for desktop recording). Planning and rendering an existing take need none of the capture prerequisites.
 
 In fleet/shared-machine contexts, every encode (`make`, `render`, `motion`, `scripts/synth-take.ts`) is heavy work: hold the home's heavy render lock (this host: `flock /home/umer/.treehouse/firstmate-8bf1b0/1/firstmate/state/takeone-heavy.lock …`) for the whole command.
 
