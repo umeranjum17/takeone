@@ -185,6 +185,7 @@ test("synthetic source renders silent H.264 at the configured size and 60fps", {
     ]);
     await writeFile(join(dir, "take.json"), JSON.stringify({
       id: "fixture", width: 320, height: 180, trim_start: 0, trim_end: 2,
+      captions: [{ t: 0.35, d: 1, text: "Select a card" }],
     }));
     const fixtureBeat = beat("fixture", 0.6, 2600);
     // Small-frame zone: the default helper zone sits in 4K coordinates and
@@ -199,8 +200,12 @@ test("synthetic source renders silent H.264 at the configured size and 60fps", {
     await assert.rejects(renderTake(dir), /invalid take id/);
     await writeFile(join(dir, "take.json"), JSON.stringify({
       id: "fixture", width: 320, height: 180, trim_start: 0, trim_end: 2,
+      captions: [{ t: 0.35, d: 1, text: "Select a card" }],
     }));
     const output = (await renderTake(dir, FAST)).out;
+    const captions = await readFile(join(dir, "captions.ass"), "utf8");
+    assert.equal(captions.match(/Select a card/g)?.length, 1,
+      "the caption promoted to opening title must not also render as a body caption");
     const probe = JSON.parse(execFileSync("ffprobe", [
       "-v", "error", "-select_streams", "v:0", "-show_entries",
       "stream=width,height,nb_frames,codec_name,r_frame_rate,color_range,color_space,color_transfer,color_primaries", "-of", "json", output,

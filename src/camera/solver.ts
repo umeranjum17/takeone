@@ -912,7 +912,7 @@ export function solveCamera(
   const shots = buildShots(beats.filter(beat => !beat.camera_suppressed), decisions, start, d)
     .filter((shot) => visibleBeats.includes(shot.beat));
   const quietShots = applyDwellAndShotLength(shots, d).filter((shot) => shot.arrival < end);
-const targets = applyMoveRateLimit(buildTargets(quietShots, visibleBeats.filter(beat => !beat.camera_suppressed), width, height, start, end, d), width, height, d);
+  const targets = applyMoveRateLimit(buildTargets(quietShots, visibleBeats.filter(beat => !beat.camera_suppressed), width, height, start, end, d), width, height, d);
   const sampled = sampleCamera(targets, visibleBeats.map((beat) => ({ ...beat,
     kind: quietShots.some((shot) => shot.beat === beat) ? beat.kind : "idle",
     actions: quietShots.some((shot) => shot.beat === beat) ? beat.actions : [],
