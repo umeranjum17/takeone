@@ -87,7 +87,7 @@ const SUPPRESSIONS = /@ts-ignore|@ts-nocheck|eslint-disable|biome-ignore|# *noqa
 const STUBS = /throw new (Error|NotImplemented).*[Nn]ot implemented|catch\s*\(\w*\)\s*\{\s*\}|catch\s*\{\s*\}|\bpass\s*# *stub/;
 const SECRETS = /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----|\b(?:AKIA[0-9A-Z]{16}|gh[pousr]_[A-Za-z0-9]{36,}|sk-[A-Za-z0-9_-]{32,})\b/;
 // 2. A test made easier (added skips).
-const SKIPS = /\.(skip|todo)\b|\b(skip|todo)["']?\s*:|\bxit\(|\bxdescribe\(|@pytest\.mark\.skip|t\.Skip\(/;
+const SKIPS = /\.(skip|todo)\b|\b(skip|todo)["']?\s*:(?!\s*false\s*(?:[,}]|$))|\bxit\(|\bxdescribe\(|@pytest\.mark\.skip|t\.Skip\(/;
 
 for (const { file, text } of added) {
   if (isCode(file) && /(^\s*(\/\/|\/\*|\*|#)|\s(\/\/|\/\*|#))/.test(text) && SUPPRESSIONS.test(text)) flag('silenced-checker', file);
