@@ -661,7 +661,16 @@ function sampleCamera(
       if (candidateMove.start > time) break;
       targetIndex++;
       if (!urgent && canHold(state, target, width, height, d)) continue;
-      move = candidateMove;
+      // A screen change that composes to the current framing (edge clamping
+      // on tall screens fits both subjects in one viewport, and the upscale
+      // ceiling forbids going tighter) would render as a multi-second hold
+      // across two beats. Acknowledge it with a subtle out-and-back through
+      // the existing hop path so every change reads on screen.
+      if (target.screenChange && distance(state, target.state, baseW) < 0.01) {
+        move = { ...candidateMove, mid: { ...state, z: Math.max(1, state.z / 1.03) }, hop: true };
+      } else {
+        move = candidateMove;
+      }
       if (urgent) break;
     }
 
