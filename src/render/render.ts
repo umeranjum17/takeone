@@ -9,7 +9,7 @@ import { actionCameraMilliseconds } from "../beats/clock.ts";
 import { solveCamera } from "../camera/solver.ts";
 import type { Beat, Decision, TakeMeta } from "../camera/types.ts";
 import { blurGraph, keycapAss, keycapBackdropGraph, keycapMaskAss, keycapObstacles, overlayRegions, spotlightAss, spotlightGraph } from "./overlays.ts";
-import { motionBlurGraph, shutterPlan } from "./motion-blur.ts";
+import { areaPrefilter, shutterPlan } from "./motion-blur.ts";
 import { idleSqueezes, setptsExpr, warp, warpBeats } from "./pace.ts";
 import { phoneTapShots } from "./phone.ts";
 import {
@@ -96,7 +96,7 @@ export async function renderTake(dir: string, d?: CameraDefaults): Promise<{ out
   const [cameraFrames, cameraW, cameraH] = band ? [frames, meta.width, meta.height] : [stageCamera, stage.w, stage.h];
   const shutter = shutterPlan(cameraFrames, cameraW, cameraH, view);
   await writeFile(join(dir, "motion-blur.json"), JSON.stringify(shutter.metrics, null, 2));
-  const camera = motionBlurGraph(cameraFrames, shutter, cameraW, cameraH, view);
+  const camera = areaPrefilter(cameraFrames, shutter, cameraW, cameraH, view);
 
   const outputDir = join(dir, "out");
   await mkdir(outputDir, { recursive: true });

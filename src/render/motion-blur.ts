@@ -110,3 +110,36 @@ export function motionBlurGraph(frames: CameraFrame[], plan: ReturnType<typeof s
     + `sendcmd=c='${commands.join(";")}',tmix@shutter=frames=${plan.samples + 1}:enable='${endExpr}',`
     + `select='${endExpr}',settb=AVTB,setpts=N/(${d.fps}*TB)[camera]`;
 }
+
+/** Actual-scale area coverage before each warp; safe symmetric Q15 weights. */
+export function areaPrefilter(frames: CameraFrame[], plan: ReturnType<typeof shutterPlan>, width: number, height: number, d: CameraDefaults): string {
+  const sampled = plan.metrics.blurredFrames ? frames.flatMap((_, i) => shutterFrames(frames, plan, i)) : frames;
+  const fps = d.fps * (plan.metrics.blurredFrames ? plan.samples : 1);
+  const kernel = (s: number): number[] => {
+    if (!Number.isFinite(s) || s <= 0 || s > 5) throw new Error(`area prefilter scale ${s} exceeds five-tap domain (0,5]`);
+    if (s <= 1) return [0, 0, 32768, 0, 0];
+    const weights = [-2, -1, 0, 1, 2].map(k => Math.max(0, Math.min(k + 0.5, s / 2) - Math.max(k - 0.5, -s / 2)) / s);
+    const a = Math.round(weights[0]! * 32768), b = Math.round(weights[1]! * 32768);
+    const integers = [a, b, 32768 - 2 * (a + b), b, a];
+    if (integers.some((v, i) => v < 0 || Math.abs(v / 32768 - weights[i]!) > 2 / 32768)) throw new Error(`area prefilter coefficient bound failed at scale ${s}`);
+    return integers;
+  };
+  const commands: string[] = [];
+  const filters: string[] = [];
+  for (const [axis, dimension, output] of [["x", "w", d.out_w], ["y", "h", d.out_h]] as const) {
+    const matrices = sampled.map(f => kernel(f[dimension] / output).join(" "));
+    const target = `convolution@area${axis}`;
+    // Stock column slicing needs 32 px per slice; extra columns are independent.
+    if (axis === "y" && width < 256) filters.push("pad=256:ih:0:0");
+    filters.push(`${target}=` + [0, 1, 2].map(p => `${p}mode=${axis === "x" ? "row" : "column"}:${p}m='${matrices[0]}'`).join(":"));
+    if (axis === "y" && width < 256) filters.push(`crop=${width}:${height}:0:0:exact=1`);
+    for (let i = 1; i < matrices.length; i++) {
+      if (matrices[i] === matrices[i - 1]) continue;
+      const t = plan.metrics.blurredFrames ? i / fps : sampled[i]!.t;
+      const matrix = matrices[i]!.replaceAll(" ", "\\\\ ");
+      commands.push(`${Math.max(0, t - 0.5 / fps).toFixed(9)} ` + [0, 1, 2].map(p => `${target} ${p}m ${matrix}`).join(","));
+    }
+  }
+  const control = commands.length ? `sendcmd=c='${commands.join(";")};',` : "";
+  return motionBlurGraph(frames, plan, width, height, d).replace("format=gbrp16le,", `format=gbrp16le,${control}${filters.join(",")},`);
+}

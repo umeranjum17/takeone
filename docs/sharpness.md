@@ -47,8 +47,17 @@ percentages of OCR confidence or perceptual quality.
 The final graph uses `v360` with flat input/output, no rotation, and independent
 horizontal/vertical field of view and offsets. This is an affine camera crop,
 not a spherical lens effect. It maps native source pixels directly into export
-pixels in one Lanczos resample in a 16-bit RGB intermediate; draft uses linear. There is no pre-scale,
-intermediate upscale or final dimensional resize. Colour-matrix conversion
+pixels in one Lanczos resample in a 16-bit RGB intermediate; draft uses linear.
+Before each warp, `areaPrefilter` computes horizontal/vertical area coverage at
+that frame's actual viewport-to-output scale, including retimed shutter samples.
+Separable five-tap RGB16 row/column convolution uses symmetric nonnegative Q15
+weights summing to 32768, avoiding 32-bit accumulation overflow. Coefficient
+error is at most 2/32768; numerical output bounds are 4.5 RGB16 LSB per axis,
+9 combined including rounding. Scales at or below one are exact identity;
+scales above five are rejected rather than silently truncating support.
+There is no fixed-ratio branch, pre-scale, intermediate upscale or final
+dimensional resize. Numerical bounds do not qualify judder, VMAF or cost.
+Colour-matrix conversion
 still uses `scale` without changing dimensions. Frame commands preserve
 fractional positions; updates fall between frame timestamps to avoid rounding
 an update into the following frame.
