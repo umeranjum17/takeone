@@ -301,13 +301,13 @@ export function clickAss(clicks: Click[], width: number, height: number, start: 
       }
     });
     const r1 = Math.min(d.ripple_r * px, room - halo);
-    // ponytail: a press with under 4 px of room is at the frame edge; skip it rather than clip it.
-    if (r1 < 4 * px) continue;
+    // ponytail: a press with under 6 px of room is at the frame edge; skip it rather than clip it.
+    if (r1 < 6 * px) continue;
     const r0 = Math.min(10 * px, r1);
     for (let u0 = 0; u0 < 1; u0 += step / duration) {
       const u = Math.min(1, u0 + step / duration / 2);
       const r = r0 + (r1 - r0) * easeOut(u);
-      const thick = Math.min((3 - 1.5 * u) * px, r);
+      const thick = Math.min((3 - 1.5 * u) * px, r / 3);
       const from = t0 + u0 * duration;
       const to = Math.min(t0 + duration, from + step);
       if (to <= 0) continue;
