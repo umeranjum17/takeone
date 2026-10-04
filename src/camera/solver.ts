@@ -17,6 +17,7 @@ interface Shot {
   zoneA: Zone;
   zoneB: Zone;
   arrival: number;
+  portraitFill?: boolean;
 }
 
 interface Target {
@@ -32,6 +33,8 @@ interface Target {
   breathe?: boolean;
   /** A disappearing subject cannot wait behind ordinary shot holds. */
   reveal?: { t: number; bbox: Zone["bbox"] };
+  /** Exact padded hold geometry; interpolation preserves these safe edges. */
+  viewport?: CameraFrame;
 }
 
 interface Move {
@@ -213,6 +216,15 @@ export function frame(
 
   const boxes = zone.boxes ?? [];
   zone = withContext(zone, boxes, width, height);
+
+  // A tall edge-to-edge surface needs its complete source card, rather than
+  // a crop that removes the outer margin while retaining only its target box.
+  if (d.out_h > d.out_w && zone.bbox[3] >= height / 2
+    && (zone.bbox[1] === 0 || zone.bbox[1] + zone.bbox[3] === height)) {
+    const w = Math.max(zone.bbox[2], height * d.out_w / d.out_h) * (1 + 2 * d.stage_margin);
+    return compose({ cx: zone.bbox[0] + zone.bbox[2] / 2, cy: height / 2,
+      z: clamp(baseWidth(width, height, d) / w, 1, zMax(width, height, d)) }, zone, boxes, width, height, d);
+  }
 
   const [x, y, zoneW, zoneH] = zone.bbox;
   // A fullscreen window gives no context framing (L1 would be the whole
@@ -428,6 +440,39 @@ function cutSettledAt(beat: Beat, arrival: number, d: CameraDefaults): number {
   return arrival;
 }
 
+/** Snap held horizontal edges into gaps between saved surface boundaries.
+ * Widen rather than deepen when one column cannot fit within the native cap.
+ * These conservative hints do not supply semantic identities or trajectories.
+ */
+function wholeElementViewport(state: CameraState, subject: Zone, zones: Zone[],
+  width: number, height: number, d: CameraDefaults): CameraFrame | undefined {
+  if (d.out_w > d.out_h || subject.type === "all") return undefined;
+  // Use this zone's context; pooling other zones could borrow bounds across a change.
+  const elements = subject.boxes?.length ? subject.boxes
+    : zones.filter(z => z.type === "win").map(z => z.bbox);
+  if (!elements.length) return undefined;
+  const stage = stageGeometry(width, height, d);
+  const current = stageFrames([toFrame(state, width, height, d)], width, height, stage, d)[0]!;
+  const margin = Math.min(16, subject.bbox[2] * .03);
+  const [sx, sy, sw, sh] = subject.bbox;
+  const edges = [0, width, ...elements.flatMap(box => [box[0] - margin, box[0] + box[2] + margin])];
+  const safe = (x: number) => x >= 0 && x <= width
+    && !elements.some(box => x > box[0] && x < box[0] + box[2]);
+  let best: CameraFrame | undefined;
+  let bestScore = Infinity;
+  for (const left of edges.filter(safe)) for (const right of edges.filter(safe)) {
+    const w = right - left, h = w * d.out_h / d.out_w;
+    if (left > sx || right < sx + sw || w < current.w - 1e-8 || w > stage.w || h > stage.h) continue;
+    const y = clamp(current.y - stage.screenY + current.h / 2 - h / 2, sy + sh - h, sy);
+    const score = w + Math.abs((left + right) / 2 - (current.x - stage.screenX + current.w / 2)) * .01;
+    if (score < bestScore) {
+      bestScore = score;
+      best = {t: 0, x: left + stage.screenX, y: y + stage.screenY, w, h};
+    }
+  }
+  return best;
+}
+
 /** Build A/B shots and idle widen targets; this is the camera timeline. */
 function buildTargets(
   shots: Shot[],
@@ -447,9 +492,22 @@ function buildTargets(
     const framed = (zone: Zone): CameraState => frame({ ...zone, boxes: inShot(zone) },
       shot.decision.L, width, height, shot.beat.window_rect, d);
     const targetA = framed(shot.zoneA);
+    const subject = withContext(shot.zoneA, inShot(shot.zoneA), width, height);
+    if (shot.portraitFill) {
+      // Preserve the active region framing; motion budgets determine arrival
+      // time rather than permanently limiting the crop to a tiny app strip.
+      const fillZoom = baseWidth(width, height, d) / (height * d.out_w / d.out_h);
+      const fitWidth = Math.max(subject.bbox[2], subject.bbox[3] * d.out_w / d.out_h) * d.hold_pad;
+      const z = Math.min(Math.max(targetA.z, fillZoom), baseWidth(width, height, d) / fitWidth, zMax(width, height, d));
+      const crop = toFrame({ ...targetA, z }, width, height, d);
+      if (clippedFractions(crop, [subject.bbox])[0] === 0
+        && clippedFractions(crop, inShot(shot.zoneA)).every(f => f === 0 || f >= HIGH_CLIP_FRACTION)) targetA.z = z;
+    }
+    const viewport = wholeElementViewport(targetA, shot.zoneA, shot.beat.zones, width, height, d);
     const result: Target[] = [{
       t: shot.arrival,
       state: targetA,
+      viewport,
       importance: shot.decision.K,
       subject: withContext(shot.zoneA, inShot(shot.zoneA), width, height),
       boxes: inShot(shot.zoneA),
@@ -463,6 +521,7 @@ function buildTargets(
       if (resultTime >= start && resultTime < end) result.push({
         t: resultTime + d.result_late,
         state: framed(shot.zoneB),
+        viewport: wholeElementViewport(framed(shot.zoneB), shot.zoneB, shot.beat.zones, width, height, d),
         importance: shot.decision.K,
         subject: withContext(shot.zoneB, inShot(shot.zoneB), width, height),
         boxes: inShot(shot.zoneB),
