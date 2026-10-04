@@ -2,13 +2,12 @@
 // source space (so they zoom with the content) and captions drawn in output space.
 // Everything here is local ffmpeg/libass work and costs zero tokens.
 import type { CameraDefaults } from "../camera/defaults.ts";
-import { zMax } from "../camera/solver.ts";
 import type { Beat, CameraFrame, TakeMeta } from "../camera/types.ts";
 
 export interface Stage {
   w: number;
   h: number;
-  /** Aspect-padded source canvas the solver frames (the source itself when it is 16:9). */
+  /** Source canvas padded to output aspect, before adding the stage margin. */
   baseW: number;
   baseH: number;
   /** Top-left of the source screen on the stage. */
@@ -82,30 +81,51 @@ export function bandLayout(width: number, height: number, d: CameraDefaults, cap
 }
 
 /** Solver viewports re-expressed as full-output viewports, for code that projects source px to output px. */
-export function bandFrames(frames: CameraFrame[], band: Band, d: CameraDefaults): CameraFrame[] {
+export function bandFrames(frames: CameraFrame[], band: Band, d: CameraDefaults, width: number, height: number): CameraFrame[] {
   const { screenX, screenY, baseW, baseH } = band.stage;
-  return frames.map(f => ({ t: f.t, x: f.x - screenX * f.w / baseW, y: f.y - screenY * f.h / baseH,
+  // The final card overlay aligns its origin to the output chroma grid.
+  const grid = d.quality === "master" ? 1 : 2;
+  const left = Math.floor(screenX / grid) * grid;
+  const top = Math.floor(screenY / grid) * grid;
+  const source = stageGeometry(width, height, d);
+  return stageFrames(frames, width, height, source, d)
+    .map(f => ({ t: f.t, x: f.x - left * f.w / baseW,
+    y: f.y - top * f.h / baseH,
     w: f.w * d.out_w / baseW, h: f.h * d.out_h / baseH }));
 }
 
 /**
- * Map solver viewports (source px) onto the stage. At rest the whole stage shows;
- * zooming eases the margin away so the deepest zoom still fills the frame with screen.
+ * Map solver viewports (stage-space source px) onto the stage. The solver and
+ * renderer share one padded viewport, so padding cannot change camera timing.
  */
 export function stageFrames(frames: CameraFrame[], width: number, height: number, st: Stage, d: CameraDefaults): CameraFrame[] {
-  const top = zMax(width, height, d);
   const aspect = d.out_w / d.out_h;
+  const portraitCrop = d.out_h > d.out_w && width / height > aspect;
+  const portraitFillWidth = height * aspect;
   return frames.map((f) => {
-    const zoom = st.baseW / f.w;
-    const keep = top > 1 ? 1 - smooth(clamp((zoom - 1) / (top - 1), 0, 1)) : 1;
-    const w = Math.min(st.w, f.w * (1 + 2 * d.stage_margin * keep));
-    const h = Math.min(st.h, w / aspect);
+    if (f.padded) return f.padded;
+    const naturalW = portraitCrop
+      ? Math.min(st.w, Math.max(portraitFillWidth, f.w))
+      : Math.min(st.w, f.w);
+    const w = naturalW;
+    let h = Math.min(st.h, w / aspect);
     const cx = f.x + f.w / 2 + st.screenX;
     const cy = f.y + f.h / 2 + st.screenY;
+    const relaxX = st.screenX === 0 ? 0 : smooth(clamp((w - width + st.screenX * 2) / (st.screenX * 4), 0, 1));
+    const relaxY = st.screenY === 0 ? 0 : smooth(clamp((h - height + st.screenY * 2) / (st.screenY * 4), 0, 1));
+    // The source-bounded and stage-bounded clamp ranges meet at the source
+    // dimensions. Switching between them there can move an edge-tracked view
+    // by an entire stage margin in one frame. Expand the allowed range smoothly.
+    const halfX = Math.max(0, (width - w) / 2 + relaxX * st.screenX);
+    const halfY = Math.max(0, (height - h) / 2 + relaxY * st.screenY);
+    const centerX = st.w / 2;
+    const centerY = st.h / 2;
     return {
       t: f.t,
-      x: clamp(cx - w / 2, 0, st.w - w),
-      y: clamp(cy - h / 2, 0, st.h - h),
+      x: portraitCrop ? clamp(cx, centerX - halfX, centerX + halfX) - w / 2
+        : w > st.w ? (st.w - w) / 2 : clamp(cx - w / 2, 0, st.w - w),
+      y: portraitCrop ? clamp(cy, centerY - halfY, centerY + halfY) - h / 2
+        : h > st.h ? (st.h - h) / 2 : clamp(cy - h / 2, 0, st.h - h),
       w,
       h,
     };

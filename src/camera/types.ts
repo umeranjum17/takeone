@@ -78,6 +78,8 @@ export interface TakeMeta {
 }
 
 export interface CameraFrame {
+  /** Exact padded viewport from the bounded planner; avoids a second edge clamp. */
+  padded?: { t: number; x: number; y: number; w: number; h: number };
   t: number; // s, relative to trim start
   x: number;
   y: number;

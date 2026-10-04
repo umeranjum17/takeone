@@ -132,9 +132,13 @@ function compose(state: CameraState, subject: Zone, boxes: Box[], width: number,
   }
 }
 
-/** Width of the output-aspect canvas the source sits in; z = 1 shows all of it. */
+/** Width of the padded output-aspect stage in source-space pixels. */
 export function baseWidth(width: number, height: number, d: CameraDefaults = DEFAULTS): number {
-  return Math.max(width, height * d.out_w / d.out_h);
+  const contentWidth = Math.max(width, height * d.out_w / d.out_h);
+  // Camera coordinates include the card's rest margin. This keeps the zoom
+  // budget attached to the final visible viewport, including at very large
+  // output sizes where the margin is needed to reach the source's native cap.
+  return contentWidth * (1 + 2 * d.stage_margin);
 }
 
 /** Deepest zoom, measured against the aspect-padded canvas, that keeps within max_upscale. */
@@ -151,14 +155,17 @@ function toFrame(
 ): CameraFrame {
   const z = clamp(state.z, 1, zMax(width, height, d));
   const aspect = d.out_w / d.out_h;
-  const nonWide = Math.abs(width / height - aspect) > 1e-9;
-  // Keep the viewport at the output aspect; padded overscan shrinks with zoom.
-  const w = nonWide ? baseWidth(width, height, d) / z : Math.min(width / z, height * aspect);
+  // The camera now moves across the padded stage itself. This makes the
+  // solver's viewport the same viewport the renderer finally exposes.
+  const w = baseWidth(width, height, d) / z;
   const h = w / aspect;
-  // An axis wider than the screen centres it (a phone card in a 16:9 frame);
-  // an axis inside it clamps, so the shot never shows past the screen's edge.
-  const place = (centre: number, view: number, size: number) =>
-    nonWide && view > size ? (size - view) / 2 : clamp(centre - view / 2, 0, Math.max(0, size - view));
+  const place = (centre: number, view: number, size: number) => {
+    if (view > size) {
+      const wideIntoPortrait = d.out_h > d.out_w && width / height > aspect;
+      return wideIntoPortrait ? centre - view / 2 : (size - view) / 2;
+    }
+    return clamp(centre - view / 2, 0, size - view);
+  };
   const x = place(state.cx, w, width);
   const y = place(state.cy, h, height);
   return { t: 0, x, y, w, h };

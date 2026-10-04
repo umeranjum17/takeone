@@ -88,12 +88,16 @@ export async function renderTake(dir: string, d?: CameraDefaults): Promise<{ out
   if (fitted !== text) captionInk = await measureCaptions(dir, captions, fitted, banded);
   text = fitted;
   const band = banded ? bandLayout(meta.width, meta.height, text, captions, captionInk) : null;
-  const stage = band?.stage ?? stageGeometry(meta.width, meta.height, d);
+  const sourceStage = stageGeometry(meta.width, meta.height, d);
+  const stage = band?.stage ?? sourceStage;
   const commandFile = join(dir, "camera.cmd");
-  // With a band the camera frames the screen alone, into the fixed card.
-  const stageCamera = band ? bandFrames(frames, band, d) : stageFrames(frames, meta.width, meta.height, stage, d);
+  // With a band, project the padded source viewport into the fixed card.
+  const stageCamera = band ? bandFrames(frames, band, d, meta.width, meta.height) : stageFrames(frames, meta.width, meta.height, stage, d);
+  await writeFile(join(dir, "render-camera.json"), JSON.stringify({ frames: stageCamera,
+    sourceOrigin: { x: sourceStage.screenX, y: sourceStage.screenY } }));
   const view = band ? { ...d, out_w: stage.baseW, out_h: stage.baseH } : d;
-  const [cameraFrames, cameraW, cameraH] = band ? [frames, meta.width, meta.height] : [stageCamera, stage.w, stage.h];
+  // Sample the padded composite at rest; zoomed viewports crop inside the source.
+  const [cameraFrames, cameraW, cameraH] = band ? [stageFrames(frames, meta.width, meta.height, sourceStage, d), sourceStage.w, sourceStage.h] : [stageCamera, stage.w, stage.h];
   const shutter = shutterPlan(cameraFrames, cameraW, cameraH, view);
   await writeFile(join(dir, "motion-blur.json"), JSON.stringify(shutter.metrics, null, 2));
   const camera = motionBlurGraph(cameraFrames, shutter, cameraW, cameraH, view);
@@ -122,15 +126,14 @@ export async function renderTake(dir: string, d?: CameraDefaults): Promise<{ out
   await writeFile(captionsFile, captionsAss);
 
   const keysFile = join(dir, "keycaps.ass");
-  const keyObstacles = keycapObstacles(outBeats, decisions, stageCamera,
-    band ? { ...stage, screenX: 0, screenY: 0 } : stage,
+  const keyObstacles = keycapObstacles(outBeats, decisions, stageCamera, sourceStage,
     trimStart, captions, captionInk, text, widePhone, band, [...spotlights, ...blurs]);
   const keys = keycapAss(outBeats, trimStart, duration, d, keyObstacles);
   const keyMaskFile = join(dir, "keycaps-mask.ass");
   await writeFile(keyMaskFile, keycapMaskAss(outBeats, trimStart, duration, d, keyObstacles));
   await writeFile(keysFile, keys);
   const spotlightFile = join(dir, "spotlight.ass");
-  const spotlight = spotlightAss(spotlights, meta.width, meta.height, view, { frames: cameraFrames, stage: band ? { ...stage, screenX: 0, screenY: 0 } : stage, shutter });
+  const spotlight = spotlightAss(spotlights, meta.width, meta.height, view, { frames: cameraFrames, stage: sourceStage, shutter });
   await writeFile(spotlightFile, spotlight);
   const keysOverlay = hasDialogue(keys) ? `,ass=${filterPath(keysFile)}:fontsdir=${filterPath(FONTS_DIR)}` : "";
 
@@ -149,9 +152,10 @@ export async function renderTake(dir: string, d?: CameraDefaults): Promise<{ out
     ...(spotlights.length ? [
       `[region${blurs.length}]null[spotlightInput]`,
       spotlightGraph(spotlights, meta.width, meta.height, duration, d, filterPath(spotlightFile))
-        .replace(/\[screen\]$/, band ? "[raw]" : "[screen]"),
-    ] : [`[region${blurs.length}]null${band ? "[raw]" : "[screen]"}`]),
+        .replace(/\[screen\]$/, band ? "[bandSource]" : "[screen]"),
+    ] : [`[region${blurs.length}]null${band ? "[bandSource]" : "[screen]"}`]),
     ...(band ? [
+      `[bandSource]format=gbrp16le,pad=${sourceStage.w}:${sourceStage.h}:${sourceStage.screenX}:${sourceStage.screenY}:color=${d.card}[raw]`,
       `${camera.replace(/^\[c4\]/, "[raw]")};[camera]null[screen]`,
       cardFilter(stage.baseW, stage.baseH, stage, d, still),
       `[c4]trim=end=${duration}[composed]`,

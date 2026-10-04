@@ -159,7 +159,7 @@ function judder(video: string, frames: CameraFrame[], meta: TakeMeta, d: typeof 
   // A banded card never moves, so track the source sidebar divider moving inside it instead.
   const rows = frameRows(video, `crop=iw:3:0:${Math.floor(d.out_h / 2)}:exact=1`);
   const st = stageGeometry(meta.width, meta.height, d);
-  const source = band ? 319 : st.screenX;
+  const source = st.screenX + (band ? 319 : 0);
   const [lo, hi] = band ? [band.stage.screenX + 8, band.stage.screenX + band.stage.baseW - 8] : [8, d.out_w - 8];
   const residuals: (number | null)[] = [];
   for (let i = 0; i < Math.min(frames.length, rows.length / (3 * d.out_w)); i++) {
@@ -303,7 +303,7 @@ async function main() {
       if (text !== initial) ink = await measureCaptions(dir, captions, text, true);
       band = bandLayout(meta.width, meta.height, text, captions, ink);
     }
-    const frames = band ? bandFrames(camera, band, d) : stageFrames(camera, meta.width, meta.height, stageGeometry(meta.width, meta.height, d), d);
+    const frames = band ? bandFrames(camera, band, d, meta.width, meta.height) : stageFrames(camera, meta.width, meta.height, stageGeometry(meta.width, meta.height, d), d);
     const probe = JSON.parse(command('ffprobe', ['-v', 'error', '-count_frames', '-show_streams', '-of', 'json', video]).toString());
     const stream = probe.streams[0];
     const timestamps = JSON.parse(command('ffprobe', ['-v', 'error', '-select_streams', 'v:0', '-show_frames', '-show_entries', 'frame=best_effort_timestamp_time', '-of', 'json', video]).toString()).frames.map((f: { best_effort_timestamp_time: string }) => Number(f.best_effort_timestamp_time));
