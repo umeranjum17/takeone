@@ -251,6 +251,7 @@ test("export ends within 1.5 seconds of the last result or cut, ignoring resting
   action.zones = [{name:"result",type:"res",bbox:[0,0,100,100],t_change:5.7}];
   const idle: Beat = { ...clickAt(10), kind:"idle", actions:[{k:"ptr",t:10000,x:10,y:10}] };
   assert.equal(purposefulEnd([action,idle],0,12,DEFAULTS),7.2);
+
   const cut: Beat = { ...clickAt(5), kind:"cut", t1:7.3, actions:[{k:"cut",t:5000}] };
   for (const beats of [[action,idle], [cut,idle]]) {
     const start = 2;
@@ -259,6 +260,7 @@ test("export ends within 1.5 seconds of the last result or cut, ignoring resting
     const result = beats[0] === cut ? cut.t1 : 5.7;
     assert.ok(Math.abs(warp(end-start,squeezes,DEFAULTS.idle_speed)
       - warp(result-start,squeezes,DEFAULTS.idle_speed) - OUTRO_TAIL_S) < 1e-9);
+
     assert.ok(squeezes.every(s => s.a >= DEFAULTS.establish_s));
     if (beats[0] === cut) assert.ok(squeezes.every(s => s.b <= cut.t0-start || s.a >= cut.t1-start));
   }

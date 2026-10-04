@@ -96,4 +96,5 @@ export function purposefulEnd(beats: Beat[], start: number, end: number, d: Came
   if (!spans.length) return end;
   const result = Math.max(start, ...spans.map(([, b]) => Math.min(end, b)));
   return Math.min(end, Math.max(start + d.establish_s, result + OUTRO_TAIL_S));
+
 }
