@@ -3,3 +3,4 @@ dist/
 *.tsbuildinfo
 tmp/
 .cache/
+data/t1-verify-adoption/evidence/

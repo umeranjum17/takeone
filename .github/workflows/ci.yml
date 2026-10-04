@@ -9,9 +9,13 @@ jobs:
       TAKEONE_CHROME: ${{ github.workspace }}/.cache/headless-shell/151.0.7922.34/chrome-headless-shell-linux64/chrome-headless-shell
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      - name: Constraint-driven-development Floor
+        run: node scripts/floor-guard.mjs --base origin/main
       - run: npm ci
       - name: Install output quality tools
         run: sudo apt-get update && sudo apt-get install -y ffmpeg tesseract-ocr unzip fonts-liberation libnss3 libatk1.0-0 libatk-bridge2.0-0 libx11-6 libxcomposite1 libxdamage1 libxrandr2 libgbm1 libasound2t64

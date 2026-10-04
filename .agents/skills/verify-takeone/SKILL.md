@@ -22,7 +22,7 @@ node bin/takeone.mjs --help   # readiness: exits 0 and prints the usage block
 
 Prerequisites: Node ≥ 22.18 (`node --version`), `ffmpeg` and `ffprobe` on PATH. Optional: `tesseract` (only for `--screen-text` OCR), Hyprland/Wayland (only for desktop recording). Planning and rendering an existing take need none of the capture prerequisites.
 
-In fleet/shared-machine contexts, every encode (`make`, `render`, `motion`, `scripts/synth-take.ts`) is heavy work: hold the home's heavy render lock (this host: `flock /home/umer/.treehouse/firstmate-8bf1b0/1/firstmate/state/takeone-heavy.lock …`) for the whole command.
+In fleet/shared-machine contexts, every encode (`make`, `render`, `motion`, `scripts/synth-take.ts`) is heavy work: hold the assigned heavy render lock for the whole proof budget (normally this host's `/home/umer/.treehouse/firstmate-8bf1b0/1/firstmate/state/takeone-heavy.lock`). A reserved release slot requires explicit coordinator assignment; do not pick another lock opportunistically. Limit the stock CLI to eight allowed CPUs with `taskset -c <eight-allowed-CPU-IDs>` when needed; inspect current affinity first, never patch the renderer to get a slot.
 
 ## Doctor
 
@@ -57,7 +57,25 @@ test -s "$TAKEONE_DIR/synth-demo/out/synth-demo.mp4"     # the proof artifact
 
 `make` rewrites `analysis/*`, `camera.json`, `camera.cmd` and `out/<id>.mp4` inside the take. `render <take-dir>` re-renders from the saved analysis without calling the planner (it prints the MP4 path on stdout). See `features/` for every mapped journey, real flags and per-feature gotchas.
 
+### verify-takeone: preserved saved-take rerender
+
+When capture or planning is not authorized, use `features/rerender-look-tweaks.md`
+with an explicitly approved saved demo take. Inventory/hash every copied input,
+verify the approved source hash, and copy only into task-local scratch. Preserve
+`screen.webm`, `take.json`, `analysis/beats.json`, original `analysis/decisions.jsonl`
+and any supplied events/metadata byte-for-byte. Drive `node bin/takeone.mjs render
+<absolute-copy-path>`; don't run `make`, which replaces analysis and decisions.
+Record whether saved beats were refreshed rather than original planner output.
+Name the real typing/dialog/drag intervals and their limits; boundary hints are not
+semantic whole-element annotations. Verify durable input hashes again afterward.
+
 ## Evidence
+
+Name `verify-takeone` in each new proof recipe. Read `CONSTRAINTS.md` and run
+`node scripts/floor-guard.mjs --base origin/main` before handoff; exits 1 and 2
+are blocking/inconclusive, not passes. `.no-mistakes.yaml` links this skill through
+published `test.instructions`, trusted-default-branch-only: pre-merge agent
+consumption is unproven until a stock validator actually receives that runbook.
 
 Proof artifacts live in a named folder inside the checkout, `tmp/evidence/verify-takeone-<YYYYMMDD-HHMMSS>/`, and must survive cleanup. Per proof capture:
 
@@ -68,7 +86,7 @@ Proof artifacts live in a named folder inside the checkout, `tmp/evidence/verify
 - Machine-checkable output facts: `ffprobe -v error -show_entries format=duration,size -show_entries stream=width,height,codec_name -of json out/<id>.mp4 > probe.json`, and the sidecars (`camera.json`, `render.log`) that prove the pipeline ran.
 - A manifest: `sha256sum * > SHA256SUMS` plus a line naming the producing commit (`git rev-parse HEAD`).
 
-Standards: exercise the real user path (published CLI flags only — no internal setters, no test-only endpoints, no importing `dist/` internals as a library); capture the action and the resulting state, not just the final screen; verify side effects are files inside the take directory. `--no-jev` is a true offline mode (zero network calls); with a stored key `make` performs real paid calls — verification drives use `--no-jev` unless the point of the proof is the planner itself. A successful encode proves the pipeline and framing decisions ran; it does not qualify camera quality — visual quality claims need human review of the actual media.
+Standards: exercise the real user path (published CLI flags only — no internal setters, no test-only endpoints, no importing `dist/` internals as a library); capture the action and the resulting state, not just the final screen; verify side effects are files inside the take directory. `--no-jev` is a true offline mode (zero network calls); with a stored key `make` performs real paid calls — verification drives use `--no-jev` unless the point of the proof is the planner itself. A successful encode proves the pipeline and framing decisions ran; it does not qualify camera quality — visual quality claims need human review of the actual media. Label rendered defects `UNQUALIFIED`; missing prerequisites and incomplete validator/product proof must be reported as failure or inconclusive, never as release qualification.
 
 ## Cleanup
 
