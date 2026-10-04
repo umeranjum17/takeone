@@ -61,7 +61,9 @@ test("render CLI rejects unknown and malformed override arguments", () => {
   }
 });
 
-test("render infers duration, then make and saved render retain typing, dialog results and trimmed drags", { timeout: 120_000, skip: needsFfmpeg }, async () => {
+// One consumer journey: inferred duration, then the real make -> saved render path over
+// typing, a revealed dialog result and drags trimmed at the video boundary, released and not.
+test("render without trim_end uses the latest beat end", { timeout: 120_000, skip: needsFfmpeg }, async () => {
   const dir = await mkdtemp(join(process.cwd(), "takeone:duration-"));
   try {
     await mkdir(join(dir, "analysis"));
