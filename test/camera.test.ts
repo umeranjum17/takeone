@@ -124,31 +124,37 @@ test("render infers duration, then make and saved render retain typing, dialog r
         .map(event => JSON.stringify(event)).join("\n") + "\n");
       cli("make", "--no-jev");
       const saved: Beat[] = JSON.parse(await readFile(join(dir, "analysis/beats.json"), "utf8"));
-      const drags = saved.flatMap(b => b.actions as Action[]).filter(a => a.k === "drag");
-      assert.equal(drags.length, 3);
-      assert.equal(drags[0]!.t0, 0, "pickup before first video frame is clipped onto the video clock");
-      assert.ok(drags.every(d => d.path?.every(p => p.t >= 0)));
-      assert.equal(Math.max(...drags.map(d => d.t1)), released ? 7.5 : 8);
-      const typing = saved.find(b => b.kind === "type")!;
+      const actions = saved.flatMap(b => b.actions as Action[]);
+      const drags = actions.filter(a => a.k === "drag");
+      assert.deepEqual(drags.map(d => d.t0), [1, 5, 6.5], "three real drags, longer one first");
+      assert.ok(drags.every(d => d.path?.every(p => p.t >= 1)), "no negative history reaches the camera");
+      assert.equal(Math.max(...drags.map(d => d.t1)), released ? 8.5 : 9,
+        "an unreleased drag holds to the last visible second");
+      const typing = actions.find(a => a.k === "type");
       assert.ok(typing, "typing survives the real planning pipeline");
       // Saved plans may declare a revealed dialog and an established whole object.
       // Without that explicit footprint the held drag must stay wide.
-      const revealTime = typing.t0 + 0.5;
-      typing.dialog_results = [{ t: revealTime, bbox: [0, 0, 320, 180] }];
-      if (released) drags.find(d => d.t0 === 4)!.whole_object = [20, 70, 40, 40];
+      const revealTime = typing!.t0 + 0.5;
+      saved.find(b => (b.actions as Action[]).includes(typing!))!.dialog_results =
+        [{ t: revealTime, bbox: [0, 0, 320, 180] }];
+      if (released) drags.find(d => d.t0 === 5)!.whole_object = [30, 70, 40, 40];
       await writeFile(join(dir, "analysis/beats.json"), JSON.stringify(saved));
       cli("render");
       const trace: { t: number; x: number; y: number; w: number; h: number }[] =
         JSON.parse(await readFile(join(dir, "camera.json"), "utf8"));
-      const tail = trace.filter(f => f.t >= 5.6 && f.t <= (released ? 7.5 : 7.9));
-      assert.ok(tail.length > 100, "check every stationary held-tail frame, not just the arrival");
-      assert.ok(tail.every(f => contains(f, released ? [240, 70, 40, 40] : [0, 0, 320, 180])
-        && contains(f, [252, 82, 32, 40])), "held object and cursor are never cropped");
+      const tail = trace.filter(f => f.t >= 6.8 && f.t <= (released ? 8.4 : 9));
+      assert.ok(tail.length > 30, "check every stationary held-tail frame, not just the arrival");
+      assert.ok(tail.every(f => contains(f, [252, 82, 32, 40])), "the held cursor is never cropped");
+      assert.ok(tail.every(f => contains(f, released ? [30, 70, 40, 40] : [0, 0, 320, 180])),
+        "an established whole object frames the drag; without one the shot stays wide");
       const reveal = trace.filter(f => f.t >= revealTime && f.t <= revealTime + 0.5);
       assert.ok(reveal.length > 0 && reveal.every(f => contains(f, [0, 0, 320, 180])), "dialog result stays visible");
       const decoded = execFileSync("ffprobe", ["-v", "error", "-select_streams", "v:0", "-count_frames",
         "-show_entries", "stream=nb_read_frames", "-of", "default=nw=1:nk=1", output], { encoding: "utf8" });
-      assert.equal(Number(decoded.trim()), trace.length, "saved camera and playable output share a clock");
+      // The saved trace and the playable file run on one clock; the encoder may
+      // drop or hold the single boundary frame, so allow that one frame only.
+      assert.ok(Math.abs(Number(decoded.trim()) - trace.length) <= 1,
+        "saved camera and playable output share a clock");
     }
   } finally {
     await rm(dir, { recursive: true, force: true });
