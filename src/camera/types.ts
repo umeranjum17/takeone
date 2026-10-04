@@ -38,6 +38,8 @@ export interface Beat {
   dialog_results?: { t: number; bbox: [number, number, number, number] }[];
   /** Cut beats: changed_frac at each analysis frame after the cut (video-relative s). */
   changed_frac?: { t: number; f: number }[];
+  /** Render-time only: a cut removed the anchor or all zones; surviving actions still draw clicks. */
+  camera_suppressed?: boolean;
 }
 
 export interface Decision {
@@ -53,7 +55,12 @@ export interface Decision {
   input_tokens?: number;
 }
 
-export interface TakeMeta {
+export interface TakeEdits {
+  /** Remove half-open intervals, in video-relative seconds. */
+  cuts?: { t0: number; t1: number }[];
+}
+
+export interface TakeMeta extends TakeEdits {
   /** Mobile capture renders inside a handset frame. */
   device?: "android" | "ios";
   theme?: string;

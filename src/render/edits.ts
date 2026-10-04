@@ -1,7 +1,18 @@
 // Validation of take.json edit fields at the JSON trust boundary.
-import type { ManualZoom } from "../camera/types.ts";
+// One source-to-output clock for footage, camera, clicks and caption starts.
+import type { CameraDefaults } from "../camera/defaults.ts";
+import type { Beat, ManualZoom, TakeMeta } from "../camera/types.ts";
+import { idleSqueezes } from "./pace.ts";
 
 interface Span { t0: number; t1: number }
+export interface EditSpan extends Span { rate: number; out: number }
+export interface EditTimeline {
+  spans: EditSpan[];
+  duration: number;
+  at: (source: number) => number;
+  contains: (source: number) => boolean;
+  filter: string;
+}
 
 const finite = (n: unknown): n is number => typeof n === "number" && Number.isFinite(n);
 function fail(field: string): never { throw new Error(`take.json: invalid ${field}`); }
@@ -34,4 +45,88 @@ export function validateZooms(zooms: unknown, width: number, height: number): vo
     return z;
   });
   ordered(spans, "zooms");
+}
+
+/** Validate even cuts outside the current trim, before writing render artifacts. */
+export function validateEdits(meta: TakeMeta): void {
+  if (meta.cuts !== undefined && !Array.isArray(meta.cuts)) fail("cuts");
+  for (const [i, cut] of (meta.cuts ?? []).entries()) {
+    if (!cut || !finite(cut.t0) || !finite(cut.t1) || cut.t0 < 0 || cut.t1 <= cut.t0) fail(`cuts[${i}]`);
+  }
+  const cuts = [...(meta.cuts ?? [])].sort((a, b) => a.t0 - b.t0);
+  for (let i = 1; i < cuts.length; i++) {
+    if (cuts[i]!.t0 < cuts[i - 1]!.t1) fail("cuts: overlapping intervals");
+  }
+  if (meta.trim_start !== undefined && (!finite(meta.trim_start) || meta.trim_start < 0)) fail("trim_start");
+  if (meta.trim_end !== undefined && (!finite(meta.trim_end) || meta.trim_end <= (meta.trim_start ?? 0))) fail("trim_end");
+}
+
+/** Cuts override automatic idle pacing. All intervals are half-open. */
+export function editTimeline(meta: TakeMeta, beats: Beat[], start: number, end: number, d: CameraDefaults): EditTimeline {
+  validateEdits(meta);
+  if (!finite(start) || !finite(end) || start < 0 || end <= start) fail("trim");
+  const cuts = meta.cuts ?? [];
+  const idle = idleSqueezes(beats, start, end, d).map(s => ({ t0: s.a + start, t1: s.b + start }));
+  const boundaries = [...new Set([start, end, ...[...cuts, ...idle]
+    .flatMap(s => [s.t0, s.t1]).filter(t => t > start && t < end)])].sort((a, b) => a - b);
+  const spans: EditSpan[] = [];
+  const includes = (s: Span, t: number) => t >= s.t0 && t < s.t1;
+  let duration = 0;
+  for (let i = 0; i + 1 < boundaries.length; i++) {
+    const t0 = boundaries[i]!, t1 = boundaries[i + 1]!;
+    const rate = cuts.some(s => includes(s, t0)) ? 0 : idle.some(s => includes(s, t0)) ? d.idle_speed : 1;
+    const previous = spans.at(-1);
+    if (previous?.rate === rate) previous.t1 = t1;
+    else spans.push({ t0, t1, rate, out: duration });
+    if (rate > 0) duration += (t1 - t0) / rate;
+  }
+  if (duration <= 0) fail("cuts: no footage remains");
+  const at = (t: number) => {
+    if (t <= start) return 0;
+    if (t >= end) return duration;
+    const span = spans.find(s => includes(s, t))!;
+    return span.out + (span.rate === 0 ? 0 : (t - span.t0) / span.rate);
+  };
+  const contains = (t: number) => spans.some(s => s.rate > 0 && includes(s, t));
+  // Both expressions consume trim-relative seconds without rounding the clock.
+  const terms = spans.filter(s => s.rate !== 1).map(s =>
+    `${s.rate === 0 ? 1 : 1 - 1 / s.rate}*clip(T-${s.t0 - start},0,${s.t1 - s.t0})`);
+  const removed = spans.filter(s => s.rate === 0).map(s => `gte(t,${s.t0 - start})*lt(t,${s.t1 - start})`);
+  const filter = "setpts=PTS-STARTPTS"
+    + (removed.length ? `,select='not(${removed.join("+")})'` : "")
+    + (terms.length ? `,setpts='(T-(${terms.join("+")}))/TB'` : "");
+  return { spans, duration, at, contains, filter };
+}
+
+/** Remove discarded events, then warp every remaining timestamp on the same clock. */
+export function editBeats(beats: Beat[], clock: EditTimeline, start: number): Beat[] {
+  const s = (t: number) => t < start ? t : start + clock.at(t);
+  const ms = (t: number) => s(t / 1000) * 1000;
+  return beats.flatMap(beat => {
+    if (clock.at(beat.t1) <= clock.at(beat.t0)) return [];
+    const t0 = s(beat.t0), t1 = s(beat.t1);
+    const actions = beat.actions.flatMap(action => {
+      const a = action as { t?: number; t0?: number; t1?: number; path?: { t: number; x: number; y: number }[] };
+      if (a.t !== undefined) return clock.contains(a.t / 1000) ? [{ ...a, t: ms(a.t) }] : [];
+      if (a.t0 !== undefined && a.t1 !== undefined) {
+        if (clock.at(a.t1 / 1000) <= clock.at(a.t0 / 1000)) return [];
+        // A press before trim is context; a press removed inside trim cannot be invented.
+        if ((a as { k?: string }).k === "drag" && a.t0 / 1000 >= start && !clock.contains(a.t0 / 1000)) return [];
+        return [{ ...a, t0: ms(a.t0), t1: ms(a.t1),
+          ...(a.path ? { path: a.path.filter(p => p.t / 1000 < start || clock.contains(p.t / 1000)).map(p => ({ ...p, t: ms(p.t) })) } : {}),
+        }];
+      }
+      return [a];
+    });
+    const zones = beat.zones.filter(zone => zone.t_change === undefined || zone.t_change < start || clock.contains(zone.t_change))
+      .map(zone => zone.t_change === undefined ? zone : { ...zone, t_change: s(zone.t_change) });
+    return [{ ...beat, t0, t1, anchor_t: s(beat.anchor_t), actions,
+      camera_suppressed: Boolean(beat.camera_suppressed)
+        || clock.spans.some(span => span.rate === 0 && beat.anchor_t >= span.t0 && beat.anchor_t < span.t1)
+        || zones.length === 0,
+      dialog_results: beat.dialog_results?.filter(result => clock.contains(result.t)).map(result => ({ ...result, t: s(result.t) })),
+      zones,
+      changed_frac: beat.changed_frac?.filter(sample => clock.contains(sample.t)).map(sample => ({ ...sample, t: s(sample.t) })),
+    }];
+  });
 }
