@@ -36,7 +36,7 @@ Test-diet-journey: <existing-test-path> :: <specific affected journey>
 Test-change-reason: <why that integration/e2e journey preserves required coverage>
 ```
 
-The referenced journey must exist at the merge base and remain unchanged. Review
+The referenced test must exist at the merge base and remain present; it may be extended. Review
 must verify it really drives and covers the affected journey: trailers alone are
 not coverage proof. Uncommitted deletions, new skips and assertion removals block.
 New exceptions and relaxed thresholds are reported, not silently accepted.
