@@ -6,12 +6,13 @@ import { resolveTheme } from "../themes.ts";
 import { basename, join, resolve } from "node:path";
 import type { CameraDefaults } from "../camera/defaults.ts";
 import { actionCameraMilliseconds } from "../beats/clock.ts";
-import { solveCamera } from "../camera/solver.ts";
+import { manualZoomLimitWarning, solveCamera } from "../camera/solver.ts";
 import type { Beat, Decision, TakeMeta } from "../camera/types.ts";
 import { blurGraph, keycapAss, keycapBackdropGraph, keycapMaskAss, keycapObstacles, overlayRegions, spotlightAss, spotlightGraph } from "./overlays.ts";
 import { motionBlurGraph, shutterPlan } from "./motion-blur.ts";
 import { idleSqueezes, setptsExpr, warp, warpBeats } from "./pace.ts";
 import { phoneTapShots } from "./phone.ts";
+import { validateZooms } from "./edits.ts";
 import {
   bandEligible, bandFrames, bandLayout, bandText, beatClicks, captionAss, cardFilter, clickAss, measureAss, stageFrames, stageGeometry, stageImageFilter,
   takeCaptions, type Caption, type CaptionInk,
@@ -50,6 +51,7 @@ export async function renderTake(dir: string, d?: CameraDefaults): Promise<{ out
   d ??= resolveTheme(meta.theme);
   const phone = meta.device !== undefined && meta.height > meta.width;
   if (phone) d = { ...d, corner_radius: 36, stage_margin: Math.max(0.16, d.stage_margin) };
+  validateZooms(meta.zooms, meta.width, meta.height);
   const beats = JSON.parse(await readFile(join(dir, "analysis/beats.json"), "utf8")) as Beat[];
   // The planner stores seconds; the existing FOLLOW solver consumes action timestamps in ms.
   if ("stream" in meta) for (const beat of beats) beat.actions = beat.actions.map(actionCameraMilliseconds);
@@ -59,6 +61,8 @@ export async function renderTake(dir: string, d?: CameraDefaults): Promise<{ out
 
   const trimEnd = meta.trim_end ?? Math.max(0, ...beats.map((beat) => beat.t1));
   const trimStart = meta.trim_start ?? 0;
+  const cameraWarning = manualZoomLimitWarning(meta, d);
+  if (cameraWarning) console.warn(cameraWarning);
   // Everything after this point runs on the output clock, with idle gaps squeezed.
   const squeezes = idleSqueezes(beats, trimStart, trimEnd, d);
   const outTime = (t: number) => warp(t - trimStart, squeezes, d.idle_speed);

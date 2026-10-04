@@ -75,6 +75,16 @@ export interface TakeMeta {
   title?: string;
   /** Optional captions in video-relative seconds; `d` defaults to 3. */
   captions?: { t: number; d?: number; text: string; position?: "top" | "bottom" }[];
+  /** Source-pixel regions; requested arrival at t0, automatic framing resumes at t1. */
+  zooms?: ManualZoom[];
+}
+
+export interface ManualZoom {
+  t0: number;
+  t1: number;
+  bbox: [number, number, number, number];
+  /** 0 = whole screen; 1..3 use the camera's context / medium / tight padding. */
+  level?: 0 | 1 | 2 | 3;
 }
 
 export interface CameraFrame {

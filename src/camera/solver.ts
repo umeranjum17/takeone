@@ -1,4 +1,5 @@
 import { applyDragVisibility, gestures } from "./gesture.ts";
+import { stageFrames, stageGeometry } from "../render/stage.ts";
 import { WIN_MAX_COVER } from "../beats/zones.ts";
 import { DEFAULTS, type CameraDefaults } from "./defaults.ts";
 import type {
@@ -140,6 +141,23 @@ export function baseWidth(width: number, height: number, d: CameraDefaults = DEF
 /** Deepest zoom, measured against the aspect-padded canvas, that keeps within max_upscale. */
 export function zMax(width: number, height: number, d: CameraDefaults = DEFAULTS): number {
   return Math.max(1, baseWidth(width, height, d) / (d.out_w / d.max_upscale));
+}
+
+/** Describe manual requests reduced by the native-pixel upscale ceiling. */
+export function manualZoomLimitWarning(take: TakeMeta, d: CameraDefaults = DEFAULTS): string | undefined {
+  const limit = zMax(take.width, take.height, d);
+  const uncappedDefaults = { ...d, max_upscale: 1e9 };
+  const capped = (take.zooms ?? []).flatMap((zoom, index) => {
+    const region: Zone = { name: "manual", type: "act", bbox: zoom.bbox };
+    const requested = frame(region, zoom.level ?? 2, take.width, take.height, undefined, uncappedDefaults).z;
+    if (requested <= limit + 1e-8) return [];
+    const stage = stageGeometry(take.width, take.height, d);
+    const state = frame(region, zoom.level ?? 2, take.width, take.height, undefined, d);
+    const emitted = stageFrames([toFrame(state, take.width, take.height, d)], take.width, take.height, stage, d)[0]!;
+    const achieved = baseWidth(take.width, take.height, d) / Math.min(emitted.w, stage.w, stage.h * d.out_w / d.out_h);
+    return [`zoom ${index + 1}: requested ${requested.toFixed(2)}x, achieved ${achieved.toFixed(2)}x`];
+  });
+  return capped.length ? `Camera upscale limit capped manual framing (${capped.join("; ")}).` : undefined;
 }
 
 /** Convert a camera centre to an output-aspect viewport, allowing padded overscan. */
