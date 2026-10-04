@@ -1,0 +1,17 @@
+# Published schema: https://kunchenguid.github.io/no-mistakes/reference/repo-config/
+# test.instructions is trusted-default-branch-only; this branch cannot self-enable it.
+test:
+  instructions: |
+    Read .agents/skills/verify-takeone/SKILL.md (verify-takeone) and its relevant
+    feature recipe before validation. Name verify-takeone in each new proof recipe.
+    Read CONSTRAINTS.md and run node scripts/floor-guard.mjs --base origin/main;
+    exit 1 blocks the change and exit 2 is inconclusive, never a pass.
+    Use existing integration/e2e journeys and the supported public CLI, isolated
+    takes/state roots, and approved saved demo inputs when new capture or planning
+    is not authorized. Preserve source/metadata hashes and original decisions.
+    Hold the assigned heavy lock for the whole heavy budget; use eight threads.
+    Save the actual MP4, a decoded still/contact sheet, sidecars, commands, exits,
+    input/output hashes and candidate HEAD outside the code branch. Label rendered
+    defects UNQUALIFIED. No planner/provider/paid calls without explicit authority.
+    A missing prerequisite, failing command or incomplete real-product proof is
+    no-go or inconclusive with the actual cause, never an invented pass.
