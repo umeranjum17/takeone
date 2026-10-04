@@ -5,7 +5,7 @@
   "description": "Turn a raw screen recording into a polished demo.",
   "type": "module",
   "engines": {
-    "node": ">=22.18"
+    "node": ">=22.19.0"
   },
   "bin": {
     "takeone": "./bin/takeone.mjs"
