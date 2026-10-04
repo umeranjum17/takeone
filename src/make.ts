@@ -412,9 +412,11 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
   writeFileSync(join(analysisDir, "decisions.jsonl"), renderDecisions.map((d) => JSON.stringify(d)).join("\n") + "\n");
   const jev = { input_tokens: inputTokens, usd, failed };
   take.jev = jev;
+  // Only a caller's own trim end bounds the export; otherwise render derives the purposeful end.
   const renderMeta: RenderMeta = {
     id: take.id, width: take.stream.w, height: take.stream.h,
-    trim_start: seconds(startMs), trim_end: seconds(endMs),
+    trim_start: seconds(startMs),
+    ...(take.trim?.end === undefined ? {} : { trim_end: seconds(endMs) }),
   };
   writeFileSync(join(dir, "take.json"), JSON.stringify({ ...take, ...renderMeta }, null, 1) + "\n");
   const { out, seconds: renderSeconds } = await renderTake(dir, camera);
