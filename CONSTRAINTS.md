@@ -8,7 +8,7 @@ checks remain authoritative; this is not a release-quality qualification.
 
 - No new suppression comments: TypeScript, lint, coverage and security checkers must not be silenced.
 - No unimplemented stubs: no not-implemented throws or empty catches hiding failures.
-- No skipped or deleted tests without a reason in the commit message: retain required consumer coverage.
+- No new skipped tests or assertion removals: only test-diet deletions meeting the exception below are allowed.
 - No secrets in source: findings must never print matched credential values.
 - No weakening this file or existing motion, VMAF, quality, privacy or custody bars to make a change pass.
 
@@ -36,7 +36,7 @@ Test-diet-journey: <existing-test-path> :: <specific affected journey>
 Test-change-reason: <why that integration/e2e journey preserves required coverage>
 ```
 
-The referenced test must exist at the merge base and remain present; it may be extended. Review
-must verify it really drives and covers the affected journey: trailers alone are
-not coverage proof. Uncommitted deletions, new skips and assertion removals block.
+The referenced test must exist at the merge base and remain present; it may be
+extended. Review must verify it really drives and covers the affected journey:
+trailers alone are not coverage proof. Uncommitted deletions, new skips and assertion removals block.
 New exceptions and relaxed thresholds are reported, not silently accepted.

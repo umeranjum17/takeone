@@ -71,13 +71,13 @@ semantic whole-element annotations. Verify durable input hashes again afterward.
 
 ## Evidence
 
-Name `verify-takeone` in each new proof recipe. Read `CONSTRAINTS.md` and run
-`node scripts/floor-guard.mjs --base origin/main` before handoff; exits 1 and 2
-are blocking/inconclusive, not passes. `.no-mistakes.yaml` links this skill through
+Name `verify-takeone` in each new proof recipe. Follow [CONSTRAINTS.md](../../../CONSTRAINTS.md)
+for the Floor command, exit meanings and test-diet exception.
+`.no-mistakes.yaml` links this skill through
 published `test.instructions`, trusted-default-branch-only: pre-merge agent
 consumption is unproven until a stock validator actually receives that runbook.
 
-Proof artifacts live in a named folder inside the checkout, `tmp/evidence/verify-takeone-<YYYYMMDD-HHMMSS>/`, and must survive cleanup. Per proof capture:
+Proof artifacts live in a named folder inside the checkout, `tmp/evidence/verify-takeone-<YYYYMMDD-HHMMSS>/`, and must survive cleanup. This ignored folder keeps evidence outside the committed code branch. Per proof capture:
 
 - The command lines run and their exit codes.
 - The real output files the command produced: copy the rendered `out/<id>.mp4` into the evidence folder, plus a still extracted from it —
