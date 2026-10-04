@@ -98,9 +98,12 @@ for (const { file, text } of added) {
 }
 
 // 2b. A test file deleted, or an assertion removed from a test file that still exists.
+// The documented test-diet exception (CONSTRAINTS.md) applies to both shapes: a deletion inside a
+// surviving test file is what an intentional test-diet PR actually looks like, so without the
+// testDiet check here the exception would be unreachable for the only case it exists for.
 for (const f of deleted) if (isTest(f) && !testDiet(f)) flag('test-deleted', f);
 for (const { file, text } of removed) {
-  if (isTest(file) && !deleted.includes(file) && /\b(expect|assert|should)\b/.test(text)) {
+  if (isTest(file) && !deleted.includes(file) && !testDiet(file) && /\b(expect|assert|should)\b/.test(text)) {
     flag('assertion-removed', file, text);
   }
 }
