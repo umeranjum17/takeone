@@ -77,7 +77,7 @@ for the Floor command, exit meanings and test-diet exception.
 published `test.instructions`, trusted-default-branch-only: pre-merge agent
 consumption is unproven until a stock validator actually receives that runbook.
 
-Proof artifacts live in a named folder inside the checkout, `tmp/evidence/verify-takeone-<YYYYMMDD-HHMMSS>/`, and must survive cleanup. This ignored folder keeps evidence outside the committed code branch. Per proof capture:
+Proof artifacts live in a named folder inside the checkout, `tmp/evidence/verify-takeone-<YYYYMMDD-HHMMSS>/`, and must survive cleanup; a user-visible change adds the dark/light, phone/desktop and per-interaction motion passes of "Review evidence (fleet standard)" below. This ignored folder keeps evidence outside the committed code branch. Per proof capture:
 
 - The command lines run and their exit codes.
 - The real output files the command produced: copy the rendered `out/<id>.mp4` into the evidence folder, plus a still extracted from it —
@@ -87,6 +87,78 @@ Proof artifacts live in a named folder inside the checkout, `tmp/evidence/verify
 - A manifest: `sha256sum * > SHA256SUMS` plus a line naming the producing commit (`git rev-parse HEAD`).
 
 Standards: exercise the real user path (published CLI flags only — no internal setters, no test-only endpoints, no importing `dist/` internals as a library); capture the action and the resulting state, not just the final screen; verify side effects are files inside the take directory. `--no-jev` is a true offline mode (zero network calls); with a stored key `make` performs real paid calls — verification drives use `--no-jev` unless the point of the proof is the planner itself. A successful encode proves the pipeline and framing decisions ran; it does not qualify camera quality — visual quality claims need human review of the actual media. Label rendered defects `UNQUALIFIED`; missing prerequisites and incomplete validator/product proof must be reported as failure or inconclusive, never as release qualification.
+
+## Review evidence (fleet standard)
+
+Every user-visible change ships proof for all three kinds below in the same run's
+`tmp/evidence/verify-takeone-<YYYYMMDD-HHMMSS>/` folder. takeone is a CLI with no
+window and no stylesheet of its own, so a "screen" here is a rendered frame, a
+"theme" is the look token set handed to `make`/`render`/`motion`, and a "form
+factor" is the export geometry. Each pass names the command that produces it.
+
+### Theme: dark and light
+
+```sh
+cp -r <planned-take> "$TAKEONE_DIR/theme-dark"; cp -r <planned-take> "$TAKEONE_DIR/theme-light"
+node bin/takeone.mjs render "$TAKEONE_DIR/theme-dark"  --theme midnight   # dark
+node bin/takeone.mjs render "$TAKEONE_DIR/theme-light" --theme paper      # light
+ffmpeg -y -ss <t> -i "$TAKEONE_DIR/theme-dark/out/<id>.mp4"  -frames:v 1 takeone-<feature>-dark.png
+ffmpeg -y -ss <t> -i "$TAKEONE_DIR/theme-light/out/<id>.mp4" -frames:v 1 takeone-<feature>-light.png
+```
+
+Extract both stills at the `<before>` timestamp so the pairs compare. Dark themes:
+`midnight` (default), `aurora`, `mono`, `neon`, `terminal`. Light themes: `paper`,
+`sand`, `brutalist`, `editorial` (`src/themes.ts`). One dark plus one light is the
+floor; add another name from the relevant class when the change touches that token
+(`display_font`, `bg_style`, `bg_pattern`, grain). `make --theme <name>` is the
+one-drive equivalent. Copy the take per theme — `render` overwrites `out/<id>.mp4`
+in place. **Not applicable:** motion takes reject `--theme`/`--set` by design
+(`features/motion-films.md`); for a motion change the look pass is captured by
+editing `storyboard.json` and rerendering, and say so rather than substituting a
+placeholder capture.
+
+### Form factor: phone and desktop
+
+```sh
+node bin/takeone.mjs make <take-dir> --no-jev --set out_w=1080 --set out_h=1920  # phone/portrait
+node bin/takeone.mjs make <take-dir> --no-jev --set out_w=1920 --set out_h=1080  # desktop/wide
+```
+
+ffprobe both `out/<id>.mp4` files into `probe.json` and keep one still from each;
+`make` overwrites `out/<id>.mp4`, so copy each render out of the take before the
+next. Phone-shaped offline fixture when no phone recording exists:
+`node scripts/synth-portrait.ts "$TAKEONE_DIR/phone-demo"` (1080×2400, taps and a
+swipe); desktop fixture: `node scripts/synth-take.ts "$TAKEONE_DIR/synth-demo"`.
+For a motion change the same two passes are `--device phone` and `--device laptop`
+(or `browser`/`none`). **Not applicable, with the reason:** a phone-form render of a
+16:9 desktop recording only re-frames the source (crop/pad) — there is no responsive
+layout in takeone to miss — so that pass is stated as a re-frame, never presented as
+a phone UI. A true phone pass needs a portrait take (`takeone record --android`,
+or the portrait fixture above); on a host without `adb`/a dedicated device, record
+the phone cell as not applicable and quote the doctor row or tool error.
+
+### Motion recording per changed interaction
+
+takeone renders video, so `out/<id>.mp4` is the motion recording: copy it as
+`takeone-<feature>-motion.mp4` and add a contact sheet —
+`ffmpeg -y -i out/<id>.mp4 -vf "fps=1/4,scale=320:-1,tile=4x3" -frames:v 1 takeone-<feature>-motion-sheet.png`.
+One per changed interaction (feature 1/2: the whole take render; feature 3: the
+rerender; feature 5: each motion film). When the change is an interaction the user
+performs on screen — click, type, drag — drive the real states through motion so
+the recording shows them happening:
+
+```sh
+node bin/takeone.mjs motion <page.html|image.png> --out "$TAKEONE_DIR/interaction" \
+  --state 'edited=click #id; type #id "Ship it"; wait 300' --device phone   # one state per invocation
+```
+
+That needs the pinned headless shell (`doctor` row `motion-shell`; `takeone motion
+install-shell`, network once) and a realistic scene — `scripts/e2e/scene.html`, never
+a flat grey page. **Not applicable, with the reason:** a `record`-only change
+(capture, Hyprland, evdev) has no offline renderer pass — its motion proof is
+`takeone record` on a dedicated empty workspace or test device, and on a host where
+`doctor` reports `hyprland,false` say so and drive the Android/emulator route or
+report the capture path unverifiable rather than faking it.
 
 ## Cleanup
 
