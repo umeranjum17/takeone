@@ -4,7 +4,7 @@ The offline board fixture produces a normal take without opening a display,
 portal, input device, phone, or account. All content is fictional; its demo user
 is Umer. This is an asset-production script, not a new recording mode.
 
-On Linux x86_64 with Node 22.18+, ffmpeg (libvpx-vp9), unzip and Chromium's shared
+On Linux x86_64 with Node meeting the [installation requirements](../README.md#download--install), ffmpeg (libvpx-vp9), unzip and Chromium's shared
 libraries installed:
 
 ```sh
