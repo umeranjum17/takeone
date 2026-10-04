@@ -17,7 +17,7 @@ const clickAt = (t: number): Beat => ({
 test("idle gaps squeeze and the setpts expression matches warp", () => {
   const squeezes = idleSqueezes([clickAt(1), clickAt(9)], 0, 12, DEFAULTS);
   // 1 s kept around each click; the 6 s gap between plays at idle_speed.
-  assert.deepEqual(squeezes, [{ a: 2, b: 8 }, { a: 10, b: 12 }]);
+  assert.deepEqual(squeezes, [{ a: 2, b: 8 }]);
   assert.equal(warp(5, squeezes, 4), 2 + 3 / 4);
   const expr = setptsExpr(squeezes, 4).replace(/\/TB$/, "");
   for (const t of [0, 1.5, 5, 9, 11, 12]) {
@@ -246,11 +246,22 @@ test("a simultaneous title stacks above the caption", {skip:!hasFfmpeg()}, () =>
 });
 
 
-test("export ends within 1.5 seconds of the last result, ignoring resting pointers", () => {
+test("export preserves a full output-clock outro after results and cut settling", () => {
   const action = clickAt(5);
   action.zones = [{name:"result",type:"res",bbox:[0,0,100,100],t_change:5.7}];
   const idle: Beat = { ...clickAt(10), kind:"idle", actions:[{k:"ptr",t:10000,x:10,y:10}] };
-  assert.equal(purposefulEnd([action,idle],0,12,DEFAULTS),7.2);
+  assert.equal(purposefulEnd([action,idle],0,12,DEFAULTS),7.3);
+  const cut: Beat = { ...clickAt(5), kind:"cut", t1:7.3, actions:[{k:"cut",t:5000}] };
+  for (const beats of [[action,idle], [cut,idle]]) {
+    const start = 2;
+    const end = purposefulEnd(beats,start,12,DEFAULTS);
+    const squeezes = idleSqueezes(beats,start,end,DEFAULTS);
+    const result = beats[0] === cut ? cut.t1 : 5.7;
+    assert.ok(Math.abs(warp(end-start,squeezes,DEFAULTS.idle_speed)
+      - warp(result-start,squeezes,DEFAULTS.idle_speed) - DEFAULTS.outro_s) < 1e-9);
+    assert.ok(squeezes.every(s => s.a >= DEFAULTS.establish_s));
+    if (beats[0] === cut) assert.ok(squeezes.every(s => s.b <= cut.t0-start || s.a >= cut.t1-start));
+  }
   assert.equal(purposefulEnd([action,idle],0,12,{...DEFAULTS,outro_s:0}),12);
   assert.equal(purposefulEnd([action],0,6,DEFAULTS),6);
 });
