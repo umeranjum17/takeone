@@ -917,16 +917,18 @@ export function solveCamera(
     kind: quietShots.some((shot) => shot.beat === beat) ? beat.kind : "idle",
     actions: quietShots.some((shot) => shot.beat === beat) ? beat.actions : [],
   })), decisionMap, width, height, start, end, d, project);
-  const frames = applyDragVisibility(sampled, visibleBeats, width, height, start, d);
-  if (d.outro_s <= 0) return frames;
   // Bookends are editorial boundaries, independent of action dwell, move caps
   // and pointer follow. Ease out before the outro, then hold the exact stage.
-  const wide = toFrame({ cx: width / 2, cy: height / 2, z: 1 }, width, height, d);
-  const arrival = Math.max(0, end - start - d.outro_s);
+  // Drag visibility is applied last, so a drag-safe viewport is never discarded.
+  const wide = d.outro_s > 0 ? toFrame({ cx: width / 2, cy: height / 2, z: 1 }, width, height, d) : null;
+  const arrival = wide ? Math.max(0, end - start - d.outro_s) : 0;
   const moveStart = arrival - d.move_t_max;
-  if (moveStart <= d.establish_s) return frames.map(f => ({ ...wide, t: f.t }));
-  const origin = frames[Math.floor(moveStart * d.fps)]!;
-  return frames.map(f => {
+  if (!wide || moveStart <= d.establish_s) {
+    return applyDragVisibility(wide ? sampled.map(f => ({ ...wide, t: f.t })) : sampled,
+      visibleBeats, width, height, start, d);
+  }
+  const origin = sampled[Math.floor(moveStart * d.fps)]!;
+  return applyDragVisibility(sampled.map(f => {
     if (f.t < moveStart) return f;
     if (f.t >= arrival) return { ...wide, t: f.t };
     const u = smooth((f.t - moveStart) / (arrival - moveStart));
@@ -935,5 +937,5 @@ export function solveCamera(
     return { t: f.t, w, h,
       x: lerp(origin.x + origin.w / 2, wide.x + wide.w / 2, u) - w / 2,
       y: lerp(origin.y + origin.h / 2, wide.y + wide.h / 2, u) - h / 2 };
-  });
+  }), visibleBeats, width, height, start, d);
 }

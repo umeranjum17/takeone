@@ -7,9 +7,6 @@ import type { Beat } from "../camera/types.ts";
 /** A trim-relative span played at `idle_speed`. */
 export interface Squeeze { a: number; b: number }
 
-/** The export ends this soon after the last action, cut or detected result. */
-export const OUTRO_TAIL_S = 1.5;
-
 /** Activity spans in video-relative seconds from beat anchors, actions (ms) and screen results. */
 function activity(beats: Beat[]): [number, number][] {
   const spans: [number, number][] = [];
@@ -88,6 +85,7 @@ export function warpBeats(beats: Beat[], start: number, squeezes: Squeeze[], spe
 
 /** End on the final action/result, rather than the recorder's trailing inactivity.
  * Input actions use the solver clock (milliseconds), results use seconds.
+ * The tail is the outro itself, so the result is on the whole stage for all of it.
  * Keep enough opening footage for an establishing shot on very short takes.
  */
 export function purposefulEnd(beats: Beat[], start: number, end: number, d: CameraDefaults): number {
@@ -95,6 +93,5 @@ export function purposefulEnd(beats: Beat[], start: number, end: number, d: Came
   const spans = activity(beats).filter(([a, b]) => a <= end && b >= start);
   if (!spans.length) return end;
   const result = Math.max(start, ...spans.map(([, b]) => Math.min(end, b)));
-  return Math.min(end, Math.max(start + d.establish_s, result + OUTRO_TAIL_S));
-
+return Math.min(end, Math.max(start + d.establish_s, result + d.outro_s));
 }
