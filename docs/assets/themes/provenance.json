@@ -1,1 +1,52 @@
-{"artifacts":{"aurora.png":"86ea00900b7eb114c88cee1fe49a1ff053abf7861d8afba6b51ea5f9d0b8ea3c","editorial.png":"38e250bc4a2642cc796575188accaf16e7f93d4c88beef2d35bba869af99a880","midnight.png":"946c2ec436b0c1408e78029acb9b9a17987c64c71ac91c25460187add3b28911","mono.png":"a843e883b42368fc3b9d9ff37ecb6e5d8080ff5044f35c237adbf9783d33c305","paper.png":"abd5a5098918618049919b7e0a3fe1b35602cf1c61e35686db3bf11da64c0b25","sand.png":"b2c79c91a267f5a02c927522fd7dddfa85122724f644a8db25100a91fd88bf0d","takeone-themes-grid.png":"930cea57fa9c0f1cf791aeb9cf3b9f4a2a066cde79bc83e7773311d67f6069ad"},"frame_seconds":1.6,"generator":"node bin/takeone.mjs render <copy> --theme <name>, then ffmpeg -ss 1.6 -frames:v 1 still per theme","grid":{"cell":"640x360 with label bar above","columns":3,"height":792,"labels":["sand - proven","editorial - proven","paper - proven","midnight - deferred","aurora - deferred","mono - deferred"],"width":1920},"proof":{"aurora":{"fade_cambi_max":12.419,"status":"deferred","whole_cambi_max":8.957},"editorial":{"fade_cambi_max":0.001,"status":"proven","whole_cambi_max":0.009},"midnight":{"fade_cambi_max":9.812,"status":"deferred","whole_cambi_max":3.542},"mono":{"fade_cambi_max":7.446,"status":"deferred","whole_cambi_max":0.813},"paper":{"fade_cambi_max":0.001,"status":"proven","whole_cambi_max":0.006},"sand":{"fade_cambi_max":0.001,"status":"proven","whole_cambi_max":0.009}},"proof_note":"proven: sand, editorial, paper with fade CAMBI max <=0.001 and whole-take max <=0.009; deferred: midnight, aurora, mono rendered before the fade dither fix, fix-render pending in a follow-up","source":"real take headless-demo rendered at 1080p60 on this branch","themes":["midnight","paper","aurora","mono","sand","editorial"]}
+{
+  "artifacts": {
+    "aurora.png": "9d929aa7f60a18d0767a54e3bcb8dc3b5866bfc7f13ed8b954bf2567fc282b88",
+    "editorial.png": "38e250bc4a2642cc796575188accaf16e7f93d4c88beef2d35bba869af99a880",
+    "midnight.png": "b411839cf59d782976244b9104c825a506759521ea8d0b2034b8ddedc74f906a",
+    "mono.png": "3ff7dac38c623a88f818861a97151cf71f3e6abe6d3fe24379b66b7278fe49fa",
+    "paper.png": "abd5a5098918618049919b7e0a3fe1b35602cf1c61e35686db3bf11da64c0b25",
+    "sand.png": "b2c79c91a267f5a02c927522fd7dddfa85122724f644a8db25100a91fd88bf0d",
+    "takeone-themes-grid.png": "a822547c3d140b0b1706849147121262f0bb94f18763b36e7ac521d0bdb89f2a"
+  },
+  "frame_seconds": 1.6,
+  "generator": "node bin/takeone.mjs render <copy> --theme <name>, then ffmpeg -ss 1.6 -frames:v 1 still per theme",
+  "grid": {
+    "cell": "640x360 with label bar above",
+    "columns": 3,
+    "height": 792,
+    "labels": [
+      "sand - proven",
+      "editorial - proven",
+      "paper - proven",
+      "midnight - proven",
+      "aurora - proven",
+      "mono - proven"
+    ],
+    "width": 1920
+  },
+  "proof": {
+    "aurora": { "fade_cambi_max": 0.100, "fade_in_max": 0.002, "fade_out_max": 0.100, "status": "proven", "whole_cambi_max": 0.007 },
+    "editorial": { "fade_cambi_max": 0.001, "status": "proven", "whole_cambi_max": 0.009 },
+    "midnight": { "fade_cambi_max": 0.099, "fade_in_max": 0.016, "fade_out_max": 0.099, "status": "proven", "whole_cambi_max": 0.022 },
+    "mono": { "fade_cambi_max": 0.279, "fade_in_max": 0.045, "fade_out_max": 0.279, "status": "proven", "whole_cambi_max": 0.043 },
+    "paper": { "fade_cambi_max": 0.001, "status": "proven", "whole_cambi_max": 0.006 },
+    "sand": { "fade_cambi_max": 0.001, "status": "proven", "whole_cambi_max": 0.009 }
+  },
+  "proof_history": {
+    "note": "PR 71 shipped the fade dither and claimed dark gradients no longer band. Re-rendered on the real take at 1080p60, that shipped dither did not do so: its noise measured 0.73 luma levels and was blended in proportionally to fade progress, so the effective dither mid-fade was about 0.36 of one 8-bit level, below the step it has to break.",
+    "on_main_e2ca3d0": {
+      "aurora": { "fade_in_max": 6.535, "fade_out_max": 14.927, "whole_cambi_max": 2.146 },
+      "midnight": { "fade_in_max": 13.435, "fade_out_max": 14.843, "whole_cambi_max": 11.177 },
+      "mono": { "fade_in_max": 11.862, "fade_out_max": 20.551, "whole_cambi_max": 6.764 }
+    },
+    "rendered_from": "e2ca3d0 plus the full-strength fade dither in src/render/render.ts, one render at a time on the same hash-verified real take",
+    "before_any_fix": {
+      "aurora": { "fade_in_max": 12.419, "fade_out_max": 8.772, "whole_cambi_max": 8.957 },
+      "midnight": { "fade_in_max": 9.812, "fade_out_max": 5.893, "whole_cambi_max": 3.542 },
+      "mono": { "fade_in_max": 7.446, "fade_out_max": 5.212, "whole_cambi_max": 0.813 }
+    },
+    "take": "headless-demo, 1920x1080 h264 at 60/1, from the saved real take; CAMBI via ffmpeg libvmaf on every frame of both 0.5 s fade windows and every 10th frame of the whole take"
+  },
+  "source": "real take headless-demo rendered at 1080p60 on this branch",
+  "themes": ["midnight", "paper", "aurora", "mono", "sand", "editorial"]
+}

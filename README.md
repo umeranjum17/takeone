@@ -329,7 +329,7 @@ selection in the take; `render --theme` previews a different look without
 changing that saved selection.
 
 
-![Recording themes on the real take at 1080p60 (sand, editorial and paper proven; midnight, aurora and mono deferred, unproven but not removed)](docs/assets/themes/takeone-themes-grid.png)
+![Recording themes on the real take at 1080p60, all six proven against fade banding](docs/assets/themes/takeone-themes-grid.png)
 
 Theme fonts are bundled under OFL 1.1 with their licence files in
 `resources/fonts/`. Caption measurement and final rendering use the same
@@ -355,8 +355,9 @@ remains critically damped. Recording `pace` scales camera holds (`dwell`,
 
 The committed theme preview assets are real-take stills at 1080p60: one full-resolution frame per kept theme plus the grid above. [Provenance](docs/assets/themes/provenance.json)
 records the source take, generator, proof status per theme and output hashes.
-Sand, editorial and paper are proven; midnight, aurora and mono are deferred
-(rendered before the fade dither fix, fix-render pending in a follow-up). Regenerate with `node scripts/theme-proof.ts tmp/theme-proof`.
+All six are proven on the real take: worst fade CAMBI 0.279 (mono) and worst
+whole-take CAMBI 0.043, measured on every frame of both fade windows.
+Regenerate with `node scripts/theme-proof.ts tmp/theme-proof`.
 For a real 1080p60 take, use `node scripts/theme-proof.ts tmp/theme-real --take path/to/take`;
 each theme shows its title above a caption frame. The synthetic fixture is a fictional
 Tidewater launch board with Umer as its demo person, with no desktop capture.
