@@ -182,10 +182,13 @@ export async function renderTake(dir: string, d?: CameraDefaults): Promise<{ out
     ] : []),
     `${hasDialogue(keys) ? "[keycapOutput]" : "[composed]"}null${captionsOverlay}${keysOverlay}`
       // Fading toward a flat colour also fades the stage grain, so dark gradients band in
-      // 8-bit; static grain that eases out with each fade keeps them dithered.
+      // 8-bit. The dither has to stay above one 8-bit level (c0s=6 measures 0.73 luma levels
+      // and anything under c0s=4 rounds away at 8-bit) and at full strength for the whole
+      // fade: the darkest, lowest-contrast frames are the first ones in and the last ones out,
+      // so easing the grain in with the fade is what left those frames banded. One amplitude
+      // for every theme - this is an 8-bit quantisation problem, not a gradient-depth one.
       + (fade > 0 ? `,fade=t=in:st=0:d=${fade}:color=${background},fade=t=out:st=${duration - fade}:d=${fade}:color=${background}`
-        + `,split[faded][fadeGrain];[fadeGrain]noise=c0s=6:c0f=u:c0_seed=7[grained];[faded][grained]blend=enable='lt(t,${fade})+gt(t,${duration - fade})'`
-        + `:all_expr='A+(B-A)*clip(max(1-T/${fade},(T-${duration - fade})/${fade}),0,1)'` : "")
+        + `,noise=c0s=10:c0f=u:c0_seed=7:enable='lt(t,${fade})+gt(t,${duration - fade})'` : "")
       + `,scale=in_color_matrix=bt601:out_color_matrix=bt709:out_range=tv,format=${pixelFormat},setparams=range=limited:color_primaries=bt709:color_trc=bt709:colorspace=bt709`,
   ].join(";");
 
