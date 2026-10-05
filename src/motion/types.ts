@@ -4,7 +4,7 @@ import type { Overrides } from "../camera/defaults.ts";
 
 export type Rect = [number, number, number, number]; // x, y, w, h in source px of its screen
 export type Device = "browser" | "phone" | "laptop" | "none";
-export const PATTERNS = ["hero-reveal", "zoom-tour", "end-card", "fragment"] as const;
+export const PATTERNS = ["hero-reveal", "zoom-tour", "end-card", "fragment", "kinetic-type"] as const;
 export type PatternName = (typeof PATTERNS)[number];
 
 /** DOM-driven ingest ops (L8-h), played in order in one capture page; each named state is captured after its ops. */
@@ -51,6 +51,8 @@ export interface Scene {
   text?: string;
   /** Reading-hold push, fraction of scale (0.03-0.05). */
   push?: number;
+  /** Swap the theme background and text colours for this scene (a black beat on a cream film, and back). */
+  invert?: boolean;
 }
 
 export interface Tempo { bpm: number; phase_s: number; snap: "beat" | "half" }

@@ -191,6 +191,11 @@ function assertBoundedCamera(frames:{x:number;y:number;w:number;h:number}[]) {
 test("motion planning preserves screen ownership, quoted states and bounded bitmap cameras",()=>{
   const plan=validateStoryboard({...planStoryboard(parseMotionArgs(["first.png","second.png","--region","100,100,200,200:Focus","--region","100,100,200,200:Other@S2"]),"regression") as object,screens:{S1:{file:"first.png",width:2560,height:1440},S2:{file:"second.png",width:2560,height:1440}}});
   assert.deepEqual(plan.scenes.filter(s=>s.pattern==="zoom-tour").map(s=>s.screen),["S1","S2"]);
+  const launch=validateStoryboard(planStoryboard(parseMotionArgs(["page.html","--title","Launch","--region","100,100,200,200:Before@S1","--region","100,100,200,200:Next@S2","--region","100,100,200,200:After@S3","--state","S1=wait 100","--state","S2=wait 100","--state","S3=wait 100"]),"launch") as object);
+  assert.deepEqual(launch.scenes.map(s=>s.pattern),["kinetic-type","kinetic-type","zoom-tour","kinetic-type","zoom-tour","kinetic-type","zoom-tour","end-card"]);
+  assert.deepEqual(launch.scenes.map(s=>!!s.invert),[false,true,false,true,false,true,false,true]);
+  assert.deepEqual(launch.scenes.filter(s=>s.pattern==="kinetic-type").map(s=>s.title),["Launch","Before","Next","After"]);
+  assert.ok(launch.scenes.filter(s=>s.pattern==="zoom-tour").every(s=>(s.stops??[]).every(t=>!t.caption)));
   const paths=sceneCameras(plan);
   assert.ok(paths["0"]!.some(f=>f.w!==paths["0"]![0]!.w));
   for(const frames of Object.values(paths))assertBoundedCamera(frames.map(f=>f.output??f));

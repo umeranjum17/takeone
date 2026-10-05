@@ -4,7 +4,7 @@ Turn saved screens (images, HTML, or a URL) into a motion-design film without re
 
 ## Sub-features
 
-- Pattern planning: `--pattern hero-reveal,zoom-tour,end-card` (all three when omitted); zoom-tour stops via `--region x,y,w,h[:caption][@SCREEN]`.
+- Pattern planning: `--pattern hero-reveal,zoom-tour,end-card,kinetic-type` (all three when omitted); zoom-tour stops via `--region x,y,w,h[:caption][@SCREEN]`. With no `--pattern` and 3+ screens the planner builds a launch film: a kinetic-type title, each labelled screen announced by a full-type beat ahead of a clean tour, end card, black/cream beats alternating.
 - Interactive page states: `--state NAME='click #id; type #id "text"; wait 100'` captures real HTML/URL states in one page, in order.
 - Copy chrome: `--title`, `--subtitle`, `--cta`, `--url`, `--logo`, `--device browser|phone|laptop|none`; theme tokens as elsewhere.
 - Storyboard workflow: `--plan-only` writes an editable `storyboard.json` without ingest/render; `--storyboard file.json` renders a plan; `takeone render <dir>` rerenders the saved storyboard (motion takes reject `--theme`/`--set`).

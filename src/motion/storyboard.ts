@@ -34,7 +34,7 @@ export function readingFloor(text: string): number {
 
 /** Scene reading copy; the glyph gate also checks emitted literals in their actual font roles. */
 export function sceneTexts(s: Scene): string[] {
-  if (s.pattern === "hero-reveal") return [s.title, s.subtitle].filter((t): t is string => !!t);
+  if (s.pattern === "hero-reveal" || s.pattern === "kinetic-type") return [s.title, s.subtitle].filter((t): t is string => !!t);
   if (s.pattern === "end-card") return [s.logo, s.cta, s.url].filter((t): t is string => !!t);
   if (s.pattern === "fragment") {
     if (s.kind === "counter") return ["60"];
@@ -49,7 +49,7 @@ export function sceneTexts(s: Scene): string[] {
 
 function sceneRevealDuration(s: Scene): number {
   let reveal = 0;
-  if (s.pattern === "hero-reveal") {
+  if (s.pattern === "hero-reveal" || s.pattern === "kinetic-type") {
     const words = (s.title ?? "").trim().split(/\s+/).filter(Boolean).length;
     reveal = Math.max(words ? .4 + .06 * (words - 1) : 0, s.subtitle ? .6 : 0);
   } else if (s.pattern === "end-card") {
@@ -102,6 +102,7 @@ function scene(raw: unknown, path: string): Scene {
   s.d = num(raw["d"], `${path}.d`, 0.25, MAX_DURATION_S);
   if (raw["at"] !== undefined) s.at = num(raw["at"], `${path}.at`, 0, MAX_DURATION_S);
   for (const k of ["title", "subtitle", "cta", "url", "logo", "text", "kind", "state"] as const) if (raw[k] !== undefined) s[k] = str(raw[k], `${path}.${k}`, k === "text" ? 400 : 120);
+  if (raw["invert"] !== undefined && typeof raw["invert"] !== "boolean") throw new StoryboardError(`${path}.invert`, "expected true or false");
   if (s.pattern === "end-card") s.logo ??= "TakeOne";
   for (const k of ["screen", "focus"] as const) if (raw[k] !== undefined && !ID.test(String(raw[k]))) throw new StoryboardError(`${path}.${k}`, "expected an id");
   if (raw["device"] !== undefined && !DEVICES.includes(String(raw["device"]))) throw new StoryboardError(`${path}.device`, `choose ${DEVICES.join(", ")}`);

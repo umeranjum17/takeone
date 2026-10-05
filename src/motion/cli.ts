@@ -9,7 +9,7 @@ import { installShell } from "./shell.ts";
 import { minSceneDuration, validateStoryboard } from "./storyboard.ts";
 import type { Device, PatternName, Region, Scene } from "./types.ts";
 
-export const MOTION_USAGE = `takeone motion <image.png|page.html|https://url>... [--out DIR] [--pattern hero-reveal,zoom-tour,end-card]
+export const MOTION_USAGE = `takeone motion <image.png|page.html|https://url>... [--out DIR] [--pattern hero-reveal,zoom-tour,end-card,kinetic-type]
   [--theme midnight|paper|aurora|mono|sand|editorial]
   [--title TEXT] [--subtitle TEXT] [--cta TEXT] [--url TEXT] [--logo WORD] [--device browser|phone|laptop|none]
   [--region x,y,w,h[:label][@SCREEN]]... [--state NAME='click #id; type #id "text"; drag #a #b; wait 300']...
@@ -17,7 +17,10 @@ export const MOTION_USAGE = `takeone motion <image.png|page.html|https://url>...
 takeone motion install-shell     download the pinned chrome-headless-shell (sha256 checked)
 
   motion writes a take-shaped directory (take.json, sources/, storyboard.json, out/<id>.mp4, render.json);
-  takeone render <dir> rerenders it. With no --pattern it plans hero-reveal, zoom-tour and end-card.`;
+  takeone render <dir> rerenders it. With no --pattern it plans hero-reveal, zoom-tour and end-card;
+  with three or more screens it plans a launch film instead: a kinetic-type title, each labelled
+  screen announced by its own full-type beat ahead of a clean tour, and the end card, with
+  black and cream beats alternating by scene order.`;
 
 interface MotionArgs {
   inputs: string[]; out?: string; patterns?: PatternName[]; theme?: string; title?: string;
@@ -112,31 +115,50 @@ export function planStoryboard(a: MotionArgs, id: string): unknown {
   const regions = a.regions.flatMap((r, i) => splitWide(parseRegion(r, i, screens[0]!, dsf), dsf));
   const patterns = a.patterns ?? (["hero-reveal", "zoom-tour", "end-card"] as PatternName[]);
   const title = a.title ?? "See it in motion.";
-  const scenes: Scene[] = patterns.flatMap((p): Scene[] => {
+  const minShot = motionTokens(a.theme ?? "midnight").min_shot;
+  const tourOne = (screen: string, captioned: boolean): Scene => {
+    const stops = regions.filter(r => r.screen === screen).map(r => ({ region: r.id, ...(captioned && r.label ? { caption: r.label } : {}) }));
+    const dims = screenDims(kind);
+    // Exact duration from the same segment math the renderer enforces when the screen
+    // dims are known; images keep the legacy estimate because planning never reads files.
+    // Either way the duration also clears every reading hold of the finished scene.
+    const scene: Scene = { pattern: "zoom-tour", d: 0, screen, stops, device: a.device ?? "browser" };
+    const need = dims ? tourSegments(dims, 1920, 1080, stops.map(s => {
+      const r = regions.find(r => r.id === s.region)!;
+      return { rect: r.rect, caption: s.caption, hold: undefined };
+    }), minShot).need : 3 + 3.5 * Math.max(1, stops.length);
+    scene.d = Math.max(Math.ceil(need * 60) / 60, minSceneDuration(scene));
+    return scene;
+  };
+  const typeBeat = (beatTitle: string, subtitle?: string): Scene => {
+    const scene: Scene = { pattern: "kinetic-type", d: 0, title: beatTitle, ...(subtitle ? { subtitle } : {}) };
+    scene.d = minSceneDuration(scene);
+    return scene;
+  };
+  const plan = (p: PatternName): Scene[] => {
     if (p === "hero-reveal") return [{ pattern: p, d: 5, screen: regions[0]?.screen ?? screens[0]!, title, ...(a.subtitle ? { subtitle: a.subtitle } : {}),
       ...(regions[0] ? { focus: regions[0].id } : {}), device: a.device ?? "browser" }];
     if (p === "zoom-tour") {
       const owners = regions.length ? [...new Set(regions.map(r => r.screen))] : [screens.at(-1)!];
-      const minShot = motionTokens(a.theme ?? "midnight").min_shot;
-      return owners.map(screen => {
-        const stops = regions.filter(r => r.screen === screen).map(r => ({ region: r.id, ...(r.label ? { caption: r.label } : {}) }));
-        const dims = screenDims(kind);
-        // Exact duration from the same segment math the renderer enforces when the screen
-        // dims are known; images keep the legacy estimate because planning never reads files.
-        // Either way the duration also clears every reading hold of the finished scene.
-        const scene: Scene = { pattern: p, d: 0, screen, stops, device: a.device ?? "browser" };
-        const need = dims ? tourSegments(dims, 1920, 1080, stops.map(s => {
-          const r = regions.find(r => r.id === s.region)!;
-          return { rect: r.rect, caption: s.caption, hold: undefined };
-        }), minShot).need : 3 + 3.5 * Math.max(1, stops.length);
-        scene.d = Math.max(Math.ceil(need * 60) / 60, minSceneDuration(scene));
-        return scene;
-      });
+      return owners.map(screen => tourOne(screen, true));
     }
     if (p === "end-card") return [{ pattern: p, d: 3.5, screen: screens.at(-1)!, cta: a.cta ?? "Try it today", ...(a.url ? { url: a.url } : {}),
       logo: a.logo ?? "TakeOne" }];
-    throw new Error(`--pattern ${p} needs a storyboard (core patterns: hero-reveal, zoom-tour, end-card)`);
-  });
+    if (p === "kinetic-type") return [typeBeat(title, a.subtitle)];
+    throw new Error(`--pattern ${p} needs a storyboard (core patterns: hero-reveal, zoom-tour, end-card, kinetic-type)`);
+  };
+  // Launch film: no --pattern and three or more screens. The title opens on bare type, every
+  // labelled screen gets its label as a full-type beat before a clean (captionless) tour, and
+  // the end card closes. Beats strictly alternate cream and black by scene order.
+  const launch = !a.patterns && screens.length >= 3;
+  const scenes: Scene[] = !launch ? patterns.flatMap(plan) : [
+    typeBeat(title, a.subtitle),
+    ...screens.flatMap((screen) => {
+      const label = regions.find(r => r.screen === screen && r.label)?.label;
+      return [...(label ? [typeBeat(label)] : []), tourOne(screen, false)];
+    }),
+    ...plan("end-card"),
+  ].map((s, i) => (i % 2 ? { ...s, invert: true } : s));
   const source = kind === "image" ? { kind, files: a.inputs.map((f) => resolve(f)) }
     : kind === "html" ? { kind, file: resolve(first), viewport: [2560, 1440], dsf, states: Object.fromEntries(a.states.map(([n, ops]) => [n, splitStateOps(ops)])) }
     : { kind, url: first, viewport: [1440, 900], dsf: 2, states: Object.fromEntries(a.states.map(([n, ops]) => [n, splitStateOps(ops)])) };

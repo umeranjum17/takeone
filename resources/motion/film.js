@@ -21,6 +21,15 @@ window.mountScenes = (root, scenes, W, H, shiftMs = 0, keyPrefix = "") => {
   scenes.forEach((s, i) => {
     const layer = h(`<div class="layer" data-scene="${i}" data-pattern="${esc(s.pattern)}"></div>`);
     layer.style.zIndex = String(i + 1);
+    if (s.invert) { // black beat on a light theme (or back): swap the brightest and darkest tokens
+      const t = STORYBOARD.tokens;
+      layer.style.background = t.ink;
+      layer.style.setProperty("--bg", t.ink);
+      if (t.background_to) layer.style.setProperty("--bg-to", t.ink);
+      layer.style.setProperty("--text", t.background);
+      layer.style.setProperty("--card", t.text);
+      layer.style.setProperty("--ink", t.background);
+    }
     root.append(layer);
     window.BASE = s.at * 1000 + shiftMs;
     const dMs = s.d * 1000;
