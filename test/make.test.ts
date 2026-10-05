@@ -223,6 +223,14 @@ test("make intersects trim with available video before rendering", { skip: needs
     assert.equal(saved.trim_end, 8);
     assert.ok(beats.every((b: { t0: number; t1: number; anchor_t: number }) => b.t0 >= 0 && b.anchor_t >= 0 && b.t1 <= 8));
     assert.ok(existsSync(join(dir, "out", "t1.mp4")));
+    // An end an earlier run recorded must not survive a re-make once the
+    // caller's trim is gone, or the export stays truncated at the stale bound.
+    const remade = JSON.parse(readFileSync(join(dir, "take.json"), "utf8"));
+    delete remade.trim;
+    writeFileSync(join(dir, "take.json"), JSON.stringify(remade));
+    const rerun = await fastTake(dir, { noJev: true, log: () => {}, warn: () => {} });
+    assert.equal(JSON.parse(readFileSync(join(dir, "take.json"), "utf8")).trim_end, undefined);
+    assert.ok(rerun.seconds < 8, `stale trim_end still bounded the export at ${rerun.seconds}s`);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

@@ -418,7 +418,11 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
     trim_start: seconds(startMs),
     ...(take.trim?.end === undefined ? {} : { trim_end: seconds(endMs) }),
   };
-  writeFileSync(join(dir, "take.json"), JSON.stringify({ ...take, ...renderMeta }, null, 1) + "\n");
+  // An end an earlier run recorded is not a caller's trim; drop it so render
+  // re-derives the purposeful end instead of honouring a stale bound.
+  const meta: RenderMeta = { ...take, ...renderMeta };
+  if (take.trim?.end === undefined) delete meta.trim_end;
+  writeFileSync(join(dir, "take.json"), JSON.stringify(meta, null, 1) + "\n");
   const { out, seconds: renderSeconds } = await renderTake(dir, camera);
 
   const byJev = decisions.filter((d) => d.decided_by === "jev").length;
