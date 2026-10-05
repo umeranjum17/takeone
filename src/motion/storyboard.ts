@@ -34,7 +34,8 @@ export function readingFloor(text: string): number {
 
 /** Scene reading copy; the glyph gate also checks emitted literals in their actual font roles. */
 export function sceneTexts(s: Scene): string[] {
-  if (s.pattern === "hero-reveal") return [s.title, s.subtitle].filter((t): t is string => !!t);
+  if (s.pattern === "hero-reveal" || s.pattern === "kinetic-type") return [s.title, s.subtitle].filter((t): t is string => !!t);
+  if (s.pattern === "bento") return (s.tiles ?? []).map(t => t.title);
   if (s.pattern === "end-card") return [s.logo, s.cta, s.url].filter((t): t is string => !!t);
   if (s.pattern === "fragment") {
     if (s.kind === "counter") return ["60"];
@@ -49,9 +50,11 @@ export function sceneTexts(s: Scene): string[] {
 
 function sceneRevealDuration(s: Scene): number {
   let reveal = 0;
-  if (s.pattern === "hero-reveal") {
+  if (s.pattern === "hero-reveal" || s.pattern === "kinetic-type") {
     const words = (s.title ?? "").trim().split(/\s+/).filter(Boolean).length;
     reveal = Math.max(words ? .4 + .06 * (words - 1) : 0, s.subtitle ? .6 : 0);
+  } else if (s.pattern === "bento") {
+    reveal = .5 + .3 * Math.max(0, (s.tiles ?? []).length - 1);
   } else if (s.pattern === "end-card") {
     const glyphs = [...new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(s.logo!)].filter(ch => ch.segment.trim()).length;
     reveal = Math.max(glyphs ? .55 + .035 * (glyphs - 1) : 0, s.cta ? .65 : 0, s.url ? .75 : 0);
@@ -62,17 +65,29 @@ function sceneRevealDuration(s: Scene): number {
   return reveal;
 }
 
+/** Every text a scene shows with the time its reveal ends: each needs its reading floor after that. */
+function sceneHolds(s: Scene): { text: string; reveal: number }[] {
+  const holds = s.pattern === "zoom-tour" ? [] : [{ text: sceneTexts(s).join(" "), reveal: sceneRevealDuration(s) }];
+  const chromed = s.pattern === "hero-reveal" || s.pattern === "zoom-tour" || (s.pattern === "kinetic-type" && !!s.device && s.device !== "none");
+  if (chromed) {
+    const device = s.device ?? "browser";
+    const text = device === "browser" ? "Design preview" : device === "phone" ? "9:41" : "";
+    holds.push({ text, reveal: s.pattern === "zoom-tour" ? 0 : .6 });
+  }
+  return holds;
+}
+
+/** Shortest whole-frame duration that clears every reveal and reading hold of a scene played in full. */
+export function minSceneDuration(s: Scene, fps = 60): number {
+  return Math.ceil(Math.max(0, ...sceneHolds(s).map(x => x.reveal + readingFloor(x.text))) * fps + 1) / fps;
+}
+
 function validateVisibleScene(s: Scene, start: number, duration: number, fps: number, path: string): void {
   const end = start + Math.round(duration * fps) / fps;
   if (s.pattern === "zoom-tour") {
     if (s.at! < start - 1e-9 || s.at! + s.d > end + 1e-9) throw new StoryboardError(path, "visible window truncates camera moves and reading holds");
   }
-  const holds = s.pattern === "zoom-tour" ? [] : [{ text: sceneTexts(s).join(" "), reveal: sceneRevealDuration(s) }];
-  if (s.pattern === "hero-reveal" || s.pattern === "zoom-tour") {
-    const device = s.device ?? "browser";
-    const text = device === "browser" ? "Design preview" : device === "phone" ? "9:41" : "";
-    holds.push({ text, reveal: s.pattern === "hero-reveal" ? .6 : 0 });
-  }
+  const holds = sceneHolds(s);
   const lastFrame = Math.min(Math.round(duration * fps) - 1, Math.ceil((s.at! + s.d - start) * fps - 1e-9) - 1);
   for (const { text, reveal } of holds) {
     const reading = readingFloor(text);
@@ -91,6 +106,14 @@ function scene(raw: unknown, path: string): Scene {
   s.d = num(raw["d"], `${path}.d`, 0.25, MAX_DURATION_S);
   if (raw["at"] !== undefined) s.at = num(raw["at"], `${path}.at`, 0, MAX_DURATION_S);
   for (const k of ["title", "subtitle", "cta", "url", "logo", "text", "kind", "state"] as const) if (raw[k] !== undefined) s[k] = str(raw[k], `${path}.${k}`, k === "text" ? 400 : 120);
+  if (raw["invert"] !== undefined && typeof raw["invert"] !== "boolean") throw new StoryboardError(`${path}.invert`, "expected true or false");
+  if (raw["tiles"] !== undefined) {
+    if (s.pattern !== "bento" || !Array.isArray(raw["tiles"]) || raw["tiles"].length !== 4) throw new StoryboardError(`${path}.tiles`, "bento needs exactly four {title} tiles");
+    s.tiles = raw["tiles"].map((t, j) => {
+      if (typeof t !== "object" || t === null || typeof t["title"] !== "string") throw new StoryboardError(`${path}.tiles[${j}]`, "expected {title}");
+      return { title: str(t["title"], `${path}.tiles[${j}].title`, 60) };
+    });
+  } else if (s.pattern === "bento") throw new StoryboardError(`${path}.tiles`, "bento needs exactly four {title} tiles");
   if (s.pattern === "end-card") s.logo ??= "TakeOne";
   for (const k of ["screen", "focus"] as const) if (raw[k] !== undefined && !ID.test(String(raw[k]))) throw new StoryboardError(`${path}.${k}`, "expected an id");
   if (raw["device"] !== undefined && !DEVICES.includes(String(raw["device"]))) throw new StoryboardError(`${path}.device`, `choose ${DEVICES.join(", ")}`);

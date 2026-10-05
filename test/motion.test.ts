@@ -191,6 +191,13 @@ function assertBoundedCamera(frames:{x:number;y:number;w:number;h:number}[]) {
 test("motion planning preserves screen ownership, quoted states and bounded bitmap cameras",()=>{
   const plan=validateStoryboard({...planStoryboard(parseMotionArgs(["first.png","second.png","--region","100,100,200,200:Focus","--region","100,100,200,200:Other@S2"]),"regression") as object,screens:{S1:{file:"first.png",width:2560,height:1440},S2:{file:"second.png",width:2560,height:1440}}});
   assert.deepEqual(plan.scenes.filter(s=>s.pattern==="zoom-tour").map(s=>s.screen),["S1","S2"]);
+  const launch=validateStoryboard(planStoryboard(parseMotionArgs(["page.html","--title","Launch","--region","100,100,200,200:Before@S1","--region","100,100,200,200:Next@S2","--region","100,100,200,200:After@S3","--state","S1=wait 100","--state","S2=wait 100","--state","S3=wait 100"]),"launch") as object);
+  assert.deepEqual(launch.scenes.map(s=>s.pattern),["kinetic-type","kinetic-type","zoom-tour","kinetic-type","zoom-tour","bento","zoom-tour","end-card"]);
+  assert.deepEqual(launch.scenes.map(s=>!!s.invert),[false,true,false,true,false,true,false,true]);
+  assert.deepEqual(launch.scenes.filter(s=>s.pattern==="kinetic-type").map(s=>s.title),["Launch","Before","Next"]);
+  assert.deepEqual(launch.scenes.find(s=>s.pattern==="bento")!.tiles!.map(t=>t.title),["Before","Next","After","TakeOne"]);
+  assert.equal(launch.scenes.filter(s=>s.pattern==="kinetic-type")[2]!.device,"phone");
+  assert.ok(launch.scenes.filter(s=>s.pattern==="zoom-tour").every(s=>(s.stops??[]).every(t=>!t.caption)));
   const paths=sceneCameras(plan);
   assert.ok(paths["0"]!.some(f=>f.w!==paths["0"]![0]!.w));
   for(const frames of Object.values(paths))assertBoundedCamera(frames.map(f=>f.output??f));
@@ -407,6 +414,7 @@ test("state names preserve capture order and reject overwritten operations", asy
     assert.throws(()=>planStoryboard({...args,states:[["2","click #newTask"],["1","wait 300"]]},"numeric"),/non-index name/);
     const stable=parseMotionArgs([input,"--state","01=wait 100","--state","4294967295=wait 200","--state","S1=wait 300"]);
     assert.deepEqual(Object.keys(validateStoryboard(planStoryboard(stable,"stable")).source.states!),["01","4294967295","S1"]);
+    assert.equal(validateStoryboard(planStoryboard(args,"screens")).source.dsf,2);
   }
 });
 
@@ -446,6 +454,7 @@ test("prototype-named captures survive ingest and serialized storyboard consumpt
       for(const direct of [false,true]) {
         const story=validateStoryboard(planStoryboard(parseMotionArgs(['page.html','--state','__proto__=wait 100','--state','constructor=wait 100','--state','S1=wait 100']),'captures'));
         story.source.viewport=[16,16];
+        story.source.dsf=1;
         if(direct)story.screens={};
         await ingest(dir,story);
         assert.deepEqual(Object.keys(story.screens),['__proto__','constructor','S1']);
