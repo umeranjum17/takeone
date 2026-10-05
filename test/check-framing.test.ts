@@ -10,7 +10,7 @@ const root = mkdtempSync(resolve(tmpdir(), "check-framing-"));
 const script = resolve(process.cwd(), "scripts/check-framing.ts");
 after(() => rmSync(root, { recursive: true, force: true }));
 
-function run(beat: object, start: string) {
+function run(beat: object, start: string, references?: object[]) {
   const beats = resolve(root, "beats.json");
   const before = resolve(root, "before.json");
   const after = resolve(root, "after.json");
@@ -18,7 +18,10 @@ function run(beat: object, start: string) {
   writeFileSync(beats, JSON.stringify([beat]));
   writeFileSync(before, JSON.stringify(frames));
   writeFileSync(after, JSON.stringify(frames));
-  return spawnSync(process.execPath, [script, beats, start, before, after], { encoding: "utf8" });
+  if (!references) return spawnSync(process.execPath, [script, beats, start, before, after], { encoding: "utf8" });
+  const boxFile = resolve(root, "references.json");
+  writeFileSync(boxFile, JSON.stringify(references));
+  return spawnSync(process.execPath, [script, beats, start, before, after, boxFile, "0"], { encoding: "utf8" });
 }
 
 test("framing CLI aligns trim-relative frames to output-clock beats", () => {
@@ -48,4 +51,17 @@ test("framing CLI checks a held gesture beyond its shortened owner", () => {
     assert.equal(result.status, to[0] === 20 ? 0 : 1, result.stderr + result.stdout);
     assert.match(result.stdout, /held \| 3 \| 0 \| 0 \| 0 \| 3 \|/);
   }
+});
+
+// The audit that missed the 38 s heading cut reported zero because its oracle
+// never covered the label row. A settled crop that slices a reference surface
+// must now be reported, and the report must name the surface and the time.
+test("framing CLI reports a settled crop that slices a reference surface", () => {
+  const beat = { id: "heading", t0: 0, t1: 0.1, kind: "type", zones: [], actions: [] };
+  const cut = run(beat, "0", [{ name: "column heading: To do 4", bbox: [90, 10, 20, 20] }]);
+  assert.equal(cut.status, 1, cut.stderr + cut.stdout);
+  assert.match(cut.stdout, /references \| 3 \| 0 \| 0 \| 0 \| 0 \| 0 \| FAIL \(3 ref-cut frames of 3 settled: column heading: To do 4; first cut column heading: To do 4 at 0\.000s/);
+  const whole = run(beat, "0", [{ name: "column heading: To do 4", bbox: [10, 10, 20, 20] }]);
+  assert.equal(whole.status, 0, whole.stderr + whole.stdout);
+  assert.match(whole.stdout, /references \| 3 \| 0 \| 0 \| 0 \| 0 \| 0 \| PASS \(0 ref-cut frames of 3 settled\)/);
 });
