@@ -747,6 +747,19 @@ function sampleCamera(
         preparations.set(target, preparation);
       }
       if (preparation && time >= preparation.start && !move?.preparation && time < preparation.deadline) {
+        if (focus && subject) {
+          const fresh = preparationTime(previousFiltered, target.state, focus, subject,
+            filterVelocity, width, height, d, project,
+            { start: time, beats, decisions, reveals, baseW, followVelocity: velocity });
+          const renewed = Math.ceil(candidateMove.start * d.fps) / d.fps;
+          if (fresh === undefined || renewed - fresh < time) {
+            preparations.delete(target);
+            break;
+          }
+          preparation = { start: renewed - fresh, deadline: renewed };
+          preparations.set(target, preparation);
+          if (time < preparation.start) break;
+        }
         move = { ...createMove(previousFiltered, target.state, 0, baseW, d, time), preparation: true };
         break;
       }
