@@ -67,7 +67,7 @@ export function settledFrames(frames: readonly CameraFrame[], fps = 60, holdS = 
 /** One row per beat, every frame checked, not only settled shots or anchors. */
 export function framingCoverage(beats: Beat[], before: CameraFrame[], after: CameraFrame[], start = 0,
   references: readonly Reference[] = [], exposures: readonly number[] = [0]): Coverage[] {
-  if (!Number.isFinite(start) || start < 0 || !before.length || before.length !== after.length || [...before, ...after].some(f => ![f.t, f.x, f.y, f.w, f.h].every(Number.isFinite) || f.w <= 0 || f.h <= 0) || before.some((f, i) => Math.abs(f.t - after[i]!.t) > 1e-6)) {
+  if (!Number.isFinite(start) || start < 0 || !before.length || before.length !== after.length || [...before, ...after].some(f => ![f.t, f.x, f.y, f.w, f.h].every(Number.isFinite) || f.w <= 0 || f.h <= 0) || before.some((f, i) => Math.abs(f.t - after[i]!.t) > 1e-6) || exposures.some(e => !Number.isFinite(e) || e < 0) || references.some(r => !Array.isArray(r?.bbox) || r.bbox.length !== 4 || !r.bbox.every(Number.isFinite))) {
     throw new Error("framing comparison requires identical frame timestamps");
   }
   return beats.map(beat => {
@@ -129,6 +129,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
   const json = (p: string) => JSON.parse(readFileSync(p, "utf8"));
   const references: Reference[] = referenceFile ? json(referenceFile) : [];
   const exposures = exposureArg ? exposureArg.split(",").map(Number) : [0];
+  if (exposures.some(e => !Number.isFinite(e) || e < 0)) throw new Error("usage: check-framing.ts output-clock-beats.json trim-start-seconds before-camera.json after-camera.json [reference-boxes.json [exposure-offsets]]");
   const rows = framingCoverage(json(beatFile), json(beforeFile), json(afterFile), start, references, exposures);
   console.log("beat | frames | before visible | after visible | regressions | drag frames | drag clipped | ref cut | result");
   for (const r of rows) console.log(`${r.beat} | ${r.frames} | ${r.before} | ${r.after} | ${r.lost} | ${r.dragFrames} | ${r.dragLost} | ${r.refCut} | ${r.passed ? "PASS" : "FAIL"}${r.refCutBoxes.length ? ` (${r.refCutBoxes.join(", ")}; first cut ${r.firstRefCut!.box} at ${r.firstRefCut!.t.toFixed(3)}s, ${(r.firstRefCut!.clipped * 100).toFixed(1)}% sliced)` : ""}`);
