@@ -111,17 +111,35 @@ export function motionBlurGraph(frames: CameraFrame[], plan: ReturnType<typeof s
     + `select='${endExpr}',settb=AVTB,setpts=N/(${d.fps}*TB)[camera]`;
 }
 
-/** Actual-scale area coverage before each warp; safe symmetric Q15 weights. */
+/** Actual-scale anti-alias cover before each warp; symmetric signed Q14 Lanczos-2. */
 export function areaPrefilter(frames: CameraFrame[], plan: ReturnType<typeof shutterPlan>, width: number, height: number, d: CameraDefaults): string {
   const sampled = plan.metrics.blurredFrames ? frames.flatMap((_, i) => shutterFrames(frames, plan, i)) : frames;
   const fps = d.fps * (plan.metrics.blurredFrames ? plan.samples : 1);
+  const TAPS = 19, HALF = (TAPS - 1) / 2, Q = 16384;
+  const sinc = (x: number): number => x === 0 ? 1 : Math.sin(Math.PI * x) / (Math.PI * x);
   const kernel = (s: number): number[] => {
-    if (!Number.isFinite(s) || s <= 0 || s > 5) throw new Error(`area prefilter scale ${s} exceeds five-tap domain (0,5]`);
-    if (s <= 1) return [0, 0, 32768, 0, 0];
-    const weights = [-2, -1, 0, 1, 2].map(k => Math.max(0, Math.min(k + 0.5, s / 2) - Math.max(k - 0.5, -s / 2)) / s);
-    const a = Math.round(weights[0]! * 32768), b = Math.round(weights[1]! * 32768);
-    const integers = [a, b, 32768 - 2 * (a + b), b, a];
-    if (integers.some((v, i) => v < 0 || Math.abs(v / 32768 - weights[i]!) > 2 / 32768)) throw new Error(`area prefilter coefficient bound failed at scale ${s}`);
+    if (!Number.isFinite(s) || s <= 0 || s > 5) throw new Error(`area prefilter scale ${s} exceeds kernel domain (0,5]`);
+    if (s <= 1) return [...Array(HALF).fill(0), Q, ...Array(HALF).fill(0)];
+    // Lanczos-2 windowed sinc at the shrink factor: flat passband and steep
+    // stopband, so the warp's own Lanczos stage stops double-blurring the frame.
+    const shape = Array.from({ length: TAPS }, (_, i) => { const k = i - HALF;
+      return Math.abs(k) < 2 * s ? sinc(k / s) * sinc(k / (2 * s)) : 0; });
+    const sum = shape.reduce((a, b) => a + b, 0);
+    const base = shape.map(v => (v * Q) / sum);
+    const integers = base.map(v => Math.round(v));
+    let residual = Q - integers.reduce((a, b) => a + b, 0);
+    while (Math.abs(residual) > 1) {
+      const step = Math.sign(residual);
+      let best = 1, bestErr = -Infinity;
+      for (let dist = 1; dist <= HALF; dist++) {
+        const err = step * (base[HALF + dist]! - integers[HALF + dist]!);
+        if (err > bestErr) { bestErr = err; best = dist; }
+      }
+      integers[HALF + best]! += step; integers[HALF - best]! += step; residual -= 2 * step;
+    }
+    integers[HALF]! += residual;
+    if (integers.reduce((a, b) => a + Math.abs(b), 0) * 65535 > 2147483647) throw new Error(`area prefilter accumulation exceeds 32 bits at scale ${s}`);
+    if (integers.some((v, i) => Math.abs(v / Q - shape[i]! / sum) > 2 / Q)) throw new Error(`area prefilter coefficient bound failed at scale ${s}`);
     return integers;
   };
   const commands: string[] = [];

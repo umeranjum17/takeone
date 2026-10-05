@@ -48,12 +48,14 @@ The final graph uses `v360` with flat input/output, no rotation, and independent
 horizontal/vertical field of view and offsets. This is an affine camera crop,
 not a spherical lens effect. It maps native source pixels directly into export
 pixels in one Lanczos resample in a 16-bit RGB intermediate; draft uses linear.
-Before each warp, `areaPrefilter` computes horizontal/vertical area coverage at
+Before each warp, `areaPrefilter` band-limits horizontal/vertical detail at
 that frame's actual viewport-to-output scale, including retimed shutter samples.
-Separable five-tap RGB16 row/column convolution uses symmetric nonnegative Q15
-weights summing to 32768, avoiding 32-bit accumulation overflow. Coefficient
-error is at most 2/32768; numerical output bounds are 4.5 RGB16 LSB per axis,
-9 combined including rounding. Scales at or below one are exact identity;
+Separable 19-tap RGB16 row/column convolution uses a symmetric signed Q14
+Lanczos-2 windowed sinc scaled by the shrink factor, summing to 16384, so the
+warp's own Lanczos stage stops double-blurring the frame; the integer kernel
+guards 32-bit accumulation headroom. Coefficient error is at most 2/16384;
+numerical output bounds are 6 RGB16 LSB per axis, 11 combined including
+rounding. Scales at or below one are exact identity;
 scales above five are rejected rather than silently truncating support.
 There is no fixed-ratio branch, pre-scale, intermediate upscale or final
 dimensional resize. Numerical bounds do not qualify judder, VMAF or cost.
