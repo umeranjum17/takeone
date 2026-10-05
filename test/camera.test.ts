@@ -281,6 +281,27 @@ test("master blur preserves full-resolution chroma through production rendering"
     }
   } finally {
     await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("a drag that reaches the screen edge stays visible through the closing ease", async () => {
+  const { gestures, gestureZone } = await import("../src/camera/gesture.ts");
+  const { contains } = await import("../scripts/check-framing.ts");
+  const late = beat("late", 4, 550, "click");
+  late.t1 = 7.5;
+  late.actions = [{ k: "drag", t0: 6000, t1: 7500,
+    from: [280, 720], to: [570, 855],
+    bbox: [130, 640, 300, 160], whole_object: [130, 640, 300, 160] }];
+  const end = 8.8;
+  const frames = solveCamera([late], [decision(late, 2)],
+    { width: 3840, height: 2160, trim_end: end }, DEFAULTS);
+  const swept = gestureZone(gestures(late)[0]!, 3840, 2160).bbox;
+  const arrival = end - DEFAULTS.outro_s;
+  for (const f of frames) {
+    if (f.t >= arrival) assert.deepEqual({ x: f.x, y: f.y, w: f.w, h: f.h }, { x: 0, y: 0, w: 3840, h: 2160 });
+    else if (f.t >= 6 && f.t <= 7.5) assert.ok(contains(f, swept), `drag cropped at ${f.t}: ${JSON.stringify(f)}`);
+  }
+});
 
 // J2 whole-element framing on every emitted frame: while the camera prepares
 // the incoming selected header, the revealed Tidewater result must stay whole
