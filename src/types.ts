@@ -169,7 +169,9 @@ export interface TakeMeta extends TakeEdits {
   events?: string;
   /** ms since take start; absent for an untrimmed take */
   trim?: { start: number; end: number };
-  /** ISO capture timestamps; a trim ending exactly at their span is record.ts's auto-trim */
+  /** Capture length in ms, taken from the same monotonic clock as `trim.end`. */
+  duration_ms?: number;
+  /** ISO capture timestamps */
   started_at?: string;
   stopped_at?: string;
   jev?: { input_tokens: number; usd: number; failed: number };

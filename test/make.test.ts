@@ -232,11 +232,10 @@ test("make intersects trim with available video before rendering", { skip: needs
     assert.equal(JSON.parse(readFileSync(join(dir, "take.json"), "utf8")).trim_end, undefined);
     assert.ok(rerun.seconds < 8, `stale trim_end still bounded the export at ${rerun.seconds}s`);
 
-    // record.ts's own trim ends at the recording length, so it bounds nothing:
-    // honouring it would export the dead tail past the last result.
+    // record.ts's own trim ends at the recording length it measured, so it
+    // bounds nothing: honouring it would export the dead tail past the result.
     writeFileSync(join(dir, "take.json"), JSON.stringify({
-      ...remade, started_at: "2026-01-01T00:00:00.000Z", stopped_at: "2026-01-01T00:00:09.000Z",
-      trim: { start: 0, end: 9000 },
+      ...remade, duration_ms: 9000, trim: { start: 0, end: 9000 },
     }));
     await fastTake(dir, { noJev: true, log: () => {}, warn: () => {} });
     const auto = JSON.parse(readFileSync(join(dir, "take.json"), "utf8"));
@@ -249,6 +248,19 @@ test("make intersects trim with available video before rendering", { skip: needs
     assert.ok(seconds <= lastActivity + DEFAULTS.outro_s + 0.5,
       `export ran ${seconds}s, past the last activity at ${lastActivity}s plus the outro`);
     assert.ok(seconds < 9, `export kept the recorder's dead tail: ${seconds}s of a 10s take`);
+
+    // The same trim without record's own length stamp is the caller's: an end
+    // on the video's own end is exported as given, not shortened to the result.
+    writeFileSync(join(dir, "take.json"), JSON.stringify({
+      ...remade, duration_ms: undefined, trim: { start: 0, end: 11000 },
+    }));
+    await fastTake(dir, { noJev: true, log: () => {}, warn: () => {} });
+    const chosen = JSON.parse(readFileSync(join(dir, "take.json"), "utf8"));
+    assert.equal(chosen.trim_end, 10, "a caller's trim ending at the video end must survive");
+    const kept = JSON.parse(execFileSync("ffprobe", ["-v", "error", "-show_entries", "format=duration",
+      "-of", "json", join(dir, "out", "t1.mp4")], { encoding: "utf8" })).format.duration as number;
+    assert.ok(kept > seconds + 1,
+      `caller's trim discarded: exported ${kept}s, no longer than the derived ${seconds}s`);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

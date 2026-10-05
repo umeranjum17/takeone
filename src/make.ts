@@ -420,16 +420,13 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
     id: take.id, width: take.stream.w, height: take.stream.h,
     trim_start: seconds(startMs), duration: seconds(videoEndMs),
   };
-  // Only a caller's own trim end bounds the export; otherwise render derives the
-  // purposeful end. record.ts's auto-trim ends at the recording length, so it
-  // bounds nothing and honouring it would export the dead tail past the last
-  // result. An end an earlier run recorded is not a caller's trim either.
-  const recordedMs = take.started_at && take.stopped_at
-    ? new Date(take.stopped_at).getTime() - new Date(take.started_at).getTime() : null;
-  const autoTrim = take.trim?.end !== undefined && recordedMs !== null
-    && Math.abs(take.trim.end - recordedMs) < 1;
+  // record.ts's own trim ends at the recording length, so it bounds nothing:
+  // honouring it would export the dead tail past the last result. It is
+  // recognisable because both numbers come from the same monotonic clock. A
+  // trim you set yourself is exported as given, clamped to the recording. An
+  // end an earlier run recorded is not a caller's trim either.
   const meta: RenderMeta = { ...take, ...renderMeta };
-  if (take.trim?.end !== undefined && !autoTrim && endMs < videoEndMs) meta.trim_end = seconds(endMs);
+  if (take.trim?.end !== undefined && take.trim.end !== take.duration_ms) meta.trim_end = seconds(endMs);
   else delete meta.trim_end;
   writeFileSync(join(dir, "take.json"), JSON.stringify(meta, null, 1) + "\n");
   const { out, seconds: renderSeconds } = await renderTake(dir, camera);
