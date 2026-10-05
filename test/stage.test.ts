@@ -267,6 +267,8 @@ test("export ends one outro after the last result or cut, ignoring resting point
     if (beats[0] === cut) assert.ok(squeezes.every(s => s.b <= cut.t0-start || s.a >= cut.t1-start));
   }
 
-  assert.equal(purposefulEnd([action,idle],0,12,{...DEFAULTS,outro_s:0}),12);
+  // outro_s=0 drops the padding, not the trimming: the export still ends on the
+  // result rather than running the recorder's trailing inactivity.
+  assert.equal(purposefulEnd([action,idle],0,12,{...DEFAULTS,outro_s:0}),5.7);
   assert.equal(purposefulEnd([action],0,6,DEFAULTS),6);
 });

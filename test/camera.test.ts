@@ -177,6 +177,14 @@ test("render without trim_end uses the latest beat end", { timeout: 120_000, ski
     const squeezes = idleSqueezes([toast], 0, end, FAST);
     const last = JSON.parse(await readFile(join(dir, "camera.json"), "utf8"));
     assert.equal(last.length, Math.round(warp(end, squeezes, FAST.idle_speed) * DEFAULTS.fps));
+    // outro_s=0 drops the closing hold and the padding, not the trimming: the
+    // export ends on the result instead of running the recording's dead tail.
+    const bare = { ...FAST, outro_s: 0 };
+    await renderTake(dir, bare);
+    const trimmed = idleSqueezes([toast], 0, 10.9, bare);
+    const bareLast = JSON.parse(await readFile(join(dir, "camera.json"), "utf8")).at(-1);
+    assert.ok(Math.abs(bareLast.t - warp(10.9, trimmed, bare.idle_speed)) <= 1 / DEFAULTS.fps,
+      `outro_s=0 exported to ${bareLast.t}s, not the result at ${warp(10.9, trimmed, bare.idle_speed)}s`);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

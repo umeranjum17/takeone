@@ -86,12 +86,12 @@ export function warpBeats(beats: Beat[], start: number, squeezes: Squeeze[], spe
 /** End on the final action/result, rather than the recorder's trailing inactivity.
  * Input actions use the solver clock (milliseconds), results use seconds.
  * The tail is the outro itself, so the result is on the whole stage for all of it.
+ * `outro_s = 0` drops that padding, never the trimming itself.
  * Keep enough opening footage for an establishing shot on very short takes.
  */
 export function purposefulEnd(beats: Beat[], start: number, end: number, d: CameraDefaults): number {
-  if (d.outro_s <= 0) return end;
   const spans = activity(beats).filter(([a, b]) => a <= end && b >= start);
   if (!spans.length) return end;
   const result = Math.max(start, ...spans.map(([, b]) => Math.min(end, b)));
-return Math.min(end, Math.max(start + d.establish_s, result + d.outro_s));
+  return Math.min(end, Math.max(start + d.establish_s, result + Math.max(0, d.outro_s)));
 }
