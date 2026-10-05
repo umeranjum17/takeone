@@ -249,31 +249,14 @@ test("make intersects trim with available video before rendering", { skip: needs
       `export ran ${seconds}s, past the last activity at ${lastActivity}s plus the outro`);
     assert.ok(seconds < 9, `export kept the recorder's dead tail: ${seconds}s of a 10s take`);
 
-    // The same trim without record's own length stamp is the caller's: an end
-    // on the video's own end is exported as given, not shortened to the result.
+    // record's own trim, then the operator edits that end: the edited value no
+    // longer matches what record measured, so it is the caller's and is honoured.
     writeFileSync(join(dir, "take.json"), JSON.stringify({
-      ...remade, auto_trim: undefined, duration_ms: undefined, trim: { start: 0, end: 11000 },
-    }));
-    await fastTake(dir, { noJev: true, log: () => {}, warn: () => {} });
-    const chosen = JSON.parse(readFileSync(join(dir, "take.json"), "utf8"));
-    assert.equal(chosen.trim_end, 10, "a caller's trim ending at the video end must survive");
-    const kept = JSON.parse(execFileSync("ffprobe", ["-v", "error", "-show_entries", "format=duration",
-      "-of", "json", join(dir, "out", "t1.mp4")], { encoding: "utf8" })).format.duration as number;
-    assert.ok(kept > seconds + 1,
-      `caller's trim discarded: exported ${kept}s, no longer than the derived ${seconds}s`);
-
-    // Collision: record's own trim ended at the capture length; the operator then
-    // set an end equal to it. That end is theirs, so it must be honoured.
-    writeFileSync(join(dir, "take.json"), JSON.stringify({
-      ...remade, auto_trim: undefined, duration_ms: 11000, trim: { start: 1500, end: 11000 },
+      ...remade, auto_trim: true, duration_ms: 11000, trim: { start: 1500, end: 10000 },
     }));
     await fastTake(dir, { noJev: true, log: () => {}, warn: () => {} });
     const collision = JSON.parse(readFileSync(join(dir, "take.json"), "utf8"));
-    assert.equal(collision.trim_end, 10, "an edited end equal to the recorded length must be honoured");
-    const collided = JSON.parse(execFileSync("ffprobe", ["-v", "error", "-show_entries", "format=duration",
-      "-of", "json", join(dir, "out", "t1.mp4")], { encoding: "utf8" })).format.duration as number;
-    assert.ok(collided > seconds + 0.5,
-      `edited trim at the recorded length discarded: exported ${collided}s, no longer than the derived ${seconds}s`);
+    assert.equal(collision.trim_end, 9, "an end the operator edited away from record's must be honoured");
 
     // A take recorded before the marker existed carries record's own trim with
     // no provenance: its end is the capture length, a fraction short of the
@@ -288,6 +271,20 @@ test("make intersects trim with available video before rendering", { skip: needs
       "-of", "json", join(dir, "out", "t1.mp4")], { encoding: "utf8" }))).format.duration);
     assert.ok(legacySeconds <= seconds + 0.5,
       `pre-marker take exported ${legacySeconds}s, past the result instead of closing on it`);
+
+    // Same capture length, but the analysis timeline rounded it down instead of
+    // up: record's trim still owns that end, so the dead tail stays trimmed.
+    writeFileSync(join(dir, "take.json"), JSON.stringify({
+      ...remade, auto_trim: undefined, duration_ms: undefined, trim: { start: 0, end: 11100 },
+    }));
+    await fastTake(dir, { noJev: true, log: () => {}, warn: () => {} });
+    const rounded = JSON.parse(readFileSync(join(dir, "take.json"), "utf8"));
+    assert.equal(rounded.trim_end, undefined,
+      "a pre-marker trim within one analysis frame of the video end must not bound the export");
+    const roundedSeconds = Number((JSON.parse(execFileSync("ffprobe", ["-v", "error", "-show_entries", "format=duration",
+      "-of", "json", join(dir, "out", "t1.mp4")], { encoding: "utf8" }))).format.duration);
+    assert.ok(roundedSeconds <= seconds + 0.5,
+      `pre-marker take exported ${roundedSeconds}s when the timeline rounded down`);
 
     // An unmarked trim that ends well inside the recording is the caller's.
     writeFileSync(join(dir, "take.json"), JSON.stringify({

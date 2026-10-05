@@ -35,6 +35,9 @@ import { clampBBox, type BBox } from "./types.ts";
 
 export const DEFAULT_TOKENS_PER_MIN = 40000;
 
+/** Analysis runs at 10 fps, so the recording end lands within one frame of it. */
+const ANALYSIS_FRAME_MS = 100;
+
 export interface MakeOptions {
   /** Capture privacy: drop window titles, cache hashes only, no coords in current_shot. */
   capture?: boolean;
@@ -425,12 +428,13 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
   // result. Any other trim is the caller's and is exported as given, clamped to
   // the recording. An end an earlier run recorded is not a caller's trim either.
   // Takes recorded before the marker existed carry no provenance: their trim end
-  // is the capture length, which the muxed video runs a fraction of a second
-  // past, so an unmarked end inside the video's last second is record's too.
+  // is the capture length, which the 10 fps analysis timeline rounds to a frame
+  // boundary in either direction, so an unmarked end within one analysis frame of
+  // the video's end is record's too.
   const meta: RenderMeta = { ...take, ...renderMeta };
   const trimEnd = take.trim?.end;
-  const recorderTail = trimEnd !== undefined && trimEnd < videoEndMs && videoEndMs - trimEnd < 1000;
-  const autoTrim = take.auto_trim === true ? trimEnd === take.duration_ms : recorderTail;
+  const recorderOwned = trimEnd !== undefined && Math.abs(videoEndMs - trimEnd) <= ANALYSIS_FRAME_MS;
+  const autoTrim = take.auto_trim === true ? trimEnd === take.duration_ms : recorderOwned;
   if (take.trim?.end !== undefined && !autoTrim) meta.trim_end = seconds(endMs);
   else delete meta.trim_end;
   writeFileSync(join(dir, "take.json"), JSON.stringify(meta, null, 1) + "\n");
