@@ -655,6 +655,8 @@ function sampleCamera(
   let move: Move | undefined;
   let focus: Zone | undefined;
   const preparations = new Map<Target, { start: number; deadline: number }>();
+  const deferredSince = new Map<Target, number>();
+  const deferLimit = d.move_t_max + Math.log(1e6) / d.lowpass_omega + 1;
   let targetIndex = 0;
   const velocity = { x: 0, y: 0 };
   const filterVelocity = { cx: 0, cy: 0, lz: 0 };
@@ -718,7 +720,15 @@ function sampleCamera(
           filterVelocity, width, height, d, project);
         const deadline = Math.ceil(candidateMove.start * d.fps) / d.fps;
         if (duration === undefined || deadline - duration < time) {
-          throw new Error(`whole incoming subject needs preparation before ${deadline}s; preceding hold cannot contain it`);
+          const since = deferredSince.get(target) ?? time;
+          deferredSince.set(target, since);
+          if (time - since >= deferLimit) {
+            deferredSince.delete(target);
+            targetIndex++;
+            continue;
+          }
+          target.startAfter = time + 1 / d.fps;
+          break;
         }
         preparation = { start: deadline - duration, deadline };
         preparations.set(target, preparation);
