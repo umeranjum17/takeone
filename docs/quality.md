@@ -128,7 +128,7 @@ Drag framing has a separate visibility check. On two camera paths with the
 same output clock, run:
 
 ```sh
-node scripts/check-framing.ts output-clock-beats.json trim-start-seconds before-camera.json after-camera.json
+node scripts/check-framing.ts output-clock-beats.json trim-start-seconds before-camera.json after-camera.json [reference-boxes.json [exposure-offsets]]
 ```
 
 Camera timestamps are relative to the trimmed output, so provide the trim start
@@ -139,7 +139,11 @@ if the after crop loses an acted-on region the before crop contained or a beat
 has no frames to compare. It also checks the recorded cursor path and moving
 grab footprint throughout each drag, including the release frame. Its table
 reports how many before frames contained the region, so an untested region is
-visible.
+visible, plus a `ref cut` column: when reference boxes are supplied, a trailing
+`references` row reports settled frames that slice a reference surface instead of
+holding it whole or leaving it out (comma-separated `exposure-offsets` in frames,
+default `0`, re-checks each offset through the shutter function). The references
+row fails when it cut any surface, or when nothing settled long enough to check.
 
 Drag actions preserve the sampled pointer path through planning and pacing.
 Drags crossing the trim start or first video frame are retained: segmentation

@@ -40,8 +40,8 @@ export function referenceCuts(frame: CameraFrame, references: readonly Reference
   const cuts: { exposure: number; box: string; clipped: number }[] = [];
   for (const exposure of exposures) {
     const at = index + exposure;
-    const view = (exposure === 0 ? frame : shutterFrame(frames, at));
-    clippedFractions(view, references.map(r => r.bbox)).forEach((clipped, i) => {
+    const view = (exposure === 0 ? frame : shutterFrame([...frames], at));
+    clippedFractions(view, references.map(r => [...r.bbox] as [number, number, number, number])).forEach((clipped, i) => {
       if (clipped > 0 && clipped < HIGH_CLIP_FRACTION) {
         cuts.push({ exposure, box: references[i]!.name ?? JSON.stringify(references[i]!.bbox), clipped });
       }
