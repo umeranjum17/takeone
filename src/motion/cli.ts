@@ -8,7 +8,7 @@ import { validateStoryboard } from "./storyboard.ts";
 import type { Device, PatternName, Region, Scene } from "./types.ts";
 
 export const MOTION_USAGE = `takeone motion <image.png|page.html|https://url>... [--out DIR] [--pattern hero-reveal,zoom-tour,end-card]
-  [--theme midnight|paper|aurora|mono|neon|brutalist|sand|terminal|editorial]
+  [--theme midnight|paper|aurora|mono|sand|editorial]
   [--title TEXT] [--subtitle TEXT] [--cta TEXT] [--url TEXT] [--logo WORD] [--device browser|phone|laptop|none]
   [--region x,y,w,h[:label][@SCREEN]]... [--state NAME='click #id; type #id "text"; drag #a #b; wait 300']...
   [--workers N] [--blur 0|1] [--storyboard file.json] [--plan-only]

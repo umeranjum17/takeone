@@ -107,8 +107,8 @@ ffmpeg -y -ss <t> -i "$TAKEONE_DIR/theme-light/out/<id>.mp4" -frames:v 1 takeone
 ```
 
 Extract both stills at the `<before>` timestamp so the pairs compare. Dark themes:
-`midnight` (default), `aurora`, `mono`, `neon`, `terminal`. Light themes: `paper`,
-`sand`, `brutalist`, `editorial` (`src/themes.ts`). One dark plus one light is the
+`midnight` (default), `aurora`, `mono`. Light themes: `paper`,
+`sand`, `editorial` (`src/themes.ts`). One dark plus one light is the
 floor; add another name from the relevant class when the change touches that token
 (`display_font`, `bg_style`, `bg_pattern`, grain). `make --theme <name>` is the
 one-drive equivalent. Copy the take per theme — `render` overwrites `out/<id>.mp4`

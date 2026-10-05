@@ -4,7 +4,7 @@ README Quickstart 4: re-render an already-planned take with new look settings wi
 
 ## Sub-features
 
-- Camera/theme overrides at render time: `--theme midnight|paper|aurora|mono|neon|brutalist|sand|terminal|editorial` and `--set key=value` for any token in `src/camera/defaults.ts` (colours like `background=#0B1220`, pacing like `idle_speed=3`, `quality=draft|standard|master`, `max_upscale`, fonts, grain, borders…).
+- Camera/theme overrides at render time: `--theme midnight|paper|aurora|mono|sand|editorial` and `--set key=value` for any token in `src/camera/defaults.ts` (colours like `background=#0B1220`, pacing like `idle_speed=3`, `quality=draft|standard|master`, `max_upscale`, fonts, grain, borders…).
 - Saved theme precedence: a `"theme"` saved in `take.json` by `make --theme` applies on rerender; an explicit `--theme` flag wins; `--set` overrides both.
 - Sidecar outputs: `camera.json`, `camera.cmd`, `render.log` (including libass font selection) and `motion-blur.json` when `motion_blur` sampling runs.
 - Saved `take.json` cuts: `"cuts":[{"t0":12,"t1":15}]` removes half-open source-second intervals within `trim_start`/`trim_end`. Footage, camera events, clicks and caption starts use the same output clock; surviving captions retain their reading duration. Overlapping, reversed or non-finite cuts and invalid trims reject before writing render artifacts. Speed regions and manual zooms are not part of this cut/trim control.
