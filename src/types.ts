@@ -171,6 +171,8 @@ export interface TakeMeta extends TakeEdits {
   trim?: { start: number; end: number };
   /** Capture length in ms, taken from the same monotonic clock as `trim.end`. */
   duration_ms?: number;
+  /** Record wrote this trim itself; any later trim is the caller's. */
+  auto_trim?: true;
   jev?: { input_tokens: number; usd: number; failed: number };
 }
 

@@ -228,6 +228,7 @@ export async function runRecord(options: RecordOptions = {}): Promise<RecordResu
       warnings,
       clock,
       trim: computeTrim(taps === null ? { inputMs: [] } : taps.summary, durationMs, firstFrameMs),
+      auto_trim: true,
       duration_ms: durationMs,
       metrics: finalMetrics,
       versions: {

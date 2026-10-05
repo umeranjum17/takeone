@@ -235,7 +235,7 @@ test("make intersects trim with available video before rendering", { skip: needs
     // record.ts's own trim ends at the recording length it measured, so it
     // bounds nothing: honouring it would export the dead tail past the result.
     writeFileSync(join(dir, "take.json"), JSON.stringify({
-      ...remade, duration_ms: 9000, trim: { start: 0, end: 9000 },
+      ...remade, auto_trim: true, duration_ms: 9000, trim: { start: 0, end: 9000 },
     }));
     await fastTake(dir, { noJev: true, log: () => {}, warn: () => {} });
     const auto = JSON.parse(readFileSync(join(dir, "take.json"), "utf8"));
@@ -252,7 +252,7 @@ test("make intersects trim with available video before rendering", { skip: needs
     // The same trim without record's own length stamp is the caller's: an end
     // on the video's own end is exported as given, not shortened to the result.
     writeFileSync(join(dir, "take.json"), JSON.stringify({
-      ...remade, duration_ms: undefined, trim: { start: 0, end: 11000 },
+      ...remade, auto_trim: undefined, duration_ms: undefined, trim: { start: 0, end: 11000 },
     }));
     await fastTake(dir, { noJev: true, log: () => {}, warn: () => {} });
     const chosen = JSON.parse(readFileSync(join(dir, "take.json"), "utf8"));
@@ -261,6 +261,19 @@ test("make intersects trim with available video before rendering", { skip: needs
       "-of", "json", join(dir, "out", "t1.mp4")], { encoding: "utf8" })).format.duration as number;
     assert.ok(kept > seconds + 1,
       `caller's trim discarded: exported ${kept}s, no longer than the derived ${seconds}s`);
+
+    // Collision: record's own trim ended at the capture length; the operator then
+    // set an end equal to it. That end is theirs, so it must be honoured.
+    writeFileSync(join(dir, "take.json"), JSON.stringify({
+      ...remade, auto_trim: undefined, duration_ms: 11000, trim: { start: 1500, end: 11000 },
+    }));
+    await fastTake(dir, { noJev: true, log: () => {}, warn: () => {} });
+    const collision = JSON.parse(readFileSync(join(dir, "take.json"), "utf8"));
+    assert.equal(collision.trim_end, 10, "an edited end equal to the recorded length must be honoured");
+    const collided = JSON.parse(execFileSync("ffprobe", ["-v", "error", "-show_entries", "format=duration",
+      "-of", "json", join(dir, "out", "t1.mp4")], { encoding: "utf8" })).format.duration as number;
+    assert.ok(collided > seconds + 0.5,
+      `edited trim at the recorded length discarded: exported ${collided}s, no longer than the derived ${seconds}s`);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
