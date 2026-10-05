@@ -779,10 +779,10 @@ export function solveCamera(
   const decisionMap = new Map(decisions.map((decision) => [decision.beat, decision]));
   const visibleBeats = beats.filter(beat => (beat.t1 > start && beat.t0 < end)
     || gestures(beat).some(g => g.t1 / 1000 > start && g.t0 / 1000 < end));
-  const shots = buildShots(beats, decisions, start, d)
+  const shots = buildShots(beats.filter(beat => !beat.camera_suppressed), decisions, start, d)
     .filter((shot) => visibleBeats.includes(shot.beat));
   const quietShots = applyDwellAndShotLength(shots, d).filter((shot) => shot.arrival < end);
-  const targets = applyMoveRateLimit(buildTargets(quietShots, visibleBeats, width, height, start, end, d), width, height, d);
+  const targets = applyMoveRateLimit(buildTargets(quietShots, visibleBeats.filter(beat => !beat.camera_suppressed), width, height, start, end, d), width, height, d);
   const frames = sampleCamera(targets, visibleBeats.map((beat) => ({ ...beat,
     kind: quietShots.some((shot) => shot.beat === beat) ? beat.kind : "idle",
     actions: quietShots.some((shot) => shot.beat === beat) ? beat.actions : [],
