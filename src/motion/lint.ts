@@ -50,8 +50,8 @@ export function lintFonts(sb: Storyboard): void {
     const fragmentTexts = s.pattern === "fragment" ? sceneTexts(s) : [];
     const monoFragment = s.kind === "counter" || s.kind === "phone-chrome";
     const feedRow = s.pattern === "fragment" && s.kind === "feed-row";
-    const device = s.pattern === "fragment" ? s.kind === "browser-chrome" ? "browser" : s.kind === "phone-chrome" ? "phone" : "none" : ["hero-reveal", "zoom-tour"].includes(s.pattern) ? s.device ?? "browser" : "none";
-    const display = [s.title, s.logo];
+    const device = s.pattern === "fragment" ? s.kind === "browser-chrome" ? "browser" : s.kind === "phone-chrome" ? "phone" : "none" : s.pattern === "kinetic-type" ? s.device ?? "none" : ["hero-reveal", "zoom-tour"].includes(s.pattern) ? s.device ?? "browser" : "none";
+    const display = [s.title, s.logo, ...((s.tiles ?? []).map(t => t.title))];
     const body = [s.subtitle, s.cta, s.text, ...(!monoFragment ? feedRow ? fragmentTexts.slice(0, 2) : fragmentTexts : []), ...(s.stops ?? []).map(t => t.caption), ...(device === "browser" ? ["Design preview"] : [])];
     const mono = [s.url, ...(monoFragment ? fragmentTexts : []), ...(s.kind === "counter" ? ["0123456789"] : []), ...(feedRow ? ["Just now"] : []), ...(device === "phone" ? ["9:41"] : [])];
     const symbols = [...(s.kind === "toast" ? ["✓"] : []), ...(device === "browser" ? ["● ● ●"] : [])];

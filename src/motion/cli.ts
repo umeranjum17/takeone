@@ -149,14 +149,33 @@ export function planStoryboard(a: MotionArgs, id: string): unknown {
   };
   // Launch film: no --pattern and three or more screens. The title opens on bare type, every
   // labelled screen gets its label as a full-type beat before a clean (captionless) tour, and
-  // the end card closes. Beats strictly alternate cream and black by scene order.
+  // the end card closes. Beats strictly alternate cream and black by scene order. The middle
+  // screen's announce beat also mounts a phone frame, and with three or more labels the last
+  // announce beat becomes a bento recap grid of the labels plus the wordmark.
   const launch = !a.patterns && screens.length >= 3;
+  const labels = screens.map(screen => regions.find(r => r.screen === screen && r.label)?.label);
+  const bento = launch && labels.filter(Boolean).length >= 3;
+  const mid = screens.length >> 1;
+  const announce = (screen: string, i: number): Scene[] => {
+    const label = labels[i];
+    if (!label) return [];
+    if (bento && i === screens.length - 1) return [];
+    const beat: Scene = i === mid
+      ? { pattern: "kinetic-type", d: 0, title: label, device: "phone", screen }
+      : { pattern: "kinetic-type", d: 0, title: label };
+    beat.d = minSceneDuration(beat);
+    return [beat];
+  };
+  const recap = (): Scene[] => {
+    if (!bento) return [];
+    const scene: Scene = { pattern: "bento", d: 0,
+      tiles: [...labels.filter(Boolean).slice(0, 3).map(title => ({ title: title! })), { title: a.logo ?? "TakeOne" }] };
+    scene.d = minSceneDuration(scene);
+    return [scene];
+  };
   const scenes: Scene[] = !launch ? patterns.flatMap(plan) : [
     typeBeat(title, a.subtitle),
-    ...screens.flatMap((screen) => {
-      const label = regions.find(r => r.screen === screen && r.label)?.label;
-      return [...(label ? [typeBeat(label)] : []), tourOne(screen, false)];
-    }),
+    ...screens.flatMap((screen, i) => [...(bento && i === screens.length - 1 ? recap() : []), ...announce(screen, i), tourOne(screen, false)]),
     ...plan("end-card"),
   ].map((s, i) => (i % 2 ? { ...s, invert: true } : s));
   const source = kind === "image" ? { kind, files: a.inputs.map((f) => resolve(f)) }
