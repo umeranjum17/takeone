@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Tidewater · Umer's launch</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#f4f2ee;color:#1d1f23;font:15px/1.4 -apple-system,BlinkMacSystemFont,sans-serif}
+header{height:115px;background:white;padding:17px 24px;border-bottom:1px solid #e3e0da}
+.logo{font-size:23px;font-weight:700;letter-spacing:-.8px}.logo b{color:#0f766e}.sub{font-size:12px;color:#6b6f76;margin-top:7px}
+h1{font-size:28px;letter-spacing:-1px;margin:17px 22px 5px}.intro{color:#6b6f76;margin:0 22px;font-size:13px}
+.card{position:absolute;left:22px;right:22px;height:138px;border:1px solid #e3e0da;border-radius:16px;background:white;padding:18px 20px;box-shadow:0 2px 3px #1d1f2308}
+#c0{top:218px}#c1{top:420px}#c2{top:622px}.label{position:absolute;left:25px;color:#6b6f76;font-size:12px;font-weight:600;letter-spacing:1px}
+.l0{top:194px}.l1{top:396px}.l2{top:598px}.title{font-size:19px;font-weight:650;letter-spacing:-.35px}.detail{font-size:13px;color:#6b6f76;margin:8px 0 12px}
+.tag{display:inline-block;background:#e6f2f0;color:#0f766e;padding:4px 9px;border-radius:7px;font-size:11px;font-weight:600}.person{float:right;font-size:12px;color:#6b6f76;padding-top:4px}
+</style></head><body>
+<header><div class="logo"><b>◈</b> tidewater</div><div class="sub">UMER'S WORKSPACE &nbsp; / &nbsp; PRODUCT</div></header>
+<h1>Launch board</h1><p class="intro">A clear path from idea to shipped.</p>
+<div class="label l0">01 &nbsp; PLANNING</div><section class="card" id="c0"><div class="title">Onboarding flow</div><div class="detail">Review the first-run experience.</div><span class="tag">Ready for review</span><span class="person">Umer · Today</span></section>
+<div class="label l1">02 &nbsp; IN PROGRESS</div><section class="card" id="c1"><div class="title">Design system</div><div class="detail">Polish the controls and interactions.</div><span class="tag">In progress</span><span class="person">Umer · Oct 2</span></section>
+<div class="label l2">03 &nbsp; SHIPPING</div><section class="card" id="c2"><div class="title">Release checklist</div><div class="detail">Prepare the launch handoff.</div><span class="tag">Three items left</span><span class="person">Umer · Oct 3</span></section>
+<script>
+const states=[
+ ['Onboarding flow','The welcome screen is approved.','Review complete','Today'],
+ ['Design system','Button states and spacing are approved.','Ready to ship','Today'],
+ ['Release checklist','Preview builds are ready for the team.','Two items left','Oct 2'],
+ ['Onboarding flow','First-run copy has been reviewed.','Copy approved','Today'],
+ ['Design system','Accessibility review passed.','Review complete','Today'],
+ ['Release checklist','The launch handoff is complete.','Ready to launch','Today']
+];
+function navigate(step){const [title,detail,tag,due]=states[step-1];document.querySelector('#c'+((step-1)%3)).innerHTML=`<div class="title">${title}</div><div class="detail">${detail}</div><span class="tag">${tag}</span><span class="person">Umer · ${due}</span>`;}
+</script></body></html>

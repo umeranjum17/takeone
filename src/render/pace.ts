@@ -13,6 +13,9 @@ function activity(beats: Beat[]): [number, number][] {
   for (const beat of beats) {
     spans.push([beat.anchor_t, beat.anchor_t]);
     for (const result of beat.dialog_results ?? []) spans.push([result.t, result.t]);
+    // Video-only screen changes have no input-action spans. Their observed
+    // result hold is activity, so pacing must not compress it as dead air.
+    if (beat.kind === "change") spans.push([beat.t0, beat.t1]);
     for (const zone of beat.zones) if (zone.t_change !== undefined) spans.push([zone.t_change, zone.t_change]);
     for (const action of beat.actions) {
       const a = action as { k?: string; t?: number; t0?: number; t1?: number };

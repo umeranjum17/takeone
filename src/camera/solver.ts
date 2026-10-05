@@ -26,6 +26,8 @@ interface Target {
   subject?: Zone;
   boxes?: Box[];
   startAfter?: number;
+  /** Observed video-only subject: centre it once, rather than waiting for clipping. */
+  screenChange?: boolean;
   /** A long-idle widen: quiet by definition, so exempt from the rate cap. */
   breathe?: boolean;
   /** A disappearing subject cannot wait behind ordinary shot holds. */
@@ -300,6 +302,17 @@ function isDeadzone(state: CameraState, target: CameraState, baseW: number, d: C
 /** A nearby target may still need a correction when the current hold cuts its context. */
 function canHold(state: CameraState, target: Target, width: number, height: number, d: CameraDefaults): boolean {
   if (!isDeadzone(state, target.state, baseWidth(width, height, d), d)) return false;
+  if (target.screenChange) {
+    const viewW = baseWidth(width, height, d) / state.z;
+    const viewH = viewW * d.out_h / d.out_w;
+    // Edge clamping can make distinct subjects' composed camera centres nearly
+    // identical. Apply the attention deadzone to the observed subject itself,
+    // so a new edge subject still gets its planned composition and zoom.
+    const [x, y, w, h] = target.subject?.bbox
+      ?? [target.state.cx, target.state.cy, 0, 0];
+    if (Math.abs(x + w / 2 - state.cx) > viewW * d.deadzone_margin
+      || Math.abs(y + h / 2 - state.cy) > viewH * d.deadzone_margin) return false;
+  }
   if (!target.boxes?.length || !target.subject) return true;
   const crop = toFrame(state, width, height, d);
   const [x, y, w, h] = target.subject.bbox;
@@ -359,7 +372,7 @@ function applyMoveRateLimit(targets: Target[], width: number, height: number, d:
   let state: CameraState = { cx: width / 2, cy: height / 2, z: 1 };
   const moving: Target[] = [];
   for (const target of targets) {
-    if (!target.reveal && canHold(state, target, width, height, d)) {
+    if (!target.reveal && !target.screenChange && canHold(state, target, width, height, d)) {
       const previous = moving.at(-1);
       if (previous) previous.importance = Math.max(previous.importance, target.importance);
       continue;
@@ -381,7 +394,7 @@ function applyMoveRateLimit(targets: Target[], width: number, height: number, d:
   }
   state = { cx: width / 2, cy: height / 2, z: 1 };
   return kept.filter((target) => {
-    if (!target.reveal && canHold(state, target, width, height, d)) return false;
+    if (!target.reveal && !target.screenChange && canHold(state, target, width, height, d)) return false;
     state = target.state;
     return true;
   });
@@ -423,7 +436,9 @@ function buildTargets(
       importance: shot.decision.K,
       subject: withContext(shot.zoneA, boxesFor(shot.zoneA), width, height),
       boxes: boxesFor(shot.zoneA),
+      screenChange: shot.beat.kind === "change",
       startAfter: shot.beat.kind === "cut" ? cutSettledAt(shot.beat, shot.arrival, d)
+        : shot.beat.kind === "change" ? shot.beat.anchor_t
         : shot.zoneA.type === "res" ? shot.zoneA.t_change ?? shot.beat.t0 : undefined,
     }];
     if (shot.zoneB !== shot.zoneA && shot.decision.B) {
@@ -645,8 +660,17 @@ function sampleCamera(
         urgent ? Math.max(start, target.startAfter ?? start, previousTime) : Math.max(target.startAfter ?? 0, zoomHold, previousTime));
       if (candidateMove.start > time) break;
       targetIndex++;
-      if (!urgent && canHold(state, target, width, height, d)) continue;
-      move = candidateMove;
+      // A screen change that the hold rules would skip (edge clamping on tall
+      // screens fits both subjects in one viewport, or the new subject sits
+      // inside the hold deadzone) would render as a multi-second hold across
+      // two beats. Acknowledge it with a subtle out-and-back through the
+      // existing hop path so every change reads on screen.
+      if (target.screenChange) {
+        move = { ...candidateMove, mid: { ...state, z: Math.max(1, state.z / 1.03) }, hop: true };
+      } else {
+        if (!urgent && canHold(state, target, width, height, d)) continue;
+        move = candidateMove;
+      }
       if (urgent) break;
     }
 

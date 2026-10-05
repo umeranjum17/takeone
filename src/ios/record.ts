@@ -16,6 +16,8 @@ import { processStartTicks } from "../takes.ts";
 
 export interface IosSimRecordOptions {
   takesRoot?: string;
+  /** Explicit booted Simulator UDID; absent preserves simctl booted selection. */
+  udid?: string;
   stateDirPath?: string;
   /** Injectable for tests; defaults to process.platform. */
   platform?: NodeJS.Platform;
@@ -82,6 +84,21 @@ export function parseBootedDevices(json: string): string[] {
     }
   }
   return out;
+}
+
+/** Validate an explicit device before creating a take or starting capture. */
+export function selectSimulator(json: string, udid?: string): string {
+  if (udid !== undefined && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(udid)) {
+    throw new IosRecordError("invalid-simulator", "--ios-udid must be a Simulator UUID", "use the UDID from `xcrun simctl list devices booted`");
+  }
+  const booted = parseBootedDevices(json);
+  if (udid !== undefined) {
+    const selected = booted.find((device) => device.toLowerCase() === udid.toLowerCase());
+    if (!selected) throw new IosRecordError("no-simulator", "requested Simulator is missing or not booted", "boot the requested UDID before recording");
+    return selected;
+  }
+  if (booted.length === 0) throw new IosRecordError("no-simulator", "no booted simulator (xcrun simctl shows none)", "boot one with `xcrun simctl boot <device>` or open the Simulator app");
+  return "booted";
 }
 
 /**
@@ -243,14 +260,7 @@ export async function runIosSimRecord(options: IosSimRecordOptions = {}): Promis
   const stateDirPath =
     options.stateDirPath !== undefined ? resolve(options.stateDirPath) : defaultStateDir();
 
-  const booted = parseBootedDevices(await runXcrun(["simctl", "list", "devices", "-j"]));
-  if (booted.length === 0) {
-    throw new IosRecordError(
-      "no-simulator",
-      "no booted simulator (xcrun simctl shows none)",
-      "boot one with `xcrun simctl boot <device>` or open the Simulator app",
-    );
-  }
+  const device = selectSimulator(await runXcrun(["simctl", "list", "devices", "-j"]), options.udid);
 
   await mkdir(root, { recursive: true });
   const startedAt = new Date();
@@ -285,7 +295,7 @@ export async function runIosSimRecord(options: IosSimRecordOptions = {}): Promis
     process.on("SIGINT", onSignal);
     process.on("SIGTERM", onSignal);
     try {
-      const rec = spawn("xcrun", ["simctl", "io", "booted", "recordVideo", "--codec=h264", raw], {
+      const rec = spawn("xcrun", ["simctl", "io", device, "recordVideo", "--codec=h264", raw], {
         stdio: ["ignore", "pipe", "pipe"],
       });
       const onOutput = (): void => {

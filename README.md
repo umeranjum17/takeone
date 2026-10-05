@@ -232,12 +232,13 @@ It is not an Android app recording or product demo.
 
 ```sh
 takeone record --ios-sim   # needs a booted simulator; macOS only
+takeone record --ios-sim --ios-udid <UUID>   # isolate capture to this booted device
 # ...drive the app in the Simulator by hand...
 takeone stop
 takeone make <id> --about "Onboarding and first export in the app"
 ```
 
-Video-only: no `events.jsonl` is written, so the camera plans from screen changes alone.
+Video-only: no `events.jsonl` is written, so the camera plans from screen changes alone. Localized changes form `change` beats with result zones; animation frames group into one subject, and unchanged footage stays idle. Observed result holds retain their duration through shared pacing. These beats use the shared Jev attention policy, camera path and renderer, with the same beat and token caps. A changed subject is recentered after it appears, without inventing touch events.
 
 **4. Tweak the look and rerender** without planning again:
 
@@ -418,7 +419,7 @@ Input sources are read passively, never grabbed. If evdev mouse or keyboard devi
 
 `takeone record --android <serial>` records a phone or emulator into the same take directory format: H.264 video via the vendored scrcpy-server and touch input via `getevent`, hand-driven on the phone. `--touch-offset-ms N` calibrates touch timing; `--fps` and `--bitrate` are desktop-only. Requires `adb` on PATH and a device with USB debugging enabled.
 
-`takeone record --ios-sim` records the booted iOS Simulator into the same take directory format, video-only: H.264 via `xcrun simctl io booted recordVideo`, hand-driven in the Simulator. There is no touch API, so no `events.jsonl` is written (`take.json` carries `"events": "none"` and `"pointer": "none"`) and the camera plans from screen changes alone. macOS only; requires Xcode with the iOS Simulator and `ffprobe` on PATH, plus a booted simulator.
+`takeone record --ios-sim` records the booted iOS Simulator into the same take directory format, video-only: H.264 via `xcrun simctl io booted recordVideo`, hand-driven in the Simulator. There is no touch API, so no `events.jsonl` is written (`take.json` carries `"events": "none"` and `"pointer": "none"`) and the camera plans from screen changes alone. macOS only; requires Xcode with the iOS Simulator and `ffprobe` on PATH, plus a booted simulator. Use `--ios-udid <UUID>` to target a specific booted device when several are running. Invalid UUIDs and missing or shutdown devices are refused before capture starts. The default still uses simctl’s `booted` selection. `takeone stop` signals the recorder in `TAKEONE_STATE_DIR`, so use a task-specific state directory for isolated lab captures.
 
 ### Commands
 

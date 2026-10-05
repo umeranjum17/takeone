@@ -18,7 +18,7 @@
     "quality": "node scripts/quality.ts"
   },
   "dependencies": {
-    "@byokit/decide": "0.4.3",
+    "@byokit/decide": "0.6.0",
     "@byokit/secrets": "0.3.0",
     "@desklink/host": "0.1.0",
     "werift": "0.24.4"

@@ -1,7 +1,7 @@
 // Beat segmentation (design 7.1). Pure functions over plain data.
 
 import type { Action, BBox, Beat, BeatKind, FrameRegions, Region } from "../types.ts";
-import { bboxIoU, unionBBox } from "../types.ts";
+import { bboxArea, bboxIoU, unionBBox } from "../types.ts";
 
 export const BEAT_GAP_MS = 1200; // next action must start within this of last activity
 export const BEAT_SPREAD_FRAC = 0.35; // ... and within this x diagonal of the first action point
@@ -98,8 +98,11 @@ interface RawBeat {
 export function segmentBeats(
   actions: Action[],
   frames: FrameRegions[],
-  o: { stream: { w: number; h: number }; takeMs: number; startMs?: number; endMs?: number },
+  o: { stream: { w: number; h: number }; takeMs: number; startMs?: number; endMs?: number; videoOnly?: boolean },
 ): Beat[] {
+  if (o.videoOnly) return segmentScreenChanges(frames, {
+    stream: o.stream, takeMs: o.takeMs, startMs: o.startMs ?? 0, endMs: o.endMs ?? o.takeMs,
+  });
   const diag = Math.hypot(o.stream.w, o.stream.h);
   const cutEnd = (t: number): number => {
     let quietStart: number | null = null;
@@ -334,4 +337,62 @@ export function resultTime(beat: Beat, frames: FrameRegions[]): number | null {
   const largest = beat.results?.[0];
   if (!largest) return null;
   return frames.find((f) => f.regions.includes(largest))?.t ?? null;
+}
+
+/**
+ * Video-only takes have observed changes, not inferred clicks. Group animation
+ * frames into one subject, retaining quiet time as a hold until the next change.
+ * The same beat cap and result-zone vocabulary feed the shared planner.
+ */
+export function segmentScreenChanges(
+  frames: FrameRegions[],
+  o: { stream: { w: number; h: number }; takeMs: number; startMs: number; endMs: number },
+): Beat[] {
+  const beats: Beat[] = [];
+  let lastChange = -Infinity;
+  const screen = o.stream.w * o.stream.h;
+  for (const f of frames) {
+    if (f.t < o.startMs || f.t >= o.endMs) continue;
+    const regions = f.regions.filter((r) => r.area_frac >= RESULT_MIN_AREA);
+    if (regions.length === 0) continue;
+    const current = beats[beats.length - 1];
+    if (current && f.t - lastChange <= BEAT_GAP_MS) {
+      current.results!.push(...regions);
+    } else {
+      if (current) current.t1 = f.t;
+      beats.push({ id: "", t0: f.t, t1: o.endMs, anchor_t: f.t,
+        window_cls: "", actions: [], zones: [], kind: "change", results: [...regions] });
+    }
+    lastChange = f.t;
+  }
+  // Keep the initial establishing view, and a genuinely unchanged take idle.
+  const first = beats[0]?.t0 ?? o.endMs;
+  if (first > o.startMs) beats.unshift({ id: "", t0: o.startMs, t1: first,
+    anchor_t: o.startMs, window_cls: "", actions: [], zones: [], kind: "idle" });
+  const cap = Math.max(1, Math.ceil(o.takeMs / 60000 * MAX_BEATS_PER_MIN));
+  while (beats.length > cap) {
+    let index = 0;
+    for (let i = 1; i + 1 < beats.length; i++) {
+      if (beats[i + 1]!.t1 - beats[i]!.t0 < beats[index + 1]!.t1 - beats[index]!.t0) index = i;
+    }
+    const a = beats[index]!;
+    const b = beats[index + 1]!;
+    a.t1 = b.t1;
+    if (b.results) {
+      a.kind = "change";
+      a.anchor_t = a.results ? a.anchor_t : b.anchor_t;
+      a.results = [...a.results ?? [], ...b.results];
+    }
+    beats.splice(index + 1, 1);
+  }
+  return beats.map((beat, i) => {
+    // A full-screen redraw is context. Prefer local changes within its burst
+    // when present. A redraw can be fragmented into individually local regions:
+    // classify the actual result-zone union, which the camera will frame.
+    const local = beat.results?.filter((r) => bboxArea(r.bbox) / screen <= 0.5);
+    if (local?.length) beat.results = local;
+    const result = resultBBox(beat);
+    if (result && bboxArea(result) / screen > 0.9) beat.kind = "cut";
+    return { ...beat, id: `b${i + 1}` };
+  });
 }
