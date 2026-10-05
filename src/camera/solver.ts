@@ -710,7 +710,7 @@ function sampleCamera(
         && !(move.preparation && prepared && time >= prepared.deadline)) break;
       const reversing = lastZoomDirection !== 0
         && Math.sign(Math.log(target.state.z / state.z)) === -lastZoomDirection;
-      // Include result, breathe and outro targets: arrivals alone do not enforce
+      // Include result and breathe targets: arrivals alone do not enforce
       // a visible hold between opposite zooms once the spring settles.
       const zoomHold = reversing ? Math.max(heldUntil, lastZoomMotion + d.min_shot) : heldUntil;
       const candidateMove = createMove(state, target.state, target.t, baseW, d,
