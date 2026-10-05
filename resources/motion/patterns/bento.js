@@ -12,8 +12,10 @@ PATTERNS["bento"] = (layer,s,ctx) => {
     const cell=h(`<div style="position:relative;overflow:hidden;border-radius:var(--radius);background:var(--bg)"></div>`);
     if (tile.screen) {
       const scr=ctx.screen(tile.screen);
-      cell.append(h(`<img src="${scr.url}" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block">`));
-      cell.append(h(`<div style="position:absolute;bottom:7%;left:50%;transform:translateX(-50%);padding:12px 24px;border-radius:var(--radius);background:var(--card);color:var(--ink);font:${Math.min(w*.036,40)}px var(--body);white-space:nowrap">${esc(tile.title)}</div>`));
+      // 12 px matte: headers never touch the tile edge, and the cover trim stays inside
+      // card padding so no text is sliced. Pill top-right over the header margin.
+      cell.append(h(`<div style="position:absolute;inset:12px;overflow:hidden;border-radius:calc(var(--radius) - 6px)"><img src="${scr.url}" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block"></div>`));
+      cell.append(h(`<div style="position:absolute;top:28px;right:28px;padding:12px 24px;border-radius:var(--radius);background:var(--card);color:var(--ink);font:${Math.min(w*.036,40)}px var(--body);white-space:nowrap">${esc(tile.title)}</div>`));
     } else {
       cell.append(h(`<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;text-align:center;padding:0 8%;color:var(--text);font:400 ${Math.min(w*.1,hh*.2)}px/1.05 var(--display)">${esc(tile.title)}</div>`));
     }
