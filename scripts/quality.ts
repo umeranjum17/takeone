@@ -192,7 +192,7 @@ function outputCaptions(dir: string, meta: TakeMeta, d: typeof DEFAULTS, duratio
     return { ...v, ...(v.t === undefined ? {} : { t: v.t * 1000 }), ...(v.t0 === undefined ? {} : { t0: v.t0 * 1000 }), ...(v.t1 === undefined ? {} : { t1: v.t1 * 1000 }) };
   }) }));
   const start = meta.trim_start ?? 0;
-  const end = meta.trim_end ?? purposefulEnd(beats, start, Math.max(0, ...beats.map(b => b.t1)), d);
+  const end = meta.trim_end ?? purposefulEnd(beats, start, meta.duration ?? Math.max(0, ...beats.map(b => b.t1)), d);
   const squeezes = idleSqueezes(beats, start, end, d);
   return takeCaptions(meta, t => warp(t - start, squeezes, d.idle_speed), duration);
 }

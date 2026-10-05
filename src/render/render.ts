@@ -63,8 +63,8 @@ export async function renderTake(dir: string, d?: CameraDefaults): Promise<{ out
   const trimStart = meta.trim_start ?? 0;
   const cameraWarning = manualZoomLimitWarning(meta, d);
   if (cameraWarning) console.warn(cameraWarning);
-const trimEnd = meta.trim_end ?? purposefulEnd(beats, trimStart,
-    Math.max(0, ...beats.map((beat) => beat.t1)), d);
+  const trimEnd = meta.trim_end ?? purposefulEnd(beats, trimStart,
+    meta.duration ?? Math.max(0, ...beats.map((beat) => beat.t1)), d);
   // Everything after this point runs on the output clock, with idle gaps squeezed.
   const squeezes = idleSqueezes(beats, trimStart, trimEnd, d);
   const clock = meta.cuts?.length ? editTimeline(meta, beats, trimStart, trimEnd, d) : undefined;
