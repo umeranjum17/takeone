@@ -1,4 +1,5 @@
-import { applyDragVisibility, gestures } from "./gesture.ts";
+import { applyDragVisibility, gestures, gestureZone } from "./gesture.ts";
+import { stageFrames, stageGeometry } from "../render/stage.ts";
 import { WIN_MAX_COVER } from "../beats/zones.ts";
 import { DEFAULTS, type CameraDefaults } from "./defaults.ts";
 import type {
@@ -675,6 +676,130 @@ function sampleCamera(
   return frames;
 }
 
+/** Plan against the viewport actually emitted by the padded renderer. */
+function boundedCamera(targets: Target[], width: number, height: number, start: number,
+  end: number, d: CameraDefaults, cuts: number[], beats: Beat[]): CameraFrame[] {
+  const stage = stageGeometry(width, height, d);
+  const aspect = d.out_w / d.out_h;
+  const normalize = (view: CameraFrame): CameraFrame => {
+    const w = Math.min(view.w, stage.w, stage.h * aspect), h = w / aspect;
+    return { t: view.t, x: clamp(view.x + (view.w - w) / 2, 0, stage.w - w),
+      y: clamp(view.y + (view.h - h) / 2, 0, stage.h - h), w, h };
+  };
+  const project = (state: CameraState) => normalize(stageFrames([toFrame(state, width, height, d)], width, height, stage, d)[0]!);
+  const path = (a: CameraFrame, b: CameraFrame, u: number): CameraFrame => {
+    if (u <= 0) return a;
+    if (u >= 1) return b;
+    const eased = smooth(clamp(u, 0, 1));
+    const w = 1 / lerp(1 / a.w, 1 / b.w, eased);
+    const h = w * d.out_h / d.out_w;
+    // Interpolate final screen-origin projection, not a source centre which
+    // the padded renderer would clamp at a source-fill boundary.
+    const px = lerp(-a.x * d.out_w / a.w, -b.x * d.out_w / b.w, eased);
+    const py = lerp(-a.y * d.out_h / a.h, -b.y * d.out_h / b.h, eased);
+    return { t: 0, x: -px * w / d.out_w, y: -py * h / d.out_h, w, h };
+  };
+  const lead = (from: CameraFrame, to: CameraFrame) => {
+    // Differentiate the complete normalized curve, including padded edge
+    // geometry. Time dilation scales velocity by1/T and acceleration by1/T².
+    const steps = 2048;
+    const points = Array.from({ length: steps + 1 }, (_, i) => {
+      const f = path(from, to, i / steps);
+      return { z: -Math.log(f.w), x: -f.x * d.out_w / f.w, y: -f.y * d.out_h / f.h };
+    });
+    let speed = 0, za = 0, pa = 0;
+    let previous: { z: number; x: number; y: number } | undefined;
+    for (let i = 1; i < points.length; i++) {
+      const a = points[i - 1]!, b = points[i]!;
+      const v = { z: (b.z - a.z) * steps, x: (b.x - a.x) * steps, y: (b.y - a.y) * steps };
+      speed = Math.max(speed, Math.abs(v.z));
+      if (previous) {
+        za = Math.max(za, Math.abs(v.z - previous.z) * steps);
+        pa = Math.max(pa, Math.hypot(v.x - previous.x, v.y - previous.y) * steps);
+      }
+      previous = v;
+    }
+    // Sampling guard is a conservative planner margin, not a relaxed gate.
+    return Math.max(d.move_t_min, speed, Math.sqrt(za / 4), Math.sqrt(pa / 9000)) * 1.05;
+  };
+  const initial = project({ cx: width / 2, cy: height / 2, z: 1 });
+  const endpoint = (target: Target) => target.viewport ? normalize(target.viewport) : project(target.state);
+  const boundaryAt = (t: number) => Math.max(start, ...cuts.filter(c => c <= t));
+  const moves: { from: CameraFrame; to: CameraFrame; start: number; end: number; subject?: Zone }[] = [];
+  let state = initial;
+  let available = start;
+  for (const target of targets) {
+    const destination = endpoint(target);
+    const duration = lead(state, destination);
+    const feasibleStart = Math.max(boundaryAt(target.t), available, target.startAfter ?? start, target.t - duration);
+    const arrival = feasibleStart + duration;
+    moves.push({ from: state, to: destination, start: feasibleStart, end: arrival, subject: target.subject });
+    state = destination;
+    available = arrival + Math.max(d.dwell, d.min_shot);
+  }
+  const at = (t: number): CameraFrame => {
+    const move = moves.findLast(move => move.start <= t);
+    return move ? path(move.from, move.to, (t - move.start) / (move.end - move.start)) : initial;
+  };
+  const holds = [{ start, end: moves[0]?.start ?? end, view: initial, subject: undefined as Zone | undefined },
+    ...moves.map((move, i) => ({ start: move.end, end: moves[i + 1]?.start ?? end, view: move.to, subject: move.subject }))];
+  const reserve = (t0: number, t1: number, zone: Zone) => {
+    t1 = Math.min(end, Math.max(t1, t0 + Math.max(d.dwell, d.min_shot)));
+    const requested = frame(zone, 2, width, height, undefined, d);
+    const contextZones = beats.filter(beat => beat.t0 <= t0 && beat.t1 >= t0).flatMap(beat => beat.zones);
+    let view = normalize(wholeElementViewport(requested, zone, contextZones, width, height, d) ?? project(requested));
+    let crowded: Zone | undefined;
+    const departures = () => holds.flatMap((hold, i) => {
+      const t = Math.min(hold.end, t0 - lead(hold.view, view));
+      // Anticipating a reveal must not shorten the preceding shot's rest.
+      // If that shot cannot hold and widen in time, retain an earlier view.
+      const rest = i > 0 && (hold.view.x !== view.x || hold.view.y !== view.y || hold.view.w !== view.w)
+        ? Math.max(d.dwell, d.min_shot) : 0;
+      if (t >= hold.start && t < hold.start + rest) crowded = hold.subject;
+      return t >= hold.start + rest && t <= t0 ? [t] : [];
+    });
+    let before = departures();
+    if (crowded) {
+      // Combine the short shot with its payoff rather than visiting a close
+      // pose that cannot hold long enough before the required reveal.
+      const [x, y, width, height] = mergeZones(crowded, zone).bbox;
+      const w = Math.max(width * d.hold_pad, height * aspect * d.hold_pad, d.out_w / d.max_upscale);
+      view = normalize({ t: 0, x: stage.screenX + x + (width - w) / 2,
+        y: stage.screenY + y + (height - w / aspect) / 2, w, h: w / aspect });
+      before = departures();
+    }
+    const a = before.length ? Math.max(...before) : start;
+    if (!before.length) view = initial;
+    const after = holds.flatMap((hold, i) => {
+      const t = Math.max(hold.start, t1 + lead(view, hold.view));
+      return t <= hold.end - (i < holds.length - 1 ? Math.max(d.dwell, d.min_shot) : 0) && t >= t1 ? [t] : [];
+    });
+    const b = after.length ? Math.min(...after) : end;
+    return { t0, t1, zone, view, a, b, from: at(a), to: after.length ? at(b) : view };
+  };
+  let visibility: ReturnType<typeof reserve>[] = [];
+  const drags = beats.flatMap(beat => gestures(beat)).filter(g => g.t1 / 1000 >= start && g.t0 / 1000 <= end)
+    .sort((a, b) => a.t0 - b.t0);
+  for (const drag of drags) {
+    let hold = reserve(Math.max(start, drag.t0 / 1000), Math.min(end, drag.t1 / 1000), gestureZone(drag, width, height));
+    while (visibility.length && hold.a <= visibility.at(-1)!.b) {
+      const previous = visibility.pop()!;
+      hold = reserve(Math.min(previous.t0, hold.t0), Math.max(previous.t1, hold.t1), mergeZones(previous.zone, hold.zone));
+    }
+    visibility.push(hold);
+  }
+  return Array.from({ length: Math.floor((end - start) * d.fps) + 1 }, (_, index) => {
+    const t = start + index / d.fps;
+    const hold = visibility.find(hold => t >= hold.a && t <= hold.b);
+    const padded = !hold ? at(t) : t < hold.t0
+      ? path(hold.from, hold.view, (t - hold.a) / (hold.t0 - hold.a))
+      : t <= hold.t1 ? hold.view
+        : path(hold.view, hold.to, (t - hold.t1) / (hold.b - hold.t1));
+    return { ...padded, x: padded.x - stage.screenX, y: padded.y - stage.screenY,
+      t: t - start, padded: { ...padded, t: t - start } };
+  });
+}
+
 function validateCameraInputs(beats: Beat[], decisions: Decision[], take: TakeMeta): void {
   const finite = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value);
   const time = (value: unknown) => finite(value) && value >= 0;
@@ -763,8 +888,23 @@ export function solveCamera(
     || gestures(beat).some(g => g.t1 / 1000 > start && g.t0 / 1000 < end));
   const shots = buildShots(beats, decisions, start, d)
     .filter((shot) => visibleBeats.includes(shot.beat));
+  const portraitCrop = d.out_h > d.out_w && width / height > d.out_w / d.out_h;
+  if (portraitCrop) {
+    const active = shots.find((shot) => shot.beat.zones.some((zone) => zone.type !== "all"));
+    if (active) {
+      active.arrival = Math.min(active.arrival, start + 1 - 2 / d.lowpass_omega);
+      active.zoneA = active.beat.zones.filter((zone) => zone.type !== "all")
+        .sort((a, b) => Math.abs((a.t_change ?? active.beat.anchor_t) - active.beat.anchor_t)
+          - Math.abs((b.t_change ?? active.beat.anchor_t) - active.beat.anchor_t))[0]!;
+      active.decision = { ...active.decision, L: Math.max(2, active.decision.L) as 2 | 3 };
+      active.portraitFill = true;
+    }
+  }
   const quietShots = applyDwellAndShotLength(shots, d).filter((shot) => shot.arrival < end);
   const targets = applyMoveRateLimit(buildTargets(quietShots, visibleBeats, width, height, start, end, d), width, height, d);
+  if (d.out_h >= d.out_w) {
+    return boundedCamera(targets, width, height, start, end, d, [], visibleBeats);
+  }
   const frames = sampleCamera(targets, visibleBeats.map((beat) => ({ ...beat,
     kind: quietShots.some((shot) => shot.beat === beat) ? beat.kind : "idle",
     actions: quietShots.some((shot) => shot.beat === beat) ? beat.actions : [],
