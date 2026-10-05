@@ -187,8 +187,11 @@ export async function renderTake(dir: string, d?: CameraDefaults): Promise<{ out
       // fade: the darkest, lowest-contrast frames are the first ones in and the last ones out,
       // so easing the grain in with the fade is what left those frames banded. One amplitude
       // for every theme - this is an 8-bit quantisation problem, not a gradient-depth one.
+      // The grain runs unconditionally, not gated to the fade windows: switching it on in one
+      // frame left a CAMBI onset transient (4.73 on a visibly clean mono fade-out onset frame)
+      // while every other fade frame scored <= 0.184.
       + (fade > 0 ? `,fade=t=in:st=0:d=${fade}:color=${background},fade=t=out:st=${duration - fade}:d=${fade}:color=${background}`
-        + `,noise=c0s=10:c0f=u:c0_seed=7:enable='lt(t,${fade})+gt(t,${duration - fade})'` : "")
+        + `,noise=c0s=10:c0f=u:c0_seed=7` : "")
       + `,scale=in_color_matrix=bt601:out_color_matrix=bt709:out_range=tv,format=${pixelFormat},setparams=range=limited:color_primaries=bt709:color_trc=bt709:colorspace=bt709`,
   ].join(";");
 
