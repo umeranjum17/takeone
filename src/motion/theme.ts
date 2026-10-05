@@ -8,6 +8,7 @@ export const SYMBOL_FONT = "Inter SemiBold";
 export const RULE_FONT = "Geist Mono";
 
 export const FONTS_DIR = fileURLToPath(new URL("../../resources/fonts/", import.meta.url));
+const REMOVED_THEMES = new Set(["neon", "brutalist", "terminal"]);
 
 /** Motion-only tokens. `page` is the backdrop behind bento tiles; tiles and single scenes use `background`. */
 export interface MotionExtras {
@@ -28,10 +29,7 @@ const EXTRAS: Record<string, Partial<MotionExtras>> = {
   paper: { page: "#ebe7de", muted: "#77736a", line: "#d6d1c6", ink: "#111111", mono_font: "IBM Plex Mono" },
   aurora: { page: "#070b18", muted: "#93a0c4", line: "#2b3358", ink: "#eef2ff", mono_font: "Geist Mono" },
   mono: { page: "#000000", muted: "#8a8a8a", line: "#2a2a2a", ink: "#000000", mono_font: "Geist Mono" },
-  neon: { page: "#07060d", muted: "#b07ab0", line: "#3a1c55", ink: "#ffe8fd", mono_font: "Space Grotesk Medium" },
-  brutalist: { page: "#ffe14d", muted: "#5c5420", line: "#111111", ink: "#111111", mono_font: "IBM Plex Mono" },
   sand: { page: "#d9c7ab", muted: "#7a6a55", line: "#cdbb9e", ink: "#222222", mono_font: "IBM Plex Mono" },
-  terminal: { page: "#0d1117", muted: "#5d7a63", line: "#21402a", ink: "#3fb950", mono_font: "JetBrains Mono" },
   editorial: { page: "#ffffff", muted: "#9c9c97", line: "#c5c5c0", ink: "#0b0b0b", mono_font: "Geist Mono",
     gutter_x: 28, gutter_y: 20, margin_x: 60, margin_y: 44 },
 };
@@ -43,6 +41,7 @@ const EXTRA_NUMBERS = ["gutter_x", "gutter_y", "margin_x", "margin_y"];
 
 /** Theme < storyboard overrides. Recording keys go through the same validation as `--set`. */
 export function motionTokens(name: string, overrides: Record<string, number | string> = {}): MotionTokens {
+  if (REMOVED_THEMES.has(name)) throw new Error(`theme.name: theme ${name} was removed; pass --theme with one of ${Object.keys(THEMES).join(", ")} or re-record with a kept theme`);
   if (!Object.hasOwn(THEMES, name)) throw new Error(`theme.name: unknown theme ${name}; choose ${Object.keys(THEMES).join(", ")}`);
   const extras: MotionExtras = { ...BASE_EXTRAS, ...EXTRAS[name] };
   const recording: Overrides = {};
