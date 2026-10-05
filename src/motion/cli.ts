@@ -112,7 +112,8 @@ export function planStoryboard(a: MotionArgs, id: string): unknown {
   if (kind !== "image" && a.inputs.length > 1) throw new Error("html and url sources take one input; use --state for more screens");
   const screens = kind === "image" ? a.inputs.map((_, i) => `S${i + 1}`) : a.states.length ? a.states.map(([n]) => n) : ["S1"];
   const dsf = kind === "image" ? 1 : 2; // html/url capture at 2x so settled close-ups stay sharp
-  const regions = a.regions.flatMap((r, i) => splitWide(parseRegion(r, i, screens[0]!, dsf), dsf));
+  const wideRegions = a.regions.map((r, i) => parseRegion(r, i, screens[0]!, dsf));
+  const regions = wideRegions.flatMap((r) => splitWide(r, dsf));
   const patterns = a.patterns ?? (["hero-reveal", "zoom-tour", "end-card"] as PatternName[]);
   const title = a.title ?? "See it in motion.";
   const minShot = motionTokens(a.theme ?? "midnight").min_shot;
@@ -149,27 +150,57 @@ export function planStoryboard(a: MotionArgs, id: string): unknown {
   };
   // Launch film: no --pattern and three or more screens. The title opens on bare type, every
   // labelled screen gets its label as a full-type beat before a clean (captionless) tour, and
-  // the end card closes. Beats strictly alternate cream and black by scene order. The middle
-  // screen's announce beat also mounts a phone frame, and with three or more labels the last
-  // announce beat becomes a bento recap grid of the labels plus the wordmark.
+  // the end card closes. Beats strictly alternate cream and black by scene order. The first
+  // announce beat also mounts a phone frame over a close-up crop of its own region, and with
+  // three or more labels the last announce beat becomes a bento recap grid of real cropped
+  // screen states. Crops are aspect-fitted top-anchored windows of regions (thirds of wide
+  // ones, so three-column boards crop to whole columns), clamped to the CSS viewport.
   const launch = !a.patterns && screens.length >= 3;
+  const TILE_A = 886 / 486, PHONE_A = 367 / 756;
+  const viewport = kind === "html" ? [2560, 1440] : kind === "url" ? [1440, 900] : undefined;
+  const crops: Record<string, { screen: string; rect: [number, number, number, number] }> = {};
+  const cropWindow = (r: Region, aspect: number, third = 0): [number, number, number, number] => {
+    const css: [number, number, number, number] = [r.rect[0]! / dsf, r.rect[1]! / dsf, r.rect[2]! / dsf, r.rect[3]! / dsf];
+    const wide = css[2] > 1100;
+    const w = wide ? css[2] / 3 : css[2];
+    let x = css[0] + (wide ? third * w : 0), y = css[1], h = w / aspect;
+    if (viewport) {
+      if (x + w > viewport[0]!) x = Math.max(0, viewport[0]! - w);
+      if (y + h > viewport[1]!) h = Math.max(16, viewport[1]! - y);
+    }
+    return [x * dsf, y * dsf, Math.min(w, (viewport?.[0] ?? w) - x) * dsf, h * dsf];
+  };
+  const crop = (id: string, screen: string, rect: [number, number, number, number]): string => {
+    crops[id] = { screen, rect: rect.map(v => Math.round(v)) as [number, number, number, number] };
+    return id;
+  };
   const labels = screens.map(screen => regions.find(r => r.screen === screen && r.label)?.label);
-  const bento = launch && labels.filter(Boolean).length >= 3;
-  const mid = screens.length >> 1;
+  const labelled = screens.filter((_, i) => labels[i]);
+  const regionOf = (screen: string) => wideRegions.find(r => r.screen === screen && r.label)!;
+  const bento = launch && labelled.length >= 3;
+  const phoneCrop = launch && labelled.length ? crop(`${labelled[0]}phone`, labelled[0]!, cropWindow(regionOf(labelled[0]!), PHONE_A)) : undefined;
   const announce = (screen: string, i: number): Scene[] => {
     const label = labels[i];
     if (!label) return [];
     if (bento && i === screens.length - 1) return [];
-    const beat: Scene = i === mid
-      ? { pattern: "kinetic-type", d: 0, title: label, device: "phone", screen }
-      : { pattern: "kinetic-type", d: 0, title: label };
+    const li = labelled.indexOf(screen);
+    const sub = li === 0 ? a.subtitle : a.cta;
+    const beat: Scene = screen === labelled[0]
+      ? { pattern: "kinetic-type", d: 0, title: label, ...(sub ? { subtitle: sub } : {}), device: "phone", screen: phoneCrop }
+      : { pattern: "kinetic-type", d: 0, title: label, ...(sub ? { subtitle: sub } : {}) };
     beat.d = minSceneDuration(beat);
     return [beat];
   };
   const recap = (): Scene[] => {
     if (!bento) return [];
-    const scene: Scene = { pattern: "bento", d: 0,
-      tiles: [...labels.filter(Boolean).slice(0, 3).map(title => ({ title: title! })), { title: a.logo ?? "TakeOne" }] };
+    const [s0, s1, s2] = [labelled[0]!, labelled[1]!, labelled[labelled.length - 1]!];
+    const tiles = [
+      { title: labels[screens.indexOf(s0)]!, screen: crop(`${s0}c0`, s0, cropWindow(regionOf(s0), TILE_A)) },
+      { title: labels[screens.indexOf(s1)]!, screen: crop(`${s1}c0`, s1, cropWindow(regionOf(s1), TILE_A)) },
+      { title: labels[screens.indexOf(s2)]!, screen: crop(`${s2}c0`, s2, cropWindow(regionOf(s2), TILE_A, 2)) },
+      { title: labels[screens.indexOf(s0)]!, screen: crop(`${s0}c1`, s0, cropWindow(regionOf(s0), TILE_A, 1)) },
+    ];
+    const scene: Scene = { pattern: "bento", d: 0, tiles };
     scene.d = minSceneDuration(scene);
     return [scene];
   };
@@ -185,7 +216,8 @@ export function planStoryboard(a: MotionArgs, id: string): unknown {
     version: 1, id,
     output: { ...(a.workers !== undefined ? { workers: a.workers } : {}), ...(a.blur !== undefined ? { motion_blur: a.blur } : {}) },
     theme: { name: a.theme ?? "midnight", overrides: {} },
-    source, screens: Object.create(null), regions, layout: { kind: "single" }, scenes,
+    source, screens: Object.create(null), regions, ...(Object.keys(crops).length ? { crops } : {}),
+    layout: { kind: "single" }, scenes,
     planner: { by: "local", abstained: [] },
   };
 }

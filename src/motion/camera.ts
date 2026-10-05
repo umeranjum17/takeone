@@ -29,8 +29,11 @@ export function tourSegments(screen: { width: number; height: number }, width: n
     // (the max_upscale camera gate), so screen text stays sharp at the settled hold.
     const w = Math.min(screen.width, Math.max(s.rect[2] * 1.05, size.width));
     const h = w / aspect;
-    return { x: Math.max(0, Math.min(screen.width - w, s.rect[0] + s.rect[2] / 2 - w / 2)),
-      y: Math.max(0, Math.min(screen.height - h, s.rect[1] + s.rect[3] / 2 - h / 2)), w, h };
+    // Close-ups (view shorter than region) anchor to the region top so column headers and
+    // card tops stay whole and the cut falls on lower content; wider views stay centred.
+    const y = h < s.rect[3] ? Math.max(0, Math.min(screen.height - h, s.rect[1]))
+      : Math.max(0, Math.min(screen.height - h, s.rect[1] + s.rect[3] / 2 - h / 2));
+    return { x: Math.max(0, Math.min(screen.width - w, s.rect[0] + s.rect[2] / 2 - w / 2)), y, w, h };
   });
   const segments: { at: number; d: number; from: typeof full; to: typeof full; caption: string }[] = [];
   let at = .4, from = full;
