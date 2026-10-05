@@ -36,6 +36,24 @@ export function frameExpr(values: number[], tolerance = 0.001): string {
   return lookup(0, knots.length - 1);
 }
 
+/** Subpixel-judder prefilter sigma, per frame, mirroring the estimator's own gate.
+ * The fixed-support Lanczos kernel wobbles sharp edges against subpixel phase
+ * under minification (0.47 RMS on a perfectly smooth pan at m=1.18; bilinear
+ * alone still 0.19; codec and grain ruled out at 0.43/0.45). A small Gaussian
+ * at the real per-frame scale band-limits the edge before sampling (sweep:
+ * sigma 0.7 holds 0.11-0.13 across m 1.05-1.3). Nonzero only on moving
+ * minified frames, so rest and magnified frames render bit-exact (gblur
+ * sigma 0 is a verified passthrough) and the single-frame sharpness probes
+ * keep today's exact graph. */
+const PREFILTER_SIGMA = 0.7;
+function prefilterSigma(frames: CameraFrame[], d: CameraDefaults): number[] {
+  return frames.map((f, i) => {
+    if (!i) return 0;
+    const moving = Math.max(Math.abs(f.x - frames[i - 1]!.x), Math.abs(f.w - frames[i - 1]!.w)) > 0.01;
+    return moving && f.w / d.out_w > 1 ? PREFILTER_SIGMA : 0;
+  });
+}
+
 /** A flat-to-flat transform is an affine crop: no rotation or lens distortion.
  * v360 samples the native stage directly into export pixels with Lanczos.
  * RGB16 preserves fractional colour/edge precision until the final conversion.
@@ -71,9 +89,19 @@ export function cameraFilter(frames: CameraFrame[], width: number, height: numbe
     previous = f;
     applied = next;
   }
-  const control = commands.length ? `sendcmd=commands='${commands.join(";")};',` : "";
+  const controlCommands = [...commands];
+  const sigmas = prefilterSigma(frames, d);
+  let appliedSigma = 0;
+  sigmas.forEach((sigma, i) => {
+    if (sigma === appliedSigma) return;
+    // Same mid-interval timing as the v360 updates; gblur accepts per-frame sigma commands.
+    controlCommands.push(`${Math.max(0, frames[i]!.t - 0.5 / d.fps).toFixed(9)} gblur@prefilter sigma ${sigma}`);
+    appliedSigma = sigma;
+  });
+  const blur = sigmas.some((s) => s !== 0) ? `gblur@prefilter=sigma=0,` : "";
+  const control = controlCommands.length ? `sendcmd=commands='${controlCommands.join(";")};',` : "";
   const settings = Object.entries(initial).map(([key, value]) => `${key}=${value.toFixed(10)}`).join(":");
   // Lanczos normalizes its kernel coefficients, preserving flat card colours.
-  return `format=gbrp16le,${control}v360=input=flat:output=flat:w=${d.out_w}:h=${d.out_h}:ih_fov=90:iv_fov=90:${settings}`
+  return `format=gbrp16le,${control}${blur}v360=input=flat:output=flat:w=${d.out_w}:h=${d.out_h}:ih_fov=90:iv_fov=90:${settings}`
     + `:interp=${d.quality === "draft" ? "linear" : "lanczos"},setsar=1`;
 }
