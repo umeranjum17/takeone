@@ -22,8 +22,12 @@ export const THEMES = {
     shadow: 0, corner_radius: 28, border: 1, border_color: "#0b0b0b", caption_rounding: 1, caption_opacity: 1, pace: 1 },
 } satisfies Record<string, Overrides>;
 export type ThemeName = keyof typeof THEMES;
+const REMOVED_THEMES = new Set(["neon", "brutalist", "terminal"]);
 
 export function themeDefaults(name: unknown = "midnight"): CameraDefaults {
+  if (typeof name === "string" && REMOVED_THEMES.has(name)) {
+    throw new Error(`theme ${name} was removed; pass --theme with one of ${Object.keys(THEMES).join(", ")} or re-record with a kept theme`);
+  }
   if (typeof name !== "string" || !Object.hasOwn(THEMES, name)) {
     throw new Error(`unknown theme ${String(name)}; choose ${Object.keys(THEMES).join(", ")}`);
   }

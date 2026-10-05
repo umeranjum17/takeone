@@ -8,6 +8,7 @@ export const SYMBOL_FONT = "Inter SemiBold";
 export const RULE_FONT = "Geist Mono";
 
 export const FONTS_DIR = fileURLToPath(new URL("../../resources/fonts/", import.meta.url));
+const REMOVED_THEMES = new Set(["neon", "brutalist", "terminal"]);
 
 /** Motion-only tokens. `page` is the backdrop behind bento tiles; tiles and single scenes use `background`. */
 export interface MotionExtras {
@@ -40,6 +41,7 @@ const EXTRA_NUMBERS = ["gutter_x", "gutter_y", "margin_x", "margin_y"];
 
 /** Theme < storyboard overrides. Recording keys go through the same validation as `--set`. */
 export function motionTokens(name: string, overrides: Record<string, number | string> = {}): MotionTokens {
+  if (REMOVED_THEMES.has(name)) throw new Error(`theme.name: theme ${name} was removed; pass --theme with one of ${Object.keys(THEMES).join(", ")} or re-record with a kept theme`);
   if (!Object.hasOwn(THEMES, name)) throw new Error(`theme.name: unknown theme ${name}; choose ${Object.keys(THEMES).join(", ")}`);
   const extras: MotionExtras = { ...BASE_EXTRAS, ...EXTRAS[name] };
   const recording: Overrides = {};
