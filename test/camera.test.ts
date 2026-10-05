@@ -339,3 +339,12 @@ test("a prepared incoming header never cuts the preceding whole result through t
   assert.ok(outFrames.filter(f => f.t >= outDeadline).every(f => contains(f, headerRow)),
     "the incoming header is whole from the first prepared frame");
 });
+
+test("the default establishing hold keeps the whole stage, the outro brings it back", () => {
+  const early = { ...beat("early", 0.3, 2600), t0: 0 };
+  const held = solveCamera([early], [decision(early)],
+    { width: 3840, height: 2160, trim_start: 0, trim_end: 8 });
+  for (const f of held.filter(f => f.t <= DEFAULTS.establish_s)) assert.equal(f.w, 3840);
+  assert.ok(held[Math.round(3.2 * DEFAULTS.fps)]!.w < 3000);
+  for (const f of held.filter(f => f.t >= 8 - DEFAULTS.outro_s)) assert.equal(f.w, 3840);
+});

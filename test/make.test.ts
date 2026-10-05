@@ -231,31 +231,20 @@ test("make intersects trim with available video before rendering", { skip: needs
     const rerun = await fastTake(dir, { noJev: true, log: () => {}, warn: () => {} });
     assert.equal(JSON.parse(readFileSync(join(dir, "take.json"), "utf8")).trim_end, undefined);
     assert.ok(rerun.seconds < 8, `stale trim_end still bounded the export at ${rerun.seconds}s`);
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
-});
 
-test("the auto-trim record writes bounds the export", { skip: needsFfmpeg }, async () => {
-  const dir = newTake();
-  try {
-    const takePath = join(dir, "take.json");
-    const original = JSON.parse(readFileSync(takePath, "utf8"));
-    // record.ts's auto-trim ends at the recording length, mid-video here.
-    writeFileSync(takePath, JSON.stringify({
-      ...original,
-      started_at: "2026-01-01T00:00:00.000Z",
-      stopped_at: "2026-01-01T00:00:09.000Z",
+    // record.ts's own trim ends at the recording length, so it bounds nothing:
+    // honouring it would export the dead tail past the last result.
+    writeFileSync(join(dir, "take.json"), JSON.stringify({
+      ...remade, started_at: "2026-01-01T00:00:00.000Z", stopped_at: "2026-01-01T00:00:09.000Z",
       trim: { start: 0, end: 9000 },
     }));
     await fastTake(dir, { noJev: true, log: () => {}, warn: () => {} });
-    const saved = JSON.parse(readFileSync(takePath, "utf8"));
-    assert.equal(saved.duration, 10);
-    assert.equal(saved.trim_end, undefined);
-    const beats = JSON.parse(readFileSync(join(dir, "analysis", "beats.json"), "utf8"));
-    const lastActivity = Math.max(...beats.flatMap((b: { t1: number; zones: { t_change?: number }[] }) => [b.t1, ...b.zones.map((z) => z.t_change ?? b.t1)]));
-    const out = join(dir, "out", "t1.mp4");
-    const probe = JSON.parse(execFileSync("ffprobe", ["-v", "error", "-show_entries", "format=duration", "-of", "json", out], { encoding: "utf8" }));
+    const auto = JSON.parse(readFileSync(join(dir, "take.json"), "utf8"));
+    assert.equal(auto.duration, 10);
+    assert.equal(auto.trim_end, undefined);
+    const lastActivity = Math.max(...JSON.parse(readFileSync(join(dir, "analysis", "beats.json"), "utf8"))
+      .flatMap((b: { t1: number }) => [b.t1]));
+    const probe = JSON.parse(execFileSync("ffprobe", ["-v", "error", "-show_entries", "format=duration", "-of", "json", join(dir, "out", "t1.mp4")], { encoding: "utf8" }));
     const seconds = Number(probe.format.duration);
     assert.ok(seconds <= lastActivity + DEFAULTS.outro_s + 0.5,
       `export ran ${seconds}s, past the last activity at ${lastActivity}s plus the outro`);
