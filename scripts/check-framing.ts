@@ -67,7 +67,7 @@ export function settledFrames(frames: readonly CameraFrame[], fps = 60, holdS = 
 /** One row per beat, every frame checked, not only settled shots or anchors. */
 export function framingCoverage(beats: Beat[], before: CameraFrame[], after: CameraFrame[], start = 0,
   references: readonly Reference[] = [], exposures: readonly number[] = [0]): Coverage[] {
-  if (!Number.isFinite(start) || start < 0 || !before.length || before.length !== after.length || [...before, ...after].some(f => ![f.t, f.x, f.y, f.w, f.h].every(Number.isFinite) || f.w <= 0 || f.h <= 0) || before.some((f, i) => Math.abs(f.t - after[i]!.t) > 1e-6) || exposures.some(e => !Number.isFinite(e) || e < 0) || references.some(r => !Array.isArray(r?.bbox) || r.bbox.length !== 4 || !r.bbox.every(Number.isFinite))) {
+  if (!Number.isFinite(start) || start < 0 || !before.length || before.length !== after.length || [...before, ...after].some(f => ![f.t, f.x, f.y, f.w, f.h].every(Number.isFinite) || f.w <= 0 || f.h <= 0) || before.some((f, i) => Math.abs(f.t - after[i]!.t) > 1e-6) || !Array.isArray(exposures) || exposures.some(e => !Number.isFinite(e) || e < 0) || !Array.isArray(references) || references.some(r => !Array.isArray(r?.bbox) || r.bbox.length !== 4 || !r.bbox.every(Number.isFinite) || r.bbox[2]! <= 0 || r.bbox[3]! <= 0)) {
     throw new Error("framing comparison requires identical frame timestamps");
   }
   return beats.map(beat => {
@@ -118,7 +118,7 @@ function referenceRow(after: CameraFrame[], references: readonly Reference[], ex
     row.firstRefCut ??= { t: after[i]!.t + start, box: cuts[0]!.box, clipped: cuts[0]!.clipped };
   }
   row.refCutBoxes = [...cutBoxes];
-  row.passed = row.refCut === 0;
+  row.passed = row.refFrames > 0 && row.refCut === 0;
   return row;
 }
 
