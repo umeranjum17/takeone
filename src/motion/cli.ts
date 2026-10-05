@@ -171,13 +171,14 @@ export function planStoryboard(a: MotionArgs, id: string): unknown {
   const crops: Record<string, { screen: string; rect: [number, number, number, number] }> = {};
   // Crops stay exactly on thirds/regions (padding lives in the tile matte, never in the
   // crop: padded windows drag neighbour-column slivers behind the pills). Narrow regions
-  // are dialog-like overlays floating below the region top (Tidewater: 24).
+  // are dialog-like overlays: crop inside the dialog chrome (Tidewater: 16 px sides, 44 px
+  // top puts the window just inside the modal), never the dimmed page around it.
   const cropWindow = (r: Region, aspect: number, third = 0): [number, number, number, number] => {
     const css: [number, number, number, number] = [r.rect[0]! / dsf, r.rect[1]! / dsf, r.rect[2]! / dsf, r.rect[3]! / dsf];
     const wide = css[2] > 1100;
-    const w = wide ? css[2] / 3 : css[2];
+    const w = wide ? css[2] / 3 : css[2] - 32;
     const w2 = w;
-    let x = css[0] + (wide ? third * w : 0), y = css[1] + (wide ? 0 : 24), h = w2 / aspect;
+    let x = css[0] + (wide ? third * (css[2] / 3) : 16), y = css[1] + (wide ? 0 : 44), h = w2 / aspect;
     if (viewport) {
       if (x < 0) x = 0;
       if (y < 0) y = 0;
@@ -229,11 +230,12 @@ export function planStoryboard(a: MotionArgs, id: string): unknown {
   const recap = (): Scene[] => {
     if (!bento) return [];
     const [s0, s1, s2] = [labelled[0]!, labelled[1]!, labelled[labelled.length - 1]!];
+    // Only the dialog tile keeps a pill; column tiles are named by their headers already.
     const tiles = [
-      { title: "To do", screen: crop(`${s0}c0`, s0, cropWindow(regionOf(s0), TILE_A)) },
+      { title: "", screen: crop(`${s0}c0`, s0, cropWindow(regionOf(s0), TILE_A)) },
       { title: labels[screens.indexOf(s1)]!, screen: crop(`${s1}c0`, s1, cropWindow(regionOf(s1), TILE_A)) },
-      { title: "Done", screen: crop(`${s2}c0`, s2, cropWindow(regionOf(s2), TILE_A, 2)) },
-      { title: "In progress", screen: crop(`${s0}c1`, s0, cropWindow(regionOf(s0), TILE_A, 1)) },
+      { title: "", screen: crop(`${s2}c0`, s2, cropWindow(regionOf(s2), TILE_A, 2)) },
+      { title: "", screen: crop(`${s0}c1`, s0, cropWindow(regionOf(s0), TILE_A, 1)) },
     ];
     const scene: Scene = { pattern: "bento", d: 0, tiles };
     scene.d = minSceneDuration(scene);
