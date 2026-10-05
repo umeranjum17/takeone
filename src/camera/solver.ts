@@ -613,16 +613,28 @@ function filterState(requested: CameraState, previous: CameraState,
 /** First whole-subject sample along the existing move/spring, with preceding focus retained. */
 function preparationTime(from: CameraState, to: CameraState, outgoing: Zone, incoming: Zone,
   velocity: { cx: number; cy: number; lz: number }, width: number, height: number,
-  d: CameraDefaults, project: (frame: CameraFrame) => CameraFrame): number | undefined {
+  d: CameraDefaults, project: (frame: CameraFrame) => CameraFrame,
+  plan: { start: number; beats: Beat[]; decisions: Map<string, Decision>;
+    reveals: { start: number; end: number }[]; baseW: number;
+    followVelocity: { x: number; y: number } }): number | undefined {
   const move = createMove(from, to, 0, baseWidth(width, height, d), d);
   const filteredVelocity = { ...velocity };
+  const followVelocity = { ...plan.followVelocity };
   let previous = from;
   let firstWhole: number | undefined;
   // A fixed move bound plus a spring decay bound: cost never grows with take duration.
   const limit = Math.ceil((d.move_t_max + Math.log(1e6) / d.lowpass_omega + 1) * d.fps);
   for (let i = 1; i <= limit; i++) {
     const time = i / d.fps;
-    const requested = time < move.end ? interpolateMove(move, time) : to;
+    let requested = time < move.end ? interpolateMove(move, time) : to;
+    const at = plan.start + time;
+    const activeBeat = plan.beats.find((beat) => beat.t0 <= at && beat.t1 >= at
+      && ["drag", "travel"].includes(beat.kind));
+    const revealing = plan.reveals.some((reveal) => at >= reveal.start && at <= reveal.end);
+    if (activeBeat && !revealing) {
+      requested = followPointer(requested, previous, activeBeat, plan.decisions,
+        plan.baseW, at, 1 / d.fps, followVelocity, d);
+    }
     [previous] = filterState(requested, previous, filteredVelocity, 1 / d.fps, width, height, d);
     const crop = project(toFrame(previous, width, height, d));
     if (clippedFractions(crop, [outgoing.bbox])[0] !== 0) return undefined;
@@ -717,7 +729,8 @@ function sampleCamera(
         && !["all", "win"].includes(subject.type)
         && clippedFractions(project(toFrame(previousFiltered, width, height, d)), [subject.bbox])[0] !== 0) {
         const duration = preparationTime(previousFiltered, target.state, focus, subject,
-          filterVelocity, width, height, d, project);
+          filterVelocity, width, height, d, project,
+          { start: time, beats, decisions, reveals, baseW, followVelocity: velocity });
         const deadline = Math.ceil(candidateMove.start * d.fps) / d.fps;
         if (duration === undefined || deadline - duration < time) {
           const since = deferredSince.get(target) ?? time;
