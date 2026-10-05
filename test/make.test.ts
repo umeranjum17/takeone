@@ -236,6 +236,35 @@ test("make intersects trim with available video before rendering", { skip: needs
   }
 });
 
+test("the auto-trim record writes bounds the export", { skip: needsFfmpeg }, async () => {
+  const dir = newTake();
+  try {
+    const takePath = join(dir, "take.json");
+    const original = JSON.parse(readFileSync(takePath, "utf8"));
+    // record.ts's auto-trim ends at the recording length, mid-video here.
+    writeFileSync(takePath, JSON.stringify({
+      ...original,
+      started_at: "2026-01-01T00:00:00.000Z",
+      stopped_at: "2026-01-01T00:00:09.000Z",
+      trim: { start: 0, end: 9000 },
+    }));
+    await fastTake(dir, { noJev: true, log: () => {}, warn: () => {} });
+    const saved = JSON.parse(readFileSync(takePath, "utf8"));
+    assert.equal(saved.duration, 10);
+    assert.equal(saved.trim_end, undefined);
+    const beats = JSON.parse(readFileSync(join(dir, "analysis", "beats.json"), "utf8"));
+    const lastActivity = Math.max(...beats.flatMap((b: { t1: number; zones: { t_change?: number }[] }) => [b.t1, ...b.zones.map((z) => z.t_change ?? b.t1)]));
+    const out = join(dir, "out", "t1.mp4");
+    const probe = JSON.parse(execFileSync("ffprobe", ["-v", "error", "-show_entries", "format=duration", "-of", "json", out], { encoding: "utf8" }));
+    const seconds = Number(probe.format.duration);
+    assert.ok(seconds <= lastActivity + DEFAULTS.outro_s + 0.5,
+      `export ran ${seconds}s, past the last activity at ${lastActivity}s plus the outro`);
+    assert.ok(seconds < 9, `export kept the recorder's dead tail: ${seconds}s of a 10s take`);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("make rejects trims with no video overlap before writing analysis", { skip: needsFfmpeg }, async () => {
   const dir = newTake();
   try {
