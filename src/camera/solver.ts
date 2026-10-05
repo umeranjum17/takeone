@@ -372,7 +372,7 @@ function applyMoveRateLimit(targets: Target[], width: number, height: number, d:
   let state: CameraState = { cx: width / 2, cy: height / 2, z: 1 };
   const moving: Target[] = [];
   for (const target of targets) {
-    if (!target.reveal && canHold(state, target, width, height, d)) {
+    if (!target.reveal && !target.screenChange && canHold(state, target, width, height, d)) {
       const previous = moving.at(-1);
       if (previous) previous.importance = Math.max(previous.importance, target.importance);
       continue;
@@ -394,7 +394,7 @@ function applyMoveRateLimit(targets: Target[], width: number, height: number, d:
   }
   state = { cx: width / 2, cy: height / 2, z: 1 };
   return kept.filter((target) => {
-    if (!target.reveal && canHold(state, target, width, height, d)) return false;
+    if (!target.reveal && !target.screenChange && canHold(state, target, width, height, d)) return false;
     state = target.state;
     return true;
   });
@@ -660,15 +660,15 @@ function sampleCamera(
         urgent ? Math.max(start, target.startAfter ?? start, previousTime) : Math.max(target.startAfter ?? 0, zoomHold, previousTime));
       if (candidateMove.start > time) break;
       targetIndex++;
-      if (!urgent && canHold(state, target, width, height, d)) continue;
-      // A screen change that composes to the current framing (edge clamping
-      // on tall screens fits both subjects in one viewport, and the upscale
-      // ceiling forbids going tighter) would render as a multi-second hold
-      // across two beats. Acknowledge it with a subtle out-and-back through
-      // the existing hop path so every change reads on screen.
-      if (target.screenChange && distance(state, target.state, baseW) < 0.01) {
+      // A screen change that the hold rules would skip (edge clamping on tall
+      // screens fits both subjects in one viewport, or the new subject sits
+      // inside the hold deadzone) would render as a multi-second hold across
+      // two beats. Acknowledge it with a subtle out-and-back through the
+      // existing hop path so every change reads on screen.
+      if (target.screenChange) {
         move = { ...candidateMove, mid: { ...state, z: Math.max(1, state.z / 1.03) }, hop: true };
       } else {
+        if (!urgent && canHold(state, target, width, height, d)) continue;
         move = candidateMove;
       }
       if (urgent) break;
