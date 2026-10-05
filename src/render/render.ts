@@ -10,7 +10,7 @@ import { manualZoomLimitWarning, solveCamera } from "../camera/solver.ts";
 import type { Beat, Decision, TakeMeta } from "../camera/types.ts";
 import { blurGraph, keycapAss, keycapBackdropGraph, keycapMaskAss, keycapObstacles, overlayRegions, spotlightAss, spotlightGraph } from "./overlays.ts";
 import { motionBlurGraph, shutterPlan } from "./motion-blur.ts";
-import { idleSqueezes, setptsExpr, warp, warpBeats } from "./pace.ts";
+import { idleSqueezes, purposefulEnd, setptsExpr, warp, warpBeats } from "./pace.ts";
 import { phoneTapShots } from "./phone.ts";
 import { editBeats, editTimeline, validateEdits, validateZooms } from "./edits.ts";
 import {
@@ -60,10 +60,11 @@ export async function renderTake(dir: string, d?: CameraDefaults): Promise<{ out
   const decisions = decisionLines.split(/\r?\n/).filter(Boolean)
     .map((line) => JSON.parse(line) as Decision);
 
-  const trimEnd = meta.trim_end ?? Math.max(0, ...beats.map((beat) => beat.t1));
   const trimStart = meta.trim_start ?? 0;
   const cameraWarning = manualZoomLimitWarning(meta, d);
   if (cameraWarning) console.warn(cameraWarning);
+  const trimEnd = meta.trim_end ?? purposefulEnd(beats, trimStart,
+    meta.duration ?? Math.max(0, ...beats.map((beat) => beat.t1)), d);
   // Everything after this point runs on the output clock, with idle gaps squeezed.
   const squeezes = idleSqueezes(beats, trimStart, trimEnd, d);
   const clock = meta.cuts?.length ? editTimeline(meta, beats, trimStart, trimEnd, d) : undefined;

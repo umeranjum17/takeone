@@ -74,6 +74,8 @@ export interface TakeMeta extends TakeEdits {
   offset_ms?: number;
   trim_start?: number;
   trim_end?: number;
+  /** Recording length in video-relative seconds; bounds a derived export end. */
+  duration?: number;
   pointer?: string;
   events?: string;
   /** Timed source-pixel regions; t/d are video-relative seconds. */

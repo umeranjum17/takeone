@@ -35,6 +35,9 @@ import { clampBBox, type BBox } from "./types.ts";
 
 export const DEFAULT_TOKENS_PER_MIN = 40000;
 
+/** Analysis runs at 10 fps, so the recording end lands within one frame of it. */
+const ANALYSIS_FRAME_MS = 100;
+
 export interface MakeOptions {
   /** Capture privacy: drop window titles, cache hashes only, no coords in current_shot. */
   capture?: boolean;
@@ -220,14 +223,18 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
   const renderBeats: RenderBeat[] = beats.map((b) => {
     const window = winFor(b.anchor_t);
     const windowRect = window && clampBBox(window.rect, take.stream.w, take.stream.h);
+    // A result lands after the beat's last action; the beat stays live until it.
+    const resultT = Math.max(b.t1, ...b.zones
+      .filter((z) => z.kind === "res" && z.t !== undefined)
+      .map((z) => Math.max(b.t0, Math.min(endMs, z.t!))));
     return {
-      id: b.id, t0: seconds(b.t0), t1: seconds(b.t1), anchor_t: seconds(b.anchor_t),
+      id: b.id, t0: seconds(b.t0), t1: seconds(resultT), anchor_t: seconds(b.anchor_t),
       kind: b.kind, window_cls: b.window_cls,
       ...(windowRect ? { window_rect: windowRect } : {}),
       actions: b.actions.map(a => actionVideoSeconds(a, videoStartMs)),
       zones: b.zones.map((z) => ({ name: z.name, type: z.kind, bbox: z.bbox,
         ...(z.boxes?.length ? { boxes: z.boxes } : {}),
-        ...(z.kind === "res" && z.t !== undefined ? { t_change: seconds(Math.max(b.t0, Math.min(b.t1, z.t))) } : {}),
+        ...(z.kind === "res" && z.t !== undefined ? { t_change: seconds(Math.max(b.t0, Math.min(endMs, z.t))) } : {}),
       })),
       ...(b.kind === "cut" ? { changed_frac: scopedFrames.filter((f) => f.t >= b.t0 && f.t <= b.t1).map((f) => ({ t: seconds(f.t), f: f.changed_frac })) } : {}),
     };
@@ -414,9 +421,23 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
   take.jev = jev;
   const renderMeta: RenderMeta = {
     id: take.id, width: take.stream.w, height: take.stream.h,
-    trim_start: seconds(startMs), trim_end: seconds(endMs),
+    trim_start: seconds(startMs), duration: seconds(videoEndMs),
   };
-  writeFileSync(join(dir, "take.json"), JSON.stringify({ ...take, ...renderMeta }, null, 1) + "\n");
+  // record.ts marks the trim it wrote; that one ends at the recording length, so
+  // it bounds nothing and honouring it would export the dead tail past the last
+  // result. Any other trim is the caller's and is exported as given, clamped to
+  // the recording. An end an earlier run recorded is not a caller's trim either.
+  // Takes recorded before the marker existed carry no provenance: their trim end
+  // is the capture length, which the 10 fps analysis timeline rounds to a frame
+  // boundary in either direction, so an unmarked end within one analysis frame of
+  // the video's end is record's too.
+  const meta: RenderMeta = { ...take, ...renderMeta };
+  const trimEnd = take.trim?.end;
+  const recorderOwned = trimEnd !== undefined && Math.abs(videoEndMs - trimEnd) <= ANALYSIS_FRAME_MS;
+  const autoTrim = take.auto_trim === true ? trimEnd === take.duration_ms : recorderOwned;
+  if (take.trim?.end !== undefined && !autoTrim) meta.trim_end = seconds(endMs);
+  else delete meta.trim_end;
+  writeFileSync(join(dir, "take.json"), JSON.stringify(meta, null, 1) + "\n");
   const { out, seconds: renderSeconds } = await renderTake(dir, camera);
 
   const byJev = decisions.filter((d) => d.decided_by === "jev").length;

@@ -4,10 +4,10 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import test from "node:test";
 import { DEFAULTS } from "../src/camera/defaults.ts";
+import { solveCamera, clippedFractions } from "../src/camera/solver.ts";
 import type { Beat, Decision, Zone } from "../src/camera/types.ts";
 import type { Action } from "../src/types.ts";
 import { renderTake } from "../src/render/render.ts";
-import { solveCamera, clippedFractions } from "../src/camera/solver.ts";
 import { idleSqueezes, warp, warpBeats } from "../src/render/pace.ts";
 import { sourceViewport, stageGeometry } from "../src/render/stage.ts";
 import { contains } from "../scripts/check-framing.ts";
@@ -73,7 +73,7 @@ test("render without trim_end uses the latest beat end", { timeout: 120_000, ski
     // mpeg4, not VP9: software VP9 stalls weak CI runners; input codec is
     // incidental here (see buildTake in make.test.ts for the full rationale).
     execFileSync("ffmpeg", [
-      "-v", "error", "-f", "lavfi", "-i", "color=c=blue:s=320x180:r=30:d=9",
+      "-v", "error", "-f", "lavfi", "-i", "color=c=blue:s=320x180:r=30:d=13",
       "-c:v", "mpeg4", "-q:v", "2", "-f", "matroska",
       "-y", join(dir, "screen.webm"),
     ]);
@@ -81,8 +81,13 @@ test("render without trim_end uses the latest beat end", { timeout: 120_000, ski
       zones: [zone("later", [20, 20, 40, 30])] };
     const earlier = { ...beat("earlier", 0.7, 80), t0: 0.1, t1: 1.2,
       zones: [zone("earlier", [80, 20, 40, 30])] };
+    // A click at 10.0 s whose card lands at 10.9 s, after the beat's last
+    // pointer travel: the outro must still cover the outcome it shows.
+    const toast = { ...beat("toast", 10, 20), t0: 9.6, t1: 10.9,
+      zones: [{ ...zone("toast", [20, 20, 40, 30]), type: "res" as const, t_change: 10.9 }] };
+    const beats = [later, earlier, toast];
     await writeFile(join(dir, "take.json"), JSON.stringify({ id: "duration", width: 320, height: 180 }));
-    await writeFile(join(dir, "analysis/beats.json"), JSON.stringify([later, earlier]));
+    await writeFile(join(dir, "analysis/beats.json"), JSON.stringify(beats.slice(0, 2)));
     await writeFile(join(dir, "analysis/decisions.jsonl"),
       [decision(later), decision(earlier)].map((d) => JSON.stringify(d)).join("\n") + "\n");
     const cli = (command: string, ...args: string[]) => execFileSync(process.execPath,
@@ -161,6 +166,25 @@ test("render without trim_end uses the latest beat end", { timeout: 120_000, ski
       assert.ok(Math.abs(Number(decoded.trim()) - trace.length) <= 1,
         "saved camera and playable output share a clock");
     }
+    // With the recording length known, the export runs to the result's outro
+    // (10.9 + 1.6) rather than stopping on the beat's last action (10.4).
+    await writeFile(join(dir, "take.json"), JSON.stringify({ id: "duration", width: 320, height: 180, duration: 13 }));
+    await writeFile(join(dir, "analysis/beats.json"), JSON.stringify([toast]));
+    await writeFile(join(dir, "analysis/decisions.jsonl"), `${JSON.stringify(decision(toast))}\n`);
+    await renderTake(dir, FAST);
+    // On the output clock: the idle stretch before the result is squeezed.
+    const end = 10.9 + DEFAULTS.outro_s;
+    const squeezes = idleSqueezes([toast], 0, end, FAST);
+    const last = JSON.parse(await readFile(join(dir, "camera.json"), "utf8"));
+    assert.equal(last.length, Math.round(warp(end, squeezes, FAST.idle_speed) * DEFAULTS.fps));
+    // outro_s=0 drops the closing hold and the padding, not the trimming: the
+    // export ends on the result instead of running the recording's dead tail.
+    const bare = { ...FAST, outro_s: 0 };
+    await renderTake(dir, bare);
+    const trimmed = idleSqueezes([toast], 0, 10.9, bare);
+    const bareLast = JSON.parse(await readFile(join(dir, "camera.json"), "utf8")).at(-1);
+    assert.ok(Math.abs(bareLast.t - warp(10.9, trimmed, bare.idle_speed)) <= 1 / DEFAULTS.fps,
+      `outro_s=0 exported to ${bareLast.t}s, not the result at ${warp(10.9, trimmed, bare.idle_speed)}s`);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -185,6 +209,7 @@ test("synthetic source renders silent H.264 at the configured size and 60fps", {
     ]);
     await writeFile(join(dir, "take.json"), JSON.stringify({
       id: "fixture", width: 320, height: 180, trim_start: 0, trim_end: 2,
+      captions: [{ t: 0.35, d: 1, text: "Select a card" }],
     }));
     const fixtureBeat = beat("fixture", 0.6, 2600);
     // Small-frame zone: the default helper zone sits in 4K coordinates and
@@ -199,6 +224,7 @@ test("synthetic source renders silent H.264 at the configured size and 60fps", {
     await assert.rejects(renderTake(dir), /invalid take id/);
     await writeFile(join(dir, "take.json"), JSON.stringify({
       id: "fixture", width: 320, height: 180, trim_start: 0, trim_end: 2,
+      captions: [{ t: 0.35, d: 1, text: "Select a card" }],
     }));
     const output = (await renderTake(dir, FAST)).out;
     const probe = JSON.parse(execFileSync("ffprobe", [
@@ -258,6 +284,24 @@ test("master blur preserves full-resolution chroma through production rendering"
   }
 });
 
+test("a drag that reaches the screen edge stays visible through the closing ease", async () => {
+  const { gestures, gestureZone } = await import("../src/camera/gesture.ts");
+  const late = beat("late", 4, 550, "click");
+  late.t1 = 7.5;
+  late.actions = [{ k: "drag", t0: 6000, t1: 7500,
+    from: [280, 720], to: [570, 855],
+    bbox: [130, 640, 300, 160], whole_object: [130, 640, 300, 160] }];
+  const end = 8.8;
+  const frames = solveCamera([late], [decision(late, 2)],
+    { width: 3840, height: 2160, trim_end: end }, DEFAULTS);
+  const swept = gestureZone(gestures(late)[0]!, 3840, 2160).bbox;
+  const arrival = end - DEFAULTS.outro_s;
+  for (const f of frames) {
+    if (f.t >= arrival) assert.deepEqual({ x: f.x, y: f.y, w: f.w, h: f.h }, { x: 0, y: 0, w: 3840, h: 2160 });
+    else if (f.t >= 6 && f.t <= 7.5) assert.ok(contains(f, swept), `drag cropped at ${f.t}: ${JSON.stringify(f)}`);
+  }
+});
+
 // J2 whole-element framing on every emitted frame: while the camera prepares
 // the incoming selected header, the revealed Tidewater result must stay whole
 // through the hold, the header must be whole from the first prepared frame,
@@ -314,6 +358,15 @@ test("a prepared incoming header never cuts the preceding whole result through t
     "the squeezed hold stays readable instead of parking wide");
   assert.ok(outFrames.filter(f => f.t >= outDeadline).every(f => contains(f, headerRow)),
     "the incoming header is whole from the first prepared frame");
+});
+
+test("the default establishing hold keeps the whole stage, the outro brings it back", () => {
+  const early = { ...beat("early", 0.3, 2600), t0: 0 };
+  const held = solveCamera([early], [decision(early)],
+    { width: 3840, height: 2160, trim_start: 0, trim_end: 8 });
+  for (const f of held.filter(f => f.t <= DEFAULTS.establish_s)) assert.equal(f.w, 3840);
+  assert.ok(held[Math.round(3.2 * DEFAULTS.fps)]!.w < 3000);
+  for (const f of held.filter(f => f.t >= 8 - DEFAULTS.outro_s)) assert.equal(f.w, 3840);
 });
 
 // J2 reveal regression (found on the real take at 38.0 s): a wide revealed

@@ -22,7 +22,7 @@ test -s "$TAKEONE_DIR/synth-demo/out/synth-demo.mp4"
 node bin/takeone.mjs render "$TAKEONE_DIR/synth-demo" --set idle_speed=3   # optional rerender sanity, no planner
 ```
 
-Proving end state: exit codes are 0; `out/synth-demo.mp4` exists and is a real video (`ffprobe` reports 1920×1080, duration ≈ 44 s minus idle squeeze, h264); `analysis/beats.json`, `analysis/decisions.jsonl`, `camera.json`, `camera.cmd` and `render.log` exist inside the take; `take.json` gained usage/render metadata. Extract one still from the MP4 for the evidence folder.
+Proving end state: exit codes are 0; `out/synth-demo.mp4` exists and is a real video (`ffprobe` reports 1920×1080, duration well under the 44 s source — idle gaps are squeezed and the trailing inactivity after the last result is trimmed, so the export ends at that result plus `outro_s`; h264); `analysis/beats.json`, `analysis/decisions.jsonl`, `camera.json`, `camera.cmd` and `render.log` exist inside the take; `take.json` gained usage/render metadata. Extract one still from the MP4 for the evidence folder.
 
 ## Gotchas
 

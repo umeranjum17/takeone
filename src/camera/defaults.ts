@@ -61,7 +61,7 @@ export interface CameraDefaults {
   preset: string; // x264 encode preset; slower = smaller file, same pixels
   frame_max: number; // padding never widens a shot past this fraction of the screen width
   hold_pad: number; // ... but the zone itself always keeps at least this padding
-  establish_s: number; // hold the whole stage this long before the first shot arrives
+  establish_s: number; // hold the whole stage this long before the first move starts
   outro_s: number; // return to the whole stage for the final seconds; 0 keeps the last shot
   idle_speed: number; // play idle gaps this many times faster; 1 turns it off
   idle_keep: number; // s of real-time footage kept on each side of every action

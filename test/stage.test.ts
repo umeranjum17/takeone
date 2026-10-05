@@ -5,19 +5,22 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { hasFfmpeg } from "./helpers.ts";
 import { applyOverrides, DEFAULTS } from "../src/camera/defaults.ts";
 import type { Beat } from "../src/camera/types.ts";
-import { idleSqueezes, setptsExpr, warp } from "../src/render/pace.ts";
+import { idleSqueezes, purposefulEnd, setptsExpr, warp } from "../src/render/pace.ts";
 import { bandEligible, bandLayout, bandText, captionAss, captionLayouts, takeCaptions } from "../src/render/stage.ts";
 import { measureCaptions } from "../src/render/render.ts";
 import { THEMES, resolveTheme } from "../src/themes.ts";
+
 
 const clickAt = (t: number): Beat => ({
   id: `b${t}`, t0: t, t1: t + 0.5, anchor_t: t, zones: [], actions: [{ k: "click", t: t * 1000, x: 10, y: 10 }],
 } as unknown as Beat);
 
 test("idle gaps squeeze and the setpts expression matches warp", () => {
-  const squeezes = idleSqueezes([clickAt(1), clickAt(9)], 0, 12, DEFAULTS);
+  const squeezes = idleSqueezes([clickAt(1), clickAt(9)], 0, 12, { ...DEFAULTS, outro_s: 0 });
   // 1 s kept around each click; the 6 s gap between plays at idle_speed.
   assert.deepEqual(squeezes, [{ a: 2, b: 8 }, { a: 10, b: 12 }]);
+  // A reserved closing hold is not idle, so only the gap between the clicks squeezes.
+  assert.deepEqual(idleSqueezes([clickAt(1), clickAt(9)], 0, 12, DEFAULTS), [{ a: 2, b: 8 }]);
   assert.equal(warp(5, squeezes, 4), 2 + 3 / 4);
   const expr = setptsExpr(squeezes, 4).replace(/\/TB$/, "");
   for (const t of [0, 1.5, 5, 9, 11, 12]) {
@@ -243,4 +246,31 @@ test("a simultaneous title stacks above the caption", {skip:!hasFfmpeg()}, () =>
   const ink=inkBands([{t0:0,t1:2,text:"TakeOne demo",title:true},{t0:0,t1:2,text:"Select a card",title:false}],[260,180]);
   assert.equal(ink.bands.length,2, `ink rows=${ink.bands}`);
   assert.ok(ink.bands[1]!-ink.bands[0]!>45, `ink rows=${ink.bands}`);
+});
+
+
+test("export ends one outro after the last result or cut, ignoring resting pointers", () => {
+
+  const action = clickAt(5);
+  action.zones = [{name:"result",type:"res",bbox:[0,0,100,100],t_change:5.7}];
+  const idle: Beat = { ...clickAt(10), kind:"idle", actions:[{k:"ptr",t:10000,x:10,y:10}] };
+  assert.equal(purposefulEnd([action,idle],0,12,DEFAULTS),5.7 + DEFAULTS.outro_s);
+
+  const cut: Beat = { ...clickAt(5), kind:"cut", t1:7.3, actions:[{k:"cut",t:5000}] };
+  for (const beats of [[action,idle], [cut,idle]]) {
+    const start = 2;
+    const end = purposefulEnd(beats,start,12,DEFAULTS);
+    const squeezes = idleSqueezes(beats,start,end,DEFAULTS);
+    const result = beats[0] === cut ? cut.t1 : 5.7;
+    assert.ok(Math.abs(warp(end-start,squeezes,DEFAULTS.idle_speed)
+      - warp(result-start,squeezes,DEFAULTS.idle_speed) - DEFAULTS.outro_s) < 1e-9);
+
+    assert.ok(squeezes.every(s => s.a >= DEFAULTS.establish_s));
+    if (beats[0] === cut) assert.ok(squeezes.every(s => s.b <= cut.t0-start || s.a >= cut.t1-start));
+  }
+
+  // outro_s=0 drops the padding, not the trimming: the export still ends on the
+  // result rather than running the recorder's trailing inactivity.
+  assert.equal(purposefulEnd([action,idle],0,12,{...DEFAULTS,outro_s:0}),5.7);
+  assert.equal(purposefulEnd([action],0,6,DEFAULTS),6);
 });

@@ -11,7 +11,8 @@ export interface Squeeze { a: number; b: number }
 function activity(beats: Beat[]): [number, number][] {
   const spans: [number, number][] = [];
   for (const beat of beats) {
-    spans.push([beat.anchor_t, beat.anchor_t]);
+    if (beat.kind === "cut") spans.push([beat.t0, beat.t1]);
+    else if (!["idle", "dwell", "travel"].includes(beat.kind)) spans.push([beat.anchor_t, beat.anchor_t]);
     for (const result of beat.dialog_results ?? []) spans.push([result.t, result.t]);
     // Video-only screen changes have no input-action spans. Their observed
     // result hold is activity, so pacing must not compress it as dead air.
@@ -35,8 +36,8 @@ export function idleSqueezes(beats: Beat[], start: number, end: number, d: Camer
   let busyUntil = start;
   const spans = [...activity(beats), [end + d.idle_keep, end + d.idle_keep] as [number, number]];
   for (const [t0, t1] of spans) {
-    const a = Math.max(start, busyUntil + d.idle_keep);
-    const b = Math.min(end, t0 - d.idle_keep);
+    const a = Math.max(start + d.establish_s, busyUntil + d.idle_keep);
+    const b = Math.min(end - d.outro_s, t0 - d.idle_keep);
     if (b - a >= 1) out.push({ a: a - start, b: b - start });
     busyUntil = Math.max(busyUntil, t1);
   }
@@ -80,4 +81,17 @@ export function warpBeats(beats: Beat[], start: number, squeezes: Squeeze[], spe
       };
     }),
   }));
+}
+
+/** End on the final action/result, rather than the recorder's trailing inactivity.
+ * Input actions use the solver clock (milliseconds), results use seconds.
+ * The tail is the outro itself, so the result is on the whole stage for all of it.
+ * `outro_s = 0` drops that padding, never the trimming itself.
+ * Keep enough opening footage for an establishing shot on very short takes.
+ */
+export function purposefulEnd(beats: Beat[], start: number, end: number, d: CameraDefaults): number {
+  const spans = activity(beats).filter(([a, b]) => a <= end && b >= start);
+  if (!spans.length) return end;
+  const result = Math.max(start, ...spans.map(([, b]) => Math.min(end, b)));
+  return Math.min(end, Math.max(start + d.establish_s, result + Math.max(0, d.outro_s)));
 }

@@ -223,6 +223,76 @@ test("make intersects trim with available video before rendering", { skip: needs
     assert.equal(saved.trim_end, 8);
     assert.ok(beats.every((b: { t0: number; t1: number; anchor_t: number }) => b.t0 >= 0 && b.anchor_t >= 0 && b.t1 <= 8));
     assert.ok(existsSync(join(dir, "out", "t1.mp4")));
+    // An end an earlier run recorded must not survive a re-make once the
+    // caller's trim is gone, or the export stays truncated at the stale bound.
+    const remade = JSON.parse(readFileSync(join(dir, "take.json"), "utf8"));
+    delete remade.trim;
+    writeFileSync(join(dir, "take.json"), JSON.stringify(remade));
+    const rerun = await fastTake(dir, { noJev: true, log: () => {}, warn: () => {} });
+    assert.equal(JSON.parse(readFileSync(join(dir, "take.json"), "utf8")).trim_end, undefined);
+    assert.ok(rerun.seconds < 8, `stale trim_end still bounded the export at ${rerun.seconds}s`);
+
+    // record.ts's own trim ends at the recording length it measured, so it
+    // bounds nothing: honouring it would export the dead tail past the result.
+    writeFileSync(join(dir, "take.json"), JSON.stringify({
+      ...remade, auto_trim: true, duration_ms: 9000, trim: { start: 0, end: 9000 },
+    }));
+    await fastTake(dir, { noJev: true, log: () => {}, warn: () => {} });
+    const auto = JSON.parse(readFileSync(join(dir, "take.json"), "utf8"));
+    assert.equal(auto.duration, 10);
+    assert.equal(auto.trim_end, undefined);
+    const lastActivity = Math.max(...JSON.parse(readFileSync(join(dir, "analysis", "beats.json"), "utf8"))
+      .flatMap((b: { t1: number }) => [b.t1]));
+    const probe = JSON.parse(execFileSync("ffprobe", ["-v", "error", "-show_entries", "format=duration", "-of", "json", join(dir, "out", "t1.mp4")], { encoding: "utf8" }));
+    const seconds = Number(probe.format.duration);
+    assert.ok(seconds <= lastActivity + DEFAULTS.outro_s + 0.5,
+      `export ran ${seconds}s, past the last activity at ${lastActivity}s plus the outro`);
+    assert.ok(seconds < 9, `export kept the recorder's dead tail: ${seconds}s of a 10s take`);
+
+    // record's own trim, then the operator edits that end: the edited value no
+    // longer matches what record measured, so it is the caller's and is honoured.
+    writeFileSync(join(dir, "take.json"), JSON.stringify({
+      ...remade, auto_trim: true, duration_ms: 11000, trim: { start: 1500, end: 10000 },
+    }));
+    await fastTake(dir, { noJev: true, log: () => {}, warn: () => {} });
+    const collision = JSON.parse(readFileSync(join(dir, "take.json"), "utf8"));
+    assert.equal(collision.trim_end, 9, "an end the operator edited away from record's must be honoured");
+
+    // A take recorded before the marker existed carries record's own trim with
+    // no provenance: its end is the capture length, a fraction short of the
+    // muxed video's. Honouring it would put the dead tail back.
+    writeFileSync(join(dir, "take.json"), JSON.stringify({
+      ...remade, auto_trim: undefined, duration_ms: undefined, trim: { start: 0, end: 10900 },
+    }));
+    await fastTake(dir, { noJev: true, log: () => {}, warn: () => {} });
+    const legacy = JSON.parse(readFileSync(join(dir, "take.json"), "utf8"));
+    assert.equal(legacy.trim_end, undefined, "an unmarked trim at the capture length must not bound the export");
+    const legacySeconds = Number((JSON.parse(execFileSync("ffprobe", ["-v", "error", "-show_entries", "format=duration",
+      "-of", "json", join(dir, "out", "t1.mp4")], { encoding: "utf8" }))).format.duration);
+    assert.ok(legacySeconds <= seconds + 0.5,
+      `pre-marker take exported ${legacySeconds}s, past the result instead of closing on it`);
+
+    // Same capture length, but the analysis timeline rounded it down instead of
+    // up: record's trim still owns that end, so the dead tail stays trimmed.
+    writeFileSync(join(dir, "take.json"), JSON.stringify({
+      ...remade, auto_trim: undefined, duration_ms: undefined, trim: { start: 0, end: 11100 },
+    }));
+    await fastTake(dir, { noJev: true, log: () => {}, warn: () => {} });
+    const rounded = JSON.parse(readFileSync(join(dir, "take.json"), "utf8"));
+    assert.equal(rounded.trim_end, undefined,
+      "a pre-marker trim within one analysis frame of the video end must not bound the export");
+    const roundedSeconds = Number((JSON.parse(execFileSync("ffprobe", ["-v", "error", "-show_entries", "format=duration",
+      "-of", "json", join(dir, "out", "t1.mp4")], { encoding: "utf8" }))).format.duration);
+    assert.ok(roundedSeconds <= seconds + 0.5,
+      `pre-marker take exported ${roundedSeconds}s when the timeline rounded down`);
+
+    // An unmarked trim that ends well inside the recording is the caller's.
+    writeFileSync(join(dir, "take.json"), JSON.stringify({
+      ...remade, auto_trim: undefined, duration_ms: undefined, trim: { start: 0, end: 6000 },
+    }));
+    await fastTake(dir, { noJev: true, log: () => {}, warn: () => {} });
+    assert.equal(JSON.parse(readFileSync(join(dir, "take.json"), "utf8")).trim_end, 5,
+      "an unmarked trim inside the recording must survive");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

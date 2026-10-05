@@ -11,7 +11,7 @@ import { makeTake } from '../src/make.ts';
 import { encodingOptions, measureCaptions, renderTake } from '../src/render/render.ts';
 import { cameraFilter } from '../src/render/camera-filter.ts';
 import { bandEligible, bandFrames, bandLayout, bandText, stageFrames, stageGeometry, takeCaptions, type Band } from '../src/render/stage.ts';
-import { idleSqueezes, warp } from '../src/render/pace.ts';
+import { idleSqueezes, purposefulEnd, warp } from '../src/render/pace.ts';
 
 export interface Metric { value: number; target: number; direction: 'max' | 'min'; unit: string; goalPassed: boolean }
 export type Metrics = Record<string, Metric>;
@@ -192,7 +192,8 @@ function outputCaptions(dir: string, meta: TakeMeta, d: typeof DEFAULTS, duratio
     return { ...v, ...(v.t === undefined ? {} : { t: v.t * 1000 }), ...(v.t0 === undefined ? {} : { t0: v.t0 * 1000 }), ...(v.t1 === undefined ? {} : { t1: v.t1 * 1000 }) };
   }) }));
   const start = meta.trim_start ?? 0;
-  const squeezes = idleSqueezes(beats, start, meta.trim_end!, d);
+  const end = meta.trim_end ?? purposefulEnd(beats, start, meta.duration ?? Math.max(0, ...beats.map(b => b.t1)), d);
+  const squeezes = idleSqueezes(beats, start, end, d);
   return takeCaptions(meta, t => warp(t - start, squeezes, d.idle_speed), duration);
 }
 
