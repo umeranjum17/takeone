@@ -4,6 +4,7 @@
 import type { CameraDefaults } from "../camera/defaults.ts";
 import { zMax } from "../camera/solver.ts";
 import type { Beat, CameraFrame, TakeMeta } from "../camera/types.ts";
+import { shutterFrames, type shutterPlan } from "./motion-blur.ts";
 
 export interface Stage {
   w: number;
@@ -274,35 +275,47 @@ export function beatClicks(beats: Beat[]): Click[] {
 }
 
 /**
- * Click emphasis in source px: a soft press dot and an expanding accent ring,
- * baked per output frame so the easing is exact and renderer-independent.
+ * Click emphasis in source px: a thin translucent accent ring that expands from
+ * the press, baked per output frame so the easing is exact and renderer-independent.
+ * There is no filled press dot, so the clicked label stays readable, and the ring
+ * never grows past the camera's visible source bounds during its window.
  */
-export function clickAss(clicks: Click[], width: number, height: number, start: number, st: Stage, d: CameraDefaults): string {
+export function clickAss(clicks: Click[], width: number, height: number, start: number, st: Stage, d: CameraDefaults,
+  camera: { frames: CameraFrame[]; stage: Stage; shutter: ReturnType<typeof shutterPlan> }): string {
   let out = assHeader(width, height, d.caption_font, d.caption_size);
   const duration = d.ripple_ms / 1000;
   if (duration <= 0) return out;
   const px = 1 / st.restScale; // one output px at rest, in source px
   const step = 1 / d.fps;
   const easeOut = (u: number) => 1 - (1 - u) ** 3;
+  const halo = 1 * px;
   for (const click of clicks) {
     const t0 = click.t - start;
+    // Room from the press to the nearest visible edge, less a 6 output px inset.
+    let room = Math.min(click.x, width - click.x, click.y, height - click.y) - 6 * px;
+    camera.frames.forEach((f, index) => {
+      if (f.t >= t0 + duration || f.t + step <= t0) return;
+      for (const e of shutterFrames(camera.frames, camera.shutter, index)) {
+        const x = click.x - (e.x - camera.stage.screenX), y = click.y - (e.y - camera.stage.screenY);
+        room = Math.min(room, Math.min(x, e.w - x, y, e.h - y) - 6 * Math.max(e.w / d.out_w, e.h / d.out_h));
+      }
+    });
+    const r1 = Math.min(d.ripple_r * px, room - halo);
+    // ponytail: a press with under 6 px of room is at the frame edge; skip it rather than clip it.
+    if (r1 < 6 * px) continue;
+    const r0 = Math.min(10 * px, r1);
     for (let u0 = 0; u0 < 1; u0 += step / duration) {
       const u = Math.min(1, u0 + step / duration / 2);
-      const r = (8 + (d.ripple_r - 8) * easeOut(u)) * px;
-      const thick = (5 - 3 * u) * px;
+      const r = r0 + (r1 - r0) * easeOut(u);
+      const thick = Math.min((3 - 1.5 * u) * px, r / 3);
       const from = t0 + u0 * duration;
       const to = Math.min(t0 + duration, from + step);
       if (to <= 0) continue;
-      // A white halo under the accent ring keeps it visible on accent-coloured targets.
-      const halo = 1.5 * px;
-      out += drawing(from, to, "#ffffff", 0.25 + 0.75 * u ** 1.8,
+      // A faint white halo keeps the ring visible on accent-coloured targets.
+      out += drawing(from, to, "#ffffff", 0.6 + 0.4 * u,
         `${circle(click.x, click.y, r + halo)} ${circle(click.x, click.y, Math.max(0, r - thick - halo), true)}`);
-      out += drawing(from, to, d.accent, u ** 1.8,
+      out += drawing(from, to, d.accent, 0.35 + 0.65 * u ** 1.5,
         `${circle(click.x, click.y, r)} ${circle(click.x, click.y, Math.max(0, r - thick), true)}`, 1);
-      if (u < 0.5) {
-        out += drawing(from, to, d.accent, 0.45 + 1.1 * u,
-          circle(click.x, click.y, (16 - 10 * u) * px), 2);
-      }
     }
   }
   return out;

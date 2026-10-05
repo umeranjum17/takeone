@@ -118,7 +118,8 @@ export async function renderTake(dir: string, d?: CameraDefaults): Promise<{ out
     "-map", "[holes]", "-frames:v", "1", "-update", "1", holesFile]);
   const clicksFile = join(dir, "clicks.ass");
   const clicksAss = clickAss(beatClicks(outBeats), meta.width, meta.height, trimStart,
-    band ? { ...stage, restScale: stage.baseW / meta.width } : stage, d);
+    band ? { ...stage, restScale: stage.baseW / meta.width } : stage, view,
+    { frames: cameraFrames, stage: band ? { ...stage, screenX: 0, screenY: 0 } : stage, shutter });
   await writeFile(clicksFile, clicksAss);
   const captionsFile = join(dir, "captions.ass");
   const widePhone = phone && d.out_w > d.out_h;
