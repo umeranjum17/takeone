@@ -6,7 +6,7 @@ The ffmpeg graph duplicates frames by reference, removes unused samples before w
 
 ## Synthetic render measurements
 
-Measured locally on the 44 s fixture from `scripts/synth-take.ts`, planned with `make --no-jev`, at standard quality, 1920×1080, 60 fps and the default slow encoder preset. Timing includes the complete `renderTake` call (camera solve, stage generation, caption measurement and final encoding), excluding source generation and planning. The quality harness had not landed on main, so worktree-local measurement scripts were used.
+Provenance: every figure below was measured on 2026-10-01 at commit `c529bb1` (PR #48) on the 44 s fixture from `scripts/synth-take.ts`, planned with `make --no-jev`, at standard quality, 1920×1080, 60 fps and the default slow encoder preset. Timing includes the complete `renderTake` call (camera solve, stage generation, caption measurement and final encoding), excluding source generation and planning. The quality harness had not landed on main, so worktree-local measurement scripts were used. The table characterises that revision, not current main: the camera path, the framing rules and the export end have all changed since, and the 13.7% blurred-frame proportion has not been re-measured. No sentence outside this table depends on these numbers being current, and none of them is restated or re-derived elsewhere in this repository.
 
 | Measurement | Result |
 | --- | --- |
@@ -21,7 +21,7 @@ Measured locally on the 44 s fixture from `scripts/synth-take.ts`, planned with 
 | Frames with SSIM below 0.95 versus blur off | 0 |
 | Encode | H.264, 1920×1080, 60/1, limited-range bt709 |
 
-The wall-time ratio depends on machine load and the fraction of fast camera movement; it is not a universal 2× guarantee. A deliberately pan-heavy proof take costs more than the mostly stationary synthetic take.
+The wall-time ratio depends on machine load and the fraction of fast camera movement; it is not a universal 2× guarantee, and it is not a current-main figure either. A deliberately pan-heavy proof take costs more than the mostly stationary synthetic take.
 
 ## Output proof and checks
 
