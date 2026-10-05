@@ -423,7 +423,8 @@ function buildTargets(
       importance: shot.decision.K,
       subject: withContext(shot.zoneA, boxesFor(shot.zoneA), width, height),
       boxes: boxesFor(shot.zoneA),
-      startAfter: shot.beat.kind === "cut" ? cutSettledAt(shot.beat, shot.arrival, d) : undefined,
+      startAfter: shot.beat.kind === "cut" ? cutSettledAt(shot.beat, shot.arrival, d)
+        : shot.zoneA.type === "res" ? shot.zoneA.t_change ?? shot.beat.t0 : undefined,
     }];
     if (shot.zoneB !== shot.zoneA && shot.decision.B) {
       const resultTime = shot.zoneB.t_change ?? shot.beat.t1;
@@ -619,7 +620,9 @@ function sampleCamera(
     // (the spring trails the ideal path by about 2/omega): result
     // and breathe targets obey it too, so no shot flashes by unread.
     const settle = move ? move.end + 2 / d.lowpass_omega : 0;
-    const heldUntil = move ? settle + d.dwell : 0;
+    // Quantize the minimum hold upward to the output clock, including
+    // one interval for the sampled spring's visible settling boundary.
+    const heldUntil = move ? Math.ceil((settle + d.dwell) * d.fps) / d.fps + 1 / d.fps : 0;
     // A close result preempts pending action targets, even when those targets
     // were delayed by dwell. Otherwise an old click can arrive after its dialog
     // has disappeared. Start from the visible camera to keep the move continuous.
