@@ -51,6 +51,18 @@ const lerp = (a: number, b: number, u: number) => a + (b - a) * u;
 const smooth = (u: number) => u * u * u * (u * (u * 6 - 15) + 10);
 
 type Box = Zone["bbox"];
+/** Largest surface a shot may slice: a panel or window this size cannot fit any crop. */
+const LABEL_AREA_MAX = 0.05;
+
+/** The labels and controls a reveal must not slice, dropping panels and window chrome. */
+function labelBoxes(beat: Beat, width: number, height: number): Box[] {
+  const screen = width * height;
+  return [...new Map(beat.zones
+    .filter((zone) => !["all", "win", "path"].includes(zone.type))
+    .flatMap((zone) => zone.boxes?.length ? zone.boxes : [zone.bbox])
+    .filter((box) => box[2] * box[3] <= screen * LABEL_AREA_MAX)
+    .map((box) => [box.join(), box])).values()];
+}
 export const HIGH_CLIP_FRACTION = 0.9;
 
 /** Fraction of each UI box outside a crop. A hold permits whole boxes or tiny edge slivers. */
@@ -426,18 +438,21 @@ function buildTargets(
   end: number,
   d: CameraDefaults,
 ): Target[] {
+  // The surfaces a beat's own zones frame against; a reveal borrows the shot in
+  // effect so its composed crop keeps the same UI whole instead of none of it.
+  const boxesFor = (beat: Beat) => (zone: Zone): Box[] => zone.boxes?.length ? zone.boxes
+    : beat.zones.filter((z) => !["all", "win", "path"].includes(z.type)).map((z) => z.bbox);
   const targets = shots.flatMap((shot) => {
-    const boxesFor = (zone: Zone): Box[] => zone.boxes?.length ? zone.boxes
-      : shot.beat.zones.filter((z) => !["all", "win", "path"].includes(z.type)).map((z) => z.bbox);
-    const framed = (zone: Zone): CameraState => frame({ ...zone, boxes: boxesFor(zone) },
+    const inShot = boxesFor(shot.beat);
+    const framed = (zone: Zone): CameraState => frame({ ...zone, boxes: inShot(zone) },
       shot.decision.L, width, height, shot.beat.window_rect, d);
     const targetA = framed(shot.zoneA);
     const result: Target[] = [{
       t: shot.arrival,
       state: targetA,
       importance: shot.decision.K,
-      subject: withContext(shot.zoneA, boxesFor(shot.zoneA), width, height),
-      boxes: boxesFor(shot.zoneA),
+      subject: withContext(shot.zoneA, inShot(shot.zoneA), width, height),
+      boxes: inShot(shot.zoneA),
       screenChange: shot.beat.kind === "change",
       startAfter: shot.beat.kind === "cut" ? cutSettledAt(shot.beat, shot.arrival, d)
         : shot.beat.kind === "change" ? shot.beat.anchor_t
@@ -449,8 +464,8 @@ function buildTargets(
         t: resultTime + d.result_late,
         state: framed(shot.zoneB),
         importance: shot.decision.K,
-        subject: withContext(shot.zoneB, boxesFor(shot.zoneB), width, height),
-        boxes: boxesFor(shot.zoneB),
+        subject: withContext(shot.zoneB, inShot(shot.zoneB), width, height),
+        boxes: inShot(shot.zoneB),
       });
     }
     return result;
@@ -459,7 +474,13 @@ function buildTargets(
   for (const beat of beats) for (const result of beat.dialog_results ?? []) {
     if (result.t < start || result.t >= end) continue;
     const shot = shots.filter((candidate) => candidate.beat.t0 <= result.t).at(-1);
-    const revealed: Zone = { name: "revealed", type: "res", bbox: result.bbox };
+    // A revealed result frames with the labels and controls of the beat that
+    // produced it: without static boxes compose never runs its search, and the
+    // reveal parks slicing the column headings or the sidebar item beside the
+    // result. Panels and window chrome stay excludable, so the reveal still
+    // moves instead of widening to the whole screen.
+    const surfaces = labelBoxes(beat, width, height);
+    const revealed: Zone = { name: "revealed", type: "res", bbox: result.bbox, boxes: surfaces };
     // Widen before the close, retaining the dialog until the result is visible.
     // The union gives the final spring room to settle without losing the card.
     const context = shot ? mergeZones(shot.zoneA, revealed) : revealed;

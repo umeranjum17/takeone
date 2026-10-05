@@ -4,7 +4,7 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import test from "node:test";
 import { DEFAULTS } from "../src/camera/defaults.ts";
-import { solveCamera } from "../src/camera/solver.ts";
+import { solveCamera, clippedFractions } from "../src/camera/solver.ts";
 import type { Beat, Decision, Zone } from "../src/camera/types.ts";
 import type { Action } from "../src/types.ts";
 import { renderTake } from "../src/render/render.ts";
@@ -367,4 +367,37 @@ test("the default establishing hold keeps the whole stage, the outro brings it b
   for (const f of held.filter(f => f.t <= DEFAULTS.establish_s)) assert.equal(f.w, 3840);
   assert.ok(held[Math.round(3.2 * DEFAULTS.fps)]!.w < 3000);
   for (const f of held.filter(f => f.t >= 8 - DEFAULTS.outro_s)) assert.equal(f.w, 3840);
+});
+
+// J2 reveal regression (found on the real take at 38.0 s): a wide revealed
+// result used to park slicing the detected surfaces beside it — the column
+// label row cut in half at the top of the frame — because revealed zones
+// carried no boxes, so compose's whole-element search never ran. The reveal
+// must frame with the beat's surfaces: every detected box is whole or mostly
+// out, on the projected stage view, through the reveal and the settled hold.
+test("a revealed result never parks slicing the detected surfaces beside it", () => {
+  const surfaces: Zone["bbox"][] = [[0, 0, 3840, 136], [24, 172, 372, 96],
+    [480, 192, 780, 64], [1308, 192, 780, 64], [2136, 192, 780, 64],
+    [1344, 504, 1152, 940], [2972, 188, 824, 1920]];
+  const result: Zone["bbox"] = [496, 292, 2984, 1800];
+  const reveal: Beat = { id: "b10", kind: "click", t0: 37.87, t1: 43.07, anchor_t: 37.87,
+    actions: [],
+    zones: [{ name: "z1", type: "act", bbox: [1344, 504, 1152, 1046], boxes: surfaces },
+      { name: "z2", type: "all", bbox: [0, 0, 3840, 2160] }],
+    dialog_results: [{ t: 37.9, bbox: result }] };
+  const decisions: Decision[] = [
+    { beat: "b10", A: "z1", L: 2, p: 0, K: 1, conf: 1, decided_by: "test" },
+  ];
+  const d = { ...DEFAULTS, outro_s: 0 };
+  const stage = stageGeometry(3840, 2160, d);
+  const project = (f: Parameters<typeof sourceViewport>[0]) => sourceViewport(f, 3840, 2160, stage, d);
+  const frames = solveCamera([reveal], decisions, { width: 3840, height: 2160, trim_end: 42 }, d, project)
+    .map(project).filter(f => f.t >= 38.9);
+  assert.ok(frames.length > 100, "check the settled hold, not just the arrival");
+  assert.ok(frames.every(f => contains(f, result)), "the revealed result must stay whole");
+  for (const f of frames) {
+    const clips = clippedFractions(f, surfaces);
+    assert.deepEqual(clips.map(c => c === 0 || c >= 0.9), clips.map(() => true),
+      `surface sliced at t=${f.t.toFixed(2)}: ${clips.map((c, i) => c > 0 && c < 0.9 ? `${surfaces[i]} cut ${(c * 100).toFixed(0)}%` : null).filter(Boolean).join("; ")}`);
+  }
 });

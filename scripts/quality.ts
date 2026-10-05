@@ -154,7 +154,7 @@ export function edgePosition(row: Uint8Array, predicted: number): number | null 
   }
   return sum >= 20 ? weighted / sum : null;
 }
-function judder(video: string, frames: CameraFrame[], meta: TakeMeta, d: typeof DEFAULTS, required: boolean, band: Band | null): { rms: number; samples: number } | null {
+export function judder(video: string, frames: CameraFrame[], meta: TakeMeta, d: typeof DEFAULTS, required: boolean, band: Band | null): { rms: number; samples: number } | null {
   // A 3-row strip through the straight card edge avoids corners, captions and rescaling.
   // A banded card never moves, so track the source sidebar divider moving inside it instead.
   const rows = frameRows(video, `crop=iw:3:0:${Math.floor(d.out_h / 2)}:exact=1`);
