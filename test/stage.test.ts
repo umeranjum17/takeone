@@ -16,7 +16,7 @@ const clickAt = (t: number): Beat => ({
 } as unknown as Beat);
 
 test("idle gaps squeeze and the setpts expression matches warp", () => {
-  const squeezes = idleSqueezes([clickAt(1), { ...clickAt(9), t1: 9 }], 0, 12, { ...DEFAULTS, outro_s: 0 });
+  const squeezes = idleSqueezes([clickAt(1), clickAt(9)], 0, 12, { ...DEFAULTS, outro_s: 0 });
   // 1 s kept around each click; the 6 s gap between plays at idle_speed.
   assert.deepEqual(squeezes, [{ a: 2, b: 8 }, { a: 10, b: 12 }]);
   // A reserved closing hold is not idle, so only the gap between the clicks squeezes.

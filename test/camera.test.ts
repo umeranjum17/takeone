@@ -286,7 +286,6 @@ test("master blur preserves full-resolution chroma through production rendering"
 
 test("a drag that reaches the screen edge stays visible through the closing ease", async () => {
   const { gestures, gestureZone } = await import("../src/camera/gesture.ts");
-  const { contains } = await import("../scripts/check-framing.ts");
   const late = beat("late", 4, 550, "click");
   late.t1 = 7.5;
   late.actions = [{ k: "drag", t0: 6000, t1: 7500,
