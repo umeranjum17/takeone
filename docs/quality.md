@@ -139,9 +139,10 @@ if the after crop loses an acted-on region the before crop contained or a beat
 has no frames to compare. It also checks the recorded cursor path and moving
 grab footprint throughout each drag, including the release frame. Its table
 reports how many before frames contained the region, so an untested region is
-visible, plus a `ref cut` column: when reference boxes are supplied, a trailing
+visible. When reference boxes are supplied, a trailing
 `references` row reports settled frames that slice a reference surface instead of
-holding it whole or leaving it out (comma-separated `exposure-offsets` in frames,
+holding it whole or leaving it out (the row names the cut boxes with the first
+cut time and sliced fraction; comma-separated `exposure-offsets` in frames,
 default `0`, re-checks each offset through the shutter function). The references
 row fails when it cut any surface, or when nothing settled long enough to check.
 
