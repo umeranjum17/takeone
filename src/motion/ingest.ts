@@ -27,6 +27,17 @@ export function imageSize(file: string): { width: number; height: number } {
 
 /** Fill sb.screens from the source. Images are copied as-is; screen ids are S1..Sn in file order. */
 export async function ingest(dir: string, sb: Storyboard): Promise<void> {
+  await ingestScreens(dir, sb);
+  for (const [id, { screen, rect }] of Object.entries(sb.crops ?? {})) {
+    const base = sb.screens[screen];
+    if (!base) throw new Error(`crops.${id}: unknown screen ${screen}`);
+    const [x, y, w, h] = rect.map(Math.round) as [number, number, number, number];
+    execFileSync("ffmpeg", ["-nostdin", "-v", "error", "-y", "-i", resolve(dir, base.file), "-vf", `crop=${w}:${h}:${x}:${y}`, "-frames:v", "1", join(dir, "sources", `${id}.png`)], { timeout: 60000 });
+    sb.screens[id] = { file: `sources/${id}.png`, width: w, height: h };
+  }
+}
+
+async function ingestScreens(dir: string, sb: Storyboard): Promise<void> {
   const states = Object.entries(sb.source.states ?? {});
   validateStateNames(states.map(([id]) => id));
   sb.screens = Object.assign(Object.create(null), sb.screens);

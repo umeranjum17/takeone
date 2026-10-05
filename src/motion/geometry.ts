@@ -9,8 +9,14 @@ export function bitmapSize(scr: Pick<Screen, "width" | "height">, width: number,
 
 export function heroSize(scr: Pick<Screen, "width" | "height">, scene: Scene, W: number, H: number) {
   const phone = scene.device === "phone";
-  const width = phone ? Math.min(W * .6, H * .3) : Math.min(W * .78, H * .58 * scr.width / scr.height);
+  const width = phone ? Math.min(W * .6, H * .3) : Math.min(W * .78, H * (scene.device === "none" ? .78 : .58) * scr.width / scr.height);
   return bitmapSize(scr, width, phone ? H * .52 : width * scr.height / scr.width, 1 + (scene.push ?? .03), 1);
+}
+
+/** Top of the hero device box: under the title block, or centred when the scene has no copy. */
+export function heroTop(scene: Scene, H: number, height: number) {
+  const bar = scene.device === "phone" ? .045 : (scene.device ?? "browser") === "browser" ? .075 : 0;
+  return scene.title || scene.subtitle ? H * .34 : (H - height * (1 + bar) - (scene.device === "laptop" ? 24 : 4)) / 2;
 }
 
 export function heroTransform(t: number, duration: number, push: number) {

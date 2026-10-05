@@ -4,7 +4,8 @@ Turn saved screens (images, HTML, or a URL) into a motion-design film without re
 
 ## Sub-features
 
-- Pattern planning: `--pattern hero-reveal,zoom-tour,end-card` (all three when omitted); zoom-tour stops via `--region x,y,w,h[:caption][@SCREEN]`.
+- Pattern planning: `--pattern hero-reveal,zoom-tour,end-card,kinetic-type,before-after` (hero, tour and end card when omitted); zoom-tour stops via `--region x,y,w,h[:caption][@SCREEN]`.
+- Launch film: three or more screens with no `--pattern` plan kinetic title → each screen then a close-up crop per `--region` on it (with `--line` type beats between) → before/after of first vs last (cropped to the last screen's last region) → end card, alternating light/dark (`invert`). Proof: a 3–6 state capture of `scripts/e2e/scene.html` renders a 20–30 s 1920×1080@60 MP4; judge its contact sheet side by side against the achxvi references.
 - Interactive page states: `--state NAME='click #id; type #id "text"; wait 100'` captures real HTML/URL states in one page, in order.
 - Copy chrome: `--title`, `--subtitle`, `--cta`, `--url`, `--logo`, `--device browser|phone|laptop|none`; theme tokens as elsewhere.
 - Storyboard workflow: `--plan-only` writes an editable `storyboard.json` without ingest/render; `--storyboard file.json` renders a plan; `takeone render <dir>` rerenders the saved storyboard (motion takes reject `--theme`/`--set`).

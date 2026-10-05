@@ -45,6 +45,14 @@ test("default motion takes survive same-second collisions and appear in listing"
     assert.deepEqual(entries.slice(1).map(entry=>JSON.parse(readFileSync(join(entry.path,"storyboard.json"),"utf8")).scenes[0].title),["Third","Second","First"]);
     assert.equal(JSON.parse(readFileSync(join(entries[0]!.path,"storyboard.json"),"utf8")).id,"custom");
     assert.ok(entries.every(entry=>entry.status==="complete"));
+    const launch=join(dir,"launch");
+    await runMotion(["scripts/e2e/scene.html","--plan-only","--out",launch,"--title","Every launch, one board.","--line","Ship it tonight.",
+      ...["board=wait 100","compose=click #newTask","created=click #create"].flatMap(state=>["--state",state])],root);
+    const film=validateStoryboard(JSON.parse(readFileSync(join(launch,"storyboard.json"),"utf8")));
+    assert.deepEqual(film.scenes.map(s=>s.pattern),["kinetic-type","hero-reveal","kinetic-type","hero-reveal","hero-reveal","before-after","end-card"]);
+    assert.deepEqual(film.scenes.map(s=>!!s.invert),[false,true,false,true,false,true,false]);
+    assert.deepEqual([film.scenes[5]!.before,film.scenes[5]!.screen],["board","created"]);
+    assert.ok(filmDuration(film)>=20&&filmDuration(film)<=30,String(filmDuration(film)));
   } finally {t.mock.timers.reset();rmSync(dir,{recursive:true,force:true});}
 });
 

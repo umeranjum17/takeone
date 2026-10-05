@@ -1,5 +1,5 @@
 import type { CameraFrame } from "../camera/types.ts";
-import { bentoViewport, bitmapSize, heroSize, heroTransform } from "./geometry.ts";
+import { bentoViewport, bitmapSize, heroSize, heroTop, heroTransform } from "./geometry.ts";
 import { allTimelines } from "./layout.ts";
 import { readingFloor } from "./storyboard.ts";
 import { motionTokens } from "./theme.ts";
@@ -37,7 +37,7 @@ export function sceneCameras(sb: Storyboard): Record<string, (CameraFrame & { ca
       paths[key] = Array.from({ length: Math.ceil(scene.d * sb.output.fps) + 1 }, (_, f) => {
         const t = f / sb.output.fps, p = heroTransform(t, scene.d, scene.push ?? .03);
         const left = (width - size.width) / 2 + (size.width + 2 * border) * ox * (1 - p.scale) + border * p.scale;
-        const top = height * .34 + p.y + (size.height + bar + 2 * border) * oy * (1 - p.scale) + (bar + border) * p.scale;
+        const top = heroTop(scene, height, size.height) + p.y + (size.height + bar + 2 * border) * oy * (1 - p.scale) + (bar + border) * p.scale;
         return { t, x: (cropX * p.scale - left) / (fit * p.scale), y: (cropY * p.scale - top) / (fit * p.scale), w: width / (fit * p.scale), h: height / (fit * p.scale) };
       });
       return;

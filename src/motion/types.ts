@@ -4,7 +4,7 @@ import type { Overrides } from "../camera/defaults.ts";
 
 export type Rect = [number, number, number, number]; // x, y, w, h in source px of its screen
 export type Device = "browser" | "phone" | "laptop" | "none";
-export const PATTERNS = ["hero-reveal", "zoom-tour", "end-card", "fragment"] as const;
+export const PATTERNS = ["hero-reveal", "zoom-tour", "end-card", "fragment", "kinetic-type", "before-after"] as const;
 export type PatternName = (typeof PATTERNS)[number];
 
 /** DOM-driven ingest ops (L8-h), played in order in one capture page; each named state is captured after its ops. */
@@ -51,6 +51,10 @@ export interface Scene {
   text?: string;
   /** Reading-hold push, fraction of scale (0.03-0.05). */
   push?: number;
+  /** before-after: the screen shown before the wipe; `screen` is the after. */
+  before?: string;
+  /** Swap the theme's background and text colours for this scene (dark beat on a light theme, and back). */
+  invert?: boolean;
 }
 
 export interface Tempo { bpm: number; phase_s: number; snap: "beat" | "half" }
@@ -98,6 +102,8 @@ export interface Storyboard {
     dsf?: number;
     states?: Record<string, (StateOp | string)[]>;
   };
+  /** Close-ups: ingest cuts each rect out of its base screen into its own screen id. */
+  crops?: Record<string, { screen: string; rect: Rect }>;
   /** Filled by ingest: screen id -> image under sources/ (copied input or captured PNG). */
   screens: Record<string, Screen>;
   regions: Region[];

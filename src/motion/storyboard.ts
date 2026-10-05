@@ -34,7 +34,8 @@ export function readingFloor(text: string): number {
 
 /** Scene reading copy; the glyph gate also checks emitted literals in their actual font roles. */
 export function sceneTexts(s: Scene): string[] {
-  if (s.pattern === "hero-reveal") return [s.title, s.subtitle].filter((t): t is string => !!t);
+  if (s.pattern === "hero-reveal" || s.pattern === "kinetic-type") return [s.title, s.subtitle].filter((t): t is string => !!t);
+  if (s.pattern === "before-after") return ["Before", "After"];
   if (s.pattern === "end-card") return [s.logo, s.cta, s.url].filter((t): t is string => !!t);
   if (s.pattern === "fragment") {
     if (s.kind === "counter") return ["60"];
@@ -52,6 +53,11 @@ function sceneRevealDuration(s: Scene): number {
   if (s.pattern === "hero-reveal") {
     const words = (s.title ?? "").trim().split(/\s+/).filter(Boolean).length;
     reveal = Math.max(words ? .4 + .06 * (words - 1) : 0, s.subtitle ? .6 : 0);
+  } else if (s.pattern === "kinetic-type") {
+    const words = (s.title ?? "").trim().split(/\s+/).filter(Boolean).length;
+    reveal = Math.max(words ? .52 + .14 * (words - 1) + (words > 1 ? .4 : 0) : 0, s.subtitle ? .5 : 0);
+  } else if (s.pattern === "before-after") {
+    reveal = 2.6;
   } else if (s.pattern === "end-card") {
     const glyphs = [...new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(s.logo!)].filter(ch => ch.segment.trim()).length;
     reveal = Math.max(glyphs ? .55 + .035 * (glyphs - 1) : 0, s.cta ? .65 : 0, s.url ? .75 : 0);
@@ -62,17 +68,28 @@ function sceneRevealDuration(s: Scene): number {
   return reveal;
 }
 
+/** Every text a scene shows with the time its reveal ends: each needs its reading floor after that. */
+function sceneHolds(s: Scene): { text: string; reveal: number }[] {
+  const holds = s.pattern === "zoom-tour" ? [] : [{ text: sceneTexts(s).join(" "), reveal: sceneRevealDuration(s) }];
+  if (s.pattern === "hero-reveal" || s.pattern === "zoom-tour" || s.pattern === "before-after") {
+    const device = s.device ?? "browser";
+    const text = device === "browser" ? "Design preview" : device === "phone" ? "9:41" : "";
+    holds.push({ text, reveal: s.pattern === "zoom-tour" ? 0 : .6 });
+  }
+  return holds;
+}
+
+/** Shortest whole-frame duration that clears every reveal and reading hold of a scene played in full. */
+export function minSceneDuration(s: Scene, fps = 60): number {
+  return Math.ceil(Math.max(0, ...sceneHolds(s).map(x => x.reveal + readingFloor(x.text))) * fps + 1) / fps;
+}
+
 function validateVisibleScene(s: Scene, start: number, duration: number, fps: number, path: string): void {
   const end = start + Math.round(duration * fps) / fps;
   if (s.pattern === "zoom-tour") {
     if (s.at! < start - 1e-9 || s.at! + s.d > end + 1e-9) throw new StoryboardError(path, "visible window truncates camera moves and reading holds");
   }
-  const holds = s.pattern === "zoom-tour" ? [] : [{ text: sceneTexts(s).join(" "), reveal: sceneRevealDuration(s) }];
-  if (s.pattern === "hero-reveal" || s.pattern === "zoom-tour") {
-    const device = s.device ?? "browser";
-    const text = device === "browser" ? "Design preview" : device === "phone" ? "9:41" : "";
-    holds.push({ text, reveal: s.pattern === "hero-reveal" ? .6 : 0 });
-  }
+  const holds = sceneHolds(s);
   const lastFrame = Math.min(Math.round(duration * fps) - 1, Math.ceil((s.at! + s.d - start) * fps - 1e-9) - 1);
   for (const { text, reveal } of holds) {
     const reading = readingFloor(text);
@@ -92,7 +109,9 @@ function scene(raw: unknown, path: string): Scene {
   if (raw["at"] !== undefined) s.at = num(raw["at"], `${path}.at`, 0, MAX_DURATION_S);
   for (const k of ["title", "subtitle", "cta", "url", "logo", "text", "kind", "state"] as const) if (raw[k] !== undefined) s[k] = str(raw[k], `${path}.${k}`, k === "text" ? 400 : 120);
   if (s.pattern === "end-card") s.logo ??= "TakeOne";
-  for (const k of ["screen", "focus"] as const) if (raw[k] !== undefined && !ID.test(String(raw[k]))) throw new StoryboardError(`${path}.${k}`, "expected an id");
+  if (raw["invert"] !== undefined && typeof raw["invert"] !== "boolean") throw new StoryboardError(`${path}.invert`, "expected true or false");
+  if (s.pattern === "before-after" && (raw["before"] === undefined || raw["before"] === raw["screen"])) throw new StoryboardError(`${path}.before`, "expected the screen shown before the change, other than screen");
+  for (const k of ["screen", "focus", "before"] as const) if (raw[k] !== undefined && !ID.test(String(raw[k]))) throw new StoryboardError(`${path}.${k}`, "expected an id");
   if (raw["device"] !== undefined && !DEVICES.includes(String(raw["device"]))) throw new StoryboardError(`${path}.device`, `choose ${DEVICES.join(", ")}`);
   if (raw["push"] !== undefined) s.push = num(raw["push"], `${path}.push`, 0, 0.1);
   if (s.pattern === "fragment") {
@@ -166,6 +185,15 @@ export function validateStoryboard(raw: unknown): Storyboard {
     num(v["width"], `screens.${k}.width`, 1, 16384); num(v["height"], `screens.${k}.height`, 1, 16384);
   }
 
+  const crops = raw["crops"] ?? {};
+  if (!isObj(crops)) throw new StoryboardError("crops", "expected an object");
+  for (const [k, c] of Object.entries(crops)) {
+    if (!ID.test(k) || !isObj(c) || !ID.test(String(c["screen"])) || !Array.isArray(c["rect"]) || c["rect"].length !== 4 || c["rect"].some(v => typeof v !== "number" || !Number.isFinite(v))) throw new StoryboardError(`crops.${k}`, "expected {screen, rect: [x, y, w, h]}");
+    const [x, y, w, h] = (c["rect"] as number[]).map(Math.round) as [number, number, number, number];
+    const base = (screens as Record<string, { width: number; height: number }>)[String(c["screen"])];
+    if (w < 16 || h < 16 || x < 0 || y < 0 || (base && (x + w > base.width || y + h > base.height))) throw new StoryboardError(`crops.${k}.rect`, "expected at least 16x16 px inside its screen");
+  }
+
   const regions = raw["regions"] ?? [];
   if (!Array.isArray(regions)) throw new StoryboardError("regions", "expected an array");
   const regionIds = new Set<string>();
@@ -211,6 +239,7 @@ export function validateStoryboard(raw: unknown): Storyboard {
     theme: { name: themeName, overrides: overrides as Storyboard["theme"]["overrides"] },
     ...(raw["tempo"] === undefined ? {} : { tempo: raw["tempo"] as Storyboard["tempo"] }),
     source: source as Storyboard["source"],
+    ...(Object.keys(crops).length ? { crops: crops as Storyboard["crops"] } : {}),
     screens: screens as unknown as Storyboard["screens"],
     regions: regions as Storyboard["regions"],
     layout,
@@ -235,7 +264,11 @@ export function validateStoryboard(raw: unknown): Storyboard {
   }
   for (const list of allTimelines(layout, scenes)) for (const [i, s] of list.entries()) {
     if (s.focus && !regionIds.has(s.focus)) throw new StoryboardError(`scenes[${i}].focus`, "unknown region");
-    if (s.screen && Object.keys(screens).length && !Object.hasOwn(screens, s.screen)) throw new StoryboardError(`scenes[${i}].screen`, "unknown screen");
+    for (const k of ["screen", "before"] as const) if (s[k] && Object.keys(screens).length && !Object.hasOwn(screens, s[k])) throw new StoryboardError(`scenes[${i}].${k}`, "unknown screen");
+    if (s.pattern === "before-after" && Object.keys(screens).length) {
+      const [a, b] = [screens[s.before!], screens[s.screen ?? Object.keys(screens)[0]!]] as { width: number; height: number }[];
+      if (a === b || Math.abs(a!.width / a!.height - b!.width / b!.height) > .01 * (b!.width / b!.height)) throw new StoryboardError(`scenes[${i}].before`, "expected another screen with the same aspect ratio");
+    }
     if (s.at! < 0) throw new StoryboardError(`scenes[${i}].at`, "negative scene starts are not supported");
     for (const stop of s.stops ?? []) if (!regionIds.has(stop.region)) throw new StoryboardError(`scenes[${i}].stops`, "unknown region");
     const owner = s.screen ?? Object.keys(screens)[0] ?? Object.keys((source["states"] ?? {}) as object)[0] ?? "S1";

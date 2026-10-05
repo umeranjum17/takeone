@@ -253,6 +253,13 @@ Use `takeone motion` to create a film from images, HTML or a URL without recordi
 takeone motion design.png --out takes/launch --theme editorial --title "Ship your next idea" --device browser
 ```
 
+Give it three or more screens and it plans a type-led launch film instead: a kinetic title, every screen in a device frame with a close-up of any `--region` on it, each `--line` as a type beat between screens, a before/after wipe from the first to the last screen and an end card, alternating light and dark:
+
+```sh
+takeone motion before.png draft.png after.png --theme editorial --title "Every launch, one board." \
+  --line "Ship it tonight." --logo Tidewater --cta "Start planning" --url tidewater.app
+```
+
 See [Motion renders](docs/motion.md) for shell setup, capture states, pattern options and the storyboard contract.
 
 ## Plan and render

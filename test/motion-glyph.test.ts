@@ -78,9 +78,11 @@ test("emitted motion glyphs use bundled faces with default and serif roles", asy
         {pattern:"zoom-tour",d:6,screen:"S1",device:"browser",stops:[]},
         {pattern:"zoom-tour",d:6,screen:"S1",device:"phone",stops:[]},
         {pattern:"end-card",d:6},
-        {pattern:"end-card",logo:"Cafe\u0301",d:6}
+        {pattern:"end-card",logo:"Cafe\u0301",d:6,invert:true},
+        {pattern:"kinetic-type",title:"Ship it tonight.",subtitle:"TIDEWATER",d:6,invert:true},
+        {pattern:"before-after",d:6,screen:"S2",before:"S1",device:"browser"}
       ];
-      const sb=validateStoryboard({version:1,theme:{name:"editorial",overrides},source:{kind:"image"},screens:{S1:{file:resolve("resources/demo/tidewater-board.png"),width:2560,height:1440}},regions:[],scenes});
+      const sb=validateStoryboard({version:1,theme:{name:"editorial",overrides},source:{kind:"image"},screens:{S1:{file:resolve("resources/demo/tidewater-board.png"),width:2560,height:1440},S2:{file:resolve("resources/demo/tidewater-board.png"),width:2560,height:1440}},regions:[],scenes});
       const html=writePage(dir,sb).html;
       await withPage(html,1920,1080,async b=>{
         await b.send("DOM.enable"); await b.send("CSS.enable");
@@ -96,11 +98,21 @@ test("emitted motion glyphs use bundled faces with default and serif roles", asy
           }
           if(device==="browser")assert.ok(text.includes("● ● ●")&&text.includes("Design preview"),text);
           if(device==="phone")assert.ok(text.includes("9:41")&&text.includes("━"),text);
+          if(scenes[i]!.pattern==="kinetic-type") {
+            assert.ok(text.includes("TIDEWATER")&&text.replace(/\s+/g," ").includes("Ship it tonight."),text);
+            assert.equal(await b.evaluate<string>(`getComputedStyle(document.querySelector('[data-scene="${i}"]')).backgroundColor`),"rgb(11, 11, 11)");
+          }
+          if(scenes[i]!.pattern==="before-after") {
+            assert.ok(text.includes("Before")&&text.includes("After"),text);
+            const imgs=await b.evaluate<string[]>(`[...document.querySelectorAll('[data-scene="${i}"] img')].map(img=>img.src+" "+img.style.clipPath)`);
+            assert.equal(imgs.length,2);assert.match(imgs[1]!,/inset\(0px 0px 0px 0%\)$/);
+          }
           if(scenes[i]!.pattern==="end-card") {
             const logo=scenes[i]!.logo??"TakeOne";
             assert.ok(text.replace(/\s+/g,"").includes(logo),text);
             const family=await b.evaluate<string>(`getComputedStyle(document.querySelector('[data-scene="${i}"] .kern')).fontFamily`);
             assert.ok(family.includes(overrides.display_font??"Instrument Serif"),family);
+            if(scenes[i]!.invert)assert.equal(await b.evaluate<string>(`getComputedStyle(document.querySelector('[data-scene="${i}"] .kern')).color`),"rgb(241, 241, 236)");
             const layout=await b.evaluate<{clusters:string[];max_error:number;advance_error:number;mark_width_error:number}>(`(()=>{
               const el=document.querySelector('[data-scene="${i}"] .kern'),ghost=el.firstElementChild.cloneNode(true),cs=getComputedStyle(el);
               ghost.style.cssText='position:fixed;left:0;top:0;white-space:pre;font:'+cs.font+';font-kerning:'+cs.fontKerning+';letter-spacing:'+cs.letterSpacing+';font-variant-ligatures:none';

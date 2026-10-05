@@ -3,7 +3,7 @@
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { bitmapSize, heroSize, heroTransform } from "./geometry.ts";
+import { bitmapSize, heroSize, heroTop, heroTransform } from "./geometry.ts";
 import { lintCss } from "./lint.ts";
 import { themeCss, type MotionTokens } from "./theme.ts";
 
@@ -39,7 +39,7 @@ html, body { width: ${width}px; height: ${height}px; overflow: hidden; backgroun
 #stage { position: absolute; left: 0; top: 0; width: ${width}px; height: ${height}px; overflow: hidden; background: var(--bg); }
 .layer { position: absolute; inset: 0; overflow: hidden; }
 </style>
-<script>window.bitmapSize = ${bitmapSize.toString()}; window.heroSize = ${heroSize.toString()}; window.heroTransform = ${heroTransform.toString()}; window.FONT_FACES = ${JSON.stringify(faces)}; window.STORYBOARD = JSON.parse(${JSON.stringify(json)});</script>
+<script>window.bitmapSize = ${bitmapSize.toString()}; window.heroSize = ${heroSize.toString()}; window.heroTop = ${heroTop.toString()}; window.heroTransform = ${heroTransform.toString()}; window.FONT_FACES = ${JSON.stringify(faces)}; window.STORYBOARD = JSON.parse(${JSON.stringify(json)});</script>
 ${motionScripts().map((f) => `<script src="${pathToFileURL(f).href}"></script>`).join("\n")}
 </head><body><div id="stage"></div></body></html>
 `;

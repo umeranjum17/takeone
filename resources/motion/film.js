@@ -21,6 +21,7 @@ window.mountScenes = (root, scenes, W, H, shiftMs = 0, keyPrefix = "") => {
   scenes.forEach((s, i) => {
     const layer = h(`<div class="layer" data-scene="${i}" data-pattern="${esc(s.pattern)}"></div>`);
     layer.style.zIndex = String(i + 1);
+    if (s.invert) { const t = STORYBOARD.tokens; layer.style.cssText += `;--bg:${t.text};--text:${t.background};--muted:color-mix(in srgb,${t.background} 55%,${t.text});background:var(--bg);color:var(--text)`; }
     root.append(layer);
     window.BASE = s.at * 1000 + shiftMs;
     const dMs = s.d * 1000;

@@ -5,7 +5,7 @@ PATTERNS["end-card"] = (layer,s,ctx) => {
   const word=kernedLetters(s.logo);
   word.style.font=`400 ${Math.min(W*.12,H*.2)}px/1.1 var(--display)`;
   group.append(word);
-  const cta=h(`<div style="background:var(--text);color:var(--bg);border-radius:999px;padding:18px 38px;font:${Math.min(W*.028,H*.046)}px var(--body)">${esc(s.cta??"")}</div>`);
+  const cta=h(`<div style="background:var(--design-accent, var(--text));color:var(--design-on-accent, var(--bg));border-radius:999px;padding:18px 38px;font:${Math.min(W*.028,H*.046)}px var(--body)">${esc(s.cta??"")}</div>`);
   const url=h(`<div style="color:var(--text);font:${Math.min(W*.019,H*.032)}px var(--mono)">${esc(s.url??"")}</div>`);
   group.append(cta,url);layer.append(group);
   const base=BASE;
