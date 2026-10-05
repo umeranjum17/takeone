@@ -59,6 +59,9 @@ export interface Decision {
 export interface TakeEdits {
   /** Remove half-open intervals, in video-relative seconds. */
   cuts?: { t0: number; t1: number }[];
+  /** Explicit rates override typing speed and automatic idle pacing. */
+  speed?: ({ t0: number; t1: number; rate: number; kind?: "region" }
+    | { kind: "type_speed"; rate: number })[];
 }
 
 export interface TakeMeta extends TakeEdits {
