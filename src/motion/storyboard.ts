@@ -111,7 +111,8 @@ function scene(raw: unknown, path: string): Scene {
     if (s.pattern !== "bento" || !Array.isArray(raw["tiles"]) || raw["tiles"].length !== 4) throw new StoryboardError(`${path}.tiles`, "bento needs exactly four {title} tiles");
     s.tiles = raw["tiles"].map((t, j) => {
       if (typeof t !== "object" || t === null || typeof t["title"] !== "string") throw new StoryboardError(`${path}.tiles[${j}]`, "expected {title}");
-      return { title: str(t["title"], `${path}.tiles[${j}].title`, 60) };
+      if (t["screen"] !== undefined && !ID.test(String(t["screen"]))) throw new StoryboardError(`${path}.tiles[${j}].screen`, "expected an id");
+      return { title: str(t["title"], `${path}.tiles[${j}].title`, 60), ...(t["screen"] === undefined ? {} : { screen: String(t["screen"]) }) };
     });
   } else if (s.pattern === "bento") throw new StoryboardError(`${path}.tiles`, "bento needs exactly four {title} tiles");
   if (s.pattern === "end-card") s.logo ??= "TakeOne";
@@ -189,6 +190,17 @@ export function validateStoryboard(raw: unknown): Storyboard {
     num(v["width"], `screens.${k}.width`, 1, 16384); num(v["height"], `screens.${k}.height`, 1, 16384);
   }
 
+  const crops = raw["crops"] ?? {};
+  if (!isObj(crops)) throw new StoryboardError("crops", "expected an object");
+  for (const [k, c] of Object.entries(crops)) {
+    if (!ID.test(k) || !isObj(c) || !ID.test(String(c["screen"])) || !Array.isArray(c["rect"]) || c["rect"].length !== 4 || c["rect"].some(v => typeof v !== "number" || !Number.isFinite(v))) throw new StoryboardError(`crops.${k}`, "expected {screen, rect: [x, y, w, h]}");
+    const sc = (screens as Record<string, { width: number; height: number }>)[String(c["screen"])];
+    if (Object.keys(screens).length && !sc) throw new StoryboardError(`crops.${k}.screen`, `unknown screen ${c["screen"]}`);
+    const [x, y, w, h] = c["rect"] as number[];
+    if (w! <= 0 || h! <= 0) throw new StoryboardError(`crops.${k}.rect`, "width and height must be positive");
+    if (sc && (x! < 0 || y! < 0 || x! + w! > sc.width || y! + h! > sc.height)) throw new StoryboardError(`crops.${k}.rect`, `lies outside screen ${c["screen"]} (${sc.width}x${sc.height})`);
+  }
+
   const regions = raw["regions"] ?? [];
   if (!Array.isArray(regions)) throw new StoryboardError("regions", "expected an array");
   const regionIds = new Set<string>();
@@ -234,6 +246,7 @@ export function validateStoryboard(raw: unknown): Storyboard {
     theme: { name: themeName, overrides: overrides as Storyboard["theme"]["overrides"] },
     ...(raw["tempo"] === undefined ? {} : { tempo: raw["tempo"] as Storyboard["tempo"] }),
     source: source as Storyboard["source"],
+    ...(Object.keys(crops).length ? { crops: crops as Storyboard["crops"] } : {}),
     screens: screens as unknown as Storyboard["screens"],
     regions: regions as Storyboard["regions"],
     layout,
@@ -258,6 +271,7 @@ export function validateStoryboard(raw: unknown): Storyboard {
   }
   for (const list of allTimelines(layout, scenes)) for (const [i, s] of list.entries()) {
     if (s.focus && !regionIds.has(s.focus)) throw new StoryboardError(`scenes[${i}].focus`, "unknown region");
+    for (const t of s.tiles ?? []) if (t.screen && Object.keys(screens).length && !Object.hasOwn(screens, t.screen)) throw new StoryboardError(`scenes[${i}].tiles`, "unknown screen");
     if (s.screen && Object.keys(screens).length && !Object.hasOwn(screens, s.screen)) throw new StoryboardError(`scenes[${i}].screen`, "unknown screen");
     if (s.at! < 0) throw new StoryboardError(`scenes[${i}].at`, "negative scene starts are not supported");
     for (const stop of s.stops ?? []) if (!regionIds.has(stop.region)) throw new StoryboardError(`scenes[${i}].stops`, "unknown region");

@@ -23,7 +23,9 @@ PATTERNS["kinetic-type"] = (layer,s,ctx) => {
     return;
   }
   const group=h(`<div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:${H*.045}px;text-align:center;padding:0 8%"></div>`);
-  group.append(title(Math.min(W*.085,H*.14)));
+  // One or two words fill the frame; longer lines stay at title size.
+  const big=(s.title??"").split(/\s+/).filter(Boolean).length>2;
+  group.append(title(big?Math.min(W*.095,H*.15):Math.min(W*.13,H*.21)));
   const u=sub(Math.min(W*.026,H*.044));if(u)group.append(u);
   layer.append(group);
   stagger(group);
