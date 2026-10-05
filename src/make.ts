@@ -424,8 +424,13 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
   // it bounds nothing and honouring it would export the dead tail past the last
   // result. Any other trim is the caller's and is exported as given, clamped to
   // the recording. An end an earlier run recorded is not a caller's trim either.
+  // Takes recorded before the marker existed carry no provenance: their trim end
+  // is the capture length, which the muxed video runs a fraction of a second
+  // past, so an unmarked end inside the video's last second is record's too.
   const meta: RenderMeta = { ...take, ...renderMeta };
-  const autoTrim = take.auto_trim === true && take.trim?.end === take.duration_ms;
+  const trimEnd = take.trim?.end;
+  const recorderTail = trimEnd !== undefined && trimEnd < videoEndMs && videoEndMs - trimEnd < 1000;
+  const autoTrim = take.auto_trim === true ? trimEnd === take.duration_ms : recorderTail;
   if (take.trim?.end !== undefined && !autoTrim) meta.trim_end = seconds(endMs);
   else delete meta.trim_end;
   writeFileSync(join(dir, "take.json"), JSON.stringify(meta, null, 1) + "\n");
