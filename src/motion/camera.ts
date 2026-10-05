@@ -3,13 +3,48 @@ import { bentoViewport, bitmapSize, heroSize, heroTransform } from "./geometry.t
 import { allTimelines } from "./layout.ts";
 import { readingFloor } from "./storyboard.ts";
 import { motionTokens } from "./theme.ts";
-import type { Storyboard } from "./types.ts";
+import type { Rect, Storyboard } from "./types.ts";
 
 export function cameraViewport(sb: Storyboard, list: number) {
   const tokens = motionTokens(sb.theme.name, sb.theme.overrides);
   const { out_w: W, out_h: H } = sb.output;
   if (sb.layout.kind === "single") return {width:W,height:H};
   return bentoViewport(W, H, tokens, sb.layout.grid, list);
+}
+
+export interface TourStop { rect: Rect; caption?: string; hold?: number }
+
+/** Bounded zoom-tour segments for stops on a screen, plus the bitmap size and the exact
+ *  scene duration the moves and reading holds need. Shared by the renderer and the planner
+ *  so planned durations never guess. */
+export function tourSegments(screen: { width: number; height: number }, width: number, height: number,
+  stops: TourStop[], minShot: number): { segments: { at: number; d: number; from: { x: number; y: number; w: number; h: number }; to: { x: number; y: number; w: number; h: number }; caption: string }[]; size: { width: number; height: number }; need: number } {
+  const full = { x: 0, y: 0, w: screen.width, h: screen.height };
+  const requested = Math.min(width * .88, height * .65 * screen.width / screen.height);
+  const size = bitmapSize(screen, requested, requested * screen.height / screen.width);
+  const holds = stops.map(s => Math.max(minShot, s.hold ?? 0, readingFloor(s.caption ?? "")));
+  const aspect = screen.width / screen.height;
+  const targets = stops.map(s => {
+    // Fit the region width: settled close-ups magnify never past 1 output px per source px
+    // (the max_upscale camera gate), so screen text stays sharp at the settled hold.
+    const w = Math.min(screen.width, Math.max(s.rect[2] * 1.05, size.width));
+    const h = w / aspect;
+    return { x: Math.max(0, Math.min(screen.width - w, s.rect[0] + s.rect[2] / 2 - w / 2)),
+      y: Math.max(0, Math.min(screen.height - h, s.rect[1] + s.rect[3] / 2 - h / 2)), w, h };
+  });
+  const segments: { at: number; d: number; from: typeof full; to: typeof full; caption: string }[] = [];
+  let at = .4, from = full;
+  // Tours end on their last stop and cut to the next beat; the pull-back is the next scene opening full.
+  [...targets].forEach((to, j) => {
+    const dw = to.w - from.w, minW = Math.min(from.w, to.w);
+    const ratio = Math.abs(dw) / minW;
+    const pan = size.width * Math.hypot((to.x - from.x) * from.w - from.x * dw, (to.y - from.y) * from.w - from.y * dw) / (minW * minW);
+    const d = Math.max(1.4, 1.875 * ratio, Math.sqrt((5.774 * ratio + 3.516 * ratio * ratio) / 4), Math.sqrt(pan * (5.774 + 7.032 * ratio) / 9000));
+    segments.push({ at, d, from, to, caption: stops[j]?.caption ?? "" });
+    at += d + (holds[j] ?? 0);
+    from = to;
+  });
+  return { segments, size, need: at };
 }
 
 export function sceneCameras(sb: Storyboard): Record<string, (CameraFrame & { caption?: string; output?: CameraFrame })[]> {
@@ -43,30 +78,15 @@ export function sceneCameras(sb: Storyboard): Record<string, (CameraFrame & { ca
       return;
     }
     const full = { x: 0, y: 0, w: screen.width, h: screen.height };
-    const requested = Math.min(width * .88, height * .65 * screen.width / screen.height);
-    const size = bitmapSize(screen, requested, requested * screen.height / screen.width);
     const stops = scene.stops ?? [];
-    const holds = stops.map(s => Math.max(minShot, s.hold ?? 0, readingFloor(s.caption ?? "")));
-    const targets = stops.map(s => {
+    const owner = scene.screen ?? Object.keys(sb.screens)[0];
+    const rects = stops.map(s => {
       const r = sb.regions.find(r => r.id === s.region)!;
-      if (r.screen !== (scene.screen ?? Object.keys(sb.screens)[0])) throw new Error("zoom-tour: stops must belong to the scene screen");
-      const aspect = screen.width / screen.height;
-      const w = Math.min(screen.width, Math.max(r.rect[2] * 1.3, r.rect[3] * 1.3 * aspect, size.width));
-      const h = w / aspect;
-      return { x: Math.max(0, Math.min(screen.width - w, r.rect[0] + r.rect[2] / 2 - w / 2)), y: Math.max(0, Math.min(screen.height - h, r.rect[1] + r.rect[3] / 2 - h / 2)), w, h };
+      if (r.screen !== owner) throw new Error("zoom-tour: stops must belong to the scene screen");
+      return { rect: r.rect, caption: s.caption, hold: s.hold };
     });
-    const segments: { at: number; d: number; from: typeof full; to: typeof full; caption: string }[] = [];
-    let at = .4, from = full;
-    [...targets, ...(targets.length ? [full] : [])].forEach((to, j) => {
-      const dw = to.w - from.w, minW = Math.min(from.w, to.w);
-      const ratio = Math.abs(dw) / minW;
-      const pan = size.width * Math.hypot((to.x - from.x) * from.w - from.x * dw, (to.y - from.y) * from.w - from.y * dw) / (minW * minW);
-      const d = Math.max(1.4, 1.875 * ratio, Math.sqrt((5.774 * ratio + 3.516 * ratio * ratio) / 4), Math.sqrt(pan * (5.774 + 7.032 * ratio) / 9000));
-      segments.push({ at, d, from, to, caption: stops[j]?.caption ?? "" });
-      at += d + (holds[j] ?? 0);
-      from = to;
-    });
-    if (scene.d + 1e-9 < at) throw new Error(`zoom-tour.d: needs ${at.toFixed(2)} s for bounded moves and reading holds`);
+    const { segments, size, need } = tourSegments(screen, width, height, rects, minShot);
+    if (scene.d + 1e-9 < need) throw new Error(`zoom-tour.d: needs ${need.toFixed(2)} s for bounded moves and reading holds`);
     paths[key] = Array.from({ length: Math.ceil(scene.d * sb.output.fps) + 1 }, (_, f) => {
       const t = f / sb.output.fps;
       let view = full, caption = "";

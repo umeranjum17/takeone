@@ -62,17 +62,28 @@ function sceneRevealDuration(s: Scene): number {
   return reveal;
 }
 
+/** Every text a scene shows with the time its reveal ends: each needs its reading floor after that. */
+function sceneHolds(s: Scene): { text: string; reveal: number }[] {
+  const holds = s.pattern === "zoom-tour" ? [] : [{ text: sceneTexts(s).join(" "), reveal: sceneRevealDuration(s) }];
+  if (s.pattern === "hero-reveal" || s.pattern === "zoom-tour") {
+    const device = s.device ?? "browser";
+    const text = device === "browser" ? "Design preview" : device === "phone" ? "9:41" : "";
+    holds.push({ text, reveal: s.pattern === "zoom-tour" ? 0 : .6 });
+  }
+  return holds;
+}
+
+/** Shortest whole-frame duration that clears every reveal and reading hold of a scene played in full. */
+export function minSceneDuration(s: Scene, fps = 60): number {
+  return Math.ceil(Math.max(0, ...sceneHolds(s).map(x => x.reveal + readingFloor(x.text))) * fps + 1) / fps;
+}
+
 function validateVisibleScene(s: Scene, start: number, duration: number, fps: number, path: string): void {
   const end = start + Math.round(duration * fps) / fps;
   if (s.pattern === "zoom-tour") {
     if (s.at! < start - 1e-9 || s.at! + s.d > end + 1e-9) throw new StoryboardError(path, "visible window truncates camera moves and reading holds");
   }
-  const holds = s.pattern === "zoom-tour" ? [] : [{ text: sceneTexts(s).join(" "), reveal: sceneRevealDuration(s) }];
-  if (s.pattern === "hero-reveal" || s.pattern === "zoom-tour") {
-    const device = s.device ?? "browser";
-    const text = device === "browser" ? "Design preview" : device === "phone" ? "9:41" : "";
-    holds.push({ text, reveal: s.pattern === "hero-reveal" ? .6 : 0 });
-  }
+  const holds = sceneHolds(s);
   const lastFrame = Math.min(Math.round(duration * fps) - 1, Math.ceil((s.at! + s.d - start) * fps - 1e-9) - 1);
   for (const { text, reveal } of holds) {
     const reading = readingFloor(text);

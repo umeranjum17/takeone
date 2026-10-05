@@ -407,6 +407,7 @@ test("state names preserve capture order and reject overwritten operations", asy
     assert.throws(()=>planStoryboard({...args,states:[["2","click #newTask"],["1","wait 300"]]},"numeric"),/non-index name/);
     const stable=parseMotionArgs([input,"--state","01=wait 100","--state","4294967295=wait 200","--state","S1=wait 300"]);
     assert.deepEqual(Object.keys(validateStoryboard(planStoryboard(stable,"stable")).source.states!),["01","4294967295","S1"]);
+    assert.equal(validateStoryboard(planStoryboard(args,"screens")).source.dsf,2);
   }
 });
 
@@ -446,6 +447,7 @@ test("prototype-named captures survive ingest and serialized storyboard consumpt
       for(const direct of [false,true]) {
         const story=validateStoryboard(planStoryboard(parseMotionArgs(['page.html','--state','__proto__=wait 100','--state','constructor=wait 100','--state','S1=wait 100']),'captures'));
         story.source.viewport=[16,16];
+        story.source.dsf=1;
         if(direct)story.screens={};
         await ingest(dir,story);
         assert.deepEqual(Object.keys(story.screens),['__proto__','constructor','S1']);
