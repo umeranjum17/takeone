@@ -131,7 +131,12 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
   const exposures = exposureArg ? exposureArg.split(",").map(Number) : [0];
   if (exposures.some(e => !Number.isFinite(e) || e < 0)) throw new Error("usage: check-framing.ts output-clock-beats.json trim-start-seconds before-camera.json after-camera.json [reference-boxes.json [exposure-offsets]]");
   const rows = framingCoverage(json(beatFile), json(beforeFile), json(afterFile), start, references, exposures);
-  console.log("beat | frames | before visible | after visible | regressions | drag frames | drag clipped | ref cut | result");
-  for (const r of rows) console.log(`${r.beat} | ${r.frames} | ${r.before} | ${r.after} | ${r.lost} | ${r.dragFrames} | ${r.dragLost} | ${r.refCut} | ${r.passed ? "PASS" : "FAIL"}${r.refCutBoxes.length ? ` (${r.refCutBoxes.join(", ")}; first cut ${r.firstRefCut!.box} at ${r.firstRefCut!.t.toFixed(3)}s, ${(r.firstRefCut!.clipped * 100).toFixed(1)}% sliced)` : ""}`);
+  console.log("beat | frames | before visible | after visible | regressions | drag frames | drag clipped | result");
+  for (const r of rows) {
+    const reference = r.beat === "references"
+      ? ` (${r.refCut} ref-cut frames of ${r.refFrames} settled${r.refCutBoxes.length ? `: ${r.refCutBoxes.join(", ")}; first cut ${r.firstRefCut!.box} at ${r.firstRefCut!.t.toFixed(3)}s, ${(r.firstRefCut!.clipped * 100).toFixed(1)}% sliced` : ""})`
+      : "";
+    console.log(`${r.beat} | ${r.frames} | ${r.before} | ${r.after} | ${r.lost} | ${r.dragFrames} | ${r.dragLost} | ${r.passed ? "PASS" : "FAIL"}${reference}`);
+  }
   if (rows.some(r => !r.passed)) process.exitCode = 1;
 }
