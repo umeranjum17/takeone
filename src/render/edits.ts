@@ -59,22 +59,33 @@ export function validateEdits(meta: TakeMeta): void {
   }
   if (meta.trim_start !== undefined && (!finite(meta.trim_start) || meta.trim_start < 0)) fail("trim_start");
   if (meta.trim_end !== undefined && (!finite(meta.trim_end) || meta.trim_end <= (meta.trim_start ?? 0))) fail("trim_end");
+  const regions: Span[] = [];
+  list(meta.speed, "speed").forEach((v, i) => {
+    const s = v as { kind?: unknown; rate?: unknown } | null;
+    if (!s || !finite(s.rate) || s.rate < 0.1 || s.rate > 16) fail(`speed[${i}].rate (0.1..16)`);
+    if (s.kind !== undefined) fail(`speed[${i}].kind`);
+    range(s, `speed[${i}]`);
+    regions.push(s);
+  });
+  ordered(regions, "speed");
 }
 
-/** Cuts override automatic idle pacing. All intervals are half-open. */
+/** Cuts > explicit speed regions > automatic idle speed. All intervals are half-open. */
 export function editTimeline(meta: TakeMeta, beats: Beat[], start: number, end: number, d: CameraDefaults): EditTimeline {
   validateEdits(meta);
   if (!finite(start) || !finite(end) || start < 0 || end <= start) fail("trim");
   const cuts = meta.cuts ?? [];
+  const regions = meta.speed ?? [];
   const idle = idleSqueezes(beats, start, end, d).map(s => ({ t0: s.a + start, t1: s.b + start }));
-  const boundaries = [...new Set([start, end, ...[...cuts, ...idle]
+  const boundaries = [...new Set([start, end, ...[...cuts, ...regions, ...idle]
     .flatMap(s => [s.t0, s.t1]).filter(t => t > start && t < end)])].sort((a, b) => a - b);
   const spans: EditSpan[] = [];
   const includes = (s: Span, t: number) => t >= s.t0 && t < s.t1;
   let duration = 0;
   for (let i = 0; i + 1 < boundaries.length; i++) {
     const t0 = boundaries[i]!, t1 = boundaries[i + 1]!;
-    const rate = cuts.some(s => includes(s, t0)) ? 0 : idle.some(s => includes(s, t0)) ? d.idle_speed : 1;
+    const rate = cuts.some(s => includes(s, t0)) ? 0 : regions.find(s => includes(s, t0))?.rate
+      ?? (idle.some(s => includes(s, t0)) ? d.idle_speed : 1);
     const previous = spans.at(-1);
     if (previous?.rate === rate) previous.t1 = t1;
     else spans.push({ t0, t1, rate, out: duration });

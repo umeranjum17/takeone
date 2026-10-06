@@ -67,7 +67,7 @@ export async function renderTake(dir: string, d?: CameraDefaults): Promise<{ out
     meta.duration ?? Math.max(0, ...beats.map((beat) => beat.t1)), d);
   // Everything after this point runs on the output clock, with idle gaps squeezed.
   const squeezes = idleSqueezes(beats, trimStart, trimEnd, d);
-  const clock = meta.cuts?.length ? editTimeline(meta, beats, trimStart, trimEnd, d) : undefined;
+  const clock = meta.cuts?.length || meta.speed?.length ? editTimeline(meta, beats, trimStart, trimEnd, d) : undefined;
   const outTime = clock?.at ?? ((t: number) => warp(t - trimStart, squeezes, d.idle_speed));
   const duration = outTime(trimEnd);
   const blurs = overlayRegions(meta, "blur", outTime, trimStart, trimEnd);

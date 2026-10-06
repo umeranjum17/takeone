@@ -59,6 +59,8 @@ export interface Decision {
 export interface TakeEdits {
   /** Remove half-open intervals, in video-relative seconds. */
   cuts?: { t0: number; t1: number }[];
+  /** Explicit region rates override automatic idle pacing. */
+  speed?: { t0: number; t1: number; rate: number; kind?: never }[];
 }
 
 export interface TakeMeta extends TakeEdits {
