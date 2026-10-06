@@ -6,22 +6,24 @@ The ffmpeg graph duplicates frames by reference, removes unused samples before w
 
 ## Synthetic render measurements
 
-Provenance: every figure below was measured on 2026-10-01 at commit `c529bb1` (PR #48) on the 44 s fixture from `scripts/synth-take.ts`, planned with `make --no-jev`, at standard quality, 1920×1080, 60 fps and the default slow encoder preset. Timing includes the complete `renderTake` call (camera solve, stage generation, caption measurement and final encoding), excluding source generation and planning. The quality harness had not landed on main, so worktree-local measurement scripts were used. The table characterises that revision, not current main: the camera path, the framing rules and the export end have all changed since, and the 13.7% blurred-frame proportion has not been re-measured. No sentence outside this table depends on these numbers being current, and none of them is restated or re-derived elsewhere in this repository.
+Provenance: every figure below was measured on 2026-10-06 at commit `e451778` on the 44 s fixture from `scripts/synth-take.ts`, planned with `make --no-jev`, at standard quality, 1920×1080, 60 fps and the default slow encoder preset. Timing is the complete `renderTake` wall clock (camera solve, stage generation, caption measurement and final encoding), excluding source generation and planning. The blur counts, peak samples, spacing and warp-work figures are the `motion-blur.json` metrics the render itself writes, and the SSIM row uses the `compare()` path from `scripts/quality.ts`; no ad-hoc estimator. Since PR #45 capped `max_upscale` at 1.0, this same-resolution fixture holds the full stage, so no exposure exceeds the 2 px shutter span and the blur graph reduces to the single-warp path. No sentence outside this table depends on these numbers, and none of them is restated or re-derived elsewhere in this repository.
 
 | Measurement | Result |
 | --- | --- |
-| Render, blur off | 49.227 s |
-| Render, blur on | 97.197 s |
-| Render-time ratio | 1.974× |
-| Output frames | 1,941 |
-| Frames receiving blur | 265 (13.7%) |
-| Peak samples per exposure | 22 |
-| Maximum adjacent sample spacing, including expression approximation | 1.899 px |
-| Estimated warp work versus blur off | 1.726× |
-| Frames with SSIM below 0.95 versus blur off | 0 |
+| Render, blur off | 50.079 s |
+| Render, blur on | 74.845 s |
+| Render-time ratio | 1.495× |
+| Output frames | 1,878 |
+| Frames receiving blur | 0 (0.0%) |
+| Peak samples per exposure | 1 |
+| Maximum adjacent sample spacing, including expression approximation | 0 px (every exposure is a single sample) |
+| Estimated warp work versus blur off | 1× |
+| Frames with SSIM below 0.95 versus blur off | 0 (minimum SSIM 1.0: decoded outputs identical) |
 | Encode | H.264, 1920×1080, 60/1, limited-range bt709 |
 
-The wall-time ratio depends on machine load and the fraction of fast camera movement; it is not a universal 2× guarantee, and it is not a current-main figure either. A deliberately pan-heavy proof take costs more than the mostly stationary synthetic take.
+The previous revision of this table (measured 2026-10-01 at commit `c529bb1`, PR #48) read 1,941 output frames with 265 (13.7%) receiving blur, peak 22 samples per exposure, 1.899 px maximum spacing, 1.726× warp work, and 49.227 s blur-off / 97.197 s blur-on (1.974×). The drop to zero blurred frames is a framing change, not a blur regression: PR #45 capped `max_upscale` at 1.0, so this same-resolution fixture now holds the full stage and no exposure crosses the 2 px shutter span.
+
+Render times are a single run each. The wall-time ratio depends on machine load and the fraction of fast camera movement; it is not a universal guarantee. On this fully stationary take the blur-off and blur-on graphs are identical, so the measured ratio is load alone. A deliberately pan-heavy proof take costs more than the stationary synthetic take. This update changes documentation only; the full test suite was not re-run for it.
 
 ## Output proof and checks
 
