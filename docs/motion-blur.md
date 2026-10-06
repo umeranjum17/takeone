@@ -21,7 +21,9 @@ Provenance: every figure below was measured on 2026-10-06 at commit `e451778` on
 | Frames with SSIM below 0.95 versus blur off | 0 (minimum SSIM 1.0: decoded outputs identical) |
 | Encode | H.264, 1920×1080, 60/1, limited-range bt709 |
 
-The wall-time ratio depends on machine load and the fraction of fast camera movement; it is not a universal guarantee. On this fully stationary take the blur-off and blur-on graphs are identical, so the measured ratio is load alone. A deliberately pan-heavy proof take costs more than the stationary synthetic take.
+The previous revision of this table (measured 2026-10-01 at commit `c529bb1`, PR #48) read 1,941 output frames with 265 (13.7%) receiving blur, peak 22 samples per exposure, 1.899 px maximum spacing, 1.726× warp work, and 49.227 s blur-off / 97.197 s blur-on (1.974×). The drop to zero blurred frames is a framing change, not a blur regression: PR #45 capped `max_upscale` at 1.0, so this same-resolution fixture now holds the full stage and no exposure crosses the 2 px shutter span.
+
+Render times are a single run each. The wall-time ratio depends on machine load and the fraction of fast camera movement; it is not a universal guarantee. On this fully stationary take the blur-off and blur-on graphs are identical, so the measured ratio is load alone. A deliberately pan-heavy proof take costs more than the stationary synthetic take. This update changes documentation only; the full test suite was not re-run for it.
 
 ## Output proof and checks
 
