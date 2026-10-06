@@ -20,7 +20,7 @@ pixels on each axis, preserving aspect ratio without upscaling the rendered
 MP4; WebM uses VP9, and `prores4444` writes a ProRes 4444 `.mov` file.
 These three formats are transcoded from the rendered MP4, which is retained;
 ProRes cannot restore detail or chroma discarded by that intermediate.
-WebM and 4K MP4 exports carry BT.709 colour tags.
+All exports carry BT.709 colour tags.
 For example:
 
 ```sh
