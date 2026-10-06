@@ -151,7 +151,7 @@ export const DEFAULTS: CameraDefaults = {
   ripple_ms: 550,
   ripple_r: 34,
   keycap_style: "linux",
-  caption_font: "Inter SemiBold",
+  caption_font: "Inter Bold",
   caption_size: 38,
   fade_s: 0.4,
 };
