@@ -330,6 +330,9 @@ export function clickAss(clicks: Click[], width: number, height: number, start: 
 
 export interface Caption { t0: number; t1: number; text: string; title: boolean; position?: "top" | "bottom" }
 
+/** A toast window in output seconds; an overlay caption sharing screen time moves up. */
+export interface ToastWindow { t0: number; t1: number }
+
 /**
  * Title plus captions from take.json, sanitised for ASS. `at` maps a video time to
  * output time; durations are output seconds so reading time survives idle squeezing.
@@ -391,7 +394,7 @@ function bandCaption(caption: Caption, ink: number | CaptionInk, d: CameraDefaul
 
 /** Shared geometry keeps keycap collision avoidance identical to caption placement. */
 export function captionLayouts(captions: Caption[], widths: (number | CaptionInk)[], d: CameraDefaults, widePhone = false,
-  band?: Band | null) {
+  band?: Band | null, toasts: ToastWindow[] = []) {
   if (band) return captions.map((caption, index) => {
     const layout = bandCaption(caption, widths[index] ?? 0, d);
     const rowH = caption.title ? band.titleH : band.captionH;
@@ -407,16 +410,23 @@ export function captionLayouts(captions: Caption[], widths: (number | CaptionInk
       ? Math.ceil(ink / Math.max(1, d.out_w - 2 * captionMargin(size, d))) * size * 1.2 : ink.h;
     return Math.ceil(Math.max(size, h) + size * 0.9);
   });
+  const moved = captions.map(caption => !band
+    && toasts.some(w => caption.t0 < w.t1 && caption.t1 > w.t0));
+  const movedTitle = captions.findIndex((caption, i) => caption.title && moved[i]);
   return captions.map((caption, index) => {
     const size = textSize(caption, d);
     const ink = widths[index] ?? 0;
     const w = Math.min(d.out_w * 0.9, (typeof ink === "number" ? ink : ink.w) + 2 * size * 0.75);
     const h = heights[index]!;
     const below = caption.title && !widePhone ? Math.max(0, ...captions.map((other, i) =>
-      !other.title && other.t0 < caption.t1 && other.t1 > caption.t0 ? heights[i]! : 0)) : 0;
+      !other.title && !moved[i] && other.t0 < caption.t1 && other.t1 > caption.t0 ? heights[i]! : 0)) : 0;
     const cx = d.out_w / 2;
-    const top = widePhone && !caption.title && caption.position !== "bottom";
-    const cy = top ? d.out_h * 0.035 + h / 2
+    const top = (widePhone && !caption.title && caption.position !== "bottom") || moved[index]!;
+    // A moved title keeps the top slot; a moved body sharing its screen time stacks below it.
+    const above = !caption.title && moved[index]! && movedTitle >= 0
+      && captions[movedTitle]!.t0 < caption.t1 && captions[movedTitle]!.t1 > caption.t0
+      ? heights[movedTitle]! + size * 0.35 : 0;
+    const cy = top ? d.out_h * 0.035 + h / 2 + above
       : d.out_h - d.out_h * 0.075 - h / 2 - (below ? below + size * 0.35 : 0);
     return { cx, cy, w, h, size, rise: Math.round(size * 0.3) };
   });
@@ -424,9 +434,9 @@ export function captionLayouts(captions: Caption[], widths: (number | CaptionInk
 
 /** In the band the title is bare display type; captions keep their pill, one line each. */
 export function captionAss(captions: Caption[], widths: (number | CaptionInk)[], d: CameraDefaults, widePhone = false,
-  band?: Band | null): string {
+  band?: Band | null, toasts: ToastWindow[] = []): string {
   let out = assHeader(d.out_w, d.out_h, d.caption_font, d.caption_size);
-  const layouts = captionLayouts(captions, widths, d, widePhone, band);
+  const layouts = captionLayouts(captions, widths, d, widePhone, band, toasts);
   captions.forEach((caption, index) => {
     const { cx, cy, w, h, size, rise } = layouts[index]!;
     const settle = Math.round(260 * 14 / d.spring_omega / d.spring_zeta);

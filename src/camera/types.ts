@@ -85,6 +85,8 @@ export interface TakeMeta extends TakeEdits {
   title?: string;
   /** Optional captions in video-relative seconds; `d` defaults to 3. */
   captions?: { t: number; d?: number; text: string; position?: "top" | "bottom" }[];
+  /** Toast windows in video-relative seconds; overlay captions sharing screen time move up. */
+  toasts?: { t: number; d: number }[];
   /** Source-pixel regions; requested arrival at t0, automatic framing resumes at t1. */
   zooms?: ManualZoom[];
 }

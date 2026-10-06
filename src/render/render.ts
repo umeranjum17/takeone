@@ -8,7 +8,7 @@ import type { CameraDefaults } from "../camera/defaults.ts";
 import { actionCameraMilliseconds } from "../beats/clock.ts";
 import { manualZoomLimitWarning, solveCamera } from "../camera/solver.ts";
 import type { Beat, Decision, TakeMeta } from "../camera/types.ts";
-import { blurGraph, keycapAss, keycapBackdropGraph, keycapMaskAss, keycapObstacles, overlayRegions, spotlightAss, spotlightGraph } from "./overlays.ts";
+import { blurGraph, keycapAss, keycapBackdropGraph, keycapMaskAss, keycapObstacles, overlayRegions, spotlightAss, spotlightGraph, toastWindows } from "./overlays.ts";
 import { motionBlurGraph, shutterPlan } from "./motion-blur.ts";
 import { idleSqueezes, purposefulEnd, setptsExpr, warp, warpBeats } from "./pace.ts";
 import { phoneTapShots } from "./phone.ts";
@@ -72,6 +72,7 @@ export async function renderTake(dir: string, d?: CameraDefaults): Promise<{ out
   const duration = outTime(trimEnd);
   const blurs = overlayRegions(meta, "blur", outTime, trimStart, trimEnd);
   const spotlights = overlayRegions(meta, "spotlight", outTime, trimStart, trimEnd);
+  const toasts = toastWindows(meta, outTime, trimStart, trimEnd);
   const outBeats = clock ? editBeats(beats, clock, trimStart) : warpBeats(beats, trimStart, squeezes, d.idle_speed);
   const byId = new Map(outBeats.map(b => [b.id, b]));
   const outDecisions = clock ? decisions.flatMap(decision => {
@@ -136,13 +137,13 @@ export async function renderTake(dir: string, d?: CameraDefaults): Promise<{ out
   await writeFile(clicksFile, clicksAss);
   const captionsFile = join(dir, "captions.ass");
   const widePhone = phone && d.out_w > d.out_h;
-  const captionsAss = captionAss(captions, captionInk, text, widePhone, band);
+  const captionsAss = captionAss(captions, captionInk, text, widePhone, band, toasts);
   await writeFile(captionsFile, captionsAss);
 
   const keysFile = join(dir, "keycaps.ass");
   const keyObstacles = keycapObstacles(outBeats, outDecisions, stageCamera,
     band ? { ...stage, screenX: 0, screenY: 0 } : stage,
-    trimStart, captions, captionInk, text, widePhone, band, [...spotlights, ...blurs]);
+    trimStart, captions, captionInk, text, widePhone, band, [...spotlights, ...blurs], toasts);
   const keys = keycapAss(outBeats, trimStart, duration, d, keyObstacles);
   const keyMaskFile = join(dir, "keycaps-mask.ass");
   await writeFile(keyMaskFile, keycapMaskAss(outBeats, trimStart, duration, d, keyObstacles));
