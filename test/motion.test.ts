@@ -193,10 +193,12 @@ test("motion planning preserves screen ownership, quoted states and bounded bitm
   assert.deepEqual(plan.scenes.filter(s=>s.pattern==="zoom-tour").map(s=>s.screen),["S1","S2"]);
   const launch=validateStoryboard(planStoryboard(parseMotionArgs(["page.html","--title","Launch","--region","100,100,200,200:Before@S1","--region","100,100,200,200:Next@S2","--region","100,100,200,200:After@S3","--state","S1=wait 100","--state","S2=wait 100","--state","S3=wait 100"]),"launch") as object);
   assert.deepEqual(launch.scenes.map(s=>s.pattern),["kinetic-type","kinetic-type","zoom-tour","kinetic-type","zoom-tour","bento","zoom-tour","end-card"]);
-  assert.deepEqual(launch.scenes.map(s=>!!s.invert),[false,true,false,true,false,true,false,true]);
+  assert.deepEqual(launch.scenes.map(s=>!!s.invert),[false,true,false,true,false,false,true,true]);
   assert.deepEqual(launch.scenes.filter(s=>s.pattern==="kinetic-type").map(s=>s.title),["Launch","Before","Next"]);
-  assert.deepEqual(launch.scenes.find(s=>s.pattern==="bento")!.tiles!.map(t=>t.title),["Before","Next","After","TakeOne"]);
-  assert.equal(launch.scenes.filter(s=>s.pattern==="kinetic-type")[2]!.device,"phone");
+  assert.deepEqual(launch.scenes.find(s=>s.pattern==="bento")!.tiles!.map(t=>t.title),["","Next","",""]);
+  assert.ok(launch.scenes.find(s=>s.pattern==="bento")!.tiles!.every(t=>t.screen));
+  assert.ok(Object.keys(launch.crops ?? {}).length >= 4);
+  assert.equal(launch.scenes.filter(s=>s.pattern==="kinetic-type")[1]!.device,"phone");
   assert.ok(launch.scenes.filter(s=>s.pattern==="zoom-tour").every(s=>(s.stops??[]).every(t=>!t.caption)));
   const paths=sceneCameras(plan);
   assert.ok(paths["0"]!.some(f=>f.w!==paths["0"]![0]!.w));

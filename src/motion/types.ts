@@ -29,7 +29,10 @@ export interface Region {
 
 export interface Stop { region: string; caption?: string; hold?: number }
 
-export interface BentoTile { title: string }
+export interface BentoTile { title: string; screen?: string }
+
+/** Named device-px sub-rects of screens, cut at ingest (close-ups with no extra capture). */
+export interface Crop { screen: string; rect: Rect }
 
 export interface Scene {
   pattern: PatternName;
@@ -94,6 +97,7 @@ export interface Storyboard {
   output: Output;
   theme: { name: string; overrides: Overrides & Record<string, number | string> };
   tempo?: Tempo;
+  crops?: Record<string, Crop>;
   source: {
     kind: "image" | "html" | "url";
     /** image: files; html: file; url: url. Paths are relative to the take dir or absolute. */

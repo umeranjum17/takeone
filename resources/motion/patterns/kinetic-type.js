@@ -13,17 +13,20 @@ PATTERNS["kinetic-type"] = (layer,s,ctx) => {
     const scr=ctx.screen(s.screen);
     const {frame}=deviceFrame(scr,s.device,H*.34,H*.7);
     frame.style.cssText+=`;flex:none`;
-    const copy=h(`<div style="flex:1;text-align:left;padding-left:8%"></div>`);
+    const copy=h(`<div style="flex:none;text-align:left"></div>`);
     const t=title(Math.min(W*.05,H*.085)),u=sub(Math.min(W*.024,H*.04));
     copy.append(t);if(u)copy.append(u);
-    const row=h(`<div style="position:absolute;inset:0;display:flex;flex-direction:row;align-items:center;justify-content:center;gap:5%;padding:0 7%"></div>`);
+    // Centred pair: ~239 px side insets with a 115 px middle gap at 1080p, not hug-right.
+    const row=h(`<div style="position:absolute;inset:0;display:flex;flex-direction:row;align-items:center;justify-content:center;gap:6%;padding:0 10%"></div>`);
     row.append(copy,frame);layer.append(row);
     stagger(copy);
     K(frame,[[0,{transform:"scale(.97)"}],[s.d*1000,{transform:"scale(1.02)"}]]);
     return;
   }
   const group=h(`<div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:${H*.045}px;text-align:center;padding:0 8%"></div>`);
-  group.append(title(Math.min(W*.085,H*.14)));
+  // One or two words fill the frame; longer lines stay at title size.
+  const big=(s.title??"").split(/\s+/).filter(Boolean).length>2;
+  group.append(title(big?Math.min(W*.095,H*.15):Math.min(W*.13,H*.21)));
   const u=sub(Math.min(W*.026,H*.044));if(u)group.append(u);
   layer.append(group);
   stagger(group);

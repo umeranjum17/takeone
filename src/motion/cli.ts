@@ -112,17 +112,28 @@ export function planStoryboard(a: MotionArgs, id: string): unknown {
   if (kind !== "image" && a.inputs.length > 1) throw new Error("html and url sources take one input; use --state for more screens");
   const screens = kind === "image" ? a.inputs.map((_, i) => `S${i + 1}`) : a.states.length ? a.states.map(([n]) => n) : ["S1"];
   const dsf = kind === "image" ? 1 : 2; // html/url capture at 2x so settled close-ups stay sharp
-  const regions = a.regions.flatMap((r, i) => splitWide(parseRegion(r, i, screens[0]!, dsf), dsf));
+  const wideRegions = a.regions.map((r, i) => parseRegion(r, i, screens[0]!, dsf));
+  const regions = wideRegions.flatMap((r) => splitWide(r, dsf));
   const patterns = a.patterns ?? (["hero-reveal", "zoom-tour", "end-card"] as PatternName[]);
   const title = a.title ?? "See it in motion.";
   const minShot = motionTokens(a.theme ?? "midnight").min_shot;
-  const tourOne = (screen: string, captioned: boolean): Scene => {
-    const stops = regions.filter(r => r.screen === screen).map(r => ({ region: r.id, ...(captioned && r.label ? { caption: r.label } : {}) }));
+  const tourOne = (screen: string, captioned: boolean, single = false, invert = false): Scene => {
+    let stops = regions.filter(r => r.screen === screen).map(r => ({ region: r.id, ...(captioned && r.label ? { caption: r.label } : {}) }));
+    if (single) {
+      // Closing detail: one tight stop on the first thirds window (the landing), not a pan.
+      const r = wideRegions.find(r => r.screen === screen);
+      if (r) {
+        const w = r.rect[2]! > 1100 * dsf ? r.rect[2]! / 3 : r.rect[2]!;
+        const id = `${r.id}c`;
+        regions.push({ id, rect: [r.rect[0]!, r.rect[1]!, w, r.rect[3]!], screen, from: "user" });
+        stops = [{ region: id }];
+      }
+    }
     const dims = screenDims(kind);
     // Exact duration from the same segment math the renderer enforces when the screen
     // dims are known; images keep the legacy estimate because planning never reads files.
     // Either way the duration also clears every reading hold of the finished scene.
-    const scene: Scene = { pattern: "zoom-tour", d: 0, screen, stops, device: a.device ?? "browser" };
+    const scene: Scene = { pattern: "zoom-tour", d: 0, screen, stops, device: a.device ?? "browser", ...(invert ? { invert } : {}) };
     const need = dims ? tourSegments(dims, 1920, 1080, stops.map(s => {
       const r = regions.find(r => r.id === s.region)!;
       return { rect: r.rect, caption: s.caption, hold: undefined };
@@ -149,35 +160,107 @@ export function planStoryboard(a: MotionArgs, id: string): unknown {
   };
   // Launch film: no --pattern and three or more screens. The title opens on bare type, every
   // labelled screen gets its label as a full-type beat before a clean (captionless) tour, and
-  // the end card closes. Beats strictly alternate cream and black by scene order. The middle
-  // screen's announce beat also mounts a phone frame, and with three or more labels the last
-  // announce beat becomes a bento recap grid of the labels plus the wordmark.
+  // the end card closes. Beats strictly alternate cream and black by scene order. The first
+  // announce beat also mounts a phone frame over a close-up crop of its own region, and with
+  // three or more labels the last announce beat becomes a bento recap grid of real cropped
+  // screen states. Crops are aspect-fitted top-anchored windows of regions (thirds of wide
+  // ones, so three-column boards crop to whole columns), clamped to the CSS viewport.
   const launch = !a.patterns && screens.length >= 3;
+  const TILE_A = 886 / 486, PHONE_A = 367 / 756;
+  const viewport = kind === "html" ? [2560, 1440] : kind === "url" ? [1440, 900] : undefined;
+  const crops: Record<string, { screen: string; rect: [number, number, number, number] }> = {};
+  // Crops stay exactly on thirds/regions (padding lives in the tile matte, never in the
+  // crop: padded windows drag neighbour-column slivers behind the pills). Narrow regions
+  // are dialog-like overlays: crop inside the dialog chrome (Tidewater: 16 px sides, 44 px
+  // top puts the window just inside the modal), never the dimmed page around it.
+  const cropWindow = (r: Region, aspect: number, third = 0): [number, number, number, number] => {
+    const css: [number, number, number, number] = [r.rect[0]! / dsf, r.rect[1]! / dsf, r.rect[2]! / dsf, r.rect[3]! / dsf];
+    const wide = css[2] > 1100;
+    const w = wide ? css[2] / 3 : css[2] - 32;
+    const w2 = w;
+    let x = css[0] + (wide ? third * (css[2] / 3) : 16), y = css[1] + (wide ? 0 : 44), h = w2 / aspect;
+    if (viewport) {
+      if (x < 0) x = 0;
+      if (y < 0) y = 0;
+      if (x + w2 > viewport[0]!) x = Math.max(0, viewport[0]! - w2);
+      if (y + h > viewport[1]!) y = Math.max(0, viewport[1]! - h);
+    }
+    return [x, y, w2, h];
+  };
+  const crop = (id: string, screen: string, rect: [number, number, number, number]): string => {
+    // Crop rects arrive in CSS px like --region inputs; screens capture at dsf.
+    crops[id] = { screen, rect: rect.map(v => Math.round(v * dsf)) as [number, number, number, number] };
+    return id;
+  };
   const labels = screens.map(screen => regions.find(r => r.screen === screen && r.label)?.label);
-  const bento = launch && labels.filter(Boolean).length >= 3;
-  const mid = screens.length >> 1;
+  const labelled = screens.filter((_, i) => labels[i]);
+  const regionOf = (screen: string) => wideRegions.find(r => r.screen === screen && r.label)!;
+  const stateOps = Object.fromEntries(a.states);
+  // Tour the change: screens whose states do nothing show no tour (their content already
+  // rides in announce beats and the recap); with no states at all, tour every screen.
+  const hasOps = (screen: string) => !a.states.length || (stateOps[screen] ?? []).length > 0;
+  const bento = launch && labelled.length >= 3;
+  // Phone crop: the open rail right of the first labelled region (activity feed on the demo
+  // board), phone-aspect and top-anchored, starting one text inset past the rail edge;
+  // thirds of the region when no usable rail exists.
+  const phoneCrop = (() => {
+    if (!launch || !labelled.length) return undefined;
+    const s0 = labelled[0]!, r = regionOf(s0);
+    const vw = viewport?.[0] ?? r.rect[0]! / dsf + r.rect[2]! / dsf;
+    const vh = viewport?.[1] ?? r.rect[1]! / dsf + r.rect[3]! / dsf;
+    const railX = r.rect[0]! / dsf + r.rect[2]! / dsf, railW = vw - railX, y = r.rect[1]! / dsf;
+    let rect: [number, number, number, number];
+    if (railW >= 300) {
+      const w = Math.min(railW - 16, (vh - y) * PHONE_A), h = w / PHONE_A;
+      rect = [railX + 16, y, w, h];
+    } else rect = cropWindow(r, PHONE_A);
+    return crop(`${s0}phone`, s0, rect.map(v => Math.round(v)) as [number, number, number, number]);
+  })();
   const announce = (screen: string, i: number): Scene[] => {
     const label = labels[i];
     if (!label) return [];
     if (bento && i === screens.length - 1) return [];
-    const beat: Scene = i === mid
-      ? { pattern: "kinetic-type", d: 0, title: label, device: "phone", screen }
+    // Type words pair with their own line or none: bare announcements, never borrowed copy.
+    const beat: Scene = screen === labelled[0] && phoneCrop
+      ? { pattern: "kinetic-type", d: 0, title: label, device: "phone", screen: phoneCrop }
       : { pattern: "kinetic-type", d: 0, title: label };
     beat.d = minSceneDuration(beat);
     return [beat];
   };
   const recap = (): Scene[] => {
     if (!bento) return [];
-    const scene: Scene = { pattern: "bento", d: 0,
-      tiles: [...labels.filter(Boolean).slice(0, 3).map(title => ({ title: title! })), { title: a.logo ?? "TakeOne" }] };
+    const [s0, s1, s2] = [labelled[0]!, labelled[1]!, labelled[labelled.length - 1]!];
+    // Only the dialog tile keeps a pill; column tiles are named by their headers already.
+    const tiles = [
+      { title: "", screen: crop(`${s0}c0`, s0, cropWindow(regionOf(s0), TILE_A)) },
+      { title: labels[screens.indexOf(s1)]!, screen: crop(`${s1}c0`, s1, cropWindow(regionOf(s1), TILE_A)) },
+      { title: "", screen: crop(`${s2}c0`, s2, cropWindow(regionOf(s2), TILE_A, 2)) },
+      { title: "", screen: crop(`${s0}c1`, s0, cropWindow(regionOf(s0), TILE_A, 1)) },
+    ];
+    const scene: Scene = { pattern: "bento", d: 0, tiles };
     scene.d = minSceneDuration(scene);
     return [scene];
   };
-  const scenes: Scene[] = !launch ? patterns.flatMap(plan) : [
+  const tourFor = (screen: string, i: number): Scene[] => {
+    if (!hasOps(screen)) return [];
+    return [tourOne(screen, false, i === screens.length - 1)];
+  };
+  // No two adjacent beats share a tone: alternate from the cream title, through the
+  // checkered bento (neutral) to the black end card.
+  const alternate = (list: Scene[]): Scene[] => {
+    let tone = true; // the title opens cream, then every cut flips
+    return list.map(s => {
+      if (s.pattern === "bento") return { ...s, invert: false };
+      if (s.pattern === "end-card") { tone = true; return { ...s, invert: true }; }
+      tone = !tone;
+      return tone ? { ...s, invert: true } : s;
+    });
+  };
+  const scenes: Scene[] = !launch ? patterns.flatMap(plan).map((s, i) => (i % 2 ? { ...s, invert: true } : s)) : alternate([
     typeBeat(title, a.subtitle),
-    ...screens.flatMap((screen, i) => [...(bento && i === screens.length - 1 ? recap() : []), ...announce(screen, i), tourOne(screen, false)]),
+    ...screens.flatMap((screen, i) => [...(bento && i === screens.length - 1 ? recap() : []), ...announce(screen, i), ...tourFor(screen, i)]),
     ...plan("end-card"),
-  ].map((s, i) => (i % 2 ? { ...s, invert: true } : s));
+  ]);
   const source = kind === "image" ? { kind, files: a.inputs.map((f) => resolve(f)) }
     : kind === "html" ? { kind, file: resolve(first), viewport: [2560, 1440], dsf, states: Object.fromEntries(a.states.map(([n, ops]) => [n, splitStateOps(ops)])) }
     : { kind, url: first, viewport: [1440, 900], dsf: 2, states: Object.fromEntries(a.states.map(([n, ops]) => [n, splitStateOps(ops)])) };
@@ -185,7 +268,8 @@ export function planStoryboard(a: MotionArgs, id: string): unknown {
     version: 1, id,
     output: { ...(a.workers !== undefined ? { workers: a.workers } : {}), ...(a.blur !== undefined ? { motion_blur: a.blur } : {}) },
     theme: { name: a.theme ?? "midnight", overrides: {} },
-    source, screens: Object.create(null), regions, layout: { kind: "single" }, scenes,
+    source, screens: Object.create(null), regions, ...(Object.keys(crops).length ? { crops } : {}),
+    layout: { kind: "single" }, scenes,
     planner: { by: "local", abstained: [] },
   };
 }
