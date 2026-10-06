@@ -12,7 +12,7 @@
 </p>
 
 <p align="center">
-  <picture><source srcset="docs/assets/readme/hero.webp" type="image/webp"><img src="docs/assets/readme/hero.jpg" alt="A takeone render of a project board: the camera holds the New task dialog while High is picked from the Priority dropdown, pulls back to the whole board as the Task created toast appears, then pushes in on the new card as it is dragged into In progress, with a blue ring marking each click" width="960" /></picture>
+  <picture><source srcset="docs/assets/readme/hero.webp" type="image/webp"><img src="docs/assets/readme/hero.jpg" alt="A takeone render of a project board: the camera opens on the whole Tidewater board under the title From idea to launch, moves into the New task dialog while Draft launch announcement is typed and the notes fill in, and holds as the Priority dropdown opens with Low, Normal, High and Urgent readable" width="960" /></picture>
 </p>
 
 ## Why takeone exists
@@ -23,7 +23,7 @@ takeone splits the two jobs. Recording is only recording. Camera work is planned
 
 ## See it in action
 
-Every capture below is real takeone output: stills from a 69.3 s take of a staged, fictional project board, recorded on an empty Hyprland workspace, and one synthetic take rendered with the current code. Every person shown is Umer. Nothing is mocked.
+Every capture below is real takeone output: stills from a 39.5 s render of a fresh 43.1 s headless Tidewater take, planned with the planner engaged (10 beats, 7 decided by Jev, 8,924 input tokens, $0.000375, 0 failed calls), except the overflow-menu close-up, which is from the previous proof take, and one synthetic take illustrating captions. Every person shown is Umer. Nothing is mocked.
 
 ### Plan the camera after you record
 
@@ -39,7 +39,7 @@ When a click opens a panel or dialog, the shot holds all of it. While you type, 
 When a dialog closes, takeone detects the revealed result and frames the changed area, so viewers can see the new card or toast.
 
 <p align="center">
-  <picture><source srcset="docs/assets/readme/typing.webp" type="image/webp"><img src="docs/assets/readme/typing.jpg" alt="The New task dialog held whole while notes are typed: the Title reads Draft launch announcement, the focused Notes field reads Two short paragraphs and a link to, and Priority, Cancel and Create task stay in frame" width="720" /></picture>
+  <picture><source srcset="docs/assets/readme/typing.webp" type="image/webp"><img src="docs/assets/readme/typing.jpg" alt="The New task dialog held whole while notes are typed: the Title reads Draft launch announcement, the focused Notes field reads Two short paragraphs and a link to th, and Priority, Cancel and Create task stay in frame" width="720" /></picture>
 </p>
 
 ### Every click shows
@@ -47,7 +47,7 @@ When a dialog closes, takeone detects the revealed result and frames the changed
 Each click and drag press gets a thin translucent expanding accent ring with a faint white halo, and nothing else, so the clicked label stays readable. The ring stays inside the frame and is drawn in source space, so it zooms with the content.
 
 <p align="center">
-  <picture><source srcset="docs/assets/readme/drag.webp" type="image/webp"><img src="docs/assets/readme/drag.jpg" alt="A close shot of the To do column as the Draft launch announcement card is lifted for a drag, a blue ring around the pointer marking the press" width="720" /></picture>
+  <picture><source srcset="docs/assets/readme/drag.webp" type="image/webp"><img src="docs/assets/readme/drag.jpg" alt="The Draft launch announcement card mid-drag toward In progress, lifted with its drop outline left behind in To do, a ring around the pointer marking the press" width="720" /></picture>
 </p>
 
 ### A stage, not a screenshot
@@ -55,7 +55,7 @@ Each click and drag press gets a thin translucent expanding accent ring with a f
 At rest the screen sits as a rounded card with a soft shadow on a gradient. The margin eases away as the camera zooms, so close-ups are all screen, and the video fades in and out on the stage colour.
 
 <p align="center">
-  <picture><source srcset="docs/assets/readme/stage.webp" type="image/webp"><img src="docs/assets/readme/stage.jpg" alt="The whole board as a rounded card on a dark gradient stage, just after a click on the New task button, which carries a blue click ring, with the empty New task dialog open" width="720" /></picture>
+  <picture><source srcset="docs/assets/readme/stage.webp" type="image/webp"><img src="docs/assets/readme/stage.jpg" alt="The whole board as a rounded card on a dark stage under the title From idea to launch, before the camera moves into the New task dialog" width="720" /></picture>
 </p>
 
 ### Close-ups that stay crisp
