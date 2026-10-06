@@ -6,8 +6,9 @@ PATTERNS["bento"] = (layer,s,ctx) => {
   const {W,H}=ctx,t=ctx.tokens;
   const sx=W/1920,sy=H/1080,mx=t.margin_x*sx,my=t.margin_y*sy,gx=t.gutter_x*sx,gy=t.gutter_y*sy;
   const w=(W-2*mx-gx)/2,hh=(H-2*my-gy)/2;
-  // The grid backdrop shows through the gutters as the grid lines, independent of scene tone.
-  const grid=h(`<div style="position:absolute;left:${mx}px;top:${my}px;display:grid;grid-template-columns:${w}px ${w}px;grid-template-rows:${hh}px ${hh}px;column-gap:${gx}px;row-gap:${gy}px;background:var(--ink);border-radius:var(--radius);overflow:hidden"></div>`);
+  // The grid backdrop shows through the gutters as the grid lines, independent of scene
+  // tone; a light hairline, never a heavy cross.
+  const grid=h(`<div style="position:absolute;left:${mx}px;top:${my}px;display:grid;grid-template-columns:${w}px ${w}px;grid-template-rows:${hh}px ${hh}px;column-gap:${gx/2}px;row-gap:${gy/2}px;background:var(--line);border-radius:var(--radius);overflow:hidden"></div>`);
   layer.append(grid); // connected before animating: WAAPI on detached nodes never joins the timeline
   (s.tiles??[]).slice(0,4).forEach((tile,i)=>{
     // Sharp cells: the rounded grid clips the outer corners clean, gutters stay sharp.

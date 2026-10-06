@@ -173,12 +173,18 @@ export function planStoryboard(a: MotionArgs, id: string): unknown {
   // crop: padded windows drag neighbour-column slivers behind the pills). Narrow regions
   // are dialog-like overlays: crop inside the dialog chrome (Tidewater: 16 px sides, 44 px
   // top puts the window just inside the modal), never the dimmed page around it.
+  // Every crop window ends mid-gap, never mid-element, so no tile cuts a half label at
+  // its edge: column thirds keep the header plus exactly the first card (Tidewater: lane
+  // background runs to ~198, first card 200..332, gap centre ~340), dialog windows trim
+  // 32 px to the whitespace above the lower labels (Tidewater: Priority label top ~724).
+  // Tiles letterbox the remainder, which the matte absorbs.
+  const COL_TRIM = 91, DIALOG_TRIM = 32;
   const cropWindow = (r: Region, aspect: number, third = 0): [number, number, number, number] => {
     const css: [number, number, number, number] = [r.rect[0]! / dsf, r.rect[1]! / dsf, r.rect[2]! / dsf, r.rect[3]! / dsf];
     const wide = css[2] > 1100;
     const w = wide ? css[2] / 3 : css[2] - 32;
     const w2 = w;
-    let x = css[0] + (wide ? third * (css[2] / 3) : 16), y = css[1] + (wide ? 0 : 44), h = w2 / aspect;
+    let x = css[0] + (wide ? third * (css[2] / 3) : 16), y = css[1] + (wide ? 0 : 44), h = Math.max(16, w2 / aspect - (wide ? COL_TRIM : DIALOG_TRIM));
     if (viewport) {
       if (x < 0) x = 0;
       if (y < 0) y = 0;
