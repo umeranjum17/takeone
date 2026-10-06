@@ -102,18 +102,46 @@ for (const { file, text } of added) {
 // surviving test file is what an intentional test-diet PR actually looks like, so without the
 // testDiet check here the exception would be unreachable for the only case it exists for.
 for (const f of deleted) if (isTest(f) && !testDiet(f)) flag('test-deleted', f);
-// A rewrite that adds at least as many assertions as it removes re-derives coverage
-// (approved behaviour evolution: every removed assertion has a successor); only a net
-// loss of assertions lowers the bar. Counts are per file, over added vs removed lines.
+// A removed assertion is covered only by an added line asserting on the same subject:
+// the first argument of assert.verb(...) / expect(...), normalised (whitespace collapsed,
+// numeric indices masked so a beat cut shifting [2] to [1] still pairs). Whole-line
+// identity is the fallback for unparseable lines. Net count is necessary but never
+// sufficient: a pure count balance must not clear a specific unmatched removal (a swap -
+// one assertion deleted, one unrelated added - nets to zero and still lowers the bar).
 const ASSERT_LINE = /\b(expect|assert|should)\b/;
-const assertsLost = new Map(), assertsGained = new Map();
-for (const { file, text } of removed) if (isTest(file) && ASSERT_LINE.test(text)) assertsLost.set(file, (assertsLost.get(file) ?? 0) + 1);
-for (const { file, text } of added) if (isTest(file) && ASSERT_LINE.test(text)) assertsGained.set(file, (assertsGained.get(file) ?? 0) + 1);
-for (const { file, text } of removed) {
-  if (isTest(file) && !deleted.includes(file) && !testDiet(file) && ASSERT_LINE.test(text)
-    && (assertsLost.get(file) ?? 0) > (assertsGained.get(file) ?? 0)) {
-    flag('assertion-removed', file, text);
+const normSubject = (s) => s.replace(/\s+/g, " ").trim().replace(/\[\d+\]/g, "[]");
+function assertedSubject(line) {
+  const t = line.trim().replace(/;\s*$/, "");
+  const m = /assert\.[A-Za-z]+\s*\(|expect\s*\(/.exec(t);
+  if (!m) return normSubject(t);
+  const args = []; // split the call's argument list at top-level commas
+  let depth = 0, cur = "", quote = null;
+  const start = m.index + m[0].length;
+  let i = start;
+  for (; i < t.length; i++) {
+    const c = t[i];
+    if (quote) { cur += c; if (c === "\\") { cur += t[++i] ?? ""; } else if (c === quote) quote = null; continue; }
+    if (c === '"' || c === "'" || c === "`") { quote = c; cur += c; continue; }
+    if (c === "(") { depth++; cur += c; continue; }
+    if (c === ")") {
+      if (!depth) break;
+      depth--; cur += c; continue;
+    }
+    if (c === "," && !depth) { args.push(cur); cur = ""; continue; }
+    cur += c;
   }
+  if (i >= t.length) return normSubject(t); // unbalanced: strict fallback
+  args.push(cur);
+  return normSubject(args[0] ?? t);
+}
+const assertsLost = [], assertsGained = [];
+for (const { file, text } of removed) if (isTest(file) && ASSERT_LINE.test(text)) assertsLost.push({ file, subject: assertedSubject(text) });
+for (const { file, text } of added) if (isTest(file) && ASSERT_LINE.test(text)) assertsGained.push({ file, subject: assertedSubject(text) });
+for (const lost of assertsLost) {
+  if (deleted.includes(lost.file) || testDiet(lost.file)) continue; // test-deleted / test-diet own these
+  const match = assertsGained.findIndex(g => g.file === lost.file && g.subject === lost.subject);
+  const netLoss = assertsLost.filter(l => l.file === lost.file).length > assertsGained.filter(g => g.file === lost.file).length;
+  if (match < 0 || netLoss) flag('assertion-removed', lost.file, lost.subject);
 }
 
 // 1b/2c. A rule in CONSTRAINTS.md weakened or removed. A rule is a floor bullet or a table row,
