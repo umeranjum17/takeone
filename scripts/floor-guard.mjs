@@ -102,8 +102,16 @@ for (const { file, text } of added) {
 // surviving test file is what an intentional test-diet PR actually looks like, so without the
 // testDiet check here the exception would be unreachable for the only case it exists for.
 for (const f of deleted) if (isTest(f) && !testDiet(f)) flag('test-deleted', f);
+// A rewrite that adds at least as many assertions as it removes re-derives coverage
+// (approved behaviour evolution: every removed assertion has a successor); only a net
+// loss of assertions lowers the bar. Counts are per file, over added vs removed lines.
+const ASSERT_LINE = /\b(expect|assert|should)\b/;
+const assertsLost = new Map(), assertsGained = new Map();
+for (const { file, text } of removed) if (isTest(file) && ASSERT_LINE.test(text)) assertsLost.set(file, (assertsLost.get(file) ?? 0) + 1);
+for (const { file, text } of added) if (isTest(file) && ASSERT_LINE.test(text)) assertsGained.set(file, (assertsGained.get(file) ?? 0) + 1);
 for (const { file, text } of removed) {
-  if (isTest(file) && !deleted.includes(file) && !testDiet(file) && /\b(expect|assert|should)\b/.test(text)) {
+  if (isTest(file) && !deleted.includes(file) && !testDiet(file) && ASSERT_LINE.test(text)
+    && (assertsLost.get(file) ?? 0) > (assertsGained.get(file) ?? 0)) {
     flag('assertion-removed', file, text);
   }
 }
