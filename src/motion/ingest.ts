@@ -1,7 +1,7 @@
 // Ingest: copy source images or capture HTML/URL screens under sources/ and resolve selector regions.
 import { execFileSync } from "node:child_process";
 import { copyFileSync, mkdirSync, writeFileSync } from "node:fs";
-import { extname, isAbsolute, join, resolve } from "node:path";
+import { basename, extname, isAbsolute, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { INGEST_CLOCK } from "./ingest-clock.ts";
 import { launch, navigate } from "./cdp.ts";
@@ -39,6 +39,7 @@ export async function ingest(dir: string, sb: Storyboard): Promise<void> {
       if (resolve(src) !== resolve(out, name)) copyFileSync(src, join(out, name));
       sb.screens[`S${i + 1}`] = { file: `sources/${name}`, ...imageSize(join(out, name)) };
     });
+    cutCrops(out, sb);
     return;
   }
   const [width, height] = sb.source.viewport ?? [2560, 1440];
@@ -87,7 +88,19 @@ export async function ingest(dir: string, sb: Storyboard): Promise<void> {
         region.from = "dom";
       }
     }
+    cutCrops(out, sb);
   } finally { await b.close(); }
+}
+
+/** Cut storyboard crops from captured screens: deterministic ffmpeg crops, no extra capture. */
+function cutCrops(out: string, sb: Storyboard): void {
+  for (const [id, c] of Object.entries(sb.crops ?? {})) {
+    const base = sb.screens[c.screen];
+    if (!base) throw new Error(`crops.${id}: unknown screen ${c.screen}`);
+    const [x, y, w, h] = c.rect.map(Math.round);
+    execFileSync("ffmpeg", ["-nostdin", "-v", "error", "-y", "-i", join(out, basename(base.file)), "-vf", `crop=${w}:${h}:${x}:${y}`, join(out, `${id}.png`)], { timeout: 60000 });
+    sb.screens[id] = { file: `sources/${id}.png`, width: w!, height: h! };
+  }
 }
 
 export function parseStateOp(raw: StateOp | string): StateOp {
