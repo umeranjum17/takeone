@@ -55,21 +55,29 @@ export function resolveCamera(dir: string, pairs: string[], theme?: string): Cam
   return resolveTheme(selected, raw);
 }
 
-/** True when the take's source dimensions are portrait (taller than wide). */
-function isPortraitTake(dir: string): boolean {
+function sourceAspect(dir: string): "landscape" | "portrait" | "square" {
   try {
     const m = JSON.parse(readFileSync(join(dir, "take.json"), "utf8")) as {
       stream?: { w: number; h: number };
       width?: number; height?: number;
     };
-    return m.stream ? m.stream.h > m.stream.w
-      : m.width !== undefined && m.height !== undefined && m.height > m.width;
+    const w = m.stream ? m.stream.w : m.width;
+    const h = m.stream ? m.stream.h : m.height;
+    if (w !== undefined && h !== undefined) {
+      if (h > w) return "portrait";
+      if (w === h) return "square";
+    }
+    return "landscape";
   } catch {
-    return false;
+    return "landscape";
   }
 }
 
-export function renderDimensions(aspect?: string, resolution?: string, portraitSource = false): Overrides {
+function isPortraitTake(dir: string): boolean {
+  return sourceAspect(dir) === "portrait";
+}
+
+export function renderDimensions(aspect?: string, resolution?: string, source: "landscape" | "portrait" | "square" = "landscape"): Overrides {
   const dimensions: Overrides = {};
   if (aspect !== undefined) {
     const sizes: Record<string, [number, number]> = {
@@ -81,7 +89,7 @@ export function renderDimensions(aspect?: string, resolution?: string, portraitS
   }
   if (resolution !== undefined) {
     if (resolution !== "4k") throw Error(`unknown resolution ${resolution}; use 4k`);
-    const resolvedAspect = aspect ?? (portraitSource ? "portrait" : "landscape");
+    const resolvedAspect = aspect ?? source;
     const sizes: Record<string, [number, number]> = {
       landscape: [3840, 2160], portrait: [2160, 3840], square: [3840, 3840],
     };
@@ -204,7 +212,7 @@ export async function main(argv: string[]): Promise<number> {
         else if (option === "--resolution") resolution = value;
         else if (option === "--format") format = value;
       }
-      const dimensions = renderDimensions(aspect, resolution, isPortraitTake(dir));
+      const dimensions = renderDimensions(aspect, resolution, sourceAspect(dir));
       if (!["mp4", "gif", "webm", "prores4444"].includes(format)) {
         throw Error(`unknown format ${format}; use mp4, gif, webm or prores4444`);
       }
