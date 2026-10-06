@@ -34,6 +34,14 @@ only its selected source patch before camera transforms; it does not obscure the
 rest of the frame. Choose a generous rectangle to cover the entire sensitive area.
 Blur is a visual effect, not a guarantee of irreversible redaction.
 
+Toast windows in `take.json` (`"toasts": [{ "t": 4.2, "d": 2.2 }]`, same
+video-relative seconds, no `rect`) move an overlapping caption up: on the overlay
+path (any non-16:9 source or output) the caption pill would sit bottom-over-footage
+where toasts live, so a caption sharing screen time with a toast takes the top slot
+for its whole hold instead. The 16:9 band path is structurally disjoint from toasts
+and ignores the windows. The producer observes the real toast and writes the window;
+the renderer never guesses one from pixels.
+
 Rebuild the ten-second fictional Tidewater board demo and before/after proof:
 
 ```sh

@@ -247,6 +247,47 @@ test("a simultaneous title stacks above the caption", {skip:!hasFfmpeg()}, () =>
   assert.equal(ink.bands.length,2, `ink rows=${ink.bands}`);
   assert.ok(ink.bands[1]!-ink.bands[0]!>45, `ink rows=${ink.bands}`);
 });
+test("overlay captions sharing a toast window move to the top", () => {
+  const d = { ...DEFAULTS, out_w: 1080, out_h: 1080 };
+  assert.equal(bandLayout(1920, 1080, d), null); // square export is the overlay path
+  const captions = [
+    { t0: 0, t1: 2, text: "before", title: false },
+    { t0: 3, t1: 5, text: "during", title: false },
+    { t0: 6, t1: 8, text: "after", title: false },
+  ];
+  const ink = captions.map(() => ({ w: 400, h: 40 }));
+  const layouts = captionLayouts(captions, ink, d, false, null, [{ t0: 2.5, t1: 5.5 }]);
+  for (const i of [0, 2]) {
+    const l = layouts[i]!;
+    assert.ok(Math.abs(l.cy - (d.out_h - d.out_h * 0.075 - l.h / 2)) < 1, `caption ${i} stays bottom: cy=${l.cy}`);
+  }
+  const moved = layouts[1]!;
+  assert.ok(moved.cy + moved.h / 2 < d.out_h * 0.5, `moved caption clears the bottom band: cy=${moved.cy}`);
+  const plain = captionLayouts(captions, ink, d, false, null)[1]!;
+  assert.ok(Math.abs(plain.cy - (d.out_h - d.out_h * 0.075 - plain.h / 2)) < 1,
+    `no-toast placement unchanged: cy=${plain.cy}`);
+});
+test("band captions ignore toast windows", () => {
+  const captions = [{ t0: 3, t1: 5, text: "during", title: false }];
+  const ink = [{ w: 400, h: 40 }];
+  const band = bandLayout(1920, 1080, DEFAULTS, captions, ink)!;
+  const withToast = captionLayouts(captions, ink, DEFAULTS, false, band, [{ t0: 2.5, t1: 5.5 }]);
+  const without = captionLayouts(captions, ink, DEFAULTS, false, band);
+  assert.deepEqual(withToast.map(l => l.cy), without.map(l => l.cy));
+});
+test("a moved title and body stack without overlap", () => {
+  const d = { ...DEFAULTS, out_w: 1080, out_h: 1080 };
+  const captions = [
+    { t0: 0.35, t1: 3.1, text: "Demo", title: true },
+    { t0: 1, t1: 4, text: "during", title: false },
+  ];
+  const ink = [{ w: 300, h: 50 }, { w: 400, h: 40 }];
+  const layouts = captionLayouts(captions, ink, d, false, null, [{ t0: 0, t1: 5 }]);
+  const [title, body] = [layouts[0]!, layouts[1]!];
+  assert.ok(title.cy + title.h / 2 < d.out_h * 0.5, `title moves up: cy=${title.cy}`);
+  assert.ok(body.cy - body.h / 2 >= title.cy + title.h / 2,
+    `body stacks below title: body top=${body.cy - body.h / 2} title bottom=${title.cy + title.h / 2}`);
+});
 
 
 test("export ends one outro after the last result or cut, ignoring resting pointers", () => {

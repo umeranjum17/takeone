@@ -4,7 +4,7 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { DEFAULTS, applyOverrides } from "../src/camera/defaults.ts";
 import type { Beat, CameraFrame, TakeMeta } from "../src/camera/types.ts";
-import { blurGraph, keycapAss, keycapBackdropGraph, keycapMaskAss, keycapCues, keycapObstacles, overlayRegions, shortcutKeys, spotlightAss, spotlightGraph } from "../src/render/overlays.ts";
+import { blurGraph, keycapAss, keycapBackdropGraph, keycapMaskAss, keycapCues, keycapObstacles, overlayRegions, shortcutKeys, spotlightAss, spotlightGraph, toastWindows } from "../src/render/overlays.ts";
 import { cameraFilter } from "../src/render/camera-filter.ts";
 import { motionBlurGraph, shutterPlan } from "../src/render/motion-blur.ts";
 import { measureCaptions, renderTake } from "../src/render/render.ts";
@@ -40,6 +40,14 @@ test("keycaps deduplicate beats, trim and follow the squeezed output clock", () 
   assert.deepEqual(cues[0]!.keys,["Ctrl","S"]);
 });
 
+test("toast windows map onto the output clock and reject bad input", () => {
+  const meta: TakeMeta = { width: 640, height: 360, toasts: [{ t: 1, d: 2 }, { t: 9, d: 5 }] };
+  assert.deepEqual(toastWindows(meta, t => (t - 2) / 2, 2, 10), [{ t0: 0, t1: 0.5 }, { t0: 3.5, t1: 4 }]);
+  assert.deepEqual(toastWindows({ width: 640, height: 360 }, t => t, 0, 10), []);
+  for (const toasts of [[{ t: 1 }], [{ t: 1, d: 0 }], [{ t: NaN, d: 1 }], "nope"]) {
+    assert.throws(() => toastWindows({ width: 640, height: 360, toasts } as TakeMeta, t => t, 0, 10), /invalid toasts/);
+  }
+});
 test("region validation and timing preserve privacy coverage across trims and speed changes", () => {
   const meta={width:640,height:360,blur:[{t:1,d:5,rect:[20,30,100,60] as [number,number,number,number]}]};
   assert.deepEqual(overlayRegions(meta,"blur",t=>(t-2)/2,2,5),[{t0:0,t1:1.5,rect:[20,30,100,60]}]);

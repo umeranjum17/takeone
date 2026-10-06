@@ -1,0 +1,30 @@
+{
+  "id": "toast-proof",
+  "width": 3840,
+  "height": 2160,
+  "trim_start": 0,
+  "trim_end": 9.716666666666667,
+  "captions": [
+    {
+      "t": 0.8,
+      "d": 1.5,
+      "text": "Opening the board"
+    },
+    {
+      "t": 4.4,
+      "d": 1.9000000000000001,
+      "text": "The toast steals the bottom"
+    },
+    {
+      "t": 6.7,
+      "d": 1.5,
+      "text": "Back to the board"
+    }
+  ],
+  "toasts": [
+    {
+      "t": 4.2,
+      "d": 2.2
+    }
+  ]
+}
