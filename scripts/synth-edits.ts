@@ -44,8 +44,8 @@ const base: TakeMeta = {id:"demo",width:1920,height:1080,trim_start:0,trim_end:1
   captions:[{t:1,d:2,text:"Find any report"},{t:9,d:2,text:"Export in one click"}]};
 const cases: Record<string, Partial<TakeMeta>> = {
   before: {}, cuts: {cuts:[{t0:4,t1:6}]}, speed:{speed:[{t0:3,t1:7,rate:2}]},
-  typing:{speed:[{kind:"type_speed",rate:3}]}, zooms:{zooms:[{t0:2,t1:8,bbox:[400,350,1200,90],level:3}]},
-  after:{cuts:[{t0:7,t1:8}],speed:[{kind:"type_speed",rate:2}],zooms:[{t0:2,t1:8,bbox:[400,350,1200,90],level:3}]},
+  typing:{speed:[{t0:3,t1:7,rate:3}]}, zooms:{zooms:[{t0:2,t1:8,bbox:[400,350,1200,90],level:3}]},
+  after:{cuts:[{t0:7,t1:8}],speed:[{t0:3,t1:7,rate:2}],zooms:[{t0:2,t1:8,bbox:[400,350,1200,90],level:3}]},
 };
 const d = {...DEFAULTS,idle_speed:1,out_w:1920,out_h:1080,preset:"fast"};
 const manifest: Record<string, unknown> = {};

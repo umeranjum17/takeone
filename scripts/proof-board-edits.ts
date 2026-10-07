@@ -52,7 +52,7 @@ const beat:Beat={id:"board",kind:"type",t0:0,t1:15,anchor_t:0.5,zones:[{name:"al
     {k:"click",t:6000,x:1100,y:970},{k:"click",t:7000,x:1530,y:908}]};
 const base:TakeMeta={width:2560,height:1440,trim_start:0,trim_end:15,
   captions:[{t:1,d:3,text:"Create an onboarding task"},{t:5,d:2,text:"Choose the priority"},{t:7,d:3,text:"Ready for the launch"}]};
-const edits={cuts:[{t0:4.2,t1:4.8}],speed:[{kind:"type_speed" as const,rate:2}],
+const edits={cuts:[{t0:4.2,t1:4.8}],speed:[{t0:2,t1:4,rate:2}],
   zooms:[{t0:1,t1:8,bbox:[940,430,680,640] as [number,number,number,number],level:3 as const}]};
 const camera={...DEFAULTS,idle_speed:1,preset:"fast"};
 for(const name of ["before","after"]){
