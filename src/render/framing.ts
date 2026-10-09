@@ -112,8 +112,7 @@ export function holdPath(solved: CameraFrame[], beats: Beat[], decisions: Decisi
   const holds: Hold[] = [];
   for (let i = 0; i < N; i++) {
     if (i && moved(main[i - 1]!, main[i]!) >= SETTLE) continue;
-    let j = i;
-    while (j + 1 < N && moved(main[j]!, main[j + 1]!) < SETTLE) j++;
+    let j = i; while (j + 1 < N && moved(main[j]!, main[j + 1]!) < SETTLE) j++;
     if (T(j + 1) - T(i) >= MIN_HOLD_S) holds.push({ a: i, b: j, r: main[(i + j) >> 1]!, why: "solver hold" });
     i = j;
   }
@@ -250,8 +249,9 @@ export function holdPath(solved: CameraFrame[], beats: Beat[], decisions: Decisi
       let n = 2;
       while (!gates(p.r, q.r, n)) n++;
       n = Math.max(n, Math.min(gap, Math.round(MOVE_MAX_S * d.fps)));
-      // When the next subject is already in view, a subject the next framing drops stays to its beat's end.
-      const stay = during(q).every(s => shows(p.r, s.box, 0)) ? Math.max(0, ...during(p).filter(s => !shows(q.r, s.box, 0)).map(s => solved.findIndex(f => f.t >= s.beat.t1))) : 0;
+      // When the next subject is already in view, a subject the next framing drops stays until the next beat starts.
+      const stay = during(q).every(s => shows(p.r, s.box, 0)) && during(p).some(s => !shows(q.r, s.box, 0))
+        ? Math.max(0, solved.findIndex(f => f.t >= Math.min(...during(q).map(s => s.beat.t0)))) : 0;
       const b = Math.min(N - 1, Math.max(stay + n, n <= gap ? q.a : Math.round((p.b + q.a + n) / 2)));
       return { a: b - n, b };
     });
