@@ -1,0 +1,27 @@
+takeone manual-edit seam camera-continuity metrics
+source artifact: takeone-seams-after-camera.json (60 fps, source-pixel rects)
+motion = |d centre| / w  +  |ln(w_i/w_{i-1})|  (normalized per output frame step)
+
+cut (source 2.1-2.6 removed, join)
+  output time 2.1000s = frame 126
+  frame rect  x=360.1 y=104.3 w=3469.3 h=1951.5
+  seam motion 0.01190
+  neighbour motion min 0.01027  max 0.01200  mean 0.01145
+  seam / neighbour-max = 0.99  (<= 1.00 means no step above neighbouring motion)
+
+speed entry (source 6.0, 1x->2x)
+  output time 5.5000s = frame 330
+  frame rect  x=758.3 y=325.5 w=2848.0 h=1602.0
+  seam motion 0.01339
+  neighbour motion min 0.00931  max 0.01600  mean 0.01307
+  seam / neighbour-max = 0.84  (<= 1.00 means no step above neighbouring motion)
+
+speed exit (source 6.6, 2x->1x)
+  output time 5.8000s = frame 348
+  frame rect  x=710.4 y=545.8 w=2420.0 h=1361.2
+  seam motion 0.01165
+  neighbour motion min 0.00720  max 0.01518  mean 0.01144
+  seam / neighbour-max = 0.77  (<= 1.00 means no step above neighbouring motion)
+
+Pass rule: seam motion <= neighbour max at every seam (no discontinuity).
+Result: PASS for all three seams (0.99, 0.84, 0.77).
