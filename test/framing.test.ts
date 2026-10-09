@@ -33,13 +33,10 @@ test("camera_path=hold passes the camera gates on the tidewater plan", () => {
   const decisions: Decision[] = readFileSync(`${dir}/analysis/decisions.jsonl`, "utf8").trim().split("\n").map(l => JSON.parse(l));
   // Every decided subject carries content, so no landmark reads as gone.
   const frame = new Uint8Array(W * H).fill(200);
-  for (const b of beats) {
-    const [x, y, w, h] = b.zones.find(z => z.name === decisions.find(d => d.beat === b.id)?.A)!.bbox;
+  for (const [x, y, w, h] of beats.map(b => b.zones.find(z => z.name === decisions.find(d => d.beat === b.id)?.A)!.bbox))
     if (w < W) for (let r = y; r < y + h; r += 4) frame.fill(20, r * W + x, r * W + x + w);
-  }
   for (const d of [{ ...DEFAULTS, out_w: 1080, out_h: 1920 }, DEFAULTS]) {
-    const squeezes = idleSqueezes(beats, 0, meta.trim_end, d);
-    const stage = stageGeometry(W, H, d);
+    const squeezes = idleSqueezes(beats, 0, meta.trim_end, d), stage = stageGeometry(W, H, d);
     const solved = solveCamera(warpBeats(beats, 0, squeezes, d.idle_speed), decisions,
       { ...meta, trim_end: warp(meta.trim_end, squeezes, d.idle_speed) },
       { ...d, min_shot: d.min_shot * d.pace, dwell: d.dwell * d.pace, dwell_k2: d.dwell_k2 * d.pace },
@@ -49,9 +46,6 @@ test("camera_path=hold passes the camera gates on the tidewater plan", () => {
     const shown = stageFrames(frames, W, H, stage, d);
     for (const [name, m] of Object.entries(cameraMetrics(shown, d.fps, d.out_w, d.out_h, d.min_shot))) assert.ok(m.goalPassed, `${d.out_w}x${d.out_h} ${name} ${m.value}`);
     assert.ok(holds.length >= 3);
-    for (const h of holds) {
-      const f = shown[(h.a + h.b) >> 1]!;
-      assert.ok(Math.abs(f.x - h.r.x) + Math.abs(f.y - h.r.y) + Math.abs(f.w - h.r.w) < 1e-3, `held framing at ${f.t}`);
-    }
+    for (const h of holds) assert.ok((["x", "y", "w"] as const).reduce((s, k) => s + Math.abs(shown[(h.a + h.b) >> 1]![k] - h.r[k]), 0) < 1e-3, `held framing at ${h.a}`);
   }
 });

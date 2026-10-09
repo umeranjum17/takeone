@@ -19,20 +19,17 @@ const SETTLE = 0.002, MIN_HOLD_S = 0.2, MOVE_MAX_S = 2.5;
 const INK_STEP = 12, LANDMARK_INK = 0.01, GUARD = 6, GAP = 8, SAMPLES = 9, TEXT_SPAN = 32, TEXT_INK = 6, PANEL_GROW = 4;
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
 const ease = (u: number) => u * u * u * (u * (6 * u - 15) + 10);
-const inked = (g: Uint8Array, i: number, W: number) =>
-  Math.abs(g[i]! - g[i - 1]!) > INK_STEP || Math.abs(g[i]! - g[i - W]!) > INK_STEP;
+const inked = (g: Uint8Array, i: number, W: number) => Math.abs(g[i]! - g[i - 1]!) > INK_STEP || Math.abs(g[i]! - g[i - W]!) > INK_STEP;
 
-export function videoFrames(video: string, W: number, H: number, sourceAt: (t: number) => number): FrameAt {
-  return (t) => {
-    // The output can run a few frames past the source's last frame: step back until one decodes.
-    for (let back = 0; back <= 0.5; back += 0.1) {
-      const raw = execFileSync("ffmpeg", ["-nostdin", "-v", "error", "-threads", "2", "-ss", Math.max(0, sourceAt(t) - back).toFixed(3),
-        "-i", video, "-frames:v", "1", "-vf", "format=gray", "-f", "rawvideo", "-"], { maxBuffer: W * H + 1024 });
-      if (raw.length === W * H) return raw;
-    }
-    throw new Error(`camera_path=hold: no source frame near ${t.toFixed(2)} s`);
-  };
-}
+export const videoFrames = (video: string, W: number, H: number, sourceAt: (t: number) => number): FrameAt => (t) => {
+  // The output can run a few frames past the source's last frame: step back until one decodes.
+  for (let back = 0; back <= 0.5; back += 0.1) {
+    const raw = execFileSync("ffmpeg", ["-nostdin", "-v", "error", "-threads", "2", "-ss", Math.max(0, sourceAt(t) - back).toFixed(3),
+      "-i", video, "-frames:v", "1", "-vf", "format=gray", "-f", "rawvideo", "-"], { maxBuffer: W * H + 1024 });
+    if (raw.length === W * H) return raw;
+  }
+  throw new Error(`camera_path=hold: no source frame near ${t.toFixed(2)} s`);
+};
 
 /**
  * Content a source rectangle's edges cross over all sample frames: ink pixels within +-guard px
@@ -55,9 +52,8 @@ export function edgeCuts(frames: Uint8Array[], W: number, H: number, guard = GUA
   // Prefix sums: a vertical edge counts ink that is not a horizontal separator, and vice versa.
   const col = new Uint16Array(W * (H + 1)), row = new Uint16Array(H * (W + 1));
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
-    const v = m[y * W + x]!;
-    col[x * (H + 1) + y + 1] = col[x * (H + 1) + y]! + ((v & 3) === 1 ? 1 : 0);
-    row[y * (W + 1) + x + 1] = row[y * (W + 1) + x]! + ((v & 5) === 1 ? 1 : 0);
+    col[x * (H + 1) + y + 1] = col[x * (H + 1) + y]! + ((m[y * W + x]! & 3) === 1 ? 1 : 0);
+    row[y * (W + 1) + x + 1] = row[y * (W + 1) + x]! + ((m[y * W + x]! & 5) === 1 ? 1 : 0);
   }
   const colInk = (c: number, a: number, b: number) => c < 0 || c >= W ? 0 : col[c * (H + 1) + b]! - col[c * (H + 1) + a]!;
   const rowInk = (r: number, a: number, b: number) => r < 0 || r >= H ? 0 : row[r * (W + 1) + b]! - row[r * (W + 1) + a]!;
@@ -68,15 +64,11 @@ export function edgeCuts(frames: Uint8Array[], W: number, H: number, guard = GUA
     // pixel or two. Each dense stretch outweighs any amount of thin crossings.
     const dense = (ink: (a: number, b: number) => number, a: number, b: number) => Array.from({ length: Math.max(0, Math.ceil((b - a) * 2 / TEXT_SPAN)) },
       (_, j) => a + j * TEXT_SPAN / 2).filter(s => ink(s, Math.min(b, s + TEXT_SPAN)) >= TEXT_INK).length;
-    // Over a +-3 px band, so an edge inside a glyph's stroke still counts the stroke.
-    const band = [-3, -2, -1, 0, 1, 2, 3];
-    const cols = (x: number) => (p: number, q: number) => Math.max(...band.map(k => colInk(x + k, p, q)));
-    const rows = (y: number) => (p: number, q: number) => Math.max(...band.map(k => rowInk(y + k, p, q)));
-    let n = 1e4 * ((x0 > 0 ? dense(cols(x0), ya, yb) : 0) + (x1 < W - 1 ? dense(cols(x1), ya, yb) : 0)
-      + (y0 > 0 ? dense(rows(y0), xa, xb) : 0) + (y1 < H - 1 ? dense(rows(y1), xa, xb) : 0));
-    for (let k = -guard; k <= guard; k++) {
-      n += (x0 > 0 ? colInk(x0 + k, ya, yb) : 0) + (x1 < W - 1 ? colInk(x1 + k, ya, yb) : 0)
-        + (y0 > 0 ? rowInk(y0 + k, xa, xb) : 0) + (y1 < H - 1 ? rowInk(y1 + k, xa, xb) : 0);
+    let n = 0;
+    for (const [, ink, z, p, q] of ([[x0 > 0, colInk, x0, ya, yb], [x1 < W - 1, colInk, x1, ya, yb], [y0 > 0, rowInk, y0, xa, xb], [y1 < H - 1, rowInk, y1, xa, xb]] as const).filter(e => e[0])) {
+      // Over a +-3 px band, so an edge inside a glyph's stroke still counts the stroke.
+      n += 1e4 * dense((s, e) => Math.max(...[-3, -2, -1, 0, 1, 2, 3].map(k => ink(z + k, s, e))), p, q);
+      for (let k = -guard; k <= guard; k++) n += ink(z + k, p, q);
     }
     return n;
   };
@@ -87,11 +79,9 @@ export interface HoldView { band: Band | null; stage: Stage; width: number; heig
 export function holdPath(solved: CameraFrame[], beats: Beat[], decisions: Decision[], v: HoldView, frameAt: FrameAt): { frames: CameraFrame[]; holds: Hold[] } {
   const { band, stage: st, width: W, height: H, d } = v;
   const N = solved.length, T = (i: number) => solved[clamp(i, 0, N - 1)]!.t;
-  const narrow = !band && d.out_w / d.out_h < W / H - 1e-6;
-  const inset = narrow ? cornerSize(st, d) : 0;
+  const narrow = !band && d.out_w / d.out_h < W / H - 1e-6, inset = narrow ? cornerSize(st, d) : 0;
   // Path px = source px + offset; the gates measure -K * x / w on these rectangles.
-  const [ox, oy] = band ? [0, 0] : [st.screenX, st.screenY];
-  const K = band ? [st.baseW, st.baseH] as const : [d.out_w, d.out_h] as const;
+  const [ox, oy] = band ? [0, 0] : [st.screenX, st.screenY], K = band ? [st.baseW, st.baseH] as const : [d.out_w, d.out_h] as const;
   const ratio = solved[0]!.h / solved[0]!.w, a = band ? 1 / ratio : d.out_w / d.out_h;
   const lim: Rect = band ? { x: 0, y: 0, w: W, h: H }
     : narrow ? { x: ox + inset, y: oy + inset, w: W - 2 * inset, h: H - 2 * inset } : { x: 0, y: 0, w: st.w, h: st.h };
@@ -102,14 +92,12 @@ export function holdPath(solved: CameraFrame[], beats: Beat[], decisions: Decisi
     return { x: clamp(cx - w / 2, lim.x, lim.x + lim.w - w), y: clamp(cy - w / a / 2, lim.y, lim.y + lim.h - w / a), w, h: w / a };
   };
   const fit = (s: Rect) => place(s.x + s.w / 2, s.y + s.h / 2, Math.max(wmin, s.w * d.hold_pad, s.h * d.hold_pad * a));
-  const shift = (r: Rect) => ({ ...r, x: r.x - ox, y: r.y - oy });
-  // Shows the entire source, so no edge can cut anything (a crop-to-fill frame never does).
-  const full = (r: Rect) => r.x <= ox && r.y <= oy && r.x + r.w >= ox + W && r.y + r.h >= oy + H;
+  // full: shows the entire source, so no edge can cut anything (a crop-to-fill frame never does).
+  const shift = (r: Rect) => ({ ...r, x: r.x - ox, y: r.y - oy }), full = (r: Rect) => r.x <= ox && r.y <= oy && r.x + r.w >= ox + W && r.y + r.h >= oy + H;
 
   // The solver's settled framings are the targets.
   const main = solved.map(visible);
-  const moved = (p: Rect, q: Rect) => Math.abs(Math.log(q.w / p.w)) + Math.hypot(q.x + q.w / 2 - p.x - p.w / 2, q.y + q.h / 2 - p.y - p.h / 2) / q.w;
-  const holds: Hold[] = [];
+  const holds: Hold[] = [], moved = (p: Rect, q: Rect) => Math.abs(Math.log(q.w / p.w)) + Math.hypot(q.x + q.w / 2 - p.x - p.w / 2, q.y + q.h / 2 - p.y - p.h / 2) / q.w;
   for (let i = 0; i < N; i++) {
     if (i && moved(main[i - 1]!, main[i]!) >= SETTLE) continue;
     let j = i; while (j + 1 < N && moved(main[j]!, main[j + 1]!) < SETTLE) j++;
@@ -125,11 +113,8 @@ export function holdPath(solved: CameraFrame[], beats: Beat[], decisions: Decisi
     const lum = (x: number, y: number) => g[clamp(Math.round(y), 0, H - 1) * W + clamp(Math.round(x), 0, W - 1)]!;
     const [cx, cy] = [b.x + b.w / 2, b.y + b.h / 2], bg = lum(b.x - 4, cy);
     const edge = (x: number, y: number, dx: number, dy: number) => {
-      for (let run = 0; x > 0 && x < W - 1 && y > 0 && y < H - 1; x += dx, y += dy) {
-        run = Math.abs(lum(x, y) - bg) > 16 ? run + 1 : 0;
-        if (run >= 24) return dx ? x - dx * run : y - dy * run;
-      }
-      return undefined;
+      for (let run = 0; x > 0 && x < W - 1 && y > 0 && y < H - 1; x += dx, y += dy)
+        if ((run = Math.abs(lum(x, y) - bg) > 16 ? run + 1 : 0) >= 24) return dx ? x - dx * run : y - dy * run;
     };
     const [l, r, t, u] = [edge(b.x - 4, cy, -1, 0), edge(b.x + b.w + 4, cy, 1, 0), edge(cx, b.y - 4, 0, -1), edge(cx, b.y + b.h + 4, 0, 1)];
     const p = { x: l!, y: t!, w: r! - l! + 1, h: u! - t! + 1 };
@@ -148,6 +133,31 @@ export function holdPath(solved: CameraFrame[], beats: Beat[], decisions: Decisi
     const [x, y, w, h] = zone.bbox, box = zone.type === "path" ? { x, y, w, h } : panel(frameAt((beat.t0 + beat.t1) / 2), { x, y, w, h });
     return [{ beat, zone, box: { ...box, x: box.x + ox, y: box.y + oy } }];
   });
+  // Click targets: the control under each click, sampled at the press (the largest flat surface
+  // around the point, so neither a label glyph nor the drawn pointer), whole from the end of the
+  // previous action through the click. One the hold cannot frame with its subject gives way.
+  const control = (g: Uint8Array, px: number, py: number): Rect => {
+    let best = { x: px - 80, y: py - 56, w: 160, h: 112 }, most = 0, seen = new Uint8Array(W * H), stack = new Int32Array(W * H / 16);
+    for (const [dx, dy] of [[-10, 0], [0, -10], [-10, -10], [-24, 0], [0, -24], [-24, -24]] as const) {
+      const s = clamp(Math.round(py + dy), 0, H - 1) * W + clamp(Math.round(px + dx), 0, W - 1);
+      if (seen[s]) continue;
+      let n = 1, size = 0, x0 = W, x1 = 0, y0 = H, y1 = 0;
+      for (stack[0] = s, seen[s] = 1; n > 0 && n < stack.length - 4 && size < stack.length; size++) {
+        const p = stack[--n]!, x = p % W, y = (p - x) / W;
+        x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y);
+        for (const j of [x > 0 ? p - 1 : -1, x < W - 1 ? p + 1 : -1, p - W, p + W])
+          if (j >= 0 && j < W * H && !seen[j] && Math.abs(g[j]! - g[s]!) <= 3) { seen[j] = 1; stack[n++] = j; }
+      }
+      if (n === 0 && (x1 - x0 + 1) * (y1 - y0 + 1) > most && x0 <= px && px <= x1 && y0 <= py && py <= y1) { best = { x: x0, y: y0, w: x1 - x0 + 1, h: y1 - y0 + 1 }; most = best.w * best.h; }
+    }
+    return best;
+  };
+  const acts = (b: Beat) => b.actions as { k: string; t: number; t1?: number; x: number; y: number }[];
+  const ends = beats.flatMap(acts).filter(a => !["dwell", "focus"].includes(a.k)).map(a => (a.t1 ?? a.t) / 1000);
+  const clicks: Subject[] = beats.flatMap(beat => acts(beat).filter(a => a.k === "click").map(x => {
+    const t = x.t / 1000, from = Math.max(t - MOVE_MAX_S, ...ends.filter(e => e < t - 1e-3)), b = control(frameAt(t - 0.1), x.x, x.y);
+    return { beat: { ...beat, t0: from, t1: t }, zone: { name: "click", type: "act", bbox: [b.x, b.y, b.w, b.h] } as Zone, box: { ...b, x: b.x + ox, y: b.y + oy } };
+  }));
   // A subject belongs to a hold it overlaps by more than two frames, not one it merely touches.
   const overlap = (s: Subject, h: Hold) => Math.min(s.beat.t1, T(h.b + 1)) - Math.max(s.beat.t0, T(h.a));
   const during = (h: Hold) => subjects.filter(s => overlap(s, h) > 2 / d.fps);
@@ -183,7 +193,13 @@ export function holdPath(solved: CameraFrame[], beats: Beat[], decisions: Decisi
       if (full(h.r)) continue;
       const frames = Array.from({ length: SAMPLES }, (_, j) => frameAt(T(Math.round(h.a + (h.b - h.a) * j / (SAMPLES - 1)))));
       const guarded = edgeCuts(frames, W, H), plain = edgeCuts(frames, W, H, 0);
-      if (!guarded(shift(h.r))) continue;
+      // Click targets whose approach touches this hold or the moves either side of it come first.
+      const k = holds.indexOf(h), lo = k > 0 ? T(holds[k - 1]!.b + 1) : -Infinity, hi = k + 1 < holds.length ? T(holds[k + 1]!.a) : Infinity;
+      // One no frame can show with the hold's subject gives way (that needs the hold split in two).
+      const top = dominant(h), both = (p: Rect, q: Rect) => Math.max(p.x + p.w, q.x + q.w) - Math.min(p.x, q.x) + 2 * GAP <= wmax
+        && Math.max(p.y + p.h, q.y + q.h) - Math.min(p.y, q.y) + 2 * GAP <= wmax / a;
+      const must = clicks.filter(s => Math.min(s.beat.t1, hi) >= Math.max(s.beat.t0, lo) && (!top || both(s.box, top.box)));
+      if (!guarded(shift(h.r)) && must.every(s => shows(h.r, s.box))) continue;
       const c0 = [h.r.x + h.r.w / 2, h.r.y + h.r.h / 2] as const;
       const search = (subs: Subject[], score: (r: Rect) => number, stop: boolean) => {
         let best: Rect | undefined, key = [Infinity, Infinity];
@@ -194,8 +210,7 @@ export function holdPath(solved: CameraFrame[], beats: Beat[], decisions: Decisi
               const r = { x, y, w, h: hh }, c = Math.log(w / h.r.w) + Math.hypot(x + w / 2 - c0[0], y + hh / 2 - c0[1]) / w;
               if ((stop && c >= key[1]!) || !subs.every(s => shows(r, s.box))) continue;
               const n = score(shift(r));
-              if (n === Infinity) continue;
-              if (n < key[0]! || (n === key[0] && c < key[1]!)) { key = [n, c]; best = r; }
+              if (n < Infinity && (n < key[0]! || (n === key[0] && c < key[1]!))) { key = [n, c]; best = r; }
             }
           if (w >= wmax) break;
         }
@@ -204,11 +219,8 @@ export function holdPath(solved: CameraFrame[], beats: Beat[], decisions: Decisi
       // Clean with the guard band: stop widening once zooming out alone costs more than the best.
       // Subjects that no one frame can show together give way to the hold's dominant one.
       let found = { best: undefined as Rect | undefined, cut: 0 };
-      for (const subs of [during(h), [dominant(h)!].filter(Boolean)]) {
-        found = search(subs, r => guarded(r) ? Infinity : 0, true);
-        if (!found.best) found = search(subs, plain, false);
-        if (found.best) break;
-      }
+      for (const subs of [[...must, ...during(h)], [...must, ...(top ? [top] : [])], top ? [top] : []])
+        if ((found = search(subs, r => guarded(r) ? Infinity : 0, true)).best || (found = search(subs, plain, false)).best) break;
       if (found.best) { h.r = found.best; h.why += found.cut ? `; least cut (${found.cut} px)` : "; edge-safe"; }
       else console.warn(`camera_path=hold: no framing shows the subject for ${T(h.a).toFixed(2)}-${T(h.b).toFixed(2)} s`);
     }
@@ -246,8 +258,7 @@ export function holdPath(solved: CameraFrame[], beats: Beat[], decisions: Decisi
   for (;;) {
     moves = holds.slice(1).map((q, k) => {
       const p = holds[k]!, gap = q.a - p.b;
-      let n = 2;
-      while (!gates(p.r, q.r, n)) n++;
+      let n = 2; while (!gates(p.r, q.r, n)) n++;
       n = Math.max(n, Math.min(gap, Math.round(MOVE_MAX_S * d.fps)));
       // When the next subject is already in view, a subject the next framing drops stays until the next beat starts.
       const stay = during(q).every(s => shows(p.r, s.box, 0)) && during(p).some(s => !shows(q.r, s.box, 0))
