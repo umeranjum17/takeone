@@ -9,5 +9,6 @@ User-facing features of the takeone CLI, in README order. Each file tells you wh
 | 3 | Tweak the look and rerender (`render --theme`/`--set`, `--aspect`/`--resolution`/`--format`) | yes — never calls the planner | [rerender-look-tweaks.md](rerender-look-tweaks.md) |
 | 4 | Record a take (`record`/`stop`/list; desktop, `--android`, `--ios-sim`) | no — needs capture hardware | [record-a-take.md](record-a-take.md) |
 | 5 | Motion films from screens (`motion`) | yes after one shell install | [motion-films.md](motion-films.md) |
+| 6 | Drawn vector cursor on a cursor-free take | yes | [vector-cursor.md](vector-cursor.md) |
 
 Supporting surface, not mapped separately: `takeone doctor` (read-only environment report), `takeone key set` (BYOKit secret store), and the `takeone capture` verbs (`hello`/`record`/`stop`/`make`) implementing the BYOKit recorder protocol — drive those only when the change touches them.

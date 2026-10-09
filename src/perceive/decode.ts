@@ -62,7 +62,7 @@ export async function decodeAnalysisFrames(webm: string, take: TakeMeta, framesT
 }
 
 /** First frame capture time on the event clock: rtp/90 + offset_ms. */
-export function firstFrameTimeMs(framesTsv: string, take: TakeMeta): number {
+export function firstFrameTimeMs(framesTsv: string, take: { offset_ms?: number }): number {
   const line = readFirstLineSync(framesTsv);
   const [rtp, recv] = line?.split("\t") ?? [];
   if (!rtp || !recv || !/^\d+$/.test(rtp) || !/^\d+$/.test(recv) || !Number.isSafeInteger(Number(rtp)) || !Number.isFinite(Number(recv)) || !Number.isFinite(take.offset_ms ?? 0)) {
