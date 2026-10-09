@@ -3,16 +3,22 @@
 Run `takeone render <take-dir>` on an already planned recording. Rendering
 reads the saved analysis locally and does not call the planner.
 
-`render` accepts `--aspect landscape|portrait|square`, which selects 1920×1080,
-1080×1920, or 1080×1080 output. Without this option, portrait source video
-defaults to 1080×1920 portrait output and other sources to 1920×1080 landscape,
-unless `--set out_w=...` or `--set out_h=...` supplies custom dimensions.
-`--resolution 4k` selects 3840×2160 landscape, 2160×3840 portrait, or
-3840×3840 square output. Without `--aspect`, 4K orientation follows the source.
+`render` accepts `--aspect landscape|portrait|square|4:5`, which selects
+1920×1080, 1080×1920, 1080×1080, or 1080×1350 output; the ratio spellings
+`16:9`, `9:16` and `1:1` are aliases for `landscape`, `portrait` and `square`.
+Without this option, portrait source video defaults to 1080×1920 portrait output
+and other sources to 1920×1080 landscape, unless `--set out_w=...` or
+`--set out_h=...` supplies custom dimensions. `--resolution 4k` selects
+3840×2160 landscape, 2160×3840 portrait, 3840×3840 square, or 3072×3840 for
+`4:5` output (the 3840-pixel long edge is kept for every orientation). Without
+`--aspect`, 4K orientation follows the source.
 Source orientation uses `take.json`'s `stream.w` / `stream.h` when present,
 otherwise its `width` / `height`; this also determines the default output size.
 Explicit `--set out_w=...` / `--set out_h=...` dimensions are overridden by
-these presets.
+these presets. When the output is narrower than the source (for example a 9:16,
+1:1 or 4:5 export of a 16:9 capture), the camera crops in to fill the frame —
+centred on each shot's subject — so the screen is never scaled down into a
+letterboxed strip; the app fills the whole frame.
 
 `--format mp4|gif|webm|prores4444` selects the output container/encoding and
 defaults to `mp4`. GIF output is encoded at 15 fps and scaled to at most 1080
@@ -20,7 +26,8 @@ pixels on each axis, preserving aspect ratio without upscaling the rendered
 MP4; WebM uses VP9, and `prores4444` writes a ProRes 4444 `.mov` file.
 These three formats are transcoded from the rendered MP4, which is retained;
 ProRes cannot restore detail or chroma discarded by that intermediate.
-All exports carry BT.709 colour tags.
+The MP4, WebM and ProRes exports carry BT.709 colour tags; GIF is palette-based
+and has no colour tags.
 For example:
 
 ```sh

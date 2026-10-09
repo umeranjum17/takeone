@@ -77,23 +77,36 @@ function isPortraitTake(dir: string): boolean {
   return sourceAspect(dir) === "portrait";
 }
 
+const ASPECTS = ["landscape", "portrait", "square", "4:5"] as const;
+type Aspect = (typeof ASPECTS)[number];
+
+/** Normalize the aspect names and the ratio spellings the docs and scorecard use. */
+function normalizeAspect(aspect: string): Aspect {
+  const aliases: Record<string, Aspect> = {
+    landscape: "landscape", "16:9": "landscape",
+    portrait: "portrait", "9:16": "portrait",
+    square: "square", "1:1": "square",
+    "4:5": "4:5",
+  };
+  const name = aliases[aspect];
+  if (!name) throw Error(`unknown aspect ${aspect}; use landscape, portrait, square or 4:5 (or 16:9, 9:16, 1:1)`);
+  return name;
+}
+
 export function renderDimensions(aspect?: string, resolution?: string, source: "landscape" | "portrait" | "square" = "landscape"): Overrides {
   const dimensions: Overrides = {};
-  if (aspect !== undefined) {
-    const sizes: Record<string, [number, number]> = {
-      landscape: [1920, 1080], portrait: [1080, 1920], square: [1080, 1080],
-    };
-    const size = sizes[aspect];
-    if (!size) throw Error(`unknown aspect ${aspect}; use landscape, portrait or square`);
-    [dimensions.out_w, dimensions.out_h] = size;
+  const name = aspect === undefined ? undefined : normalizeAspect(aspect);
+  if (name !== undefined) {
+    [dimensions.out_w, dimensions.out_h] = {
+      landscape: [1920, 1080], portrait: [1080, 1920], square: [1080, 1080], "4:5": [1080, 1350],
+    }[name];
   }
   if (resolution !== undefined) {
     if (resolution !== "4k") throw Error(`unknown resolution ${resolution}; use 4k`);
-    const resolvedAspect = aspect ?? source;
-    const sizes: Record<string, [number, number]> = {
-      landscape: [3840, 2160], portrait: [2160, 3840], square: [3840, 3840],
-    };
-    [dimensions.out_w, dimensions.out_h] = sizes[resolvedAspect]!;
+    // 4K keeps the long edge at 3840 pixels for every orientation.
+    [dimensions.out_w, dimensions.out_h] = {
+      landscape: [3840, 2160], portrait: [2160, 3840], square: [3840, 3840], "4:5": [3072, 3840],
+    }[name ?? source];
   }
   return dimensions;
 }
@@ -132,7 +145,7 @@ function parseArgs(argv: string[]): Args {
 function usage(code: number): never {
   const themes = Object.keys(THEMES).join("|");
   console.error(`takeone make <id> [--no-jev] [--about "<topic>"] [--screen-text] [--max-tokens N] [--theme ${themes}] [--set key=value]
-takeone render <take-dir> [--theme ${themes}] [--set key=value] [--aspect landscape|portrait|square] [--resolution 4k] [--format mp4|gif|webm|prores4444]
+takeone render <take-dir> [--theme ${themes}] [--set key=value] [--aspect landscape|portrait|square|4:5] [--resolution 4k] [--format mp4|gif|webm|prores4444]
 ${MOTION_USAGE}
 takeone key set < stdin
 takeone [list|record|stop|doctor]
