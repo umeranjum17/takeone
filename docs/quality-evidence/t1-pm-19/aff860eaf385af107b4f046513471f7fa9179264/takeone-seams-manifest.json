@@ -1,0 +1,114 @@
+{
+  "task": "t1-pm-19",
+  "acceptance": "on a real take, a cut plus a 2x speed region renders with no camera jump at either seam, proven by frame strips across each seam",
+  "provenance": {
+    "commit": "aff860eaf385af107b4f046513471f7fa9179264",
+    "node": "v26.7.0",
+    "ffmpeg": "n9.0.1",
+    "date": "2026-10-09",
+    "method": "render landscape only, --set preset=veryfast, through fm-mem-gate; camera solver and edits unchanged from main"
+  },
+  "source_take": {
+    "path": "/home/umer/.treehouse/firstmate-8bf1b0/1/firstmate/data/takes/headless-run-a",
+    "screen_webm_sha256": "bfe7d750c092c13db9db04781d927b7f5d711e7b2a91b10be0d825dfe497cfc7",
+    "width": 3840,
+    "height": 2160,
+    "fps": 60,
+    "trim_start": 0,
+    "trim_end": 43.1,
+    "copy_used": "worktree tmp/t1-pm-19/{before,after}; original never written"
+  },
+  "edits": {
+    "cuts": [
+      {
+        "t0": 2.1,
+        "t1": 2.6
+      }
+    ],
+    "speed": [
+      {
+        "t0": 6.0,
+        "t1": 6.6,
+        "rate": 2
+      }
+    ],
+    "applied_filter": "select='not(gte(t,2.1)*lt(t,2.6))' then setpts='(T-(1*clip(T-2.1,0,0.5)+0.5*clip(T-6,0,0.6)+...))/TB' (see takeone-seams-after-camera-cmd.txt at source)"
+  },
+  "seams": [
+    {
+      "name": "cut join",
+      "source": "removed 2.1-2.6 s",
+      "output_time": 2.1,
+      "frame": 126,
+      "seam_motion": 0.0119,
+      "neighbour_max": 0.012,
+      "ratio": 0.99,
+      "strip_before": "takeone-seams-cut-strip-before.png",
+      "strip_after": "takeone-seams-cut-strip-after.png"
+    },
+    {
+      "name": "speed entry (1x->2x)",
+      "source": "starts 6.0 s",
+      "output_time": 5.5,
+      "frame": 330,
+      "seam_motion": 0.01339,
+      "neighbour_max": 0.016,
+      "ratio": 0.84,
+      "strip_before": "takeone-seams-speed-entry-strip-before.png",
+      "strip_after": "takeone-seams-speed-entry-strip-after.png"
+    },
+    {
+      "name": "speed exit (2x->1x)",
+      "source": "ends 6.6 s",
+      "output_time": 5.8,
+      "frame": 348,
+      "seam_motion": 0.01165,
+      "neighbour_max": 0.01518,
+      "ratio": 0.77,
+      "strip_before": "takeone-seams-speed-exit-strip-before.png",
+      "strip_after": "takeone-seams-speed-exit-strip-after.png"
+    }
+  ],
+  "renders": {
+    "before": {
+      "file": "takeone-seams-before.mp4",
+      "source": "before render, take.json without cuts/speed",
+      "width": 1920,
+      "height": 1080,
+      "fps": 60,
+      "duration_seconds": 41.1333,
+      "sha256": "21e199767b2c9990f0af7ec8509a1e05c6385e9645e91dec0dd45dec01f436f8",
+      "bytes": 24413957,
+      "location": "external",
+      "external_path": "/home/umer/.treehouse/firstmate-8bf1b0/1/firstmate/data/t1-pm-19/evidence/takeone-seams-before.mp4"
+    },
+    "after": {
+      "file": "takeone-seams-after.mp4",
+      "source": "after render, take.json with cuts + 2x speed",
+      "width": 1920,
+      "height": 1080,
+      "fps": 60,
+      "duration_seconds": 40.3167,
+      "sha256": "5ca23b277270ffeaa628ec6ee31b17c69296b13d83a8790cbb3c6d98cc672e2a",
+      "bytes": 22380870,
+      "camera": "takeone-seams-after-camera.json",
+      "camera_sha256": "d9342656e27a306eaeb7a9db7f9cb144a09199bd340765ff6dd8e59d3652eda6",
+      "location": "external",
+      "external_path": "/home/umer/.treehouse/firstmate-8bf1b0/1/firstmate/data/t1-pm-19/evidence/takeone-seams-after.mp4"
+    }
+  },
+  "duration_delta_seconds": 0.8167,
+  "clips": {
+    "raw_vs_render": "takeone-seams-raw-vs-render.mp4",
+    "before_vs_after": "takeone-seams-before-vs-after.mp4",
+    "raw_vs_render_sha256": "10897b45749027f9847522ad36f52ca278c995c1e4f96d1adebc704883a3da47"
+  },
+  "result": "PASS - seam motion <= neighbour max at all three seams; strips show continuous framing",
+  "reproduction": [
+    "cp -r <source take> tmp/t1-pm-19/{before,after}",
+    "edit after/take.json: cuts=[{t0:2.1,t1:2.6}], speed=[{t0:6.0,t1:6.6,rate:2}]",
+    "fm-mem-gate.sh taskset -c 0-7 node bin/takeone.mjs render <abs>/before --aspect landscape --set preset=veryfast",
+    "fm-mem-gate.sh taskset -c 0-7 node bin/takeone.mjs render <abs>/after  --aspect landscape --set preset=veryfast",
+    "python3 tmp/t1-pm-19/camcheck.py <after> 2.1 5.5 5.8"
+  ]
+}
