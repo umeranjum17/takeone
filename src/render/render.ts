@@ -13,6 +13,7 @@ import { blurGraph, keycapAss, keycapBackdropGraph, keycapMaskAss, keycapObstacl
 import { motionBlurGraph, shutterPlan } from "./motion-blur.ts";
 import { idleSqueezes, purposefulEnd, setptsExpr, warp, warpBeats } from "./pace.ts";
 import { phoneTapShots } from "./phone.ts";
+import { holdPath, videoFrames } from "./framing.ts";
 import { typingBursts, editBeats, editTimeline, validateEdits, validateZooms } from "./edits.ts";
 import { firstFrameTimeMs, readEvents } from "../perceive/decode.ts";
 import {
@@ -118,7 +119,7 @@ export async function renderTake(dir: string, d?: CameraDefaults): Promise<{ out
     phone || banded ? undefined : (frame) => sourceViewport(frame, meta.width, meta.height, stage, d));
   // A handset's controls span its narrow screen. Keep that entire width while
   // pushing in and following the tapped row; horizontal pans slice labels.
-  const frames = phone ? solved.map(f => {
+  const solvedFrames = phone ? solved.map(f => {
     const w = Math.max(f.w, meta.width * d.hold_pad);
     const h = w * d.out_h / d.out_w;
     const cy = f.y + f.h / 2;
@@ -126,6 +127,17 @@ export async function renderTake(dir: string, d?: CameraDefaults): Promise<{ out
       : Math.max(0, Math.min(meta.height - h, cy - h / 2));
     return { t: f.t, x: (meta.width - w) / 2, y, w, h };
   }) : solved;
+  // Opt-in held path, judged on the visible frame against the source pixels it shows.
+  const sourceAt = (t: number) => {
+    let lo = trimStart, hi = trimEnd;
+    for (let k = 0; k < 40; k++) { const mid = (lo + hi) / 2; if (outTime(mid) < t) lo = mid; else hi = mid; }
+    return hi;
+  };
+  const held = d.camera_path === "hold" && !phone ? holdPath(solvedFrames, outBeats, outDecisions,
+    { band, stage, width: meta.width, height: meta.height, d, minShot: d.min_shot * d.pace },
+    videoFrames(join(dir, "screen.webm"), meta.width, meta.height, sourceAt)) : undefined;
+  if (held) await writeFile(join(dir, "camera-holds.json"), JSON.stringify(held.holds, null, 2));
+  const frames = held?.frames ?? solvedFrames;
   await writeFile(join(dir, "camera.json"), JSON.stringify(frames));
   const commandFile = join(dir, "camera.cmd");
   // With a band the camera frames the screen alone, into the fixed card.
