@@ -256,7 +256,9 @@ export function holdPath(solved: CameraFrame[], beats: Beat[], decisions: Decisi
       let n = 2;
       while (!gates(p.r, q.r, n)) n++;
       n = Math.max(n, Math.min(gap, Math.round(MOVE_MAX_S * d.fps)));
-      const b = Math.min(N - 1, n <= gap ? q.a : Math.round((p.b + q.a + n) / 2));
+      // When the next subject is already in view, a subject the next framing drops stays to its beat's end.
+      const stay = during(q).every(s => shows(p.r, s.box, 0)) ? Math.max(0, ...during(p).filter(s => !shows(q.r, s.box, 0)).map(s => solved.findIndex(f => f.t >= s.beat.t1))) : 0;
+      const b = Math.min(N - 1, Math.max(stay + n, n <= gap ? q.a : Math.round((p.b + q.a + n) / 2)));
       return { a: b - n, b };
     });
     // A hold its moves squeeze out, or too short between opposite moves, goes.
