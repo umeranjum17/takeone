@@ -92,17 +92,38 @@ export function bandFrames(frames: CameraFrame[], band: Band, d: CameraDefaults)
 /**
  * Map solver viewports (source px) onto the stage. At rest the whole stage shows;
  * zooming eases the margin away so the deepest zoom still fills the frame with screen.
+ *
+ * When the output is narrower than the source (portrait/square/4:5 from a 16:9
+ * capture), showing the whole stage would letterbox the screen inside a tall
+ * padded canvas. Those presets instead crop to fill: the viewport is clamped to
+ * the largest output-aspect window inside the screen card (inset by the corner
+ * radius so no background shows), centred on the shot's subject. The action stays
+ * framed while every output pixel is screen.
  */
 export function stageFrames(frames: CameraFrame[], width: number, height: number, st: Stage, d: CameraDefaults): CameraFrame[] {
   const top = zMax(width, height, d);
   const aspect = d.out_w / d.out_h;
+  const narrow = aspect < width / height - 1e-6;
+  const corner = cornerSize(st, d);
+  const fitW = narrow ? Math.min(width - 2 * corner, (height - 2 * corner) * aspect) : 0;
   return frames.map((f) => {
+    const cx = f.x + f.w / 2 + st.screenX;
+    const cy = f.y + f.h / 2 + st.screenY;
+    if (narrow) {
+      const w = Math.min(f.w, fitW);
+      const h = w / aspect;
+      return {
+        t: f.t,
+        x: clamp(cx - w / 2, st.screenX + corner, st.screenX + width - corner - w),
+        y: clamp(cy - h / 2, st.screenY + corner, st.screenY + height - corner - h),
+        w,
+        h,
+      };
+    }
     const zoom = st.baseW / f.w;
     const keep = top > 1 ? 1 - smooth(clamp((zoom - 1) / (top - 1), 0, 1)) : 1;
     const w = Math.min(st.w, f.w * (1 + 2 * d.stage_margin * keep));
     const h = Math.min(st.h, w / aspect);
-    const cx = f.x + f.w / 2 + st.screenX;
-    const cy = f.y + f.h / 2 + st.screenY;
     return {
       t: f.t,
       x: clamp(cx - w / 2, 0, st.w - w),
