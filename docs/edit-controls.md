@@ -38,3 +38,34 @@ takeone render ~/Videos/takeone/<id> --set out_w=320 --set out_h=180 --format gi
 
 These options apply to recorded takes; motion takes rerender from their saved
 `storyboard.json` and reject render options.
+
+## Speed
+
+`take.json`'s `speed[]` entries change playback rate. Rates from `0.1` to `16`
+are accepted: `2` doubles the speed, `0.5` halves it. Source-second intervals are
+half-open (`t0` included, `t1` excluded) and are clipped to the trim.
+
+A timed region plays one interval at that rate:
+
+```json
+{ "speed": [ { "t0": 8, "t1": 12, "rate": 2 } ] }
+```
+
+A `rate: 1` region disables automatic idle compression there. To apply a rate to
+the whole video, cover its full source interval with one region.
+
+A single untimed `type_speed` entry speeds up every detected typing burst in the
+take, derived from its recorded key events; it needs no timestamps:
+
+```json
+{ "speed": [ { "kind": "type_speed", "rate": 3 } ] }
+```
+
+With no typing events `type_speed` has no effect, and `render` says so once.
+
+Precedence is cuts, timed speed, typing speed, then automatic idle speed: a
+timed region overrides a typing burst it overlaps. Footage, camera, clicks and
+caption starts all move on the one source-to-output clock; caption durations
+stay output seconds, so speed-up never reduces reading time. Timed regions may
+touch but must not overlap; unsorted intervals work; invalid entries name their
+field (for example `speed[0].rate (0.1..16)`).
