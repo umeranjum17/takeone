@@ -74,7 +74,7 @@ cp -r <source take> tmp/t1-pm-19/{before,after}
 # edit after/take.json: cuts=[{t0:2.1,t1:2.6}], speed=[{t0:6.0,t1:6.6,rate:2}]
 fm-mem-gate.sh taskset -c 0-7 node bin/takeone.mjs render <abs>/before --aspect landscape --set preset=veryfast
 fm-mem-gate.sh taskset -c 0-7 node bin/takeone.mjs render <abs>/after  --aspect landscape --set preset=veryfast
-python3 tmp/t1-pm-19/camcheck.py <abs>/after 2.1 5.5 5.8
+python3 docs/quality-evidence/t1-pm-19/aff860eaf385af107b4f046513471f7fa9179264/takeone-seams-camcheck.py <abs>/after 2.1 5.5 5.8
 ```
 
 After render: `takeone-seams-after-camera.json` (sha256
