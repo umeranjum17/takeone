@@ -2,6 +2,8 @@
 // One source-to-output clock for footage, camera, clicks and caption starts.
 import type { CameraDefaults } from "../camera/defaults.ts";
 import type { Beat, ManualZoom, TakeMeta } from "../camera/types.ts";
+import type { Event } from "../types.ts";
+import { TYPE_GAP_MS } from "../perceive/actions.ts";
 import { idleSqueezes } from "./pace.ts";
 
 interface Span { t0: number; t1: number }
@@ -47,6 +49,21 @@ export function validateZooms(zooms: unknown, width: number, height: number): vo
   ordered(spans, "zooms");
 }
 
+/** Typing bursts from the take's own key events, as video-relative half-open spans. */
+export function typingBursts(events: Event[], videoStartMs: number): Span[] {
+  const presses = events
+    .filter(e => e.k === "key" && e.cls === "char" && e.down)
+    .map(e => (e.t - videoStartMs) / 1000)
+    .sort((a, b) => a - b);
+  const bursts: Span[] = [];
+  for (const t of presses) {
+    const last = bursts.at(-1);
+    if (last && t - last.t1 <= TYPE_GAP_MS / 1000) last.t1 = t;
+    else bursts.push({ t0: t, t1: t });
+  }
+  return bursts;
+}
+
 /** Validate even cuts outside the current trim, before writing render artifacts. */
 export function validateEdits(meta: TakeMeta): void {
   if (meta.cuts !== undefined && !Array.isArray(meta.cuts)) fail("cuts");
@@ -60,9 +77,15 @@ export function validateEdits(meta: TakeMeta): void {
   if (meta.trim_start !== undefined && (!finite(meta.trim_start) || meta.trim_start < 0)) fail("trim_start");
   if (meta.trim_end !== undefined && (!finite(meta.trim_end) || meta.trim_end <= (meta.trim_start ?? 0))) fail("trim_end");
   const regions: Span[] = [];
+  let typing = false;
   list(meta.speed, "speed").forEach((v, i) => {
-    const s = v as { kind?: unknown; rate?: unknown } | null;
+    const s = v as { kind?: unknown; rate?: unknown; t0?: unknown; t1?: unknown } | null;
     if (!s || !finite(s.rate) || s.rate < 0.1 || s.rate > 16) fail(`speed[${i}].rate (0.1..16)`);
+    if (s.kind === "type_speed") {
+      if (typing || "t0" in s || "t1" in s) fail(`speed[${i}]: duplicate or timed type_speed`);
+      typing = true;
+      return;
+    }
     if (s.kind !== undefined) fail(`speed[${i}].kind`);
     range(s, `speed[${i}]`);
     regions.push(s);
@@ -70,14 +93,15 @@ export function validateEdits(meta: TakeMeta): void {
   ordered(regions, "speed");
 }
 
-/** Cuts > explicit speed regions > automatic idle speed. All intervals are half-open. */
-export function editTimeline(meta: TakeMeta, beats: Beat[], start: number, end: number, d: CameraDefaults): EditTimeline {
+/** Cuts > timed speed > typing speed > automatic idle speed. All intervals are half-open. */
+export function editTimeline(meta: TakeMeta, beats: Beat[], start: number, end: number, d: CameraDefaults, typing: Span[] = []): EditTimeline {
   validateEdits(meta);
   if (!finite(start) || !finite(end) || start < 0 || end <= start) fail("trim");
   const cuts = meta.cuts ?? [];
-  const regions = meta.speed ?? [];
+  const regions = (meta.speed ?? []).filter(s => s.kind !== "type_speed") as unknown as (Span & { rate: number })[];
+  const typeRate = (meta.speed ?? []).find(s => s.kind === "type_speed")?.rate;
   const idle = idleSqueezes(beats, start, end, d).map(s => ({ t0: s.a + start, t1: s.b + start }));
-  const boundaries = [...new Set([start, end, ...[...cuts, ...regions, ...idle]
+  const boundaries = [...new Set([start, end, ...[...cuts, ...regions, ...typing, ...idle]
     .flatMap(s => [s.t0, s.t1]).filter(t => t > start && t < end)])].sort((a, b) => a - b);
   const spans: EditSpan[] = [];
   const includes = (s: Span, t: number) => t >= s.t0 && t < s.t1;
@@ -85,7 +109,8 @@ export function editTimeline(meta: TakeMeta, beats: Beat[], start: number, end: 
   for (let i = 0; i + 1 < boundaries.length; i++) {
     const t0 = boundaries[i]!, t1 = boundaries[i + 1]!;
     const rate = cuts.some(s => includes(s, t0)) ? 0 : regions.find(s => includes(s, t0))?.rate
-      ?? (idle.some(s => includes(s, t0)) ? d.idle_speed : 1);
+      ?? (typeRate !== undefined && typing.some(s => includes(s, t0)) ? typeRate
+        : idle.some(s => includes(s, t0)) ? d.idle_speed : 1);
     const previous = spans.at(-1);
     if (previous?.rate === rate) previous.t1 = t1;
     else spans.push({ t0, t1, rate, out: duration });

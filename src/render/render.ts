@@ -1,4 +1,5 @@
 import { execFileSync, spawn } from "node:child_process";
+import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { availableParallelism } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -12,7 +13,8 @@ import { blurGraph, keycapAss, keycapBackdropGraph, keycapMaskAss, keycapObstacl
 import { motionBlurGraph, shutterPlan } from "./motion-blur.ts";
 import { idleSqueezes, purposefulEnd, setptsExpr, warp, warpBeats } from "./pace.ts";
 import { phoneTapShots } from "./phone.ts";
-import { editBeats, editTimeline, validateEdits, validateZooms } from "./edits.ts";
+import { typingBursts, editBeats, editTimeline, validateEdits, validateZooms } from "./edits.ts";
+import { firstFrameTimeMs, readEvents } from "../perceive/decode.ts";
 import {
   bandEligible, bandFrames, bandLayout, bandText, beatClicks, captionAss, cardFilter, clickAss, measureAss, sourceViewport, stageFrames, stageGeometry, stageImageFilter,
   takeCaptions, type Caption, type CaptionInk,
@@ -45,6 +47,19 @@ function runFfmpeg(args: string[]): Promise<string> {
   });
 }
 
+/** Typing bursts from the take's saved key events, on the video clock. */
+async function takeTypingBursts(dir: string, meta: TakeMeta): Promise<{ t0: number; t1: number }[]> {
+  const eventsPath = join(dir, "events.jsonl");
+  if (!existsSync(eventsPath)) return [];
+  let videoStartMs = meta.offset_ms ?? 0;
+  try {
+    videoStartMs = firstFrameTimeMs(join(dir, "frames.tsv"), { offset_ms: meta.offset_ms } as Parameters<typeof firstFrameTimeMs>[1]);
+  } catch {
+    // frames.tsv missing or malformed: fall back to the saved offset.
+  }
+  return typingBursts(await readEvents(eventsPath), videoStartMs);
+}
+
 /** Read the take's durable inputs, write its camera path and render the silent MP4. */
 export async function renderTake(dir: string, d?: CameraDefaults): Promise<{ out: string; seconds: number }> {
   const meta = JSON.parse(await readFile(join(dir, "take.json"), "utf8")) as TakeMeta;
@@ -67,7 +82,12 @@ export async function renderTake(dir: string, d?: CameraDefaults): Promise<{ out
     meta.duration ?? Math.max(0, ...beats.map((beat) => beat.t1)), d);
   // Everything after this point runs on the output clock, with idle gaps squeezed.
   const squeezes = idleSqueezes(beats, trimStart, trimEnd, d);
-  const clock = meta.cuts?.length || meta.speed?.length ? editTimeline(meta, beats, trimStart, trimEnd, d) : undefined;
+  const wantsTypeSpeed = Boolean(meta.speed?.some(s => s.kind === "type_speed"));
+  const typing = wantsTypeSpeed ? await takeTypingBursts(dir, meta) : [];
+  if (wantsTypeSpeed && typing.length === 0) {
+    console.warn("take.json: speed type_speed found no typing events; it has no effect");
+  }
+  const clock = meta.cuts?.length || meta.speed?.length ? editTimeline(meta, beats, trimStart, trimEnd, d, typing) : undefined;
   const outTime = clock?.at ?? ((t: number) => warp(t - trimStart, squeezes, d.idle_speed));
   const duration = outTime(trimEnd);
   const blurs = overlayRegions(meta, "blur", outTime, trimStart, trimEnd);
