@@ -66,11 +66,8 @@ export function edgeCuts(frames: Uint8Array[], W: number, H: number, guard = GUA
     const ya = clamp(y0, 0, H), yb = clamp(y1 + 1, 0, H), xa = clamp(x0, 0, W), xb = clamp(x1 + 1, 0, W);
     // A word or control the edge runs through is dense ink along it; a border it crosses is a
     // pixel or two. Each dense stretch outweighs any amount of thin crossings.
-    const dense = (ink: (a: number, b: number) => number, a: number, b: number) => {
-      let n = 0;
-      for (let s = a; s < b; s += TEXT_SPAN / 2) if (ink(s, Math.min(b, s + TEXT_SPAN)) >= TEXT_INK) n++;
-      return n;
-    };
+    const dense = (ink: (a: number, b: number) => number, a: number, b: number) => Array.from({ length: Math.max(0, Math.ceil((b - a) * 2 / TEXT_SPAN)) },
+      (_, j) => a + j * TEXT_SPAN / 2).filter(s => ink(s, Math.min(b, s + TEXT_SPAN)) >= TEXT_INK).length;
     // Over a +-3 px band, so an edge inside a glyph's stroke still counts the stroke.
     const band = [-3, -2, -1, 0, 1, 2, 3];
     const cols = (x: number) => (p: number, q: number) => Math.max(...band.map(k => colInk(x + k, p, q)));
@@ -104,7 +101,6 @@ export function holdPath(solved: CameraFrame[], beats: Beat[], decisions: Decisi
     w = Math.min(wmax, w);
     return { x: clamp(cx - w / 2, lim.x, lim.x + lim.w - w), y: clamp(cy - w / a / 2, lim.y, lim.y + lim.h - w / a), w, h: w / a };
   };
-  const whole = place(lim.x + lim.w / 2, lim.y + lim.h / 2, wmax);
   const fit = (s: Rect) => place(s.x + s.w / 2, s.y + s.h / 2, Math.max(wmin, s.w * d.hold_pad, s.h * d.hold_pad * a));
   const shift = (r: Rect) => ({ ...r, x: r.x - ox, y: r.y - oy });
   // Shows the entire source, so no edge can cut anything (a crop-to-fill frame never does).
@@ -137,9 +133,8 @@ export function holdPath(solved: CameraFrame[], beats: Beat[], decisions: Decisi
       return undefined;
     };
     const [l, r, t, u] = [edge(b.x - 4, cy, -1, 0), edge(b.x + b.w + 4, cy, 1, 0), edge(cx, b.y - 4, 0, -1), edge(cx, b.y + b.h + 4, 0, 1)];
-    if (l === undefined || r === undefined || t === undefined || u === undefined) return b;
-    const p = { x: l, y: t, w: r - l + 1, h: u - t + 1 };
-    return p.w * p.h <= PANEL_GROW * b.w * b.h && p.w <= wmax && p.h <= wmax / a ? p : b;
+    const p = { x: l!, y: t!, w: r! - l! + 1, h: u! - t! + 1 };
+    return [l, r, t, u].every(e => e !== undefined) && p.w * p.h <= PANEL_GROW * b.w * b.h && p.w <= wmax && p.h <= wmax / a ? p : b;
   };
   // Decided subjects. One the frame cannot hold gives way to its largest control inside that
   // fits (a typing beat's field); failing that the frame stays inside it on the axis too wide.
@@ -175,7 +170,7 @@ export function holdPath(solved: CameraFrame[], beats: Beat[], decisions: Decisi
       const [cx, cy] = [b.x + b.w / 2, b.y + b.h / 2];
       const next = s.beat.zones.filter(z => z.bbox[2] * z.bbox[3] > b.w * b.h && z.bbox[0] <= cx && z.bbox[0] + z.bbox[2] >= cx
         && z.bbox[1] <= cy && z.bbox[1] + z.bbox[3] >= cy).sort((p, q) => p.bbox[2] * p.bbox[3] - q.bbox[2] * q.bbox[3])[0];
-      h.r = !next || next.type === "all" ? whole : fit({ x: next.bbox[0] + ox, y: next.bbox[1] + oy, w: next.bbox[2], h: next.bbox[3] });
+      h.r = !next || next.type === "all" ? place(lim.x + lim.w / 2, lim.y + lim.h / 2, wmax) : fit({ x: next.bbox[0] + ox, y: next.bbox[1] + oy, w: next.bbox[2], h: next.bbox[3] });
       h.why = `landmark ${s.beat.id}/${s.zone.name} gone -> ${next?.name ?? "whole"}`;
     }
   }
@@ -209,9 +204,8 @@ export function holdPath(solved: CameraFrame[], beats: Beat[], decisions: Decisi
       };
       // Clean with the guard band: stop widening once zooming out alone costs more than the best.
       // Subjects that no one frame can show together give way to the hold's dominant one.
-      const top = dominant(h);
       let found = { best: undefined as Rect | undefined, cut: 0 };
-      for (const subs of [during(h), top ? [top] : []]) {
+      for (const subs of [during(h), [dominant(h)!].filter(Boolean)]) {
         found = search(subs, r => guarded(r) ? Infinity : 0, true);
         if (!found.best) found = search(subs, plain, false);
         if (found.best) break;

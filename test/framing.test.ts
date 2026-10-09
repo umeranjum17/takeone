@@ -47,9 +47,7 @@ test("camera_path=hold passes the camera gates on the tidewater plan", () => {
     const { frames, holds } = holdPath(solved, warpBeats(beats, 0, squeezes, d.idle_speed), decisions,
       { band: null, stage, width: W, height: H, d, minShot: d.min_shot * d.pace }, () => frame);
     const shown = stageFrames(frames, W, H, stage, d);
-    for (const [name, m] of Object.entries(cameraMetrics(shown, d.fps, d.out_w, d.out_h, d.min_shot))) {
-      assert.ok(m.goalPassed, `${d.out_w}x${d.out_h} ${name} ${m.value}`);
-    }
+    for (const [name, m] of Object.entries(cameraMetrics(shown, d.fps, d.out_w, d.out_h, d.min_shot))) assert.ok(m.goalPassed, `${d.out_w}x${d.out_h} ${name} ${m.value}`);
     assert.ok(holds.length >= 3);
     for (const h of holds) {
       const f = shown[(h.a + h.b) >> 1]!;
