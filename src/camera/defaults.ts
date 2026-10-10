@@ -28,6 +28,7 @@ export interface CameraDefaults {
   pace: number; // hold/min-shot multiplier; never camera move duration
   fps: number;
   motion_blur: number; // 0..1, centred shutter up to half a frame
+  camera_path: "solver" | "hold"; // hold: edge-safe held framings joined by single eased moves
   quality: "draft" | "standard" | "master"; // encode CRF 23 / 12 / 12; master keeps 4:4:4 chroma
   max_upscale: number; // never upscale source pixels more than this
   deadzone_margin: number; // 8% margin for the deadzone rule
@@ -107,6 +108,7 @@ export const DEFAULTS: CameraDefaults = {
   fps: 60,
   quality: "standard",
   motion_blur: 1,
+  camera_path: "solver",
   max_upscale: 1.0,
   deadzone_margin: 0.08,
   deadzone_zoom: 1.25,
@@ -170,6 +172,11 @@ export function applyOverrides(overrides: Overrides, base: CameraDefaults = DEFA
     if (key === "bg_pattern") {
       if (typeof v !== "string" || !["none", "grid", "scanlines"].includes(v)) throw new Error(`unknown or invalid --set ${k}=${v}`);
       out.bg_pattern = v as CameraDefaults["bg_pattern"];
+      continue;
+    }
+    if (key === "camera_path") {
+      if (v !== "solver" && v !== "hold") throw new Error(`unknown or invalid --set ${k}=${v}`);
+      out.camera_path = v;
       continue;
     }
     if (key === "bg_style") {

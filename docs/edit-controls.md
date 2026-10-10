@@ -20,6 +20,14 @@ these presets. When the output is narrower than the source (for example a 9:16,
 centred on each shot's subject — so the screen is never scaled down into a
 letterboxed strip; the app fills the whole frame.
 
+`--set camera_path=hold` (default `solver`) is an opt-in camera: it keeps the
+solver's settled framings, checked on the frame actually shown, holds each one
+exactly still and joins them with one eased move. A framing whose subject has
+vanished widens to the area around it, an edge that would run through a control
+or a word moves to a clean place (or, where none exists, the one crossing the
+least), a dialog stays whole, and the same subject is not re-framed at under 2×
+the size. `camera-holds.json` beside `camera.json` lists each hold and why.
+
 `--format mp4|gif|webm|prores4444` selects the output container/encoding and
 defaults to `mp4`. GIF output is encoded at 15 fps and scaled to at most 1080
 pixels on each axis, preserving aspect ratio without upscaling the rendered
