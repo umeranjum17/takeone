@@ -11,6 +11,10 @@ export async function launchBrowser() {
     '--headless', '--no-sandbox', '--disable-gpu', '--disable-background-networking',
     '--disable-threaded-animation', '--disable-threaded-scrolling', '--disable-features=Translate',
     '--font-render-hinting=none', '--disable-lcd-text', '--force-color-profile=srgb', '--force-device-scale-factor=2',
+    // Full-layer raster on every invalidation: partial raster re-rasters only dirty
+    // tiles, and Skia's tile-clipped coverage differs by a few levels from the full
+    // raster on 1px rounded borders, so two captures could decode to different frames.
+    '--disable-partial-raster',
     '--run-all-compositor-stages-before-draw', '--hide-scrollbars', '--window-size=1920,1080',
     '--remote-debugging-address=127.0.0.1', '--remote-debugging-port=0', `--user-data-dir=${profile}`, 'about:blank',
   ], { stdio: ['ignore', 'ignore', 'pipe'] });

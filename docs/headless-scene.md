@@ -32,7 +32,11 @@ Node's built-in WebSocket sends CDP commands to a throwaway browser profile.
 Frame numbers drive the virtual JavaScript clock, timeout callbacks and paused
 CSS animations. Native CSS transitions and caret blinking are disabled in this
 fixture's headless presentation. Input uses CDP mouse/key dispatch; feed scrolling
-is synchronous to avoid the browser's asynchronous wheel queue. By default the
+is synchronous to avoid the browser's asynchronous wheel queue. Partial raster is
+disabled so every repaint rasters the whole layer: partial raster re-rasterizes only
+dirty tiles, and Skia's tile-clipped coverage can differ by a few levels from the
+full raster on 1px rounded borders, so two captures of the same choreography could
+decode to different frames after the first in-flight repaint. By default the
 cursor is baked into the source, matching existing recordings. Pass
 `--cursor=hidden` to paint no cursor and mark the take `cursor_free: true`, so the
 renderer draws its own vector cursor from the pointer track instead
