@@ -164,7 +164,8 @@ export function holdPath(solved: CameraFrame[], beats: Beat[], decisions: Decisi
   const dominant = (h: Hold) => during(h).sort((p, q) => overlap(q, h) - overlap(p, h))[0];
   const span = (lo: number, len: number, slo: number, slen: number, g: number) => slen + 2 * g <= len
     ? lo <= slo - g && lo + len >= slo + slen + g : lo >= slo - g && lo + len <= slo + slen + g;
-  const shows = (r: Rect, s: Rect, g = GAP) => span(r.x, r.w, s.x, s.w, g) && span(r.y, r.h, s.y, s.h, g);
+  // The gap is GAP source px and at least GUARD px on screen.
+  const shows = (r: Rect, s: Rect, g = Math.max(GAP, GUARD * r.w / K[0])) => span(r.x, r.w, s.x, s.w, g) && span(r.y, r.h, s.y, s.h, g);
 
   // (a) Landmark: a framing whose UI subject has vanished (no ink left) widens to the
   // smallest zone of that beat around it. A path zone is the pointer's trail, not a landmark.
