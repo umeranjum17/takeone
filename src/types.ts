@@ -167,6 +167,8 @@ export interface TakeMeta extends TakeEdits {
   /** "hyprland" | "none" */
   pointer: string;
   events?: string;
+  /** Capture was cursor-free; the renderer draws the vector cursor from the pointer track. */
+  cursor_free?: boolean;
   /** ms since take start; absent for an untrimmed take */
   trim?: { start: number; end: number };
   /** Capture length in ms, taken from the same monotonic clock as `trim.end`. */

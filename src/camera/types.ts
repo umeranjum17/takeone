@@ -71,6 +71,8 @@ export interface TakeMeta extends TakeEdits {
   device?: "android" | "ios";
   theme?: string;
   id?: string;
+  /** Frames were captured without a system cursor; render the drawn vector cursor. */
+  cursor_free?: boolean;
   width: number;
   height: number;
   fps?: number;

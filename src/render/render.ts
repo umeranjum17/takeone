@@ -12,10 +12,11 @@ import type { Beat, Decision, TakeMeta } from "../camera/types.ts";
 import { blurGraph, keycapAss, keycapBackdropGraph, keycapMaskAss, keycapObstacles, overlayRegions, spotlightAss, spotlightGraph, toastWindows } from "./overlays.ts";
 import { motionBlurGraph, shutterPlan } from "./motion-blur.ts";
 import { idleSqueezes, purposefulEnd, setptsExpr, warp, warpBeats } from "./pace.ts";
+import { cursorAss } from "./cursor.ts";
+import { firstFrameTimeMs, readEvents } from "../perceive/decode.ts";
 import { phoneTapShots } from "./phone.ts";
 import { holdPath, videoFrames } from "./framing.ts";
 import { typingBursts, editBeats, editTimeline, validateEdits, validateZooms } from "./edits.ts";
-import { firstFrameTimeMs, readEvents } from "../perceive/decode.ts";
 import {
   bandEligible, bandFrames, bandLayout, bandText, beatClicks, captionAss, cardFilter, clickAss, measureAss, sourceViewport, stageFrames, stageGeometry, stageImageFilter,
   takeCaptions, type Caption, type CaptionInk,
@@ -148,6 +149,26 @@ export async function renderTake(dir: string, d?: CameraDefaults): Promise<{ out
   await writeFile(join(dir, "motion-blur.json"), JSON.stringify(shutter.metrics, null, 2));
   const camera = motionBlurGraph(cameraFrames, shutter, cameraW, cameraH, view);
 
+  // A cursor-free take gets a drawn vector cursor from its recorded pointer
+  // track, projected through the camera and rasterised at output resolution.
+  const cursorFile = join(dir, "cursor.ass");
+  let cursorOverlay = "";
+  if (meta.cursor_free === true) {
+    // A cursor-free take must carry its pointer track; a missing or invalid
+    // events.jsonl is a real input error, so it surfaces rather than rendering
+    // a silently cursor-less video.
+    const events = await readEvents(join(dir, "events.jsonl"));
+    const drawn = cursorAss({
+      events, videoStartMs: firstFrameTimeMs(join(dir, "frames.tsv"), meta),
+      trimStart, trimEnd, outTime, frames: stageCamera, d, duration,
+      originX: band ? 0 : stage.screenX, originY: band ? 0 : stage.screenY,
+    });
+    if (hasDialogue(drawn)) {
+      await writeFile(cursorFile, drawn);
+      cursorOverlay = `,ass=${filterPath(cursorFile)}:fontsdir=${filterPath(FONTS_DIR)}`;
+    }
+  }
+
   const outputDir = join(dir, "out");
   await mkdir(outputDir, { recursive: true });
   const id = meta.id ?? basename(dir);
@@ -214,7 +235,7 @@ export async function renderTake(dir: string, d?: CameraDefaults): Promise<{ out
       `[composed]null[keycapInput]`,
       keycapBackdropGraph(duration, d, filterPath(keyMaskFile)),
     ] : []),
-    `${hasDialogue(keys) ? "[keycapOutput]" : "[composed]"}null${captionsOverlay}${keysOverlay}`
+    `${hasDialogue(keys) ? "[keycapOutput]" : "[composed]"}null${cursorOverlay}${captionsOverlay}${keysOverlay}`
       // Fading toward a flat colour also fades the stage grain, so dark gradients band in
       // 8-bit. The dither has to stay above one 8-bit level (c0s=6 measures 0.73 luma levels
       // and anything under c0s=4 rounds away at 8-bit) and at full strength for the whole

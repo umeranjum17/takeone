@@ -32,9 +32,13 @@ Node's built-in WebSocket sends CDP commands to a throwaway browser profile.
 Frame numbers drive the virtual JavaScript clock, timeout callbacks and paused
 CSS animations. Native CSS transitions and caret blinking are disabled in this
 fixture's headless presentation. Input uses CDP mouse/key dispatch; feed scrolling
-is synchronous to avoid the browser's asynchronous wheel queue. The cursor is
-baked into the source, matching existing recordings. PNG frames are streamed to
-ffmpeg with backpressure, and encoded as lossless VP9 in yuv420p at constant 60 fps.
+is synchronous to avoid the browser's asynchronous wheel queue. By default the
+cursor is baked into the source, matching existing recordings. Pass
+`--cursor=hidden` to paint no cursor and mark the take `cursor_free: true`, so the
+renderer draws its own vector cursor from the pointer track instead
+(see `../.agents/skills/verify-takeone/features/vector-cursor.md`). PNG frames are
+streamed to ffmpeg with backpressure, and encoded as lossless VP9 in yuv420p at
+constant 60 fps.
 
 The output follows the [take directory format](../README.md#files-of-a-take).
 Each captured frame has one TSV row, with a virtual receive time as integral
