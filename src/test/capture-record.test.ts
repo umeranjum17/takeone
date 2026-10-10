@@ -414,8 +414,12 @@ test("x11 acceptance: real engine records a throwaway Xvfb display", { timeout: 
       assert.equal(done.event, "done");
       const meta = JSON.parse(await readFile(join(done.take, "take.json"), "utf8")) as {
         stream: { w: number; h: number };
+        cursor_free?: boolean;
       };
       assert.ok(meta.stream.w > 0 && meta.stream.h > 0);
+      // An X11 source's root pixels never carry the server cursor, so the take
+      // is cursor-free and the renderer draws its own vector cursor.
+      assert.equal(meta.cursor_free, true);
       assert.ok((await stat(join(done.take, "screen.webm"))).size > 0);
     } finally {
       rec.child.kill("SIGKILL");

@@ -25,6 +25,8 @@ export interface TapOptions {
   mapping?: { monitor: MonitorInfo; scale: number } | null;
   /** Monotonic take-start time from process.hrtime.bigint(). */
   t0ns: bigint;
+  /** The engine owns the pointer track (hidden-cursor capture); Hyprland supplies window events only. */
+  externalPointer?: boolean;
   pollHz?: number;
   evdevPollHz?: number;
   deviceDir?: string;
@@ -42,6 +44,10 @@ export interface TapHandle {
   pointerMode: "mapped" | "none";
   eventsMode: "on" | "none";
   setMapping(mapping: { monitor: MonitorInfo; scale: number } | null): void;
+  /** Hand the pointer track to or from the engine's hidden-cursor samples. */
+  setExternalPointer(value: boolean): void;
+  /** Record one source-coordinate pointer sample from the engine's cursor track. */
+  enginePointer(x: number, y: number, visible: boolean, hotspot?: { x: number; y: number }): void;
   confirmConsent(): Promise<void>;
   warnings: string[];
   stop(): Promise<void>;
@@ -128,27 +134,27 @@ export async function startTaps(options: TapOptions): Promise<TapHandle> {
   let stopped = false;
   const { devices, missingGroup } = await evdevDevices(options.deviceDir);
   const hypr: HyprlandSockets | null = hyprlandSockets();
+  // The engine can own the pointer track: a hidden-cursor session reports
+  // source-coordinate positions, and Hyprland then supplies window events
+  // only. `externalPointer` flips when a fallback needs Hyprland back.
+  let externalPointer = options.externalPointer === true;
+  let hyprPointer = false;
+  let lastMapping: { monitor: MonitorInfo; scale: number } | null = null;
   let pointerTimer: NodeJS.Timeout | null = null;
-  const setMapping = (mapping: { monitor: MonitorInfo; scale: number } | null): void => {
-    if (stopped) return;
-    if (pointerMode === "mapped") {
-      const t = nowMs();
-      emit({ t, k: "ptr-lost" });
-      emit({ t, k: "win", cls: "", title: "", rect: null });
-    }
+  let engineCursorVisible = false;
+  if (externalPointer) pointerMode = "mapped";
+  const syncPointerMode = (): void => {
+    pointerMode = externalPointer || hyprPointer ? "mapped" : "none";
+  };
+  const stopPointerTimer = (): void => {
     if (pointerTimer !== null) clearInterval(pointerTimer);
     pointerTimer = null;
-    pointerMode = "none";
-    if (hypr === null) {
-      warnings.push("hyprland ipc not found; pointer and window events disabled");
-      return;
-    }
-    if (mapping === null) {
-      warnings.push("no monitor matches the stream size; pointer events disabled");
-      return;
-    }
-    if (devices.length === 0) return;
-    pointerMode = "mapped";
+    hyprPointer = false;
+  };
+  const startPointerTimer = (): void => {
+    if (pointerTimer !== null || stopped) return;
+    const mapping = lastMapping;
+    if (mapping === null || hypr === null || devices.length === 0) return;
     const { monitor, scale } = mapping;
     let lastPos = "";
     let lastWin = "";
@@ -157,16 +163,18 @@ export async function startTaps(options: TapOptions): Promise<TapHandle> {
       if (polls.size !== 0) return;
       const poll = (async () => {
         try {
-          const pos = await getCursorPos(hypr.socket);
-          if (pointerMode !== "mapped" || pointerTimer !== timer) return;
-          const key = `${pos.x},${pos.y}`;
-          if (key !== lastPos) {
-            lastPos = key;
-            const stream = mapLogicalToStream(pos.x, pos.y, monitor, scale);
-            emit({ t: nowMs(), k: "ptr", x: stream.x, y: stream.y });
+          if (hyprPointer && !externalPointer) {
+            const pos = await getCursorPos(hypr.socket);
+            if (!hyprPointer || pointerTimer !== timer) return;
+            const key = `${pos.x},${pos.y}`;
+            if (key !== lastPos) {
+              lastPos = key;
+              const stream = mapLogicalToStream(pos.x, pos.y, monitor, scale);
+              emit({ t: nowMs(), k: "ptr", x: stream.x, y: stream.y });
+            }
           }
           const win = await getActiveWindow(hypr.socket);
-          if (pointerMode !== "mapped" || pointerTimer !== timer) return;
+          if (pointerTimer !== timer) return;
           const winKey = win === null ? "none" : `${win.address}|${win.title}|${win.rect.join(",")}`;
           if (winKey !== lastWin) {
             lastWin = winKey;
@@ -179,14 +187,13 @@ export async function startTaps(options: TapOptions): Promise<TapHandle> {
             });
           }
         } catch {
-          if (pointerMode === "mapped" && pointerTimer === timer) {
-            pointerMode = "none";
+          if (pointerTimer === timer) {
             const t = nowMs();
-            emit({ t, k: "ptr-lost" });
+            if (hyprPointer) emit({ t, k: "ptr-lost" });
             emit({ t, k: "win", cls: "", title: "", rect: null });
-            warnings.push("hyprland ipc unavailable; pointer and window events disabled");
-            if (pointerTimer !== null) clearInterval(pointerTimer);
-            pointerTimer = null;
+            warnings.push("hyprland ipc unavailable; window events disabled");
+            stopPointerTimer();
+            syncPointerMode();
           }
         }
       })();
@@ -194,6 +201,48 @@ export async function startTaps(options: TapOptions): Promise<TapHandle> {
       void poll.finally(() => polls.delete(poll));
     }, Math.round(1000 / hz));
     pointerTimer = timer;
+  };
+  const setMapping = (mapping: { monitor: MonitorInfo; scale: number } | null): void => {
+    if (stopped) return;
+    stopPointerTimer();
+    lastMapping = mapping;
+    if (hypr === null) {
+      warnings.push(externalPointer
+        ? "hyprland ipc not found; window events disabled"
+        : "hyprland ipc not found; pointer and window events disabled");
+      syncPointerMode();
+      return;
+    }
+    if (mapping === null) {
+      warnings.push(externalPointer
+        ? "no monitor matches the stream size; window events disabled"
+        : "no monitor matches the stream size; pointer events disabled");
+      syncPointerMode();
+      return;
+    }
+    if (devices.length === 0) {
+      syncPointerMode();
+      return;
+    }
+    hyprPointer = !externalPointer;
+    startPointerTimer();
+    syncPointerMode();
+  };
+  const setExternalPointer = (value: boolean): void => {
+    if (stopped || externalPointer === value) return;
+    externalPointer = value;
+    if (value) {
+      if (hyprPointer) {
+        hyprPointer = false;
+        emit({ t: nowMs(), k: "ptr-lost" });
+      }
+    } else if (pointerTimer !== null) {
+      hyprPointer = true;
+    } else {
+      startPointerTimer();
+      hyprPointer = pointerTimer !== null;
+    }
+    syncPointerMode();
   };
   if (options.mapping !== undefined) setMapping(options.mapping);
 
@@ -299,6 +348,25 @@ export async function startTaps(options: TapOptions): Promise<TapHandle> {
     eventsMode,
     warnings,
     setMapping,
+    setExternalPointer,
+    enginePointer(x: number, y: number, visible: boolean, hotspot?: { x: number; y: number }): void {
+      if (stopped || !externalPointer) return;
+      if (!visible) {
+        if (engineCursorVisible) {
+          engineCursorVisible = false;
+          emit({ t: nowMs(), k: "ptr-lost" });
+        }
+        return;
+      }
+      engineCursorVisible = true;
+      emit({
+        t: nowMs(),
+        k: "ptr",
+        x,
+        y,
+        ...(hotspot === undefined ? {} : { hs: [hotspot.x, hotspot.y] as [number, number] }),
+      });
+    },
     async confirmConsent(): Promise<void> {
       if (out !== null || stopped) return;
       const opened = await fs.open(eventsPath, "a", 0o600);

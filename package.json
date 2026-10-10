@@ -20,7 +20,7 @@
   "dependencies": {
     "@byokit/decide": "0.6.0",
     "@byokit/secrets": "0.3.0",
-    "@desklink/host": "0.1.0",
+    "@desklink/host": "0.5.3",
     "werift": "0.24.4"
   },
   "devDependencies": {

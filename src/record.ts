@@ -66,6 +66,18 @@ export function defaultStateDir(): string {
   return process.env.TAKEONE_STATE_DIR ?? join(homedir(), ".local", "state", "takeone");
 }
 
+/**
+ * Hidden-cursor policy from `TAKEONE_CURSOR`. "hidden" forces the request;
+ * "embedded" models a source that cannot hide the cursor, so the system cursor
+ * is kept; anything else is the default auto policy. An X11 source is always
+ * asked for hidden (its frames never carry the cursor), so "embedded" is a
+ * no-op there.
+ */
+export function cursorPolicyFromEnv(): "hidden" | "embedded" | undefined {
+  const value = process.env.TAKEONE_CURSOR;
+  return value === "hidden" || value === "embedded" ? value : undefined;
+}
+
 async function writePidFile(stateDirPath: string, takeDir: string, startedAt: string): Promise<void> {
   await mkdir(stateDirPath, { recursive: true, mode: 0o700 });
   const startTicks = processStartTicks(process.pid);
@@ -91,6 +103,9 @@ export async function runRecord(options: RecordOptions = {}): Promise<RecordResu
   const stateDirPath =
     options.stateDirPath !== undefined ? resolve(options.stateDirPath) : defaultStateDir();
   const tapsEnabled = (options.events ?? "own") !== "none";
+  // A cursor-free session makes the engine the pointer source; Hyprland is the
+  // fallback if the source cannot hide the cursor.
+  const cursorPolicy = cursorPolicyFromEnv();
   if (options.maxSeconds !== undefined && (!Number.isFinite(options.maxSeconds) || options.maxSeconds <= 0)) {
     throw new RecordError("invalid-arguments", "--max-seconds must be a positive number of seconds", "pass e.g. --max-seconds 60");
   }
@@ -153,7 +168,13 @@ export async function runRecord(options: RecordOptions = {}): Promise<RecordResu
       maxTimer.unref?.();
     }
     if (tapsEnabled) {
-      taps = await startTaps({ eventsPath: join(takeDir, "events.jsonl"), t0ns });
+      taps = await startTaps({
+        eventsPath: join(takeDir, "events.jsonl"),
+        t0ns,
+        // An X11 source is always cursor-free and always asked for hidden, so
+        // the engine owns the pointer track there whatever the policy says.
+        externalPointer: cursorPolicy !== "embedded" || (options.source ?? { kind: "portal" }).kind === "x11",
+      });
     }
     if (stopRequested) throw new RecordError("capture-stopped", "recording stopped during setup", "run `takeone record` again");
     let mapping: { monitor: MonitorInfo; scale: number } | null = null;
@@ -165,6 +186,10 @@ export async function runRecord(options: RecordOptions = {}): Promise<RecordResu
       fps,
       bitrateKbps,
       source: options.source ?? { kind: "portal" },
+      cursor: cursorPolicy,
+      onCursor: (sample) => {
+        taps?.enginePointer(sample.x, sample.y, sample.visible, sample.hotspot);
+      },
       savedToken: async () => {
         if (stopRequested) throw new RecordError("capture-stopped", "recording stopped during setup", "run `takeone record` again");
         const token = await consumeToken(stateDirPath, () => stopRequested);
@@ -193,6 +218,10 @@ export async function runRecord(options: RecordOptions = {}): Promise<RecordResu
         : undefined,
     });
     if (stopRequested) throw new RecordError("capture-stopped", "recording stopped during setup", "run `takeone record` again");
+    // The engine owns the pointer only for a cursor-free session; otherwise
+    // Hyprland must supply the track after all. The open reply decides, not the
+    // pre-open guess: an X11 `embedded` request comes back cursor-free too.
+    if (taps !== null) taps.setExternalPointer(capture.cursor.free);
     try {
       options.onRecording?.(takeDir);
     } catch {
@@ -209,6 +238,10 @@ export async function runRecord(options: RecordOptions = {}): Promise<RecordResu
     const firstFrameMs = clock === null || frames[0] === undefined ? 0 : frames[0].rtpTs / 90 + clock.offsetMs;
     const durationMs = Math.max(0, Number(stoppedAt.monoNs - t0ns) / 1e6);
     const warnings = [...(taps?.warnings ?? [])];
+    if (capture.cursor.fallback !== null) {
+      warnings.push(capture.cursor.fallback);
+      console.error(capture.cursor.fallback);
+    }
     const clockWarn = clockWarning(clock);
     if (clockWarn !== null) warnings.push(clockWarn);
 
@@ -225,6 +258,7 @@ export async function runRecord(options: RecordOptions = {}): Promise<RecordResu
       monitor: monitorRecord,
       pointer: taps?.pointerMode ?? "none",
       events: taps?.eventsMode ?? "none",
+      cursor_free: capture.cursor.free,
       warnings,
       clock,
       trim: computeTrim(taps === null ? { inputMs: [] } : taps.summary, durationMs, firstFrameMs),

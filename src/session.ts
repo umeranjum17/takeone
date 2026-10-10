@@ -66,6 +66,27 @@ function openRefused(error: unknown): RecordError {
   );
 }
 
+/** One pointer sample from a hidden-cursor session, in source coordinates. */
+export interface CursorSample {
+  x: number;
+  y: number;
+  visible: boolean;
+  /** The cursor image's hotspot offset, where the compositor reports one. */
+  hotspot?: { x: number; y: number };
+}
+
+/** What a hidden-cursor capture came out as, for take.json and the renderer. */
+export interface CursorCapture {
+  /** The engine's open reply: "hidden" | "metadata" | "embedded" | "unavailable". */
+  mode: string | null;
+  /** The engine has a source-coordinate position track for this session. */
+  positions: boolean;
+  /** Frames carry no cursor and a pointer track is being recorded. */
+  free: boolean;
+  /** A plain, user-facing line when cursor-free capture was wanted but not used. */
+  fallback: string | null;
+}
+
 export interface CaptureOptions {
   engine: ResolvedEngine;
   takeDir: string;
@@ -74,6 +95,17 @@ export interface CaptureOptions {
   bitrateKbps: number;
   /** Portal consent dialog by default; x11 captures a display with no prompt. */
   source?: SourceRequest;
+  /**
+   * Hidden-cursor policy. "auto" (default) asks the engine to leave the cursor
+   * out whenever the source advertises it; "hidden" forces the request and
+   * falls back on a refusal; "embedded" models a source that cannot hide the
+   * cursor, so the system cursor is kept. An X11 source is always asked for
+   * hidden: its frames never carry the cursor, and the request is what enables
+   * the position track.
+   */
+  cursor?: "auto" | "hidden" | "embedded";
+  /** Source-coordinate cursor samples from a hidden-cursor session. */
+  onCursor?: (sample: CursorSample) => void;
   savedToken: string | null | (() => Promise<string | null>);
   onConsent?: () => Promise<void>;
   onGeometry?: (geometry: SurfaceGeometry) => Promise<void>;
@@ -89,6 +121,8 @@ export interface Capture {
   opened: OpenedSession;
   /** From the handshake capabilities, e.g. "desklink-host/0.1.0". */
   engineVersion: string;
+  /** Hidden-cursor outcome: what the engine did and whether the take is cursor-free. */
+  cursor: CursorCapture;
   frames(): FrameSample[];
   /** Graceful shutdown; resolves with the engine's final metrics. */
   stop(): Promise<SessionMetrics | null>;
@@ -124,6 +158,15 @@ export async function startCapture(options: CaptureOptions): Promise<Capture> {
       } else if (event.event === "session.candidate") {
         if (peerConnection === null || !remoteDescriptionReady) engineCandidates.push(event);
         else void addEngineCandidate(peerConnection, event);
+      } else if (event.event === "session.cursor") {
+        // Hidden-cursor positions arrive on their own cadence, independent of
+        // pixel damage. They are already in source coordinates.
+        options.onCursor?.({
+          x: event.params.x,
+          y: event.params.y,
+          visible: event.params.visible,
+          ...(event.params.hotspot === undefined ? {} : { hotspot: event.params.hotspot }),
+        });
       }
     },
   }).catch((error: unknown) => {
@@ -136,17 +179,40 @@ export async function startCapture(options: CaptureOptions): Promise<Capture> {
 
   let opened: OpenedSession;
   let engineVersion = "desklink-host";
+  // Hidden-cursor capture: ask the engine to leave the cursor out of the
+  // frames and report its position, when the source advertises it. An
+  // `embedded` policy models a source that cannot hide the cursor.
+  const cursorPolicy = options.cursor ?? "auto";
+  // An X11 source's root GetImage/`MIT-SHM` never contains the server cursor,
+  // so its frames are cursor-free whatever mode is asked; the engine never
+  // composites it. Requesting hidden there is what turns on the position
+  // track, so we always ask for it, an `embedded` policy included.
+  const sourceIsX11 = options.source?.kind === "x11";
+  let advertisedCursorFree = false;
   try {
-    // Our own deadline governs, so a timeout cancels via a clean engine
-    // shutdown (stdin EOF -> engine exit -> the portal request's sender leaves
-    // the session bus -> the prompt is withdrawn). The client's own, later
-    // timeout would SIGKILL instead, which can leave the picker on screen.
-    const consentTimeoutMs = options.consentTimeoutMs ?? CONSENT_TIMEOUT_MS;
+    const caps = await client.capabilities();
+    advertisedCursorFree =
+      cursorPolicy !== "embedded" && (caps.capture.cursor_modes?.includes("hidden") ?? false);
+  } catch {
+    // capabilities are advisory; without them we do not ask for hidden.
+  }
+  let requestCursor: "hidden" | "embedded" =
+    sourceIsX11 || cursorPolicy === "hidden" || (cursorPolicy === "auto" && advertisedCursorFree)
+      ? "hidden"
+      : "embedded";
+
+  const consentTimeoutMs = options.consentTimeoutMs ?? CONSENT_TIMEOUT_MS;
+  // Our own deadline governs, so a timeout cancels via a clean engine shutdown
+  // (stdin EOF -> engine exit -> the portal request's sender leaves the session
+  // bus -> the prompt is withdrawn). The client's own, later timeout would
+  // SIGKILL instead, which can leave the picker on screen.
+  const openWithConsent = async (request: "hidden" | "embedded"): Promise<OpenedSession> => {
     const token = typeof savedToken === "function" ? await savedToken() : savedToken;
     const openPromise = client.openSession(
       {
         source: options.source ?? { kind: "portal" },
         permissions: ["view"], // takeone never asks for input authority
+        ...(request === "hidden" ? { cursor: "hidden" as const } : {}),
         maxFps: fps,
         maxWidth: 7680,
         maxHeight: 4320,
@@ -182,25 +248,46 @@ export async function startCapture(options: CaptureOptions): Promise<Capture> {
             );
           });
     try {
-      opened = await Promise.race(
+      return await Promise.race(
         interrupted === null
           ? [openPromise, deadline]
           : [openPromise, deadline, interrupted],
       );
-    } catch (error) {
+    } finally {
       cancelDeadline();
-      // Cancel the portal request: shut the engine down cleanly so its DBus
-      // session-bus connection closes and the compositor withdraws the prompt.
-      await client.stop().catch(() => undefined);
-      throw error;
     }
-    cancelDeadline();
+  };
+  try {
+    try {
+      opened = await openWithConsent(requestCursor);
+    } catch (error) {
+      // A portal may advertise the mode and still refuse it; a second open with
+      // the system cursor is the plain fallback. The refusal happens before any
+      // consent prompt, so the retry does not ask twice.
+      if (requestCursor === "hidden" && error instanceof EngineRefused && error.code === "cursor-unavailable") {
+        requestCursor = "embedded";
+        opened = await openWithConsent("embedded");
+      } else {
+        throw error;
+      }
+    }
   } catch (error) {
     await client.stop().catch(() => undefined);
     await checkTokenWrites();
     if (error instanceof RecordError) throw error; // already structured
     throw openRefused(error);
   }
+  // What the engine actually did (the open reply), not just what was asked.
+  const openedCursor = opened.cursor;
+  const cursorMode = openedCursor?.mode ?? null;
+  const cursorPositions = openedCursor?.positions ?? false;
+  const gotCursorFree = cursorMode === "hidden" || cursorMode === "metadata";
+  const cursorFree = gotCursorFree && cursorPositions;
+  const cursorFallback = cursorFree
+    ? null
+    : gotCursorFree
+      ? "the capture is cursor-free but the pointer position is unavailable; no cursor will be drawn"
+      : "cursor-free capture is unavailable on this source; recording with the system cursor";
   const interrupted = options.interrupted?.then((): never => {
     throw new RecordError("capture-stopped", "recording stopped during negotiation", "run `takeone record` again");
   });
@@ -335,6 +422,7 @@ export async function startCapture(options: CaptureOptions): Promise<Capture> {
     sessionId: opened.sessionId,
     opened,
     engineVersion,
+    cursor: { mode: cursorMode, positions: cursorPositions, free: cursorFree, fallback: cursorFallback },
     frames: () => frames,
     async stop(): Promise<SessionMetrics | null> {
       if (stopped) return null;
