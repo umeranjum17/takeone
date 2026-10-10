@@ -5,6 +5,7 @@ README Quickstart 3/3b/3c: capture a take for later `make`. Desktop recording ca
 ## Sub-features
 
 - Desktop record (`takeone record`, Linux/Wayland/Hyprland): VP9 `screen.webm`, `frames.tsv`, `events.jsonl` (pointer/clicks/wheel/key classes/window; typed characters are never recorded), portal consent with a persisted single-use restore token.
+- Cursor-free desktop capture: the session opens with `cursor:"hidden"` when the source advertises it, keeping Desklink's `session.cursor` pointer track and marking the take `cursor_free: true`; a refused hidden falls back to embedded with one plain message and `cursor_free: false`. See [vector-cursor.md](vector-cursor.md) for the X11 nuance and the refusal proxy.
 - Android record (`record --android <serial>`): H.264 via vendored scrcpy-server + `getevent` touch; `--touch-offset-ms N` calibrates timing; needs `adb` and USB debugging.
 - iOS Simulator record (`record --ios-sim`, macOS): H.264 via `xcrun simctl io booted recordVideo`, video-only (`take.json` carries `"events": "none"`).
 - Stop (`takeone stop`, SIGINT to the pid in the state dir) and listing (`takeone` bare / `takeone list`, TOON `takes[N]{id,status,duration_s,frames,pointer}`).
@@ -36,3 +37,4 @@ Proving end state: a new take directory with `take.json`, `screen.webm`, `frames
 - Missing/unreadable evdev makes recording continue video-only (`events: "none"`); unmatched monitor disables pointer mapping — both degrade planning, they don't fail the take.
 - Android takes carry encoder timestamps including still holds; portrait output defaults to 1080×1920 unless `--set out_w=1920 --set out_h=1080` at make time.
 - `scripts/e2e/uiboxes-record.sh` (Xvfb + Chromium fixture) is the headless scripted variant; it is heavy work — hold the shared heavy lock in fleet contexts.
+- `TAKEONE_CURSOR` (`hidden`/`embedded`) overrides the cursor policy; on an X11 source `embedded` is a no-op (the engine never bakes a cursor there), so a `capture record --source x11:*` take is cursor-free regardless.
