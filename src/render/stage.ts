@@ -105,6 +105,11 @@ export function stageFrames(frames: CameraFrame[], width: number, height: number
   const aspect = d.out_w / d.out_h;
   const narrow = aspect < width / height - 1e-6;
   const corner = cornerSize(st, d);
+  // Crop-to-fill avoids each rounded card corner only as far as the window actually reaches it: it
+  // is inset horizontally by the corner's depth at that height, not by the whole radius on all four
+  // sides, so a frame that stays off the side corners can still show the top or bottom edge (a
+  // top-bar control, say) without exposing any background.
+  const radius = d.corner_radius / st.restScale;
   const fitW = narrow ? Math.min(width - 2 * corner, (height - 2 * corner) * aspect) : 0;
   return frames.map((f) => {
     const cx = f.x + f.w / 2 + st.screenX;
@@ -112,13 +117,10 @@ export function stageFrames(frames: CameraFrame[], width: number, height: number
     if (narrow) {
       const w = Math.min(f.w, fitW);
       const h = w / aspect;
-      return {
-        t: f.t,
-        x: clamp(cx - w / 2, st.screenX + corner, st.screenX + width - corner - w),
-        y: clamp(cy - h / 2, st.screenY + corner, st.screenY + height - corner - h),
-        w,
-        h,
-      };
+      const y = clamp(cy - h / 2, st.screenY, st.screenY + height - h);
+      const depth = (edge: number) => edge > 0 ? radius - Math.sqrt(Math.max(0, radius * radius - edge * edge)) : 0;
+      const inset = Math.max(depth(st.screenY + radius - y), depth(y + h - (st.screenY + height - radius)));
+      return { t: f.t, x: clamp(cx - w / 2, st.screenX + inset, st.screenX + width - inset - w), y, w, h };
     }
     const zoom = st.baseW / f.w;
     const keep = top > 1 ? 1 - smooth(clamp((zoom - 1) / (top - 1), 0, 1)) : 1;

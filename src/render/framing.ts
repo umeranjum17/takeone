@@ -97,7 +97,7 @@ export function holdPath(solved: CameraFrame[], beats: Beat[], decisions: Decisi
 
   // The solver's settled framings are the targets.
   const main = solved.map(visible);
-  const holds: Hold[] = [], moved = (p: Rect, q: Rect) => Math.abs(Math.log(q.w / p.w)) + Math.hypot(q.x + q.w / 2 - p.x - p.w / 2, q.y + q.h / 2 - p.y - p.h / 2) / q.w;
+  let holds: Hold[] = [], moved = (p: Rect, q: Rect) => Math.abs(Math.log(q.w / p.w)) + Math.hypot(q.x + q.w / 2 - p.x - p.w / 2, q.y + q.h / 2 - p.y - p.h / 2) / q.w;
   for (let i = 0; i < N; i++) {
     if (i && moved(main[i - 1]!, main[i]!) >= SETTLE) continue;
     let j = i; while (j + 1 < N && moved(main[j]!, main[j + 1]!) < SETTLE) j++;
@@ -254,6 +254,62 @@ export function holdPath(solved: CameraFrame[], beats: Beat[], decisions: Decisi
     const zv = rate(f.map(r => Math.log(r.w))), ax = rate(rate(f.map(r => K[0] * r.x / r.w))), ay = rate(rate(f.map(r => K[1] * r.y / r.h)));
     return zv.every(z => Math.abs(z) <= ZOOM_V) && rate(zv).every(z => Math.abs(z) <= ZOOM_A) && ax.every((x, i) => Math.hypot(x, ay[i]!) <= PAN_A);
   };
+  // Far click targets: the portrait crop is too narrow to show a control with its hold's subject,
+  // so give each its own hold over the approach window, framed on the control with the exact
+  // corner-aware inset so a control at the very top or bottom edge can be reached. The shoulders
+  // are sized from the eased move (half a move each side) so the target is whole from the approach
+  // start through the press and the subject returns promptly after.
+  if (narrow) {
+    const R = d.corner_radius / st.restScale, CAP = Math.round(MOVE_MAX_S * d.fps);
+    const depth = (e: number) => e > 0 ? R - Math.sqrt(Math.max(0, R * R - e * e)) : 0;
+    const fitsBoth = (p: Rect, q: Rect) => Math.max(p.x + p.w, q.x + q.w) - Math.min(p.x, q.x) + 2 * GAP <= wmax
+      && Math.max(p.y + p.h, q.y + q.h) - Math.min(p.y, q.y) + 2 * GAP <= wmax / a;
+    const targetRect = (boxes: Rect[]): Rect | undefined => {
+      const x0 = Math.min(...boxes.map(b => b.x)), y0 = Math.min(...boxes.map(b => b.y));
+      const x1 = Math.max(...boxes.map(b => b.x + b.w)), y1 = Math.max(...boxes.map(b => b.y + b.h));
+      const need = Math.max(x1 - x0 + 2 * GUARD, (y1 - y0 + 2 * GUARD) * a, wmin);
+      for (let w = Math.min(wmax, Math.floor((H - (y0 - GUARD - oy)) * a)); w >= need; w -= 2) {
+        const h = w / a, y = clamp(y0 - GUARD, oy, oy + H - h);
+        const i = Math.max(depth(oy + R - y), depth(y + h - (oy + H - R))), lo = ox + i, hi = ox + W - i - w;
+        if (lo > hi) continue;
+        const x = clamp((x0 + x1) / 2 - w / 2, lo, hi);
+        if (x <= x0 - GUARD && x + w >= x1 + GUARD && y <= y0 - GUARD && y + h >= y1 + GUARD) return { x, y, w, h };
+      }
+    };
+    const need = (A: Rect, B: Rect) => { let n = 2; while (!gates(A, B, n) && n < CAP) n++; return n; };
+    // The click belongs to the hold it overlaps, else the hold whose start precedes it.
+    const holdOf = (s: Subject) => (holds.find(h => overlap(s, h) > 2 / d.fps) ?? holds.filter(h => T(h.a) <= s.beat.t1).at(-1))!;
+    const far = clicks.filter(s => { const h = holdOf(s), t = h && dominant(h); return h && (!t || !fitsBoth(s.box, t.box)); })
+      .sort((p, q) => p.beat.t0 - q.beat.t0);
+    const groups: { s: Subject[]; t0: number; t1: number }[] = [];
+    for (const s of far) {
+      const g = groups.at(-1);
+      if (g && s.beat.t0 <= g.t1 + 2 / d.fps) g.s.push(s); else groups.push({ s: [s], t0: s.beat.t0, t1: s.beat.t1 });
+      const cur = groups.at(-1)!; cur.t1 = Math.max(cur.t1, s.beat.t1);
+    }
+    for (const g of groups) {
+      const r = targetRect(g.s.map(s => s.box)); if (!r) continue;
+      const cf = Math.round(g.t0 * d.fps), ct = Math.round(g.t1 * d.fps);
+      // The framings either side are the holds the camera is in at the window edges (a solver hold
+      // can span the whole window), else the nearest hold before/after.
+      const prev = holds.find(h => h.a <= cf && cf <= h.b) ?? holds.filter(h => h.b < cf).at(-1);
+      const next = holds.find(h => h.a <= ct && ct <= h.b) ?? holds.find(h => h.a > ct);
+      // A shot must rest at least minShot (bounce gate), so grow the approach shoulder (never the
+      // return, which would keep the camera off the subject after the press) to reach that length.
+      const minHold = Math.ceil(v.minShot * d.fps), grow = Math.max(0, minHold - (ct - cf + 1));
+      const lead = (prev ? Math.ceil(need(prev.r, r) / 2) + 2 : 4) + grow, lag = next ? Math.ceil(need(r, next.r) / 2) + 2 : 4;
+      const a0 = Math.max(0, cf - lead), b1 = Math.min(N - 1, ct + lag);
+      const kept: Hold[] = [];
+      for (const h of holds) {
+        if (h.b < a0 || h.a > b1) { kept.push(h); continue; }
+        if (h.a < a0) kept.push({ ...h, b: a0 - 1 });
+        if (h.b > b1) kept.push({ ...h, a: b1 + 1 });
+      }
+      kept.push({ a: a0, b: b1, r, why: `click target ${g.s.map(s => s.beat.id).join("+")}` });
+      holds = kept.sort((p, q) => p.a - q.a);
+    }
+  }
+
   const dirs = (A: Rect, B: Rect) => [Math.log(B.w / A.w) * 100, K[0] * (B.x / B.w - A.x / A.w), K[1] * (B.y / B.h - A.y / A.h)];
   let moves: { a: number; b: number }[];
   for (;;) {
@@ -269,7 +325,7 @@ export function holdPath(solved: CameraFrame[], beats: Beat[], decisions: Decisi
     });
     // A hold its moves squeeze out, or too short between opposite moves, goes.
     const drop = holds.findIndex((h, k) => {
-      if (k === 0 || k === holds.length - 1) return false;
+      if (k === 0 || k === holds.length - 1 || h.why.startsWith("click target")) return false;
       const left = T(moves[k]!.a) - T(moves[k - 1]!.b), i = dirs(holds[k - 1]!.r, h.r), o = dirs(h.r, holds[k + 1]!.r);
       return left < 0 || (left < v.minShot && i.some((x, j) => Math.abs(x) > 0.5 && Math.abs(o[j]!) > 0.5 && x * o[j]! < 0));
     });
