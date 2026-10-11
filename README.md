@@ -32,7 +32,7 @@ takeone plans the shots afterwards from what actually happened on screen, then r
 
 1. **Record** the whole screen, plus your clicks and key presses. Key presses are logged by type only, never as letters.
 
-   <img src="docs/assets/readme/step-record.webp" width="640" alt="The raw recording: the Tidewater board with the new Draft launch announcement card in To do" />
+   <img src="docs/assets/readme/step-record.webp" width="640" alt="The raw recording: the Tidewater board with the new Draft launch announcement card at the top of To do" />
 
 2. **Plan** the camera: takeone splits the take into moments and finds what you acted on (the green box).
 
@@ -43,7 +43,7 @@ takeone plans the shots afterwards from what actually happened on screen, then r
    <picture>
      <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/step-render-dark.webp" />
      <source media="(prefers-color-scheme: light)" srcset="docs/assets/readme/step-render-light.webp" />
-     <img src="docs/assets/readme/step-render-light.webp" width="640" alt="The rendered frame, pushed in on the New task dialog, with a click ring on the Priority field" />
+     <img src="docs/assets/readme/step-render-light.webp" width="640" alt="A 1:1 detail of the rendered frame: a click ring on the Priority field of the New task dialog" />
    </picture>
 
 ## Quick start
