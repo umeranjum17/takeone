@@ -182,7 +182,7 @@ For an existing planned recording take, render reads `screen.webm`, `take.json` 
 
 To produce a scripted board take without a desktop, use the [headless demo-scene guide](headless-scene.md).
 
-`scripts/e2e` records a harmless real take without touching your own apps. It stages and drives the board shown in the README:
+`scripts/e2e` records a harmless real take without touching your own apps. It stages and drives the board shown in the [README](../README.md):
 
 - `scene.sh start PROFILE_DIR [WORKSPACE]` opens `scene.html` fullscreen on an empty Hyprland workspace (default 9). The page is a fictional project board with dummy content, run in a throwaway Chromium profile.
 - `drive.py serve FIFO` creates a uinput virtual mouse and keyboard (group `input`), so the recorder's evdev taps see real kernel events.
@@ -197,7 +197,7 @@ scripts/e2e/scene.sh stop ~/lab/scene-profile 1          # return to your worksp
 takeone make <id> --about "Creating a task and moving it across a project board"
 ```
 
-The README hero and journey images are headless renders: the same `scripts/e2e/scene.html` board captured cursor-free by `scripts/headless-scene.mjs` (see the [headless demo-scene guide](headless-scene.md)), then planned locally and rendered by takeone.
+The README hero and journey images are headless renders: the same `scripts/e2e/scene.html` board captured cursor-free by `scripts/headless-scene.mjs` (see the [headless demo-scene guide](headless-scene.md)), then planned locally and rendered by takeone (`make --no-jev --set fps=60`, then `render --theme paper` on a copy for the light version). The hero clips are 0.8–18.6 s of those renders at double speed, 24 fps, 960 px wide, as animated WebP.
 
 ## Development
 

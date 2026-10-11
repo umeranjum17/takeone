@@ -38,13 +38,13 @@ takeone plans the shots afterwards from what actually happened on screen, then r
   </picture>
 </p>
 
-1. **Record** the whole screen, plus your clicks and key types. The characters you type are never recorded.
+1. **Record** the whole screen, plus your clicks and key presses. Key presses are logged by type only, never as letters.
 2. **Plan** the camera: takeone splits the take into moments and finds what you acted on (the green box).
 3. **Render** a framed, paced MP4 on a themed stage, with click rings, a crisp cursor and captions.
 
 ## Quick start
 
-You need [Node.js](https://nodejs.org/) 22.19 or newer and [ffmpeg](https://ffmpeg.org/) on your PATH.
+On Linux, you need [Node.js](https://nodejs.org/) 22.19 or newer, [ffmpeg](https://ffmpeg.org/) on your PATH, and the Liberation Sans or DejaVu Sans font (most distributions ship one).
 
 ```sh
 git clone https://github.com/umeranjum17/takeone && cd takeone
@@ -52,18 +52,18 @@ npm install
 node scripts/synth-take.ts tmp/synth-demo && node bin/takeone.mjs make "$PWD/tmp/synth-demo" --no-jev
 ```
 
-Your video is at `tmp/synth-demo/out/synth-demo.mp4`. The demo take is generated, so you need no screen recorder or API key, and planning runs offline.
+Your video is at `tmp/synth-demo/out/synth-demo.mp4`. The demo recording is generated, so you need no screen recorder or API key, and planning runs offline.
 To record your own screen, a phone or the iOS Simulator, follow the [guide](docs/guide.md#quickstart).
 
 ## Features
 
-- **Records your real workflow.** The desktop on Linux (Wayland and Hyprland), an Android phone or emulator, or the iOS Simulator.
+- **Records your real workflow.** The Linux desktop (Wayland and Hyprland), an Android phone or emulator, or the iOS Simulator on a Mac.
 - **Plans the camera after you record.** From your clicks, typing and what changed on screen.
 - **Keeps the action readable.** Click rings, a drawn vector cursor and keycaps for shortcuts like `Ctrl+S`.
 - **Looks finished out of the box.** A rounded screen card on a stage, in six themes from dark `midnight` to cream `paper`.
-- **Titles and captions.** Set in a band below the screen, never over your app.
+- **Titles and captions.** In 16:9 videos they sit in a band below the screen, never over your app ([how](docs/look.md)).
 - **Paces itself.** Idle stretches play faster, typing can too, and spotlight and blur boxes follow the content.
-- **Private and cheap.** Works fully offline with `--no-jev`; with the Jev planner, about $0.0006 per minute of video.
+- **Private and cheap.** Works fully offline with `--no-jev`. The optional Jev AI planner gets short descriptions of what changed and cost about $0.0006 per minute of video in a [measured take](docs/cost.md).
 - **Exports what you need.** MP4 by default, plus GIF, WebM and ProRes 4444, landscape, portrait or square.
 - **Motion films from screens.** `takeone motion` turns screenshots, HTML or a URL into a short film.
 
