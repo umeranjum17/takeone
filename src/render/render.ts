@@ -7,7 +7,7 @@ import { resolveTheme } from "../themes.ts";
 import { basename, join, resolve } from "node:path";
 import type { CameraDefaults } from "../camera/defaults.ts";
 import { actionCameraMilliseconds } from "../beats/clock.ts";
-import { applyManualZooms, manualZoomLimitWarning, solveCamera } from "../camera/solver.ts";
+import { applyManualZooms, baseWidth, manualZoomLimitWarning, solveCamera } from "../camera/solver.ts";
 import { applyDragVisibility } from "../camera/gesture.ts";
 import type { Beat, Decision, TakeMeta } from "../camera/types.ts";
 import { blurGraph, keycapAss, keycapBackdropGraph, keycapMaskAss, keycapObstacles, overlayRegions, spotlightAss, spotlightGraph, toastWindows } from "./overlays.ts";
@@ -79,7 +79,9 @@ export async function renderTake(dir: string, d?: CameraDefaults): Promise<{ out
     .map((line) => JSON.parse(line) as Decision);
 
   const trimStart = meta.trim_start ?? 0;
-  const cameraWarning = manualZoomLimitWarning(meta, d);
+  const wide = d.out_w > d.out_h;
+  const cameraWarning = wide ? manualZoomLimitWarning(meta, d)
+    : meta.zooms?.length ? "take.json: camera motion is disabled for portrait/square exports; use wide output for zooms" : undefined;
   if (cameraWarning) console.warn(cameraWarning);
   const trimEnd = meta.trim_end ?? purposefulEnd(beats, trimStart,
     meta.duration ?? Math.max(0, ...beats.map((beat) => beat.t1)), d);
@@ -135,7 +137,7 @@ export async function renderTake(dir: string, d?: CameraDefaults): Promise<{ out
     for (let k = 0; k < 40; k++) { const mid = (lo + hi) / 2; if (outTime(mid) < t) lo = mid; else hi = mid; }
     return hi;
   };
-  const held = d.camera_path === "hold" && !phone ? holdPath(solvedFrames, outBeats, outDecisions,
+  const held = wide && d.camera_path === "hold" && !phone ? holdPath(solvedFrames, outBeats, outDecisions,
     { band, stage, width: meta.width, height: meta.height, d, minShot: d.min_shot * d.pace },
     videoFrames(join(dir, "screen.webm"), meta.width, meta.height, sourceAt)) : undefined;
   if (held) await writeFile(join(dir, "camera-holds.json"), JSON.stringify(held.holds, null, 2));
@@ -149,8 +151,12 @@ export async function renderTake(dir: string, d?: CameraDefaults): Promise<{ out
       return b > a ? [{ ...z, t0: trimStart + outTime(a), t1: trimStart + outTime(b) }] : [];
     });
   });
-  const directed = applyManualZooms(held?.frames ?? solvedFrames, { ...meta, zooms }, d);
-  const frames = zooms.length ? applyDragVisibility(directed, outBeats, meta.width, meta.height, trimStart, d) : directed;
+  // Only wide motion is qualified. Other exports retain the existing centred
+  // rest framing; neither automatic/held paths nor manual spans can move it.
+  const restW = baseWidth(meta.width, meta.height, d), restH = restW * d.out_h / d.out_w;
+  const directed = wide ? applyManualZooms(held?.frames ?? solvedFrames, { ...meta, zooms }, d)
+    : solvedFrames.map(f => ({ t: f.t, x: (meta.width - restW) / 2, y: (meta.height - restH) / 2, w: restW, h: restH }));
+  const frames = wide && zooms.length ? applyDragVisibility(directed, outBeats, meta.width, meta.height, trimStart, d) : directed;
   await writeFile(join(dir, "camera.json"), JSON.stringify(frames));
   const commandFile = join(dir, "camera.cmd");
   // With a band the camera frames the screen alone, into the fixed card.

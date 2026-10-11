@@ -9,7 +9,7 @@ The core pipeline: `takeone make <id>` segments an existing take into beats, fin
 - `--about "<topic>"` adds a key-moment question; `--screen-text` opts in to redacted OCR (needs `tesseract`).
 - Theme selection (`--theme NAME`) and camera-setting overrides (`--set key=value`) at plan time.
 - Cost accounting: usage lands in `take.json` (`jev.input_tokens`, `jev.usd`).
-- Action camera pushes and explicit `take.json.zooms` holds: local subjects stay whole, unrelated panels do not widen the shot, and manual holds direct both solver and hold-style paths on the edited video clock.
+- Wide action camera pushes and explicit `take.json.zooms` holds: local subjects stay whole, unrelated panels do not widen the shot, and manual holds direct both solver and hold-style paths on the edited video clock. Portrait/square camera motion is intentionally OFF (including held/manual paths); those exports keep the existing centred rest framing and stage geometry, not a qualified portrait push-in.
 
 ## How to get to it (user POV)
 
@@ -56,13 +56,21 @@ Tidewater take these are 2.3, 2.866667, 3.4, 2.75, 3.2 and 11.7 seconds of the
 emitted video; recheck `camera.json` when timing changes. The 2.75 s frame is
 pre-paint camera approach, not painted-dialog containment; the dialog is visible
 at 3.2 s. For portrait, retain a matched pre-fix/candidate 1080×1920 make with
-identical input hashes and settings. Inspect 3.2/3.4/4.5 s frames and a contact
-sheet, and check `sourceViewport(cameraFrame, ...)`, not only the raw wider
-`camera.json` rect: crop-to-fill must retain the whole 1152 px dialog and its text.
-Decode every native film frame in each painted dialog interval through its close,
-including pre-close reveal/union motion. Record each frame's visible border loss,
-keep the worst decoded baseline/candidate frames, and fail on any loss; sampled
-arrival frames or raw-rectangle containment alone cannot establish this bar.
+identical input hashes and settings. Its `camera.json` must stay at the centred
+rest frame for the entire film; rerender with manual zooms and `camera_path=hold`
+to verify they cannot re-enable motion (manual requests print a scope warning).
+Inspect 3.2/3.4/4.5 s and pre-close frames plus a contact sheet; compare the visible
+source viewport to the pre-fix rest framing. Existing crop-to-fill/stage geometry
+must not be redesigned to pass. Measure the actual painted border from source
+pixels: a perception bbox can include non-border padding and is not a pixel verdict.
+Decode every native wide AND portrait frame in every painted dialog interval
+through its close, including repeated arrivals and pre-close motion. On the
+retained Tidewater capture both 3.2..13.583 s AND 35.033..37.85 s are painted;
+re-detect these intervals from source pixels for a fresh capture. Record each
+frame's visible border loss, keep the worst decoded baseline/candidate frames,
+and fail on any loss; sampled first-arrival frames or raw-rectangle containment
+alone cannot establish this bar. Portrait-motion-OFF acceptance is not portrait
+push-in PASS; that remains a separate mission.
 Do not substitute letterboxing or lift the native-pixel ceiling. Add a contact sheet
 with `fps=1/3,scale=480:-1,tile=4x4` and ffprobe JSON. Look at every frame:
 the first dialog must be whole during its arrival, not only after settling;

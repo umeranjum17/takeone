@@ -110,9 +110,7 @@ export function stageFrames(frames: CameraFrame[], width: number, height: number
   // sides, so a frame that stays off the side corners can still show the top or bottom edge (a
   // top-bar control, say) without exposing any background.
   const radius = d.corner_radius / st.restScale;
-  // The horizontal depth guard below already excludes rounded corners. Taking
-  // a full corner off both vertical ends again needlessly cuts centred panels.
-  const fitW = narrow ? Math.min(width - 2 * corner, height * aspect) : 0;
+  const fitW = narrow ? Math.min(width - 2 * corner, (height - 2 * corner) * aspect) : 0;
   return frames.map((f) => {
     const cx = f.x + f.w / 2 + st.screenX;
     const cy = f.y + f.h / 2 + st.screenY;
