@@ -1,5 +1,5 @@
 <h1 align="center">
-  <img src="docs/assets/readme/icon-288.png" width="56" alt="" valign="middle" /> takeone
+  <img src="docs/assets/readme/icon-288.png" width="44" alt="" valign="middle" /> takeone
 </h1>
 
 <p align="center">
@@ -14,7 +14,7 @@
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/hero-dark.webp" />
     <source media="(prefers-color-scheme: light)" srcset="docs/assets/readme/hero-light.webp" />
-    <img src="docs/assets/readme/hero-light.jpg" width="680" alt="A takeone render of the Tidewater demo board, shown at double speed: the New task dialog opens, a title and notes are typed, Priority is set to High, the task is created and its card is dragged to In progress" />
+    <img src="docs/assets/readme/hero-light.jpg" width="640" alt="A takeone render of the Tidewater demo board, shown at double speed: the New task dialog opens, a title and notes are typed, Priority is set to High, the task is created and its card is dragged to In progress" />
   </picture>
 </p>
 
