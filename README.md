@@ -1,13 +1,10 @@
 <h1 align="center">
-  <img src="docs/assets/readme/icon-288.png" width="72" alt="" valign="middle" /> takeone
+  <img src="docs/assets/readme/icon-288.png" width="56" alt="" valign="middle" /> takeone
 </h1>
 
 <p align="center">
   <strong>Record once. Direct the camera afterwards.</strong><br/>
-  Turn a raw screen recording into a framed, paced demo video, on your own machine.
-</p>
-
-<p align="center">
+  Turn a raw screen recording into a framed, paced demo video, on your own machine.<br/>
   <a href="https://github.com/umeranjum17/takeone/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/umeranjum17/takeone/actions/workflows/ci.yml/badge.svg" /></a>
   <img alt="Node.js 22.19 or newer" src="https://img.shields.io/badge/node-%E2%89%A522.19-339933?logo=nodedotjs&logoColor=white" />
   <img alt="Renders locally with ffmpeg" src="https://img.shields.io/badge/renders-locally%20with%20ffmpeg-0b7a5f" />
@@ -17,7 +14,7 @@
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/hero-dark.webp" />
     <source media="(prefers-color-scheme: light)" srcset="docs/assets/readme/hero-light.webp" />
-    <img src="docs/assets/readme/hero-light.jpg" width="960" alt="A takeone render of the Tidewater demo board, shown at double speed: the New task dialog opens, a title and notes are typed, Priority is set to High, the task is created and its card is dragged to In progress" />
+    <img src="docs/assets/readme/hero-light.jpg" width="680" alt="A takeone render of the Tidewater demo board, shown at double speed: the New task dialog opens, a title and notes are typed, Priority is set to High, the task is created and its card is dragged to In progress" />
   </picture>
 </p>
 
