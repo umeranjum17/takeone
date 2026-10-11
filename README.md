@@ -3,475 +3,89 @@
 </h1>
 
 <p align="center">
-  <a href="https://github.com/umeranjum17/takeone/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/umeranjum17/takeone/actions/workflows/ci.yml/badge.svg" /></a>
-</p>
-
-<p align="center">
   <strong>Record once. Direct the camera afterwards.</strong><br/>
-  takeone is a private demo studio that turns a raw capture into a polished demo or saved screens into a motion-design film. You demonstrate your app the way you normally use it; takeone then plans every zoom, hold and pan from what actually happened on screen, and renders a framed, paced MP4 locally.
+  Turn a raw screen recording into a framed, paced demo video, on your own machine.
 </p>
 
 <p align="center">
-  <picture><source srcset="docs/assets/readme/hero.webp" type="image/webp"><img src="docs/assets/readme/hero.jpg" alt="A takeone render of a project board: the camera opens on the whole Tidewater board under the title From idea to launch, moves into the New task dialog while Draft launch announcement is typed and the notes fill in, and holds as the Priority dropdown opens with Low, Normal, High and Urgent readable" width="960" /></picture>
+  <a href="https://github.com/umeranjum17/takeone/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/umeranjum17/takeone/actions/workflows/ci.yml/badge.svg" /></a>
+  <img alt="Node.js 22.19 or newer" src="https://img.shields.io/badge/node-%E2%89%A522.19-339933?logo=nodedotjs&logoColor=white" />
+  <img alt="Renders locally with ffmpeg" src="https://img.shields.io/badge/renders-locally%20with%20ffmpeg-0b7a5f" />
 </p>
-
-## Why takeone exists
-
-A good product demo needs camera work: push in on the control you click, hold the dialog you type into, pull back when the result lands. Doing that while you demonstrate means performing and directing at the same time, and a full-screen 4K capture is unreadable on a phone or in a feed.
-
-takeone splits the two jobs. Recording is only recording. Camera work is planned after the take, from the input events and screen changes it logged, at a bounded, measured cost of about $0.0006 per minute of video. Rendering is local ffmpeg work and costs nothing.
-
-## See it in action
-
-Every capture below is real takeone output: stills from a 39.5 s render of a fresh 43.1 s headless Tidewater take captured cursor-free, planned locally with the heuristic (10 beats, zero model calls, zero tokens), except the overflow-menu close-up, which is from the previous proof take, and one synthetic take illustrating captions. Every person shown is Umer. Nothing is mocked.
-
-### Plan the camera after you record
-
-The recorder keeps the whole 3840×2160 screen and the input events. `make` picks what matters at each moment and frames it, so the Priority dropdown that is a few pixels tall in the raw capture fills the shot in the render.
 
 <p align="center">
-  <picture><source srcset="docs/assets/readme/before-after.webp" type="image/webp"><img src="docs/assets/readme/before-after.jpg" alt="Left, the raw 3840×2160 capture of the whole board with a small New task dialog and its Priority dropdown open; right, takeone's render of the same step, framed on the dialog so the Low, Normal, High and Urgent options are readable" width="960" /></picture>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/hero-dark.webp" />
+    <source media="(prefers-color-scheme: light)" srcset="docs/assets/readme/hero-light.webp" />
+    <img src="docs/assets/readme/hero-light.jpg" width="960" alt="A takeone render of the Tidewater demo board, shown at double speed: the New task dialog opens, a title and notes are typed, Priority is set to High, the task is created and its card is dragged to In progress" />
+  </picture>
 </p>
 
-### Hold the whole panel
+<p align="center"><sub>A fresh takeone render of the demo board, on the <code>paper</code> theme in light mode and <code>midnight</code> in dark mode.</sub></p>
 
-When a click opens a panel or dialog, the shot holds all of it. While you type, the camera keeps the whole form in frame (title, notes, priority and buttons) instead of chasing the caret.
-When a dialog closes, takeone detects the revealed result and frames the changed area, so viewers can see the new card or toast.
+## Why takeone
 
-<p align="center">
-  <picture><source srcset="docs/assets/readme/typing.webp" type="image/webp"><img src="docs/assets/readme/typing.jpg" alt="The New task dialog held whole while notes are typed: the Title reads Draft launch announcement, the focused Notes field reads Two short paragraphs and a link to th, and Priority, Cancel and Create task stay in frame" width="720" /></picture>
-</p>
+A good demo needs camera work: show every click, hold the dialog you type into, pull back when the result lands.
+Doing that while you demo means performing and directing at the same time.
 
-### Every click shows
-
-Each click and drag press gets a thin translucent expanding accent ring with a faint white halo, and nothing else, so the clicked label stays readable. The ring stays inside the frame and is drawn in source space, so it zooms with the content.
-
-<p align="center">
-  <picture><source srcset="docs/assets/readme/drag.webp" type="image/webp"><img src="docs/assets/readme/drag.jpg" alt="The Draft launch announcement card mid-drag toward In progress, lifted with its drop outline left behind in To do, a ring around the pointer marking the press" width="720" /></picture>
-</p>
-
-### A stage, not a screenshot
-
-At rest the screen sits as a rounded card with a soft shadow on a gradient. The margin eases away as the camera zooms, so close-ups are all screen, and the video fades in and out on the stage colour.
-
-<p align="center">
-  <picture><source srcset="docs/assets/readme/stage.webp" type="image/webp"><img src="docs/assets/readme/stage.jpg" alt="The whole board as a rounded card on a dark stage under the title From idea to launch, before the camera moves into the New task dialog" width="720" /></picture>
-</p>
-
-### Close-ups that stay crisp
-
-Zoom defaults to native source pixels (1.0×), and the camera path runs through a critically damped spring, so moves ease in and out without overshoot or jitter.
-
-<p align="center">
-  <picture><source srcset="docs/assets/readme/close-up.webp" type="image/webp"><img src="docs/assets/readme/close-up.jpg" alt="A tight, sharp close-up of the board's overflow menu open under the pointer, listing Export board as CSV, Archive done tasks and Board settings above the Activity feed" width="720" /></picture>
-</p>
-
-### Titles and captions
-
-Add a `title` and timed `captions` to `take.json` to annotate the recording. See [Look and pacing](#look-and-pacing) for placement, sizing and timing.
-
-<p align="center">
-  <picture><source srcset="docs/assets/readme/captions.webp" type="image/webp"><img src="docs/assets/readme/captions.jpg" alt="A synthetic analytics app zoomed on a Churn analysis draft panel while its Retention slider is dragged, with the caption pill Drag to adjust retention below it" width="720" /></picture>
-</p>
+takeone splits the two jobs. You record the way you normally use your app.
+takeone plans the shots afterwards from what actually happened on screen, then renders the video locally.
 
 ## How it works
 
-1. **Record.** `takeone record` captures the desktop through desklink's view-only portal session and, when evdev is readable, the pointer, clicks, wheel, key classes and focused window. Desktop frames are captured cursor-free when the engine can hide the system cursor; the renderer then draws its own vector cursor from the pointer track. Typed characters are never recorded. `takeone record --android <serial>` records a phone or emulator into the same take format instead, and `takeone record --ios-sim` records the booted iOS Simulator on macOS, video-only with no touch events (see [Recording](#recording)).
-2. **Make.** `takeone make` segments the take into beats (at most 30 per minute), finds the regions that changed, and decides each beat's shot. Jev decides the beats that need judgement, from zone descriptions and an optional `--about` topic; idle and cut beats are decided locally. A token preflight refuses the whole run before any call if the plan would exceed its cap, and `--no-jev` keeps every decision local.
-3. **Render.** The camera path is solved on the output clock, eased through a spring and rendered with ffmpeg and libass into a silent H.264 MP4 (default 1920×1080; see [Output aspect and format](docs/edit-controls.md) for orientation defaults and `--aspect`/`--resolution`/`--format` options): stage, click rings, shortcut keycaps, timed spotlight and blur regions, idle speed-up, titles and captions. Rerendering with new `--set` values never calls the planner.
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/journey-dark.webp" />
+    <source media="(prefers-color-scheme: light)" srcset="docs/assets/readme/journey-light.webp" />
+    <img src="docs/assets/readme/journey-light.webp" width="960" alt="Three panels from one take. Left, the raw 3840 by 2160 recording with the New task dialog and its Priority dropdown open. Middle, the same frame dimmed with a green box around the dialog takeone found as the subject. Right, the rendered frame: the board as a rounded card on a themed stage with a click ring on the Priority field" />
+  </picture>
+</p>
 
-## Download / Install
+1. **Record** the whole screen, plus your clicks and key types. The characters you type are never recorded.
+2. **Plan** the camera: takeone splits the take into moments and finds what you acted on (the green box).
+3. **Render** a framed, paced MP4 on a themed stage, with click rings, a crisp cursor and captions.
 
-No packaged release exists yet — there is nothing to download. Watch the [releases page](https://github.com/umeranjum17/takeone/releases) (latest: https://github.com/umeranjum17/takeone/releases/latest) for future packaged builds. Until then, install from source:
+## Quick start
 
-Requires Node.js 22.19+ and `ffmpeg` on PATH. Optional: `tesseract` for `--screen-text` OCR. Recording the desktop additionally needs Linux on Wayland with Hyprland (see [Recording](#recording)); recording a phone needs `adb` on PATH and an attached device with USB debugging; recording the iOS Simulator needs macOS with Xcode (`xcrun simctl`), `ffprobe` on PATH, and a booted simulator; planning and rendering an existing recording take do not require those capture prerequisites. Motion setup requirements are documented in [Motion renders](docs/motion.md).
-
-```sh
-git clone https://github.com/umeranjum17/takeone
-cd takeone
-npm install        # also builds dist/
-npm link           # optional: puts `takeone` on PATH
-takeone doctor     # report recorder requirements and motion-shell identity
-```
-
-Run `node bin/takeone.mjs` from the checkout, or `takeone` if the package is linked. Set `TAKEONE_DIR` to the parent of your takes; otherwise it defaults to `~/Videos/takeone`.
-
-## Recorder protocol conformance
-
-The published `@byokit/record` 0.1.0 kit owns the unchanged recorder protocol v1.
-TakeOne implements the recorder verbs directly and does not depend on the client kit. Its Jev
-planner uses `@byokit/decide`; dependency versions are pinned in [package.json](package.json).
-
-Recorder protocol v1 was checked on 2026-09-30 against BYOKit main commit
-`9ee18467275832afbe0a0211388b49ab08423c65`, using its unchanged
-`packages/capture/src/testing/contract.ts` (`captureContract`) and `Capture` client.
-TakeOne was built with `npm ci` and tested through the absolute path of this
-checkout's executable `bin/takeone.mjs`, with the kit's clean HOME/XDG environment
-and `PATH=/usr/bin:/bin`. Recording used only a throwaway Xvfb display
-(`--source x11:<display> --events none`); the display was stopped after the run.
-
-| Verb | Contract result |
-|---|---|
-| `hello` | Pass: protocol, capabilities and planner shape |
-| `record` | Pass: recording/done, duration limit, abort and duplicate-record rejection |
-| `stop` | Pass: abort stops the recording; idle stop maps to `not-recording` |
-| `make` | Pass: plan-only, MP4 under the take, zero spend without a key, title/caption edits and missing-take error |
-
-Real contract output summary: **tests 15, suites 0, pass 9, fail 0, cancelled 0,
-skipped 6, todo 0**. The six skipped cases require the fake recorder; this run
-makes no claim about those fault-injection or planner-key cases. The initial run
-had one recording stop during negotiation before its two-second limit; the
-repeat passed all nine real-recorder cases. The MP4 output-path assertion issue
-previously present at BYOKit `fe2f806` is corrected in the tested commit: an MP4
-under `<take>/out/` passes and agrees with protocol section 6.6.
-
-Rerun `captureContract` against the built binary and update this date, BYOKit
-commit and results whenever the capture protocol changes.
-
-## Quickstart
-
-**1. Render a demo without recording anything.** `scripts/synth-take.ts` generates a complete take: a scripted 44 s 1920×1080 UI demo (dashboard → search → list scroll → detail → slider drag → export toast) drawn entirely with ffmpeg filters, plus matching `take.json`, `frames.tsv`, and `events.jsonl`.
+You need [Node.js](https://nodejs.org/) 22.19 or newer and [ffmpeg](https://ffmpeg.org/) on your PATH.
 
 ```sh
-node scripts/synth-take.ts /tmp/takes/synth-demo
-node bin/takeone.mjs make /tmp/takes/synth-demo --no-jev
+git clone https://github.com/umeranjum17/takeone && cd takeone
+npm install
+node scripts/synth-take.ts tmp/synth-demo && node bin/takeone.mjs make "$PWD/tmp/synth-demo" --no-jev
 ```
 
-The polished video lands at `/tmp/takes/synth-demo/out/synth-demo.mp4`, next to the plan in `analysis/` and the camera path in `camera.json`. `--no-jev` makes this run offline at zero tokens.
-
-<a id="jev-key"></a>
-
-**2. Let Jev plan the camera.** Store your key with `takeone key set`, which reads one key line from piped stdin. For example, in Bash, this hidden prompt keeps it out of argv and shell history:
-
-```bash
-read -rsp 'Jev API key: ' jev_key; printf '\n'
-printf '%s' "$jev_key" | takeone key set
-unset jev_key
-```
-
-The key lives under service `takeone`, secret name `jev`, in the OS keyring through `@byokit/secrets` (macOS Keychain or Linux Secret Service; Linux needs `/usr/bin/secret-tool` and an unlocked session). If the keyring is absent, unsupported, or unavailable when used, BYOKit's sealed file at `${XDG_CONFIG_HOME:-$HOME/.config}/takeone/secrets.json` is used when a passphrase is supplied on an open fd >= 3. Set `TAKEONE_SECRETS_PASSPHRASE_FD` to that fd number for each command that reads or writes the store. Supply the same passphrase bytes each time; the passphrase is never saved. For example:
-
-```bash
-read -rsp 'Store passphrase: ' store_passphrase; printf '\n'
-read -rsp 'Jev API key: ' jev_key; printf '\n'
-printf '%s' "$jev_key" | TAKEONE_SECRETS_PASSPHRASE_FD=3 takeone key set 3< <(printf '%s' "$store_passphrase")
-TAKEONE_SECRETS_PASSPHRASE_FD=3 takeone make <id> 3< <(printf '%s' "$store_passphrase")
-unset jev_key store_passphrase
-```
-
-`TYPESAFE_API_KEY` remains a host-passed BYOKit override for CI/non-interactive use and is never persisted. `capture make --planner-key-fd N` uses only the supplied fd key, preserving capture's host-owned credential contract; without it, capture planning stays local even when a stored key is available. `capture hello` reports key availability without migrating legacy credentials. On the first planner run without an override, a legacy plaintext key from `~/.config/takeone/env` is moved into an empty store, verified, then its old line (or key-only file) is removed. This legacy path does not follow `XDG_CONFIG_HOME`. Unrelated settings are preserved; an existing stored key is never overwritten by migration, and a different legacy key is left untouched. Interrupted cleanup resumes when the stored and legacy keys match.
-
-Re-run `make` without `--no-jev`. Add `--about "what the demo shows"` for better key moments.
-
-**3. Record your own take** (Linux, Wayland, Hyprland):
-
-```sh
-takeone record                # grant the screen-share consent; share only the output you are demoing
-# ...demonstrate your app...
-takeone stop
-takeone                       # list takes, newest first
-takeone make <id> --about "Creating a task and moving it across a project board"
-```
-
-**3b. Record a phone instead** (Android, hand-driven on the device):
-
-```sh
-takeone record --android <serial>   # USB phone or emulator; needs adb on PATH with USB debugging enabled
-# ...demonstrate the app with fingers on the phone (or the emulator-window mouse)...
-takeone stop
-takeone make <id> --about "Searching and checking out in the app"
-```
-
-The phone take uses the same directory format (`take.json`, `screen.webm`,
-`frames.tsv`, `events.jsonl`). Android recordings carry the encoder's timestamps,
-including still holds, and render with a graphite handset frame. The recorder
-prints `recording:` once video is flowing; start demonstrating after that message.
-Portrait output defaults to 1080×1920. `--touch-offset-ms N` calibrates touch timing.
-To plan the same take for a wide export, set both output dimensions:
-
-```sh
-takeone make <id> --set out_w=1920 --set out_h=1080
-```
-
-For a reproducible real recording, the offline Tidewater Android fixture reuses
-`scripts/e2e/scene.html`. It needs an Android SDK with API/build-tools 35, a JDK,
-and a dedicated 1080×2400 emulator at density 420. It has no accounts or network
-permission. Install it only on a test emulator:
-
-```sh
-scripts/e2e/android/build.sh
-adb -s emulator-PORT root
-adb -s emulator-PORT install --no-incremental -r tmp/android-fixture/tidewater.apk
-node scripts/e2e/android/record.ts emulator-PORT "$PWD/tmp/android-takes"
-# Prints the real take path; four kernel taps create a high-priority launch brief.
-take_path=/absolute/path/to/take
-take_id=$(basename "$take_path")
-mkdir -p tmp/android-renders
-takeone make "$take_path" --no-jev --set idle_speed=1
-cp "$take_path/out/$take_id.mp4" tmp/android-renders/portrait.mp4
-takeone make "$take_path" --no-jev --set idle_speed=1 --set out_w=1920 --set out_h=1080
-cp "$take_path/out/$take_id.mp4" tmp/android-renders/wide.mp4
-```
-
-Committed real-device evidence for this flow is in
-[`docs/evidence/t1-pm-7/`](docs/evidence/t1-pm-7/), with capture provenance,
-render commands, dimensions and SHA-256 hashes in its
-[`manifest.json`](docs/evidence/t1-pm-7/manifest.json). It includes the raw
-Tidewater recording, portrait and wide renders, a contact sheet
-for each render, and a side-by-side comparison of the first ten seconds.
-The recording was made on a dedicated API 35 emulator using the offline
-Tidewater fixture. The committed wide render reflects the caption placement
-change recorded in the manifest; the portrait render and raw comparison use the
-same source recording. Review the actual media files when assessing output quality.
-
-`scripts/synth-portrait.ts` remains an offline colour-pattern timing fixture.
-It is not an Android app recording or product demo.
-
-
-**3c. Record the iOS Simulator instead** (macOS, Xcode with the Simulator):
-
-```sh
-takeone record --ios-sim   # needs a booted simulator; macOS only
-takeone record --ios-sim --ios-udid <UUID>   # isolate capture to this booted device
-# ...drive the app in the Simulator by hand...
-takeone stop
-takeone make <id> --about "Onboarding and first export in the app"
-```
-
-Video-only: no `events.jsonl` is written, so the camera plans from screen changes alone. Localized changes form `change` beats with result zones; animation frames group into one subject, and unchanged footage stays idle. Observed result holds retain their duration through shared pacing. These beats use the shared Jev attention policy, camera path and renderer, with the same beat and token caps. A changed subject is recentered after it appears, without inventing touch events.
-
-**4. Tweak the look and rerender** without planning again:
-
-```sh
-takeone render ~/Videos/takeone/<id> --set background=#0B1220 --set idle_speed=3
-```
-
-## Motion design from screens
-
-Use `takeone motion` to create a film from images, HTML or a URL without recording:
-
-```sh
-takeone motion design.png --out takes/launch --theme editorial --title "Ship your next idea" --device browser
-```
-
-See [Motion renders](docs/motion.md) for shell setup, capture states, pattern options and the storyboard contract.
-
-## Plan and render
-
-```sh
-node bin/takeone.mjs make <id> [--no-jev] [--about "topic"] [--screen-text] [--max-tokens N] [--theme midnight|paper|aurora|mono|sand|editorial] [--set key=value]
-node bin/takeone.mjs render /path/to/take [--theme midnight|paper|aurora|mono|sand|editorial] [--set fps=24] [--aspect landscape|portrait|square|4:5] [--resolution 4k] [--format mp4|gif|webm|prores4444]
-```
-
-`<id>` can also be an absolute take-directory path. `make` writes `analysis/regions.json`, `analysis/ui-boxes.json`, `analysis/actions.json`, renderer-format `analysis/beats.json` (video-relative seconds), and one decision per line in `analysis/decisions.jsonl`; Jev responses are cached separately in `analysis/jev-cache.jsonl`. It updates `take.json` with usage and render metadata, recording `trim_end` for a trim you set yourself (clamped to the recording) and leaving it unset for the trim `record` itself wrote, which it marks `auto_trim` next to the recorded capture length; any other trim is yours and is exported as given. A take recorded before that marker existed is read as record's whenever its unmarked trim end lands within one 100 ms analysis frame of the video's end, whichever way the timeline rounding falls. One case stays ambiguous: a take whose edited end is exactly equal to the recorded length still reads as automatic while the marker is left in place. It then writes `camera.json`, `camera.cmd`, and `out/<id>.mp4`. Zone data retains individual nearby perception boxes even when focus candidates are deduplicated. A local UI-surface pass also finds static cards, panels and dialogs in the existing quarter-size grey decode, so unchanged surfaces can frame clicks with empty change regions. It analyzes at most one reference per occupied second measured from the trim start, choosing actual decoded frames to prioritize uncovered action and shot times across adjacent seconds. Each reference retains at most 24 boxes. `ui-boxes.json` records reference count, elapsed analysis time per video minute, zero model calls and zero API cost. References more than half a second away, or across a cut/redraw, are excluded. This is a conservative flat-surface detector: low-contrast boundaries, gradients and image-filled cards may be missed. Zoomed holds include enclosing context, align crop edges around neighboring boxes, and widen when needed; known UI boxes are kept whole or at least 90% outside the crop. Re-running `make` can reuse cached responses. A trim must overlap the video; only that overlap is planned. Beats are capped at 30 per minute, which may merge idle gaps.
-
-Drag framing widens the view to keep the dragged element and cursor visible, retaining the whole source when complete object bounds are unknown. See [drag visibility and boundary handling](docs/quality.md#drag-framing) for the path, trim and coverage-check contracts.
-
-With a [configured Jev key](#jev-key), Jev receives zone descriptions and an optional `--about` topic. Without a key, when the secret store cannot be read, or with `--no-jev`, decisions stay local; failed calls fall back to a local heuristic. Screen text and window titles are not sent by default. `--screen-text` opts in to OCR (with `tesseract` on PATH) and sending filtered text and window labels: each OCR token and each whitespace-delimited window-title word is sent only if it has 2–15 ASCII letters; every other token is `[redacted]`. OCR fragments are not joined. The preflight refuses planned Jev requests above `--max-tokens` (default 40,000 per take minute); `--no-jev` skips calls entirely.
-
-### Render an existing take
-
-For an existing planned recording take, render reads `screen.webm`, `take.json` (at least `width` and `height` in source pixels), `analysis/beats.json` as a beat array, and `analysis/decisions.jsonl` as one decision per line. Each beat needs a matching decision whose A (and optional B) names refer to that beat's zones. For an existing recording take, `events.jsonl` may be omitted only when `take.json` has `"events": "none"`; an empty event file is also valid. Motion takes use the [motion rerender contract](docs/motion.md) instead.
-
-`--set key=value` overrides camera settings defined in `src/camera/defaults.ts`; rerendering does not call the planner. Render writes `camera.json`, `camera.cmd`, `render.log` (including libass font selection), and a silent H.264 MP4 at `out/<id>.mp4` inside the take directory (default 1920×1080 at 60 fps; see [Output aspect and format](docs/edit-controls.md) for orientation defaults and `--aspect`/`--resolution`/`--format` options). `--set quality=draft|standard|master` selects CRF 23 (draft) or 12 (standard and master); `--set preset=...` independently controls encoder speed. Output uses limited-range bt709 colour conversion and tags. See [native-pixel sharpness qualification](docs/sharpness.md) for the camera sampler, output measurements and capture limitations. Standard and master use animation encoder tuning; master encodes yuv444p and requires a player supporting H.264 High 4:4:4 Predictive. Draft and standard use compatible yuv420p. Zoom defaults to `max_upscale=1.0`; use `--set max_upscale=1.5` only to opt into enlarging source pixels. Optional manual `zooms` in `take.json` (`t0`/`t1` spans with a source-pixel `bbox` and a 0–3 `level`) are validated at render: malformed entries, boxes outside the source, spans shorter than a 0.5 s hold, or overlapping intervals fail with the field and index, and a zoom whose requested depth exceeds the upscale ceiling prints the requested and achieved depths. Whole-screen shots of non-16:9 sources are centred on the stage background rather than cropped; zooming can crop the screen. If `take.json` omits `id`, the directory name is used; if it omits `trim_end`, the export ends one `outro_s` after the final action, settled cut, or detected result on the output clock, so a result that lands after the beat's last action still holds the whole stage for the whole outro; that end includes the terminal fade and is bounded by the recording length (`duration`), which `make` records. Resting pointers do not extend it, and an explicit `trim_end` is exported as given, clamped to the recording — including an end that lands exactly on the video's own end or past it; which trims count as explicit is decided by [`make`](#plan-and-render). Exports hold the whole stage for `establish_s` (default 1.6 s) before moving, ease back to the whole stage before the final `outro_s` (default 1.6 s), and fade. Opening and closing holds are not idle-squeezed. Short clips stay wide. Set `outro_s=0` to keep the camera on its last shot and drop the closing hold and padding; the export still ends on that last purposeful activity instead of the recorder's trailing inactivity. A take with no title is rendered untitled; its captions keep their recorded times.
-
-`--set motion_blur=0..1` controls camera blur (default 1). Fast pans and zooms use a centred 180° shutter at full strength, with enough camera samples to keep neighbouring samples within 2 output pixels. Slow moves and holds stay sharp; captions remain sharp throughout. Source images are held fixed during each exposure, so changing UI does not smear between frames. `motion_blur=0` disables sampling. Render writes the sampling count, peak spacing and estimated warp work to `motion-blur.json`.
-
-## Cost per minute of video (measured)
-
-About **14–15k Jev input tokens, roughly $0.0006, per minute of video**, hard-bounded by the preflight in `src/make.ts`: it refuses any take whose reserved total — planned request tokens plus a 1,200-token re-ask reserve per Jev job after the first — exceeds 40,000 estimated tokens per take minute (`DEFAULT_TOKENS_PER_MIN`), about $0.0017/min at the $0.042/Mtok estimate and about $0.0023/min worst billed given the measured ~1.34× estimate-to-billed gap.
-
-Measured on a real 62.7 s desktop take recorded on Hyprland at 3840×2160 (`scripts/e2e`, below). The run used a live Jev key, `--about` set, and no cache:
-
-| Metric | Measured | Per minute of video |
-|---|---|---|
-| Beats (Jev / local) | 20 (12 / 8) | 19 |
-| Jev requests | 15 | 14 |
-| Jev input tokens | 14,715 | ~14,100 |
-| Jev cost | $0.000618 | ~$0.00059 |
-| Largest request | 1,099 tokens | — |
-| Failed calls | 0 | 0 |
-| `make` wall clock (plan + render, machine at load ~100) | 28–111 s | ~27–106 s |
-
-Three clean live runs of the same take, from successive code states, landed between 14.7k and 15.8k input tokens. The preflight planned 22,000 tokens for this take against its 41.8k cap, so it held. Idle and cut beats are decided locally and cost nothing. Jev's `usage.input_tokens` is summed into `take.json` (`jev.input_tokens`, `jev.usd`).
-
-With `--no-jev` the cost is exactly zero tokens. Responses are cached per request hash (`analysis/jev-cache.jsonl`), so replanning an unchanged take costs nothing.
-
-The cost is bounded by design, not by luck:
-
-- **Beat cap**: at most 30 beats per minute (`MAX_BEATS_PER_MIN` in `src/beats/segment.ts`), so the number of Jev calls never grows with how busy the recording is.
-- **Token preflight**: `make` estimates every planned request up front and refuses the whole run (`PreflightRefusal`) when the reserved total exceeds `--max-tokens`, default 40,000 input tokens per take minute (`DEFAULT_TOKENS_PER_MIN` in `src/make.ts`). Each single request is also hard-capped at `REQUEST_TOKEN_CAP` (1,200 estimated tokens) in `src/decide/request.ts`.
-
-Worst case at the defaults: the reserved total (planned tokens plus the 1,200-token re-ask reserve per Jev job after the first) is capped at 40,000 estimated tokens per take minute ≈ $0.0017/min at the listed price, ≈ $0.0023/min worst billed. The measured take above used about half of that. Rendering costs no tokens at any setting.
-
-## Look and pacing
-
-Every recording render uses the same stage, all local ffmpeg/libass work at zero token cost:
-
-- **Stage**: the selected theme sets the screen card, background, and typography; see the theme preview below. The stage margin (`stage_margin`, fraction of stage size) eases away as the camera zooms, so close-ups are all screen. When the text band described below is active, the card stays fixed and the camera zooms inside it.
-- **Zoom**: shots never upscale source pixels more than `max_upscale` (1.0 by default): a 4K capture can push into native 1080p detail; a 1080p capture exported at 1080p stays wide. Upscaling remains an explicit setting. The camera path runs through a critically damped spring (`lowpass_omega`), so moves ease in and out without overshoot. See [Plan and render](#plan-and-render) for whole-element framing and static UI detection. Per-level padding never widens a shot past `frame_max` (0.8) of the screen, and the zone itself always keeps `hold_pad` (1.08x) around it.
-- **Camera path**: the default `solver` chooses each shot; `--set camera_path=hold` instead keeps the solver's settled framings, checked on the frame actually shown, holds each one, and joins them with single eased moves, widening any hold that would clip its subject. `camera-holds.json` beside `camera.json` lists each hold and why. See [edit controls](docs/edit-controls.md).
-- **Bookends**: the whole stage holds until the first move, at least `establish_s` in, and the camera eases back to the whole stage before the final `outro_s` (0 keeps the last shot and still ends on the last activity). The video fades in from and out to `background_to` over `fade_s`.
-- **Clicks**: every click and drag press gets a thin translucent expanding `accent` ring with a faint white halo and no filled press dot, lasting `ripple_ms` (0 turns it off) and growing to `ripple_r` output px at rest, clamped so the full ring stays inside the frame (edge presses with too little room are skipped). The ripple is drawn in source space, so it zooms with the content.
-- **Cursor**: desktop captures are cursor-free when the engine can hide the system cursor; takeone draws a smooth vector cursor from the recorded pointer track, crisp at any zoom and faded out after the pointer rests. A source that keeps its system cursor renders as before.
-- **Pacing**: idle stretches between actions play `idle_speed` times faster (1 turns it off), keeping `idle_keep` seconds of real time around every action. The camera is solved on the output clock, so moves keep their natural speed. A single untimed `speed` entry `{ "kind": "type_speed", "rate": 3 }` in `take.json` speeds every detected typing burst, and timed `speed` regions set an explicit playback rate from 0.1 to 16; see [edit controls](docs/edit-controls.md).
-- **Shortcut keycaps and regions**: validated Ctrl/Alt/Meta shortcuts display as keycap pills. Timed `spotlight` and `blur` rectangles in `take.json` follow source pixels through camera motion. See [recording overlays](docs/overlays.md) for the schema and a synthetic proof generator.
-- **Titles and captions**: when both source and output are 16:9, optional `title` and `captions` in `take.json` render in the band below the card, never over the app: the title as bare display type 1.6× `caption_size`, captions as single-line pills in the caption font that shrink to fit rather than wrap. Text size, row padding and caption border scale down proportionally when needed to keep the band within a third of the output height. Captions keep their original timestamps, and each caption ends when the next one starts if they overlap. When a title and caption are on screen together, they occupy separate measured rows in the band below the card. Other source or output aspect ratios keep the older overlay placement (title 1.4×). Caption times are source-video seconds; `d` (default 3) is on-screen seconds, so reading time survives idle squeezing.
-
-```json
-{ "title": "Find any report in seconds",
-  "captions": [{ "t": 8.4, "text": "Search filters as you type" }, { "t": 22.6, "d": 3.6, "text": "Drag to adjust retention" }] }
-```
-
-Both `make` and recording `render` accept `--theme NAME`; the supported names are defined in [the shared theme registry](src/themes.ts), including the new `editorial` theme.
-`midnight` is the default and keeps the existing look. A saved `"theme": "paper"`
-in `take.json` applies on every rerender; an explicit `--theme` takes precedence,
-and `--set` overrides the selected theme's tokens. `make --theme` saves the
-selection in the take; `render --theme` previews a different look without
-changing that saved selection.
-
-
-![Recording themes on the real take at 1080p60, all six proven against fade banding](docs/assets/themes/takeone-themes-grid.png)
-
-Theme fonts are bundled under OFL 1.1 with their licence files in
-`resources/fonts/`. Caption measurement and final rendering use the same
-libass `fontsdir`; `render.log` records the selected faces. A custom font that
-is neither installed nor bundled may be substituted through fontconfig.
-
-Colours (`background`, `background_to`, `accent`, `text`, `card`) take
-`--set key=#RRGGBB`. `caption_font` and `display_font` take letters, digits and
-spaces, for example `--set "display_font=Inter Bold"`.
-
-Additional look tokens: `bg_style=linear|solid|radial|mesh|image`,
-`bg_stops=#RRGGBB,#RRGGBB,...` (2–8 colours), `grain=0..100`,
-`shadow_blur`, `shadow_x`, `shadow_y`, `shadow_color`, `border`, `border_color`, `glow=0..1`,
-`bg_pattern=none|grid|scanlines`, `caption_rounding=0..1`,
-`caption_opacity=0..1`, `caption_border=0..16`,
-`spring_omega`, `spring_zeta=0.75..2`, and `pace=0.25..4`.
-For `bg_style=image`, supply `background_image=/path/to/image.png` (relative
-paths resolve inside the take). Recording backgrounds are deterministic stills;
-animated background drift and per-theme motion patterns belong to motion scenes.
-Overlay spring tokens adjust caption arrival time only; the recording camera
-remains critically damped. Recording `pace` scales camera holds (`dwell`,
-`dwell_k2`, `min_shot`) while keeping move durations and caption reading time.
-
-The committed theme preview assets are real-take stills at 1080p60: one full-resolution frame per kept theme plus the grid above. [Provenance](docs/assets/themes/provenance.json)
-records the source take, generator, proof status per theme and output hashes.
-All six are proven on the real take: worst fade CAMBI 0.279 (mono) and worst
-whole-take CAMBI 0.043, measured on every frame of both fade windows.
-Regenerate with `node scripts/theme-proof.ts tmp/theme-proof`.
-For a real 1080p60 take, use `node scripts/theme-proof.ts tmp/theme-real --take path/to/take`;
-each theme shows its title above a caption frame. The synthetic fixture is a fictional
-Tidewater launch board with Umer as its demo person, with no desktop capture.
-The captured 2560×1440 fixture comes from `scripts/e2e/scene.html`; the proof
-uses `stage_margin=0.16` so background treatment is visible at thumbnail size.
-Every theme meets 4.5:1 caption contrast, including compositing over a white
-or black screen. Paper uses opaque cream labels and black ink.
-
-For a repeatable ten-second framing proof, capture `scripts/e2e/scene.html` at 2560×1440 CSS pixels with device scale 1.5 into `tmp/frame-proof/scene.png` with `chrome-devtools-axi`, then run `node scripts/e2e/frame-proof.ts`. It uses the scene’s measured boundary fixtures through zone generation and the real renderer, writing the MP4, a held-shot still, and `camera-quality.json` with the clipped fraction of each UI box at every settled frame.
-
-For the static-boundary proof, run `bash scripts/e2e/uiboxes-record.sh` under the shared heavy lock when operating in the fleet. It needs Xvfb, Chromium, `chrome-devtools-axi`, and the installed recording engine. It allocates an isolated 2560×1440 virtual display and empty browser profile, records the real Tidewater scene through `takeone capture record`, and supplies only demo-browser input events. The fixture prevents cards from toggling or dragging so clicks exercise unchanged surfaces, then opens the real New task dialog. `uiboxes-proof.ts` runs the shared planner/camera/render core and compares the same footage with static hints omitted. Actual change regions around all four proof clicks must be empty; scene geometry checks the output crops and never supplies the detector. Before/after MP4s, contact sheets, source recording, recorder metadata and an analysis-cost/held-shot receipt are written flat under `tmp/evidence/t1-uiboxes/` with the `takeone-uiboxes-` prefix. See [Plan and render](#plan-and-render) for static-analysis bounds and cost reporting; the existing zone vocabulary and shared Jev budget remain unchanged. The BYOKit package catalog checked on 2026-10-01 supplies planning and secrets but has no recording-frame boundary detector; this product-specific UI framing pass remains local to TakeOne.
-
-## End-to-end take with a staged scene
-
-To produce a scripted board take without a desktop, use the [headless demo-scene guide](docs/headless-scene.md).
-
-`scripts/e2e` records a harmless real take without touching your own apps. It stages and drives the board used in the captures above:
-
-- `scene.sh start PROFILE_DIR [WORKSPACE]` opens `scene.html` fullscreen on an empty Hyprland workspace (default 9). The page is a fictional project board with dummy content, run in a throwaway Chromium profile.
-- `drive.py serve FIFO` creates a uinput virtual mouse and keyboard (group `input`), so the recorder's evdev taps see real kernel events.
-- `echo scene > FIFO` plays ~60 s of clicks, typing, a dropdown, a drag, scrolling and a menu against the scene's fixed geometry.
-
-```sh
-python3 scripts/e2e/drive.py serve /tmp/drive.fifo &      # before recording: taps enumerate devices at start
-scripts/e2e/scene.sh start ~/lab/scene-profile
-takeone record &                                         # share only the output that shows the scene
-echo scene > /tmp/drive.fifo; sleep 65; takeone stop
-scripts/e2e/scene.sh stop ~/lab/scene-profile 1          # return to your workspace
-takeone make <id> --about "Creating a task and moving it across a project board"
-```
-
-The current README board captures are headless renders: the same `scripts/e2e/scene.html` board captured cursor-free by `scripts/headless-scene.mjs` (see the [headless demo-scene guide](docs/headless-scene.md)), then planned locally and rendered by takeone. The captions example is the synthetic analytics take with Umer as its owner.
-
-## Recording
-
-Private. Runs on your own machine.
-
-`takeone record` captures the desktop and, when evdev is readable, the input
-events that drive the later camera decisions. Capture is delegated entirely to
-[desklink](https://github.com/umeranjum17/desklink) (`@desklink/host`, unchanged
-dependency): takeone spawns `desklink-host serve`, opens a **view-only** portal
-session (the compositor may show a screen-share consent dialog),
-answers the engine's SDP offer with [werift](https://github.com/shinyoshiaki/werift),
-and writes the received VP9 track to `screen.webm` without re-encoding.
-
-Input sources are read passively, never grabbed. If evdev mouse or keyboard devices are missing or unreadable, recording continues video-only (`events: "none"`); unavailable Hyprland IPC or an unmatched monitor disables pointer and window events:
-
-- pointer position and focused window from the Hyprland IPC sockets, mapped into
-  stream pixels (with a self-check that falls back to no-pointer mode when no
-  monitor matches the stream size within 2 px)
-- clicks, wheel and key *classes* from every mouse and keyboard in `/proc/bus/input/devices`
-  (USB, Bluetooth, touchpads and virtual devices alike),
-  opened non-blocking and polled. Key records are classes only
-  (`char|space|enter|backspace|tab|esc|nav|mod|fn`) plus a shortcut name like
-  `Ctrl+S` when a non-Shift modifier is held. F13–F24 retain named shortcuts;
-  media keys are classified as `fn` without shortcut names, so they do not
-  create typing actions. **Typed characters are never recorded.**
-
-`takeone record --android <serial>` records a phone or emulator into the same take directory format: H.264 video via the vendored scrcpy-server and touch input via `getevent`, hand-driven on the phone. `--touch-offset-ms N` calibrates touch timing; `--fps` and `--bitrate` are desktop-only. Requires `adb` on PATH and a device with USB debugging enabled.
-
-`takeone record --ios-sim` records the booted iOS Simulator into the same take directory format, video-only: H.264 via `xcrun simctl io booted recordVideo`, hand-driven in the Simulator. There is no touch API, so no `events.jsonl` is written (`take.json` carries `"events": "none"` and `"pointer": "none"`) and the camera plans from screen changes alone. macOS only; requires Xcode with the iOS Simulator and `ffprobe` on PATH, plus a booted simulator. Use `--ios-udid <UUID>` to target a specific booted device when several are running. Invalid UUIDs and missing or shutdown devices are refused before capture starts. The default still uses simctl’s `booted` selection. `takeone stop` signals the recorder in `TAKEONE_STATE_DIR`, so use a task-specific state directory for isolated lab captures.
-
-### Commands
-
-```
-takeone                 list takes (newest first)
-takeone record          record the desktop until `takeone stop` (Linux/Wayland/Hyprland only)
-  [--fps 30] [--bitrate 40000]
-  [--root DIR]          takes root (default ~/Videos/takeone, env TAKEONE_DIR)
-  [--state-dir DIR]     state dir (default ~/.local/state/takeone, env TAKEONE_STATE_DIR)
-takeone record --android <serial>   record a phone or emulator until `takeone stop`
-  [--touch-offset-ms N] calibration added to every touch timestamp (ms)
-  [--root DIR] [--state-dir DIR] as above
-takeone record --ios-sim   record the booted iOS Simulator until `takeone stop` (macOS only)
-  [--root DIR] [--state-dir DIR] as above
-takeone stop            stop the active recording (SIGINT to the pid file)
-takeone doctor          report recorder requirements and motion-shell identity
-```
-
-If recording with `--state-dir DIR`, set `TAKEONE_STATE_DIR=DIR` for `takeone stop` (and bare `takeone`); those commands read the state directory from the environment, not the record option.
-
-Recorder command output is TOON. Recorder errors are structured JSON on stderr:
-`{"error":{"code","message","hint"}}`. A cancelled consent dialog is a
-`consent-cancelled` error and is never retried or bypassed.
-
-### Files of a take
-
-Recording creates a take directory with `take.json`, `screen.webm`, `frames.tsv` and `events.jsonl` (`--ios-sim` takes omit `events.jsonl`):
-
-```
-~/Videos/takeone/<YYYYMMDD-HHMMSS>/
-  screen.webm     VP9 from desklink, not re-encoded (H.264 from scrcpy-server for --android takes; H.264 from simctl, renamed from .mov, for --ios-sim takes)
-  frames.tsv      one `rtp_ts<TAB>recv_mono_ns` line per frame (marker-bit packets); a single `0<TAB>0` line for --ios-sim takes
-  events.jsonl    pointer/clicks/wheel/key-classes/window events, ms since take start (may be empty; omitted for --ios-sim takes)
-  take.json       stream geometry plus recorder-specific metadata
-```
-
-The portal restore token is persisted atomically at
-`~/.local/state/takeone/portal-token` (0600) and consumed before reuse; a token
-is single-use, so a consent dialog appears whenever the portal does not grant
-silent restoration.
+Your video is at `tmp/synth-demo/out/synth-demo.mp4`. The demo take is generated, so you need no screen recorder or API key, and planning runs offline.
+To record your own screen, a phone or the iOS Simulator, follow the [guide](docs/guide.md#quickstart).
+
+## Features
+
+- **Records your real workflow.** The desktop on Linux (Wayland and Hyprland), an Android phone or emulator, or the iOS Simulator.
+- **Plans the camera after you record.** From your clicks, typing and what changed on screen.
+- **Keeps the action readable.** Click rings, a drawn vector cursor and keycaps for shortcuts like `Ctrl+S`.
+- **Looks finished out of the box.** A rounded screen card on a stage, in six themes from dark `midnight` to cream `paper`.
+- **Titles and captions.** Set in a band below the screen, never over your app.
+- **Paces itself.** Idle stretches play faster, typing can too, and spotlight and blur boxes follow the content.
+- **Private and cheap.** Works fully offline with `--no-jev`; with the Jev planner, about $0.0006 per minute of video.
+- **Exports what you need.** MP4 by default, plus GIF, WebM and ProRes 4444, landscape, portrait or square.
+- **Motion films from screens.** `takeone motion` turns screenshots, HTML or a URL into a short film.
+
+## Learn more
+
+- [Guide](docs/guide.md): install, the full quickstart, planning and rendering
+- [Recording](docs/recording.md): desktop, phone and Simulator capture, commands and take files
+- [Look and pacing](docs/look.md): themes, stage, zoom, captions and every look setting
+- [Edit controls](docs/edit-controls.md): output size and format, hold-style camera, speed regions
+- [Overlays](docs/overlays.md): spotlight and blur regions, shortcut keycaps
+- [Motion films](docs/motion.md): films from screenshots, HTML or a URL
+- [Cost](docs/cost.md): measured planner cost per minute and its hard caps
+- [Demo scene](docs/headless-scene.md): reproduce the board demo shown above
 
 ## Development
 
-```
+```sh
 npm install
-npm test        # builds, then runs planner/renderer and recorder tests
+npm test
 ```
 
-The test suite is offline: mapping math, key-classification (with an assertion
-that no key record ever carries a character), evdev byte parsing, clock
-alignment, token persistence, take listing, CLI shapes — plus a loopback
-integration test in which a fake `desklink-host` process (a real werift VP9
-sender speaking the same stdio protocol) records a take through the full
-`takeone record` path, stopped by SIGINT exactly as `takeone stop` does.
+Questions and bugs go to [GitHub issues](https://github.com/umeranjum17/takeone/issues).

@@ -18,7 +18,7 @@ on this particular 4K fixture, but not on higher-resolution sources.
 The old default allowed 1.5 output pixels per source pixel: a 1280×720 crop
 could fill a 1920×1080 export (2.25× area enlargement). The new default is 1.0:
 the minimum viewport for a 1920×1080 export is 1920×1080 source pixels.
-See [render settings](../README.md#render-an-existing-take) for the upscale
+See [render settings](guide.md#render-an-existing-take) for the upscale
 override. No framing rules, themes or overlays change.
 
 The before/after proof holds the native 1.0 cap constant to isolate the sampler;

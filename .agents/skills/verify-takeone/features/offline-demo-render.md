@@ -1,6 +1,6 @@
 # Render a demo without recording anything
 
-README Quickstart 1: generate a fully synthetic take (a scripted 44 s 1920×1080 UI demo drawn entirely with ffmpeg filters, with matching `take.json`, `frames.tsv`, `events.jsonl`), then plan and render it locally. This is the only journey that exercises the full `make` pipeline (beats → regions → decisions → camera → encode) with zero capture hardware, zero network and zero tokens, which makes it the default verification drive.
+Guide (docs/guide.md) Quickstart 1: generate a fully synthetic take (a scripted 44 s 1920×1080 UI demo drawn entirely with ffmpeg filters, with matching `take.json`, `frames.tsv`, `events.jsonl`), then plan and render it locally. This is the only journey that exercises the full `make` pipeline (beats → regions → decisions → camera → encode) with zero capture hardware, zero network and zero tokens, which makes it the default verification drive.
 
 ## Sub-features
 
