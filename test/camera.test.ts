@@ -66,7 +66,8 @@ test("render CLI rejects unknown and malformed override arguments", () => {
 
 // One consumer journey: inferred duration, then the real make -> saved render path over
 // typing, a revealed dialog result and drags trimmed at the video boundary, released and not.
-test("render without trim_end uses the latest beat end", { timeout: 120_000, skip: needsFfmpeg }, async () => {
+// The added portrait render needs a 240s journey budget (measured 144.853s at two CPUs).
+test("render without trim_end uses the latest beat end", { timeout: 240_000, skip: needsFfmpeg }, async () => {
   const dir = await mkdtemp(join(process.cwd(), "takeone:duration-"));
   try {
     await mkdir(join(dir, "analysis"));
