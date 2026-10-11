@@ -14,11 +14,11 @@
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/hero-dark.webp" />
     <source media="(prefers-color-scheme: light)" srcset="docs/assets/readme/hero-light.webp" />
-    <img src="docs/assets/readme/hero-light.jpg" width="960" alt="The raw recording of the Tidewater demo board wipes into the takeone render of the same take, a rounded card on a warm themed stage, at double speed: the New task dialog opens, notes are typed, Priority is set to High, the task is created and its card is dragged to In progress" />
+    <img src="docs/assets/readme/hero-light.jpg" width="960" alt="The raw recording of the Tidewater demo board wipes into the takeone render on a warm themed stage, at double speed. The camera pushes in on the New task dialog while notes are typed and Priority is set to High, pulls back as the task is created, and the card is dragged to In progress" />
   </picture>
 </p>
 
-<p align="center"><sub>One take, raw recording first, then the takeone render: <code>sand</code> theme in light mode, <code>aurora</code> in dark mode.</sub></p>
+<p align="center"><sub>One take: the raw recording, then the takeone render pushing in on the dialog. <code>sand</code> theme in light mode, <code>aurora</code> in dark mode.</sub></p>
 
 ## Why takeone
 
@@ -43,7 +43,7 @@ takeone plans the shots afterwards from what actually happened on screen, then r
    <picture>
      <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/step-render-dark.webp" />
      <source media="(prefers-color-scheme: light)" srcset="docs/assets/readme/step-render-light.webp" />
-     <img src="docs/assets/readme/step-render-light.webp" width="640" alt="A 1:1 detail of the rendered frame: a click ring on the Priority field of the New task dialog" />
+     <img src="docs/assets/readme/step-render-light.webp" width="640" alt="The rendered frame, pushed in on the New task dialog, with a click ring on the Priority field" />
    </picture>
 
 ## Quick start
