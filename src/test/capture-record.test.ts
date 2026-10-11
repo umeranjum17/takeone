@@ -10,6 +10,7 @@
 
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
+import { once } from "node:events";
 import { chmod, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import type { Readable } from "node:stream";
 import { tmpdir } from "node:os";
@@ -426,8 +427,12 @@ test("x11 acceptance: real engine records a throwaway Xvfb display", { timeout: 
     }
   } finally {
     server.kill("SIGTERM");
-    await new Promise((resolveP) => setTimeout(resolveP, 500));
-    server.kill("SIGKILL");
+    if (server.exitCode === null) {
+      await Promise.race([
+        once(server, "exit"),
+        new Promise<void>((resolveP) => setTimeout(() => { server.kill("SIGKILL"); resolveP(); }, 5_000)),
+      ]);
+    }
     await rm(base, { recursive: true, force: true });
   }
 });
