@@ -74,7 +74,14 @@ push-in PASS; that remains a separate mission.
 Do not substitute letterboxing or lift the native-pixel ceiling. Add a contact sheet
 with `fps=1/3,scale=480:-1,tile=4x4` and ffprobe JSON. Look at every frame:
 the first dialog must be whole during its arrival, not only after settling;
-its text and dropdown must be readable. Cropping the unrelated background is not
+its text and dropdown must be readable. Include the full painted popup border
+beyond the modal, at dropdown arrival (11.2 s on the fixed take) as well as settled
+11.7 s; an in-form popup belongs to the typed form's footprint even when far below
+the caret. Keep the clipped retained 11.2 s film as a negative control for the audit;
+process exit zero is not a film PASS, and unresolved source-presence/localization
+frames are inconclusive, never zero loss. Run the same source-eligible-frame audit
+on the manual/edit-clock film using its actual cut/speed mapping.
+Cropping the unrelated background is not
 a guarantee that every off-subject label stays whole. Retain the same probes for
 manual/hold/untitled variants. The runnable real-CLI regression is
 `node --test --test-name-pattern='render without trim_end' test/camera.test.ts`.

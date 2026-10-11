@@ -196,7 +196,8 @@ test("render without trim_end uses the latest beat end", { timeout: 240_000, ski
         "drawbox=x=1344:y=504:w=1152:h=940:color=white:t=fill," +
         "drawbox=x=1428:y=736:w=900:h=96:color=0xeeeeee:t=fill," +
         "drawbox=x=1440:y=750:w=44:h=52:color=black:t=fill:enable='gte(t,4)'," +
-        "drawbox=x=1490:y=750:w=44:h=52:color=black:t=fill:enable='gte(t,4.2)'",
+        "drawbox=x=1490:y=750:w=44:h=52:color=black:t=fill:enable='gte(t,4.2)'," +
+        "drawbox=x=1420:y=1340:w=440:h=480:color=white:t=fill:enable='between(t,6,7.5)'",
       "-c:v", "mpeg4", "-q:v", "2", "-threads", "2", "-f", "matroska", join(dir, "screen.webm")]);
     await writeFile(join(dir, "frames.tsv"), Array.from({ length: 100 }, (_, i) =>
       `${i * 9000}\t${i * 100_000_000}`).join("\n") + "\n");
@@ -211,6 +212,9 @@ test("render without trim_end uses the latest beat end", { timeout: 240_000, ski
       { k: "btn", t: 2000, b: "left", down: true },
       { k: "btn", t: 2080, b: "left", down: false },
       ...Array.from({ length: 18 }, (_, i) => ({ k: "key", t: 4000 + i * 200, cls: "char", down: true })),
+      { k: "ptr", t: 6000, x: 1640, y: 1360 },
+      { k: "btn", t: 6000, b: "left", down: true },
+      { k: "btn", t: 6080, b: "left", down: false },
     ].map(e => JSON.stringify(e)).join("\n") + "\n");
     const drive4K = (command: string, ...args: string[]) => execFileSync(process.execPath,
       ["bin/takeone.mjs", command, dir, ...["out_w=960", "out_h=540", "fps=10",
@@ -228,6 +232,9 @@ test("render without trim_end uses the latest beat end", { timeout: 240_000, ski
       })}`);
     assert.ok(auto.filter(f => f.t >= 2 && f.t <= 4.2)
       .every(f => contains(f, [1344, 504, 1152, 940])), "dialog stays whole during the push, not only settled");
+    assert.ok(auto.filter(f => f.t >= 6 && f.t <= 7.4)
+      .every(f => contains(f, [1344, 504, 1152, 1316])),
+      "a popup attached to the typed form stays whole from arrival, not only settled");
     const plannedMeta = JSON.parse(await readFile(join(dir, "take.json"), "utf8"));
     // Portrait motion is explicitly OFF, including held paths and manual spans.
     // This tests the public scope cut, not the retired portrait-push-in tuning.
