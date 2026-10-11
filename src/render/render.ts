@@ -7,7 +7,8 @@ import { resolveTheme } from "../themes.ts";
 import { basename, join, resolve } from "node:path";
 import type { CameraDefaults } from "../camera/defaults.ts";
 import { actionCameraMilliseconds } from "../beats/clock.ts";
-import { manualZoomLimitWarning, solveCamera } from "../camera/solver.ts";
+import { applyManualZooms, manualZoomLimitWarning, solveCamera } from "../camera/solver.ts";
+import { applyDragVisibility } from "../camera/gesture.ts";
 import type { Beat, Decision, TakeMeta } from "../camera/types.ts";
 import { blurGraph, keycapAss, keycapBackdropGraph, keycapMaskAss, keycapObstacles, overlayRegions, spotlightAss, spotlightGraph, toastWindows } from "./overlays.ts";
 import { motionBlurGraph, shutterPlan } from "./motion-blur.ts";
@@ -138,7 +139,18 @@ export async function renderTake(dir: string, d?: CameraDefaults): Promise<{ out
     { band, stage, width: meta.width, height: meta.height, d, minShot: d.min_shot * d.pace },
     videoFrames(join(dir, "screen.webm"), meta.width, meta.height, sourceAt)) : undefined;
   if (held) await writeFile(join(dir, "camera-holds.json"), JSON.stringify(held.holds, null, 2));
-  const frames = held?.frames ?? solvedFrames;
+  // Manual spans are source-video seconds; use the same edit clock as footage.
+  // Applying them after holdPath prevents its automatic composition from erasing
+  // the director's explicit framing. Drag visibility remains the final safety gate.
+  const zooms = (meta.zooms ?? []).flatMap(z => {
+    const spans = clock?.spans.filter(s => s.rate > 0) ?? [{ t0: trimStart, t1: trimEnd }];
+    return spans.flatMap(s => {
+      const a = Math.max(trimStart, s.t0, z.t0), b = Math.min(trimEnd, s.t1, z.t1);
+      return b > a ? [{ ...z, t0: trimStart + outTime(a), t1: trimStart + outTime(b) }] : [];
+    });
+  });
+  const directed = applyManualZooms(held?.frames ?? solvedFrames, { ...meta, zooms }, d);
+  const frames = zooms.length ? applyDragVisibility(directed, outBeats, meta.width, meta.height, trimStart, d) : directed;
   await writeFile(join(dir, "camera.json"), JSON.stringify(frames));
   const commandFile = join(dir, "camera.cmd");
   // With a band the camera frames the screen alone, into the fixed card.

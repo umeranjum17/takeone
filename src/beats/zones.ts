@@ -180,12 +180,14 @@ function txtZone(beat: Beat, scale: number): { bbox: BBox; t: number } | null {
     if (a.k === "type" && a.region) zone = zone ? { bbox: unionBBox(zone.bbox, a.region), t: zone.t } : { bbox: a.region, t: a.t0 };
   }
   if (!zone) return null;
-  for (const a of beat.actions) {
-    if (a.k === "click") zone.bbox = unionBBox(zone.bbox, [a.x, a.y, 1, 1]);
-  }
   const reach = 2 * ACT_PAD_LOGICAL[1] * scale;
   const [zx, zy, zw, zh] = zone.bbox;
   const near: BBox = [zx - reach, zy - reach, zw + 2 * reach, zh + 2 * reach];
+  for (const a of beat.actions) {
+    // The button that opened a dialog is not a field inside that dialog.
+    if (a.k === "click" && a.x >= near[0] && a.x <= near[0] + near[2]
+      && a.y >= near[1] && a.y <= near[1] + near[3]) zone.bbox = unionBBox(zone.bbox, [a.x, a.y, 1, 1]);
+  }
   for (const r of beat.results ?? []) {
     if (r.area_frac <= PANEL_MAX_AREA && bboxIoU(r.bbox, near) > 0) zone.bbox = unionBBox(zone.bbox, r.bbox);
   }

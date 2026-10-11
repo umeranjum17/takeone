@@ -9,6 +9,7 @@ The core pipeline: `takeone make <id>` segments an existing take into beats, fin
 - `--about "<topic>"` adds a key-moment question; `--screen-text` opts in to redacted OCR (needs `tesseract`).
 - Theme selection (`--theme NAME`) and camera-setting overrides (`--set key=value`) at plan time.
 - Cost accounting: usage lands in `take.json` (`jev.input_tokens`, `jev.usd`).
+- Action camera pushes and explicit `take.json.zooms` holds: local subjects stay whole, unrelated panels do not widen the shot, and manual holds direct both solver and hold-style paths on the edited video clock.
 
 ## How to get to it (user POV)
 
@@ -25,6 +26,40 @@ node bin/takeone.mjs make /abs/path/to/take --no-jev --about "Creating a task an
 Proving end state: exit 0; `analysis/decisions.jsonl` has one line per decided beat; `out/<id>.mp4` exists and `ffprobe` reports the expected dimensions (default 1920×1080; 1080×1920 for portrait takes without `out_w`/`out_h` overrides); `take.json` carries updated usage/render metadata. For a Jev-enabled drive, additionally check `analysis/jev-cache.jsonl` exists and `take.json`'s `jev.input_tokens` is within the preflight cap — and treat it as a paid run: verification defaults to `--no-jev`.
 
 Error shapes worth asserting: `takeone make: no take at <dir> (take.json missing)` exits 2; `PreflightRefusal` exits 2 with a message naming the token cap.
+
+## verify-takeone: 4K action and manual camera proof
+
+Use `node scripts/headless-scene.mjs /abs/evidence/board-before --cursor=hidden`
+for a fresh 3840×2160 Tidewater take. Run `node bin/takeone.mjs make
+/abs/evidence/board-before --no-jev` on the baseline; preserve its MP4 and
+`camera.json`. Copy the same inputs to `board-after` and repeat on the candidate.
+Use task-owned HOME/XDG/state/takes roots; run capture, renders and ffmpeg through
+the assigned memory gate with bounded encoder/filter threads.
+
+For each beat, map its times through the same idle/edit clock as the render and
+record `z = max(width, height * out_w / out_h) / cameraFrame.w`. The first dialog
+must rise above 1× (the default 4K→1080p ceiling is 2×). A 1920×1080 synthetic take
+at default 1920×1080 output correctly stays at 1×: do not lift `max_upscale` to
+make that control pass.
+
+Also copy the planned take, add `zooms: [{t0:3.4,t1:13.3,
+bbox:[1344,504,1152,940],level:3}]` to `take.json`, and drive `render` with default
+settings and `--set camera_path=hold`. Compare the emitted camera hold to the
+requested whole dialog; test a cut/speed-edited span on the same source clock.
+Render an untitled copy, a `--theme paper` copy, and a portrait re-frame
+(`--set out_w=1080 --set out_h=1920`); portrait is not a responsive phone UI.
+
+Keep `takeone-zoom-before.mp4` and `takeone-zoom-after.mp4`, and extract
+`takeone-zoom-<before|after>-{start,mid,settled,dialog-start,dialog-mid,dropdown}.png`
+at observed motion readiness, not guessed wall-clock offsets. On the fixed
+Tidewater take these are 2.3, 2.866667, 3.4, 2.75, 3.2 and 11.7 seconds of the
+emitted video; recheck `camera.json` when timing changes. Add a contact sheet
+with `fps=1/3,scale=480:-1,tile=4x4` and ffprobe JSON. Look at every frame:
+the first dialog must be whole during its arrival, not only after settling;
+its text and dropdown must be readable. Cropping the unrelated background is not
+a guarantee that every off-subject label stays whole. Retain the same probes for
+manual/hold/untitled variants. The runnable real-CLI regression is
+`node --test --test-name-pattern='render without trim_end' test/camera.test.ts`.
 
 ## Gotchas
 
