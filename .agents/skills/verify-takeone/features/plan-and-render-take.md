@@ -53,7 +53,13 @@ Keep `takeone-zoom-before.mp4` and `takeone-zoom-after.mp4`, and extract
 `takeone-zoom-<before|after>-{start,mid,settled,dialog-start,dialog-mid,dropdown}.png`
 at observed motion readiness, not guessed wall-clock offsets. On the fixed
 Tidewater take these are 2.3, 2.866667, 3.4, 2.75, 3.2 and 11.7 seconds of the
-emitted video; recheck `camera.json` when timing changes. Add a contact sheet
+emitted video; recheck `camera.json` when timing changes. The 2.75 s frame is
+pre-paint camera approach, not painted-dialog containment; the dialog is visible
+at 3.2 s. For portrait, retain a matched pre-fix/candidate 1080×1920 make with
+identical input hashes and settings. Inspect 3.2/3.4/4.5 s frames and a contact
+sheet, and check `sourceViewport(cameraFrame, ...)`, not only the raw wider
+`camera.json` rect: crop-to-fill must retain the whole 1152 px dialog and its text.
+Do not substitute letterboxing or lift the native-pixel ceiling. Add a contact sheet
 with `fps=1/3,scale=480:-1,tile=4x4` and ffprobe JSON. Look at every frame:
 the first dialog must be whole during its arrival, not only after settling;
 its text and dropdown must be readable. Cropping the unrelated background is not

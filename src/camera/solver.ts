@@ -76,7 +76,7 @@ export function clippedFractions(view: Pick<CameraFrame, "x" | "y" | "w" | "h">,
 }
 
 /** Enclosing perception panels take priority over the requested tightness. */
-function withContext(zone: Zone, boxes: Box[], width: number, height: number): Zone {
+function withContext(zone: Zone, boxes: Box[], width: number, height: number, d: CameraDefaults): Zone {
   let subject = zone;
   const [x, y, w, h] = zone.bbox;
   for (const box of boxes) {
@@ -91,6 +91,8 @@ function withContext(zone: Zone, boxes: Box[], width: number, height: number): Z
   // A whole card alone can still leave a mostly empty shot. Keep its closest
   // separate surface when the gap is smaller than the focused surface itself.
   const [sx, sy, sw, sh] = subject.bbox;
+  // A narrow crop cannot hold a whole panel plus unrelated board context.
+  if (d.out_w / d.out_h < width / height && sw * sh > width * height * LABEL_AREA_MAX) return subject;
   let neighbor: Box | undefined;
   let nearest = Infinity;
   for (const box of boxes) {
@@ -114,6 +116,11 @@ function compose(state: CameraState, subject: Zone, boxes: Box[], width: number,
   const aspect = d.out_w / d.out_h;
   const baseW = baseWidth(width, height, d);
   const [sx, sy, sw, sh] = subject.bbox;
+  // Compose a narrow whole-panel shot against its own controls, not labels on
+  // the board behind it that the stage's crop-to-fill viewport cannot retain.
+  if (aspect < width / height && sw * sh > width * height * LABEL_AREA_MAX) {
+    boxes = boxes.filter(([x, y, w, h]) => x >= sx && y >= sy && x + w <= sx + sw && y + h <= sy + sh);
+  }
   for (let w = desired.w; ; w = Math.min(baseW, w + baseW * 0.025)) {
     const h = w / aspect;
     const gap = Math.min(w, h) * 0.01;
@@ -215,7 +222,7 @@ export function frame(
   }
 
   const boxes = zone.boxes ?? [];
-  zone = withContext(zone, boxes, width, height);
+  zone = withContext(zone, boxes, width, height, d);
 
   const [x, y, zoneW, zoneH] = zone.bbox;
   // A fullscreen window gives no context framing (L1 would be the whole
@@ -494,7 +501,7 @@ function buildTargets(
       t: shot.arrival,
       state: targetA,
       importance: shot.decision.K,
-      subject: withContext(shot.zoneA, inShot(shot.zoneA), width, height),
+      subject: withContext(shot.zoneA, inShot(shot.zoneA), width, height, d),
       boxes: inShot(shot.zoneA),
       screenChange: shot.beat.kind === "change",
       startAfter: shot.beat.kind === "cut" ? cutSettledAt(shot.beat, shot.arrival, d)
@@ -507,7 +514,7 @@ function buildTargets(
         t: resultTime + d.result_late,
         state: framed(shot.zoneB),
         importance: shot.decision.K,
-        subject: withContext(shot.zoneB, inShot(shot.zoneB), width, height),
+        subject: withContext(shot.zoneB, inShot(shot.zoneB), width, height, d),
         boxes: inShot(shot.zoneB),
       });
     }
