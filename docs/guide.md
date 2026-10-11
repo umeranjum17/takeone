@@ -197,7 +197,7 @@ scripts/e2e/scene.sh stop ~/lab/scene-profile 1          # return to your worksp
 takeone make <id> --about "Creating a task and moving it across a project board"
 ```
 
-The README hero and journey images are headless renders: the same `scripts/e2e/scene.html` board captured cursor-free by `scripts/headless-scene.mjs` (see the [headless demo-scene guide](headless-scene.md)), then planned locally and rendered by takeone (`make --no-jev --set fps=60`, then `render --theme paper` on a copy for the light version). The hero clips are 0.8–18.6 s of those renders at double speed, 24 fps, 960 px wide, as animated WebP.
+The README hero and how-it-works images come from one headless take: the `scripts/e2e/scene.html` board captured cursor-free by `scripts/headless-scene.mjs` (see the [headless demo-scene guide](headless-scene.md)), planned locally (`make --no-jev --set fps=60`) and rendered with `--theme sand` for light mode and `--theme aurora` for dark mode. Each hero clip opens on 2 s of the raw recording and wipes into the takeone render, both at double speed, 24 fps, 960 px wide, as animated WebP.
 
 ## Development
 

@@ -14,11 +14,11 @@
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/hero-dark.webp" />
     <source media="(prefers-color-scheme: light)" srcset="docs/assets/readme/hero-light.webp" />
-    <img src="docs/assets/readme/hero-light.jpg" width="640" alt="A takeone render of the Tidewater demo board, shown at double speed: the New task dialog opens, a title and notes are typed, Priority is set to High, the task is created and its card is dragged to In progress" />
+    <img src="docs/assets/readme/hero-light.jpg" width="960" alt="The raw recording of the Tidewater demo board wipes into the takeone render of the same take, a rounded card on a warm themed stage, at double speed: the New task dialog opens, notes are typed, Priority is set to High, the task is created and its card is dragged to In progress" />
   </picture>
 </p>
 
-<p align="center"><sub>A fresh takeone render of the demo board, on the <code>paper</code> theme in light mode and <code>midnight</code> in dark mode.</sub></p>
+<p align="center"><sub>One take, raw recording first, then the takeone render: <code>sand</code> theme in light mode, <code>aurora</code> in dark mode.</sub></p>
 
 ## Why takeone
 
@@ -30,17 +30,21 @@ takeone plans the shots afterwards from what actually happened on screen, then r
 
 ## How it works
 
-<p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/journey-dark.webp" />
-    <source media="(prefers-color-scheme: light)" srcset="docs/assets/readme/journey-light.webp" />
-    <img src="docs/assets/readme/journey-light.webp" width="960" alt="Three panels from one take. Left, the raw 3840 by 2160 recording with the New task dialog and its Priority dropdown open. Middle, the same frame dimmed with a green box around the dialog takeone found as the subject. Right, the rendered frame: the board as a rounded card on a themed stage with a click ring on the Priority field" />
-  </picture>
-</p>
-
 1. **Record** the whole screen, plus your clicks and key presses. Key presses are logged by type only, never as letters.
+
+   <img src="docs/assets/readme/step-record.webp" width="640" alt="The raw recording: the Tidewater board with the new Draft launch announcement card in To do" />
+
 2. **Plan** the camera: takeone splits the take into moments and finds what you acted on (the green box).
+
+   <img src="docs/assets/readme/step-plan.webp" width="640" alt="A raw frame, dimmed, with a green box around the New task dialog and its open Priority dropdown" />
+
 3. **Render** a framed, paced MP4 on a themed stage, with click rings, a crisp cursor and captions.
+
+   <picture>
+     <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/step-render-dark.webp" />
+     <source media="(prefers-color-scheme: light)" srcset="docs/assets/readme/step-render-light.webp" />
+     <img src="docs/assets/readme/step-render-light.webp" width="640" alt="A 1:1 detail of the rendered frame: a click ring on the Priority field of the New task dialog" />
+   </picture>
 
 ## Quick start
 
