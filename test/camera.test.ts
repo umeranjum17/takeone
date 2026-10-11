@@ -230,7 +230,13 @@ test("render without trim_end uses the latest beat end", { timeout: 240_000, ski
       .every(f => contains(f, [1344, 504, 1152, 940])), "dialog stays whole during the push, not only settled");
     const plannedMeta = JSON.parse(await readFile(join(dir, "take.json"), "utf8"));
     // The rendered narrow crop, not just camera.json's wider raw viewport,
-    // must keep the dialog whole throughout its approach and typing hold.
+    // must keep the dialog whole up to the saved close, including union preroll.
+    const plannedBeats: Beat[] = JSON.parse(await readFile(join(dir, "analysis/beats.json"), "utf8"));
+    const closingBeats = structuredClone(plannedBeats);
+    const typed = closingBeats.find(b => (b.actions as Action[]).some(a => a.k === "type"));
+    assert.ok(typed, "4K make planned the typing beat");
+    typed.dialog_results = [{ t: 4.2, bbox: [496, 292, 3056, 1800] }];
+    await writeFile(join(dir, "analysis/beats.json"), JSON.stringify(closingBeats));
     await writeFile(join(dir, "take.json"), JSON.stringify({ ...plannedMeta, trim_end: 4.3 }));
     drive4K("render", "--set", "out_w=540", "--set", "out_h=960", "--set", "outro_s=0");
     const portraitDefaults = { ...DEFAULTS, out_w: 540, out_h: 960 };
@@ -240,6 +246,7 @@ test("render without trim_end uses the latest beat end", { timeout: 240_000, ski
     assert.ok(portrait.length >= 20 && portrait.every(f => contains(f, [1344, 504, 1152, 940])),
       "narrow stage and off-panel composition must not slice the dialog");
     assert.ok(portrait.every(f => f.w >= 540), "portrait retains native source pixels");
+    await writeFile(join(dir, "analysis/beats.json"), JSON.stringify(plannedBeats));
     await writeFile(join(dir, "take.json"), JSON.stringify({ ...plannedMeta,
       zooms: [{ t0: 3, t1: 4.2, bbox: [1344, 504, 1152, 940], level: 3 }] }));
     for (const path of ["solver", "hold"]) {

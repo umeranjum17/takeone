@@ -59,6 +59,10 @@ at 3.2 s. For portrait, retain a matched pre-fix/candidate 1080×1920 make with
 identical input hashes and settings. Inspect 3.2/3.4/4.5 s frames and a contact
 sheet, and check `sourceViewport(cameraFrame, ...)`, not only the raw wider
 `camera.json` rect: crop-to-fill must retain the whole 1152 px dialog and its text.
+Decode every native film frame in each painted dialog interval through its close,
+including pre-close reveal/union motion. Record each frame's visible border loss,
+keep the worst decoded baseline/candidate frames, and fail on any loss; sampled
+arrival frames or raw-rectangle containment alone cannot establish this bar.
 Do not substitute letterboxing or lift the native-pixel ceiling. Add a contact sheet
 with `fps=1/3,scale=480:-1,tile=4x4` and ffprobe JSON. Look at every frame:
 the first dialog must be whole during its arrival, not only after settling;

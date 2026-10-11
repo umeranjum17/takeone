@@ -531,10 +531,11 @@ function buildTargets(
     // moves instead of widening to the whole screen.
     const surfaces = labelBoxes(beat, width, height);
     const revealed: Zone = { name: "revealed", type: "res", bbox: result.bbox, boxes: surfaces };
-    // Widen before the close, retaining the dialog until the result is visible.
-    // The union gives the final spring room to settle without losing the card.
+    // Wide viewports can widen into the union before close. Crop-to-fill cannot
+    // retain both subjects: wait for the observed close before moving its centre.
     const context = shot ? mergeZones(shot.zoneA, revealed) : revealed;
     targets.push({ t: Math.max(start, result.t - 0.3), state: frame(context, 1, width, height, undefined, d),
+      startAfter: d.out_w / d.out_h < width / height ? result.t : undefined,
       importance: 2, subject: context, reveal: result });
     targets.push({ t: result.t + 1, startAfter: result.t,
       state: frame(revealed, 2, width, height, undefined, d), importance: 2, subject: revealed, reveal: result });
