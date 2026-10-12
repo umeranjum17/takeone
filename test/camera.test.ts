@@ -10,6 +10,7 @@ import type { Action } from "../src/types.ts";
 import { renderTake } from "../src/render/render.ts";
 import { idleSqueezes, warp, warpBeats } from "../src/render/pace.ts";
 import { sourceViewport, stageGeometry } from "../src/render/stage.ts";
+import { resolveTheme } from "../src/themes.ts";
 import { contains } from "../scripts/check-framing.ts";
 import { hasFfmpeg } from "./helpers.ts";
 
@@ -236,16 +237,22 @@ test("render without trim_end uses the latest beat end", { timeout: 240_000, ski
       .every(f => contains(f, [1344, 504, 1152, 1316])),
       "a popup attached to the typed form stays whole from arrival, not only settled");
     const plannedMeta = JSON.parse(await readFile(join(dir, "take.json"), "utf8"));
-    // Portrait motion is explicitly OFF, including held paths and manual spans.
-    // This tests the public scope cut, not the retired portrait-push-in tuning.
+    // Portrait push-in plans on the crop-to-fill window it renders: a manual
+    // span right of the form (outside the centred rest window) holds it whole.
     await writeFile(join(dir, "take.json"), JSON.stringify({ ...plannedMeta, trim_end: 4.3,
-      zooms: [{ t0: 3, t1: 4.2, bbox: [1344, 504, 1152, 940], level: 3 }] }));
-    drive4K("render", "--set", "out_w=540", "--set", "out_h=960", "--set", "outro_s=0",
-      "--set", "camera_path=hold");
-    const portrait = await camera4K();
-    const restH = 3840 * 960 / 540;
-    assert.ok(portrait.length >= 20 && portrait.every(f => f.x === 0 && f.y === (2160 - restH) / 2
-      && f.w === 3840 && f.h === restH), "portrait auto/held/manual camera stays at the centred rest frame");
+      zooms: [{ t0: 3, t1: 4.2, bbox: [2400, 600, 500, 400], level: 1 }] }));
+    drive4K("render", "--set", "out_w=540", "--set", "out_h=960", "--set", "outro_s=0");
+    const tall = { ...resolveTheme(undefined), out_w: 540, out_h: 960 };
+    const tallStage = stageGeometry(3840, 2160, tall);
+    const pushed = (await camera4K()).filter(f => f.t >= 3 && f.t <= 4.2)
+      .map(f => sourceViewport(f, 3840, 2160, tallStage, tall));
+    assert.ok(pushed.length >= 10 && pushed.every(f => contains(f, [2400, 600, 500, 400])),
+      `portrait manual zoom pushes in to its whole subject: ${JSON.stringify(pushed[0])}`);
+    // Square motion is not qualified: auto and manual spans keep the centred rest frame.
+    drive4K("render", "--set", "out_w=540", "--set", "out_h=540", "--set", "outro_s=0");
+    const square = await camera4K();
+    assert.ok(square.length >= 20 && square.every(f => f.x === 0 && f.y === -840 && f.w === 3840 && f.h === 3840),
+      "square camera stays at the centred rest frame");
     await writeFile(join(dir, "take.json"), JSON.stringify({ ...plannedMeta,
       zooms: [{ t0: 3, t1: 4.2, bbox: [1344, 504, 1152, 940], level: 3 }] }));
     for (const path of ["solver", "hold"]) {

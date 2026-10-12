@@ -18,7 +18,9 @@ Explicit `--set out_w=...` / `--set out_h=...` dimensions are overridden by
 these presets. When the output is narrower than the source (for example a 9:16,
 1:1 or 4:5 export of a 16:9 capture), the camera crops in to fill the frame —
 centred on each shot's subject — so the screen is never scaled down into a
-letterboxed strip; the app fills the whole frame.
+letterboxed strip; the app fills the whole frame. The camera moves in wide
+exports and in portrait (9:16, 4:5) exports of a wider desktop screen; square
+exports and phone takes keep the centred crop.
 
 `--set camera_path=hold` (default `solver`) is an opt-in camera: it keeps the
 solver's settled framings, checked on the frame actually shown, holds each one
