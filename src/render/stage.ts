@@ -103,14 +103,13 @@ export function bandFrames(frames: CameraFrame[], band: Band, d: CameraDefaults)
 export function stageFrames(frames: CameraFrame[], width: number, height: number, st: Stage, d: CameraDefaults): CameraFrame[] {
   const top = zMax(width, height, d);
   const aspect = d.out_w / d.out_h;
-  const narrow = aspect < width / height - 1e-6;
-  const corner = cornerSize(st, d);
+  const fitW = fillWidth(width, height, st, d) ?? 0;
+  const narrow = fitW > 0;
   // Crop-to-fill avoids each rounded card corner only as far as the window actually reaches it: it
   // is inset horizontally by the corner's depth at that height, not by the whole radius on all four
   // sides, so a frame that stays off the side corners can still show the top or bottom edge (a
   // top-bar control, say) without exposing any background.
   const radius = d.corner_radius / st.restScale;
-  const fitW = narrow ? Math.min(width - 2 * corner, (height - 2 * corner) * aspect) : 0;
   return frames.map((f) => {
     const cx = f.x + f.w / 2 + st.screenX;
     const cy = f.y + f.h / 2 + st.screenY;
@@ -134,6 +133,15 @@ export function stageFrames(frames: CameraFrame[], width: number, height: number
       h,
     };
   });
+}
+
+/** Crop-to-fill window width when the output is narrower than the screen: the
+ * widest output-aspect view that shows only screen pixels. Undefined otherwise. */
+export function fillWidth(width: number, height: number, st: Stage, d: CameraDefaults): number | undefined {
+  const aspect = d.out_w / d.out_h;
+  if (aspect >= width / height - 1e-6) return undefined;
+  const corner = cornerSize(st, d);
+  return Math.min(width - 2 * corner, (height - 2 * corner) * aspect);
 }
 
 /** The rendered viewport in source coordinates, shared with whole-subject preparation. */

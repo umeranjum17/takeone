@@ -80,8 +80,11 @@ export async function renderTake(dir: string, d?: CameraDefaults): Promise<{ out
 
   const trimStart = meta.trim_start ?? 0;
   const wide = d.out_w > d.out_h;
-  const cameraWarning = wide ? manualZoomLimitWarning(meta, d)
-    : meta.zooms?.length ? "take.json: camera motion is disabled for portrait/square exports; use wide output for zooms" : undefined;
+  // Wide motion and portrait crop-to-fill motion (a portrait cut from a wider
+  // screen) are qualified. Square and other portrait exports keep the centred rest framing.
+  const moving = wide || (d.out_h > d.out_w && d.out_w / d.out_h < meta.width / meta.height);
+  const cameraWarning = moving ? manualZoomLimitWarning(meta, d)
+    : meta.zooms?.length ? "take.json: camera motion is disabled for this export shape; use wide output, or portrait from a wider screen, for zooms" : undefined;
   if (cameraWarning) console.warn(cameraWarning);
   const trimEnd = meta.trim_end ?? purposefulEnd(beats, trimStart,
     meta.duration ?? Math.max(0, ...beats.map((beat) => beat.t1)), d);
@@ -151,12 +154,12 @@ export async function renderTake(dir: string, d?: CameraDefaults): Promise<{ out
       return b > a ? [{ ...z, t0: trimStart + outTime(a), t1: trimStart + outTime(b) }] : [];
     });
   });
-  // Only wide motion is qualified. Other exports retain the existing centred
-  // rest framing; neither automatic/held paths nor manual spans can move it.
+  // Exports without qualified motion retain the centred rest framing; neither
+  // automatic/held paths nor manual spans can move it.
   const restW = baseWidth(meta.width, meta.height, d), restH = restW * d.out_h / d.out_w;
-  const directed = wide ? applyManualZooms(held?.frames ?? solvedFrames, { ...meta, zooms }, d)
+  const directed = moving ? applyManualZooms(held?.frames ?? solvedFrames, { ...meta, zooms }, d)
     : solvedFrames.map(f => ({ t: f.t, x: (meta.width - restW) / 2, y: (meta.height - restH) / 2, w: restW, h: restH }));
-  const frames = wide && zooms.length ? applyDragVisibility(directed, outBeats, meta.width, meta.height, trimStart, d) : directed;
+  const frames = moving && zooms.length ? applyDragVisibility(directed, outBeats, meta.width, meta.height, trimStart, d) : directed;
   await writeFile(join(dir, "camera.json"), JSON.stringify(frames));
   const commandFile = join(dir, "camera.cmd");
   // With a band the camera frames the screen alone, into the fixed card.

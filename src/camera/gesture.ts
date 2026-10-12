@@ -1,5 +1,6 @@
 import type { Beat, CameraFrame, Zone } from "./types.ts";
 import type { CameraDefaults } from "./defaults.ts";
+import { baseWidth } from "./solver.ts";
 
 export interface Gesture {
   k: "drag";
@@ -60,7 +61,7 @@ export function applyDragVisibility(
   start: number, d: CameraDefaults,
 ): CameraFrame[] {
   const aspect = d.out_w / d.out_h;
-  const wholeW = Math.max(width, height * aspect);
+  const wholeW = baseWidth(width, height, d);
   const transition = d.move_t_max + d.min_shot + 2 / d.lowpass_omega;
   const smooth = (u: number) => u * u * u * (u * (u * 6 - 15) + 10);
   const holds = beats.flatMap((beat, index) => {

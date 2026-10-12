@@ -1,5 +1,5 @@
 import { applyDragVisibility, gestures } from "./gesture.ts";
-import { stageFrames, stageGeometry } from "../render/stage.ts";
+import { fillWidth, stageFrames, stageGeometry } from "../render/stage.ts";
 import { WIN_MAX_COVER } from "../beats/zones.ts";
 import { DEFAULTS, type CameraDefaults } from "./defaults.ts";
 import type {
@@ -76,7 +76,9 @@ export function clippedFractions(view: Pick<CameraFrame, "x" | "y" | "w" | "h">,
 }
 
 /** Enclosing perception panels take priority over the requested tightness. */
-function withContext(zone: Zone, boxes: Box[], width: number, height: number): Zone {
+function withContext(zone: Zone, boxes: Box[], width: number, height: number, d: CameraDefaults): Zone {
+  const baseW = baseWidth(width, height, d);
+  const fits = (z: Zone) => z.bbox[2] <= baseW && z.bbox[3] <= baseW * d.out_h / d.out_w;
   let subject = zone;
   const [x, y, w, h] = zone.bbox;
   for (const box of boxes) {
@@ -103,14 +105,14 @@ function withContext(zone: Zone, boxes: Box[], width: number, height: number): Z
     const gap = Math.hypot(dx, dy);
     if (gap <= Math.min(sw, sh) && gap < nearest) { neighbor = box; nearest = gap; }
   }
-  if (neighbor) subject = mergeZones(subject, { ...zone, bbox: neighbor });
+  if (neighbor && fits(mergeZones(subject, { ...zone, bbox: neighbor }))) subject = mergeZones(subject, { ...zone, bbox: neighbor });
   return subject;
 }
 
 /** Search edge-aligned crops at this zoom, then widen only if none can hold the UI whole. */
 function compose(state: CameraState, subject: Zone, boxes: Box[], width: number, height: number, d: CameraDefaults): CameraState {
-  if (!boxes.length || state.z === 1) return state;
   const desired = toFrame(state, width, height, d);
+  if (!boxes.length || (desired.w >= width && desired.h >= height)) return state;
   const aspect = d.out_w / d.out_h;
   const baseW = baseWidth(width, height, d);
   const [sx, sy, sw, sh] = subject.bbox;
@@ -148,13 +150,20 @@ function compose(state: CameraState, subject: Zone, boxes: Box[], width: number,
       }
     }
     if (best) return { cx: best.x + w / 2, cy: best.y + h / 2, z: baseW / w };
-    if (w >= baseW) return { cx: width / 2, cy: height / 2, z: 1 };
+    if (w >= baseW) return cropped(width, height, d)
+      ? { cx: sx + sw / 2, cy: sy + sh / 2, z: 1 } : { cx: width / 2, cy: height / 2, z: 1 };
   }
+}
+
+/** A crop-to-fill export: even the widest view cannot show the whole screen at once. */
+function cropped(width: number, height: number, d: CameraDefaults): boolean {
+  const view = toFrame({ cx: 0, cy: 0, z: 1 }, width, height, d);
+  return view.w < width || view.h < height;
 }
 
 /** Width of the output-aspect canvas the source sits in; z = 1 shows all of it. */
 export function baseWidth(width: number, height: number, d: CameraDefaults = DEFAULTS): number {
-  return Math.max(width, height * d.out_w / d.out_h);
+  return fillWidth(width, height, stageGeometry(width, height, d), d) ?? Math.max(width, height * d.out_w / d.out_h);
 }
 
 /** Deepest zoom, measured against the aspect-padded canvas, that keeps within max_upscale. */
@@ -215,7 +224,7 @@ export function frame(
   }
 
   const boxes = zone.boxes ?? [];
-  zone = withContext(zone, boxes, width, height);
+  zone = withContext(zone, boxes, width, height, d);
 
   const [x, y, zoneW, zoneH] = zone.bbox;
   // A fullscreen window gives no context framing (L1 would be the whole
@@ -485,6 +494,7 @@ function buildTargets(
   // effect so its composed crop keeps the same UI whole instead of none of it.
   const boxesFor = (beat: Beat) => (zone: Zone): Box[] => zone.boxes?.length ? zone.boxes
     : beat.zones.filter((z) => !["all", "win", "path"].includes(z.type)).map((z) => z.bbox);
+  const narrow = cropped(width, height, d);
   const targets = shots.flatMap((shot) => {
     const inShot = boxesFor(shot.beat);
     const framed = (zone: Zone): CameraState => frame({ ...zone, boxes: inShot(zone) },
@@ -494,10 +504,10 @@ function buildTargets(
       t: shot.arrival,
       state: targetA,
       importance: shot.decision.K,
-      subject: withContext(shot.zoneA, inShot(shot.zoneA), width, height),
+      subject: withContext(shot.zoneA, inShot(shot.zoneA), width, height, d),
       boxes: inShot(shot.zoneA),
       screenChange: shot.beat.kind === "change",
-      startAfter: shot.beat.kind === "cut" ? cutSettledAt(shot.beat, shot.arrival, d)
+      startAfter: shot.beat.kind === "cut" ? (narrow ? undefined : cutSettledAt(shot.beat, shot.arrival, d))
         : shot.beat.kind === "change" ? shot.beat.anchor_t
         : shot.zoneA.type === "res" ? shot.zoneA.t_change ?? shot.beat.t0 : undefined,
     }];
@@ -507,7 +517,7 @@ function buildTargets(
         t: resultTime + d.result_late,
         state: framed(shot.zoneB),
         importance: shot.decision.K,
-        subject: withContext(shot.zoneB, inShot(shot.zoneB), width, height),
+        subject: withContext(shot.zoneB, inShot(shot.zoneB), width, height, d),
         boxes: inShot(shot.zoneB),
       });
     }
@@ -527,8 +537,12 @@ function buildTargets(
     // Widen before the close, retaining the dialog until the result is visible.
     // The union gives the final spring room to settle without losing the card.
     const context = shot ? mergeZones(shot.zoneA, revealed) : revealed;
-    targets.push({ t: Math.max(start, result.t - 0.3), state: frame(context, 1, width, height, undefined, d),
+    if (!narrow) targets.push({ t: Math.max(start, result.t - 0.3), state: frame(context, 1, width, height, undefined, d),
       importance: 2, subject: context, reveal: result });
+    // A crop-to-fill view cannot hold the dialog and what it reveals: no move
+    // may leave the dialog before it closes.
+    else for (const target of targets) if (target.t > result.t - d.move_t_max - 0.3 && target.t <= result.t + d.move_t_max)
+      target.startAfter = Math.max(target.startAfter ?? result.t, result.t);
     targets.push({ t: result.t + 1, startAfter: result.t,
       state: frame(revealed, 2, width, height, undefined, d), importance: 2, subject: revealed, reveal: result });
   }
@@ -670,6 +684,22 @@ function filterState(requested: CameraState, previous: CameraState,
   return [{ cx, cy, z: Math.exp(lz) }, lz];
 }
 
+/** Seconds past a move's end until the spring, started at rest, trails its target by under half a source pixel. */
+function springTail(move: Move, width: number, height: number, d: CameraDefaults): number {
+  const duration = move.end - move.start, step = 1 / d.fps;
+  const target = toFrame(move.to, width, height, d);
+  const velocity = { cx: 0, cy: 0, lz: 0 };
+  let state = move.from;
+  for (let time = step; time < duration + Math.log(1e6) / d.lowpass_omega; time += step) {
+    [state] = filterState(time < duration ? interpolateMove(move, move.start + time) : move.to,
+      state, velocity, step, width, height, d);
+    const crop = toFrame(state, width, height, d);
+    if (time >= duration && Math.max(Math.abs(crop.x - target.x), Math.abs(crop.y - target.y),
+      Math.abs(crop.w - target.w)) < 0.5) return time - duration;
+  }
+  return Math.log(1e6) / d.lowpass_omega;
+}
+
 /** First whole-subject sample along the existing move/spring, with preceding focus retained. */
 function preparationTime(from: CameraState, to: CameraState, outgoing: Zone, incoming: Zone,
   velocity: { cx: number; cy: number; lz: number }, width: number, height: number,
@@ -721,6 +751,7 @@ function sampleCamera(
   project: (frame: CameraFrame) => CameraFrame,
 ): CameraFrame[] {
   const baseW = baseWidth(width, height, d);
+  const narrow = cropped(width, height, d);
   let state: CameraState = { cx: width / 2, cy: height / 2, z: 1 };
   let previousFiltered = state;
   let previousTime = start;
@@ -777,9 +808,13 @@ function sampleCamera(
       // Include result and breathe targets: arrivals alone do not enforce
       // a visible hold between opposite zooms once the spring settles.
       const zoomHold = reversing ? Math.max(heldUntil, lastZoomMotion + d.min_shot) : heldUntil;
-      const candidateMove = createMove(state, target.state, target.t, baseW, d,
-        urgent ? Math.max(start + d.establish_s, target.startAfter ?? start, previousTime)
-          : Math.max(start + d.establish_s, target.startAfter ?? 0, zoomHold, previousTime));
+      const earliest = urgent ? Math.max(start + d.establish_s, target.startAfter ?? start, previousTime)
+        : Math.max(start + d.establish_s, target.startAfter ?? 0, zoomHold, previousTime);
+      let candidateMove = createMove(state, target.state, target.t, baseW, d, earliest);
+      // A crop-to-fill view has no slack around its subject: arrive with the
+      // spring settled, not merely the ideal path.
+      if (narrow && !urgent) candidateMove = createMove(state, target.state,
+        target.t - springTail(candidateMove, width, height, d), baseW, d, earliest);
       let preparation = preparations.get(target);
       const subject = target.subject;
       // A whole-span focus cannot enter from a tight hold already cut. Prepare
