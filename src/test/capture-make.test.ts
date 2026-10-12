@@ -7,6 +7,10 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 import { makeTake } from "../make.ts";
+import { IDLE_GAP_MS } from "../beats/segment.ts";
+import { idleSqueezes } from "../render/pace.ts";
+import { DEFAULTS } from "../camera/defaults.ts";
+import type { Beat as RenderBeat } from "../camera/types.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const cli = join(here, "../cli.js");
@@ -56,6 +60,27 @@ function buildTake(): string {
   writeFileSync(join(dir, "events.jsonl"), events.map((e) => JSON.stringify(e)).join("\n") + "\n");
   writeFileSync(join(dir, "take.json"), JSON.stringify({
     id: "t1", stream: { w: 320, h: 180 }, scale: 1, offset_ms: 0, pointer: "hyprland",
+  }, null, 1));
+  return dir;
+}
+
+/** Video-only take with a long static middle: grey 6 s, white 2 s, grey 6 s, white 3 s. */
+function buildVideoOnlyStaticMiddleTake(): string {
+  const dir = mkdtempSync(join(tmpdir(), "takeone-vidonlymid-"));
+  execFileSync("ffmpeg", [
+    "-nostdin",
+    "-f", "lavfi", "-i", "color=c=gray:s=320x180:d=6:r=30",
+    "-f", "lavfi", "-i", "color=c=white:s=320x180:d=2:r=30",
+    "-f", "lavfi", "-i", "color=c=gray:s=320x180:d=6:r=30",
+    "-f", "lavfi", "-i", "color=c=white:s=320x180:d=3:r=30",
+    "-filter_complex", "[0:v][1:v][2:v][3:v]concat=n=4:v=1:a=0",
+    "-c:v", "mpeg4", "-q:v", "2", "-f", "matroska", "-y", join(dir, "screen.webm"),
+  ], { stdio: "ignore" });
+  const lines: string[] = [];
+  for (let i = 0; i < 510; i++) lines.push(`${i * 3000}\t${i * 33333333}`);
+  writeFileSync(join(dir, "frames.tsv"), lines.join("\n") + "\n");
+  writeFileSync(join(dir, "take.json"), JSON.stringify({
+    id: "t1", stream: { w: 320, h: 180 }, scale: 1, offset_ms: 0, pointer: "none", events: "none",
   }, null, 1));
   return dir;
 }
@@ -301,5 +326,40 @@ test("makeTake planOnly prices the plan with zero planner calls", { skip: needsF
     assert.ok(v.beats.some((b) => b.kind === "change" || b.kind === "cut"));
   } finally {
     rmSync(silent, { recursive: true, force: true });
+  }
+  // A long static stretch in the middle of a video-only take becomes an idle
+  // beat, so the render's shared idle pacing squeezes it like event idle time:
+  // changes at ~6/8/14 s leave the 8-14 s gap static.
+  const mid = buildVideoOnlyStaticMiddleTake();
+  try {
+    const v = await makeTake(mid, {
+      planOnly: true,
+      apiKey: null,
+      log: () => {},
+      warn: () => {},
+    });
+    assert.equal(v.beats[0]!.t0, 5500);
+    const idle = v.beats.find((b) => b.kind === "idle" && b.t1 - b.t0 >= IDLE_GAP_MS
+      && b.t0 >= 7000 && b.t0 <= 9000 && b.t1 >= 13000 && b.t1 <= 15000);
+    assert.ok(idle, `no idle beat spans the static middle: ${JSON.stringify(v.beats.map((b) => [b.kind, b.t0, b.t1]))}`);
+    for (const b of v.beats) {
+      if (b.kind !== "change" && b.kind !== "cut") continue;
+      assert.ok(b.t1 <= 9000 || b.t0 >= 13000,
+        `change beat spans the static middle: ${b.kind} ${b.t0}-${b.t1}`);
+    }
+    // The render path sees that gap as squeezable idle time (video seconds;
+    // the fixture's video clock starts at 0 and the head trim starts at 5.5 s).
+    const renderBeats: RenderBeat[] = v.beats.map((b) => ({
+      id: b.id, t0: b.t0 / 1000, t1: b.t1 / 1000, anchor_t: b.anchor_t / 1000,
+      kind: b.kind, actions: [],
+      zones: b.zones.map((z) => ({ name: z.name, type: z.kind, bbox: z.bbox,
+        ...(z.t !== undefined ? { t_change: z.t / 1000 } : {}) })),
+    }));
+    const squeezes = idleSqueezes(renderBeats, 5.5, 17, DEFAULTS);
+    const mid_ = squeezes.find((s) => s.b - s.a >= 3
+      && s.a + 5.5 >= 8 && s.a + 5.5 <= 10.5 && s.b + 5.5 >= 12.5 && s.b + 5.5 <= 14);
+    assert.ok(mid_, `no idle squeeze covers the static middle: ${JSON.stringify(squeezes)}`);
+  } finally {
+    rmSync(mid, { recursive: true, force: true });
   }
 });
