@@ -9,7 +9,7 @@ The core pipeline: `takeone make <id>` segments an existing take into beats, fin
 - `--about "<topic>"` adds a key-moment question; `--screen-text` opts in to redacted OCR (needs `tesseract`).
 - Theme selection (`--theme NAME`) and camera-setting overrides (`--set key=value`) at plan time.
 - Cost accounting: usage lands in `take.json` (`jev.input_tokens`, `jev.usd`).
-- Wide action camera pushes and explicit `take.json.zooms` holds: local subjects stay whole, unrelated panels do not widen the shot, and manual holds direct both solver and hold-style paths on the edited video clock. Portrait crop-to-fill exports (a portrait cut from a wider screen) move too: the solver plans on the fill window the export renders, keeps a dialog framed until it closes, and arrives spring-settled, so a dialog the window can hold stays whole through every transition; auto and manual zooms apply, the hold path stays wide-only. Square and other narrow shapes keep the centred rest framing (a manual zoom prints a scope warning).
+- Wide action camera pushes and explicit `take.json.zooms` holds: local subjects stay whole, unrelated panels do not widen the shot, and manual holds direct both solver and hold-style paths on the edited video clock. Portrait crop-to-fill exports (a portrait cut from a wider screen) move too: the solver plans on the fill window the export renders, keeps a dialog framed until it closes, and arrives spring-settled, so a dialog the window can hold stays whole through every transition; auto and manual zooms apply, the hold path stays wide-only. Portrait here means taller than wide (9:16 and 4:5). Square exports and phone takes keep the centred rest framing (a manual zoom prints a scope warning).
 
 ## How to get to it (user POV)
 
