@@ -1,9 +1,12 @@
 /* The same Tidewater board and interactions, arranged for a phone. */
 html, body { width: 100%; height: 100%; font-size: 15px; }
-header { width:100%; height:92px; }
-.logo { left:22px; top:23px; font-size:26px; }
+/* Belt and braces with the WindowInsets padding in TidewaterActivity: when the
+   WebView itself overlaps the status bar (viewport-fit=cover), keep the header
+   inside the web safe area too. Falls back to 0 so it never double-offsets. */
+header { width:100%; height:calc(92px + env(safe-area-inset-top, 0px)); }
+.logo { left:22px; top:calc(23px + env(safe-area-inset-top, 0px)); font-size:26px; }
 .search, nav, #more, #activity, #col1, #col2 { display:none; }
-#newTask { left:auto; right:22px; top:24px; width:110px; height:40px; font-size:14px; }
+#newTask { left:auto; right:22px; top:calc(24px + env(safe-area-inset-top, 0px)); width:110px; height:40px; font-size:14px; }
 .col { left:18px !important; top:130px; width:calc(100% - 36px); height:auto; }
 .col h2 { font-size:20px; margin-bottom:18px; }
 .col h2 span { font-size:15px; }
