@@ -1,4 +1,4 @@
-import { applyDragVisibility, gestures } from "./gesture.ts";
+import { applyDragVisibility, gesturePointer, gestures, type Gesture } from "./gesture.ts";
 import { fillWidth, stageFrames, stageGeometry } from "../render/stage.ts";
 import { WIN_MAX_COVER } from "../beats/zones.ts";
 import { DEFAULTS, type CameraDefaults } from "./defaults.ts";
@@ -549,6 +549,18 @@ function buildTargets(
       state: frame(revealed, 2, width, height, undefined, d), importance: 2, subject: revealed, reveal: result });
   }
 
+  // A crop-to-fill view is already as wide as it gets, so drag visibility cannot
+  // widen around a drag: frame the dragged surface at the grab instead.
+  if (narrow) for (const beat of beats) for (const g of gestures(beat)) {
+    // Perception sees the lifted surface only as its parts, so unless the
+    // capture names it, centre the widest view on the grab: the carry then
+    // keeps the surface whole by holding it exactly where it was picked up.
+    const [x, y, w, h] = g.whole_object ?? [g.from[0], g.from[1], 0, 0];
+    const grab: Zone = { name: "grab", type: "act", bbox: [x, y, Math.max(1, w), Math.max(1, h)] };
+    targets.push({ t: g.t0 / 1000, state: { cx: x + w / 2, cy: y + h / 2, z: 1 },
+      importance: 2, subject: grab });
+  }
+
   // BREATHE rule: widen during long idle gaps when the following beat is distant.
   for (const [index, beat] of beats.entries()) {
     const nextBeat = beats[index + 1];
@@ -686,6 +698,17 @@ function filterState(requested: CameraState, previous: CameraState,
   return [{ cx, cy, z: Math.exp(lz) }, lz];
 }
 
+/** Pass a carried view through unfiltered, handing its motion on to the spring. */
+function carried(requested: CameraState, previous: CameraState,
+  velocity: { cx: number; cy: number; lz: number }, dt: number,
+  width: number, height: number, d: CameraDefaults): [CameraState, number] {
+  const crop = toFrame(requested, width, height, d);
+  const state = { cx: crop.x + crop.w / 2, cy: crop.y + crop.h / 2, z: baseWidth(width, height, d) / crop.w };
+  if (dt > 0) Object.assign(velocity, { cx: (state.cx - previous.cx) / dt,
+    cy: (state.cy - previous.cy) / dt, lz: (Math.log(state.z) - Math.log(previous.z)) / dt });
+  return [state, Math.log(state.z)];
+}
+
 /** Seconds past a move's end until the spring, started at rest, trails its target by under half a source pixel. */
 function springTail(move: Move, width: number, height: number, d: CameraDefaults): number {
   const duration = move.end - move.start, step = 1 / d.fps;
@@ -744,6 +767,7 @@ function preparationTime(from: CameraState, to: CameraState, outgoing: Zone, inc
 function sampleCamera(
   targets: Target[],
   beats: Beat[],
+  drags: Gesture[],
   decisions: Map<string, Decision>,
   width: number,
   height: number,
@@ -774,6 +798,7 @@ function sampleCamera(
     const time = event.t ?? event.t0;
     return time === undefined ? [] : [time / 1000];
   }).sort((a, b) => a - b);
+  let dragFrom: CameraState | undefined;
   const reveals = beats.flatMap((beat) => (beat.dialog_results ?? []).map((result) => ({
     start: result.t - d.move_t_max - 0.3,
     end: intentTimes.find((time) => time > result.t + 0.1) ?? end,
@@ -799,8 +824,13 @@ function sampleCamera(
       targetIndex = revealIndex;
       state = previousFiltered;
     }
-    while (targetIndex < targets.length) {
+    // No shot starts while a crop-to-fill view carries a dragged surface.
+    const drag = drags.find((g) => time >= g.t0 / 1000 && time <= g.t1 / 1000);
+    if (!drag) dragFrom = undefined;
+    while (!drag && targetIndex < targets.length) {
       const target = targets[targetIndex]!;
+      // A shot due before a drag's release is stale once the carried view has replaced it.
+      if (drags.some((g) => target.t <= g.t1 / 1000 && time > g.t1 / 1000)) { targetIndex++; continue; }
       const urgent = Boolean(target.reveal);
       const prepared = preparations.get(target);
       if (!urgent && move && previousTime < heldUntil
@@ -821,7 +851,9 @@ function sampleCamera(
       const subject = target.subject;
       // A whole-span focus cannot enter from a tight hold already cut. Prepare
       // only that required viewport, while the preceding result remains focused.
-      const spansSource = subject && ((subject.bbox[0] === 0 && subject.bbox[2] === width)
+      // A crop-to-fill view never holds such a subject whole, so preparing for
+      // it would defer the move until it is dropped: move as usual instead.
+      const spansSource = subject && !narrow && ((subject.bbox[0] === 0 && subject.bbox[2] === width)
         || (subject.bbox[1] === 0 && subject.bbox[3] === height));
       if (!preparation && !urgent && focus && spansSource && target.state.z === 1
         && !["all", "win"].includes(subject.type)
@@ -889,6 +921,15 @@ function sampleCamera(
     } else if (move && time >= move.end) {
       state = move.to;
     }
+    // Carry the view in lockstep with the dragged surface from where it is on
+    // screen at the grab, so it lands whole on its drop target; the drop then
+    // holds like any arrival.
+    if (drag) {
+      dragFrom ??= previousFiltered;
+      const [px, py] = gesturePointer(drag, time);
+      state = { ...dragFrom, cx: dragFrom.cx + px - drag.from[0], cy: dragFrom.cy + py - drag.from[1] };
+      move = { from: state, to: state, mid: state, start: time, end: time, hop: false };
+    }
 
     // FOLLOW rule: track the pointer of drag/travel beats only after it leaves
     // the inner 60%. Typing is not followed: its region is a fixed bbox the A
@@ -899,7 +940,9 @@ function sampleCamera(
     // Keep the result through passive dwell at the now-vanished close button.
     // Resume follow when a new intentional action begins.
     const revealing = reveals.some((reveal) => time >= reveal.start && time <= reveal.end);
-    if (activeBeat && !revealing) {
+    // A crop-to-fill drag is framed by its grab and carried to its drop: following the
+    // beat's clicks would pull the view off the dragged surface.
+    if (activeBeat && !revealing && !drag && !(narrow && gestures(activeBeat).length)) {
       state = followPointer(state, previousFiltered, activeBeat, decisions, baseW,
         time, time - previousTime, velocity, d);
     }
@@ -907,7 +950,9 @@ function sampleCamera(
     // Constrain the requested viewport before filtering. Clamping the spring's
     // output instead turns a smooth edge arrival into an abrupt velocity stop.
     const dt = time - previousTime;
-    const [filtered, lz] = filterState(state, previousFiltered, filterVelocity, dt, width, height, d);
+    // A carried view is exact: the drag's own easing already smooths it.
+    const [filtered, lz] = drag ? carried(state, previousFiltered, filterVelocity, dt, width, height, d)
+      : filterState(state, previousFiltered, filterVelocity, dt, width, height, d);
     state = filtered;
     const zoomSpeed = dt > 0 ? (lz - Math.log(previousFiltered.z)) / dt : 0;
     // A hold begins when visible zoom falls below 1% per second. Remember the
@@ -1013,11 +1058,13 @@ export function solveCamera(
   const shots = buildShots(beats.filter(beat => !beat.camera_suppressed), decisions, start, d)
     .filter((shot) => visibleBeats.includes(shot.beat));
   const quietShots = applyDwellAndShotLength(shots, d).filter((shot) => shot.arrival < end);
-  const targets = applyMoveRateLimit(buildTargets(quietShots, visibleBeats.filter(beat => !beat.camera_suppressed), width, height, start, end, d), width, height, d);
+  const directed = visibleBeats.filter(beat => !beat.camera_suppressed);
+  const targets = applyMoveRateLimit(buildTargets(quietShots, directed, width, height, start, end, d), width, height, d);
+  // A crop-to-fill view carries every drag, even one whose shot merged away.
   const sampled = sampleCamera(targets, visibleBeats.map((beat) => ({ ...beat,
     kind: quietShots.some((shot) => shot.beat === beat) ? beat.kind : "idle",
     actions: quietShots.some((shot) => shot.beat === beat) ? beat.actions : [],
-  })), decisionMap, width, height, start, end, d, project);
+  })), cropped(width, height, d) ? directed.flatMap(gestures) : [], decisionMap, width, height, start, end, d, project);
   // Bookends are editorial boundaries, independent of action dwell, move caps
   // and pointer follow. Ease out before the outro, then hold the exact stage.
   // Drag visibility is applied last, so a drag-safe viewport is never discarded.
