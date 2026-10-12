@@ -33,7 +33,7 @@ export TAKEONE_DIR="$PWD/tmp/verify-takes" TAKEONE_STATE_DIR="$PWD/tmp/verify-st
 node bin/takeone.mjs doctor
 ```
 
-Prints TOON `doctor[8]{check,ok,detail}` rows: `engine`, `engine-protocol`, `hyprland`, `evdev`, `ffmpeg`, `motion-shell`, `state-dir`, `takes-root`. The exit code is 0 only when every check passes, so read the `ok` column per check, not just the exit code: for make/render verification the gate is `ffmpeg,true` plus `takes-root,true`/`state-dir,true` — `hyprland`/`evdev`/`engine*` rows matter only for desktop recording, and `motion-shell,false` (pinned chrome-headless-shell missing) blocks only motion drives, where the fix is `takeone motion install-shell`.
+Prints TOON `doctor[N]{check,ok,detail}` rows: `engine`, `engine-protocol`, `jev-key`, `ffmpeg`, `motion-shell`, `state-dir`, `takes-root`, plus `hyprland` and `evdev` on Linux only and `xcrun` (iOS Simulator) on macOS only. The exit code is 0 only when every check passes, so read the `ok` column per check, not just the exit code: for make/render verification the gate is `ffmpeg,true` plus `takes-root,true`/`state-dir,true` — `hyprland`/`evdev`/`engine*` rows matter only for desktop recording, `jev-key,false` means planned films fall back to `--no-jev` (fix: `takeone key set` from stdin), and `motion-shell,false` (pinned chrome-headless-shell missing) blocks only motion drives, where the fix is `takeone motion install-shell`.
 
 ## Drive
 
