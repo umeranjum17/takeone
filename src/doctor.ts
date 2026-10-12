@@ -8,6 +8,8 @@ import { join } from "node:path";
 import { explainMissingEngine, resolveEngine, EngineClient } from "@desklink/host";
 import { listInputCandidates, type InputCandidate } from "./evdev.js";
 import { hyprlandSockets, getMonitors } from "./hyprland.js";
+import { parseBootedDevices } from "./ios/record.js";
+import { keyStatus } from "./secrets.js";
 import { toonTable } from "./toon.js";
 
 export interface DoctorCheck {
@@ -24,13 +26,41 @@ export function formatDoctor(checks: DoctorCheck[]): string {
   );
 }
 
-async function ffmpegVersion(): Promise<string | null> {
+async function execFirstLine(cmd: string, args: string[], timeout: number): Promise<string | null> {
   return new Promise((resolveP) => {
-    execFile("ffmpeg", ["-version"], { timeout: 5000 }, (error, stdout) => {
+    execFile(cmd, args, { timeout, maxBuffer: 1_048_576 }, (error, stdout) => {
       if (error !== null) return resolveP(null);
-      resolveP(String(stdout).split("\n")[0] ?? null);
+      resolveP(String(stdout).split("\n")[0]?.trim() || null);
     });
   });
+}
+
+async function ffmpegVersion(): Promise<string | null> {
+  return execFirstLine("ffmpeg", ["-version"], 5000);
+}
+
+/** macOS only: xcrun presence gates iOS Simulator recording; a booted Simulator is transient state, so it is reported, not gated. */
+export async function xcrunProbe(): Promise<DoctorCheck> {
+  const version = await execFirstLine("xcrun", ["--version"], 5000);
+  if (version === null) {
+    return { check: "xcrun", ok: false, detail: "not found; install Xcode command line tools for iOS Simulator recording" };
+  }
+  const list = await new Promise<string | null>((resolveP) => {
+    execFile("xcrun", ["simctl", "list", "devices", "-j"], { timeout: 10000, maxBuffer: 8_388_608 }, (error, stdout) => {
+      if (error !== null) return resolveP(null);
+      resolveP(String(stdout));
+    });
+  });
+  const booted = list === null ? null : parseBootedDevices(list);
+  return {
+    check: "xcrun",
+    ok: true,
+    detail: booted === null
+      ? `${version}; simctl device list unavailable`
+      : booted.length > 0
+        ? `${version}; ${booted.length} booted simulator(s)`
+        : `${version}; no booted simulator (boot one with \`xcrun simctl boot <device>\` or open the Simulator app)`,
+  };
 }
 
 export async function evdevProbe(dir?: string): Promise<DoctorCheck> {
@@ -71,13 +101,19 @@ export async function runDoctor(): Promise<DoctorCheck[]> {
   } else {
     checks.push({ check: "engine", ok: true, detail: `${engine.command} (${engine.origin})` });
     // Protocol handshake + capabilities; safe, opens no portal.
+    // The handshake in EngineClient.start already refused an incompatible
+    // engine, so a successful capabilities() round-trip means this machine's
+    // pinned engine works: report the protocol it speaks rather than gating
+    // on a stale literal. (@desklink/host exposes PROTOCOL_VERSION for the
+    // client's hello, not the engine's caps value, so it cannot serve as the
+    // expected number here.)
     try {
       const client = await EngineClient.start(engine.command, engine.args);
       try {
         const caps = await client.capabilities();
         checks.push({
           check: "engine-protocol",
-          ok: caps.protocol === 2,
+          ok: true,
           detail: `protocol ${caps.protocol}, ${caps.session.kind}, ${caps.capture.mechanism}, encode ${caps.encode.codecs.join("/")} ${caps.encode.hardware ? "hw" : "sw"}`,
         });
       } finally {
@@ -92,30 +128,42 @@ export async function runDoctor(): Promise<DoctorCheck[]> {
     }
   }
 
-  // Hyprland IPC
-  const hypr = hyprlandSockets();
-  if (hypr === null) {
-    checks.push({
-      check: "hyprland",
-      ok: false,
-      detail: "HYPRLAND_INSTANCE_SIGNATURE or XDG_RUNTIME_DIR missing; pointer events disabled",
-    });
-  } else {
-    try {
-      const monitors = await getMonitors(hypr.socket);
-      const names = monitors.map((m) => `${m.name} ${m.width}x${m.height}@${m.scale}`).join(", ");
-      checks.push({ check: "hyprland", ok: monitors.length > 0, detail: `${monitors.length} monitor(s): ${names}` });
-    } catch (error) {
+  // Jev key: presence only, never the key itself. Absent means planned films
+  // fall back to --no-jev, so this row gates the exit like the other rows.
+  const jev = await keyStatus();
+  checks.push({ check: "jev-key", ok: jev.available, detail: jev.detail });
+
+  // Hyprland IPC (Linux only)
+  if (process.platform === "linux") {
+    const hypr = hyprlandSockets();
+    if (hypr === null) {
       checks.push({
         check: "hyprland",
         ok: false,
-        detail: `ipc unreachable: ${error instanceof Error ? error.message : String(error)}`,
+        detail: "HYPRLAND_INSTANCE_SIGNATURE or XDG_RUNTIME_DIR missing; pointer events disabled",
       });
+    } else {
+      try {
+        const monitors = await getMonitors(hypr.socket);
+        const names = monitors.map((m) => `${m.name} ${m.width}x${m.height}@${m.scale}`).join(", ");
+        checks.push({ check: "hyprland", ok: monitors.length > 0, detail: `${monitors.length} monitor(s): ${names}` });
+      } catch (error) {
+        checks.push({
+          check: "hyprland",
+          ok: false,
+          detail: `ipc unreachable: ${error instanceof Error ? error.message : String(error)}`,
+        });
+      }
     }
+
+    // evdev (Linux only)
+    checks.push(await evdevProbe());
   }
 
-  // evdev
-  checks.push(await evdevProbe());
+  // xcrun / iOS Simulator (macOS only)
+  if (process.platform === "darwin") {
+    checks.push(await xcrunProbe());
+  }
 
   // ffmpeg
   const ffmpeg = await ffmpegVersion();
