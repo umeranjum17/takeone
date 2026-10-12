@@ -9,7 +9,7 @@ The core pipeline: `takeone make <id>` segments an existing take into beats, fin
 - `--about "<topic>"` adds a key-moment question; `--screen-text` opts in to redacted OCR (needs `tesseract`).
 - Theme selection (`--theme NAME`) and camera-setting overrides (`--set key=value`) at plan time.
 - Cost accounting: usage lands in `take.json` (`jev.input_tokens`, `jev.usd`).
-- Wide action camera pushes and explicit `take.json.zooms` holds: local subjects stay whole, unrelated panels do not widen the shot, and manual holds direct both solver and hold-style paths on the edited video clock. Portrait crop-to-fill exports (a portrait cut from a wider screen) move too: the solver plans on the fill window the export renders, keeps a dialog framed until it closes, and arrives spring-settled, so a dialog the window can hold stays whole through every transition; auto and manual zooms apply, the hold path stays wide-only. Portrait here means taller than wide (9:16 and 4:5). Square exports and phone takes keep the centred rest framing (a manual zoom prints a scope warning).
+- Wide action camera pushes and explicit `take.json.zooms` holds: local subjects stay whole, unrelated panels do not widen the shot, and manual holds direct both solver and hold-style paths on the edited video clock. Portrait crop-to-fill exports (a portrait cut from a wider screen) move too: the solver plans on the fill window the export renders, keeps a dialog framed until it closes, and arrives spring-settled, so a dialog the window can hold stays whole through every transition, including a later dialog whose planned subject (such as the full-width bar that opened it) the window can never hold; since the fill window cannot widen around a drag, it centres on the grab and pans in lockstep with the dragged pointer, so the lifted surface stays where it was picked up, then holds the drop like any arrival; auto and manual zooms apply, the hold path stays wide-only. Portrait here means taller than wide (9:16 and 4:5). Square exports and phone takes keep the centred rest framing (a manual zoom prints a scope warning).
 
 ## How to get to it (user POV)
 
@@ -87,6 +87,10 @@ the caret. Keep the clipped retained 11.2 s film as a negative control for the a
 process exit zero is not a film PASS, and unresolved source-presence/localization
 frames are inconclusive, never zero loss. Run the same source-eligible-frame audit
 on the manual/edit-clock film using its actual cut/speed mapping.
+For the portrait drag, keep frames across the grab and drop (16.65..18.583 s on the
+fixed take, its only drag): the dragged card (source x 500..1240 at the grab)
+stays whole as the crop pans with the pointer, and the drop column (`In progress`,
+source x 1328..2068) stays whole from release through `min_shot`.
 Cropping the unrelated background is not
 a guarantee that every off-subject label stays whole. Retain the same probes for
 manual/hold/untitled variants. The runnable real-CLI regression is

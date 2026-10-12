@@ -270,6 +270,37 @@ test("render without trim_end uses the latest beat end", { timeout: 240_000, ski
     const editedHold = (await camera4K()).filter(f => f.t >= 2.5 && f.t <= 3.1);
     assert.ok(editedHold.length >= 6 && editedHold.every(f => 3840 / f.w > 2),
       "manual span follows footage across a cut and 2x speed, not the old source clock");
+
+    // Portrait from the same 4K take, on a saved plan shaped like the board demo:
+    // a card on the right, a drag across the left columns, then a second modal
+    // whose planned subject is the full-width top bar that opened it.
+    const modal = [1400, 504, 1040, 940], card = [2900, 400, 500, 300], drop = [1200, 1000, 600, 200];
+    const all = { name: "z9", type: "all", bbox: [0, 0, 3840, 2160] };
+    await writeFile(join(dir, "analysis/beats.json"), JSON.stringify([
+      { id: "c1", kind: "click", t0: 0.5, t1: 2, anchor_t: 1, zones: [{ name: "z1", type: "act", bbox: card }, all],
+        actions: [{ k: "click", t: 1, x: 3150, y: 550 }] },
+      { id: "c2", kind: "drag", t0: 2.5, t1: 5, anchor_t: 2.5, zones: [{ name: "z1", type: "act", bbox: card }, all],
+        actions: [{ k: "drag", t0: 3, t1: 4.5, from: [600, 1100], to: [1500, 1100], bbox: [600, 1100, 900, 1] }] },
+      { id: "c3", kind: "cut", t0: 7, t1: 7, anchor_t: 7, zones: [all], actions: [{ k: "cut", t: 7, changed_frac: 0.96 }] },
+      { id: "c4", kind: "type", t0: 7, t1: 9, anchor_t: 7, zones: [
+        { name: "z1", type: "txt", bbox: [1452, 704, 936, 120], boxes: [modal] },
+        { name: "z2", type: "act", bbox: [0, 0, 3840, 136], boxes: [modal] }, all],
+      actions: [{ k: "click", t: 7, x: 3450, y: 66 }, { k: "type", t0: 7.4, t1: 8.5, region: [1452, 736, 236, 52] }] },
+    ]));
+    await writeFile(join(dir, "analysis/decisions.jsonl"), [["c1", "z1", 2], ["c2", "z1", 2], ["c3", "z9", 1], ["c4", "z2", 1]]
+      .map(([beat, A, L]) => JSON.stringify({ beat, A, L, p: 0, K: 1, conf: 1, decided_by: "test" })).join("\n") + "\n");
+    await writeFile(join(dir, "take.json"), JSON.stringify({ ...plannedMeta, trim_end: 10 }));
+    drive4K("render", "--set", "out_w=540", "--set", "out_h=960", "--set", "outro_s=0");
+    const board = (await camera4K()).map(f => ({ ...sourceViewport(f, 3840, 2160, tallStage, tall), t: f.t }));
+    const during = (a: number, b: number) => board.filter(f => f.t >= a && f.t <= b);
+    assert.ok(during(7, 9).length >= 20 && during(7, 9).every(f => contains(f, modal)),
+      `a later modal stays whole while it is on screen: ${JSON.stringify(during(7, 9).find(f => !contains(f, modal)))}`);
+    assert.ok(during(4.5, 4.5 + DEFAULTS.min_shot).every(f => contains(f, drop)),
+      `the drop target stays readable after release: ${JSON.stringify(during(4.5, 5.7)[0])}`);
+    // The dragged surface is wider than the pointer's track: it travels whole.
+    const held = (t: number) => [400 + (1500 - 600) * (t - 3) / 1.5, 1000, 500, 250];
+    assert.ok(during(3, 4.5).length >= 10 && during(3, 4.5).every(f => contains(f, held(f.t))),
+      `the portrait crop carries the dragged item whole: ${JSON.stringify(during(3, 4.5).find(f => !contains(f, held(f.t))))}`);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
