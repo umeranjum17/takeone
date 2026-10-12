@@ -234,7 +234,8 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
       actions: b.actions.map(a => actionVideoSeconds(a, videoStartMs)),
       zones: b.zones.map((z) => ({ name: z.name, type: z.kind, bbox: z.bbox,
         ...(z.boxes?.length ? { boxes: z.boxes } : {}),
-        ...(z.kind === "res" && z.t !== undefined ? { t_change: seconds(Math.max(b.t0, Math.min(endMs, z.t))) } : {}),
+        // A typed field changes when typing starts: a shot that ends on it arrives then, not at beat end.
+        ...((z.kind === "res" || z.kind === "txt") && z.t !== undefined ? { t_change: seconds(Math.max(b.t0, Math.min(endMs, z.t))) } : {}),
       })),
       ...(b.kind === "cut" ? { changed_frac: scopedFrames.filter((f) => f.t >= b.t0 && f.t <= b.t1).map((f) => ({ t: seconds(f.t), f: f.changed_frac })) } : {}),
     };

@@ -429,7 +429,9 @@ test("live API shape: object-keyed score probabilities and noul still decide via
         answers: {
           focus_start: { type: "choice", choice: names[0], confidence: 0.93, probabilities: choiceProbs },
           focus_end: { type: "choice", choice: names[0], confidence: 0.65, probabilities: choiceProbs },
-          tightness: { type: "score", score: 1.02, confidence: 0, probabilities: { 0: 0.61, 1: 0.01, 2: 0.13, 3: 0.25 } },
+          // A live spread: Jev's tightness confidence sits under 0.5 even when it
+          // leans to level 2, so the median must decide, not argmax-then-widen.
+          tightness: { type: "score", score: 1.45, confidence: 0.27, probabilities: { 0: 0.22, 1: 0.2, 2: 0.49, 3: 0.09 } },
           new_subject: { type: "noul", noul: 0.27 },
           key_moment: { type: "score", score: 0.01, confidence: 0.99, probabilities: { 0: 1, 1: 0, 2: 0 } },
         },
@@ -441,6 +443,7 @@ test("live API shape: object-keyed score probabilities and noul still decide via
     const jevDecisions = r.decisions.filter((d) => d.decided_by === "jev");
     assert.ok(jevDecisions.length >= 2, `expected jev decisions from the live response shape, got ${jevDecisions.length}`);
     assert.ok(jevDecisions.every((d) => d.input_tokens === 874));
+    assert.deepEqual(jevDecisions.map((d) => d.L), jevDecisions.map(() => 2));
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
