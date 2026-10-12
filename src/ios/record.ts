@@ -7,9 +7,9 @@
  * regions and cuts. The desktop record/session/taps path is untouched.
  */
 
-import { spawn, spawnSync } from "node:child_process";
+import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { copyFile, mkdir, rename, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { basename, join, resolve } from "node:path";
 import { processStartTicks } from "../takes.ts";
@@ -19,6 +19,8 @@ export interface IosSimRecordOptions {
   /** Explicit booted Simulator UDID; absent preserves simctl booted selection. */
   udid?: string;
   stateDirPath?: string;
+  /** Called once capture is really running; callers can safely start demonstrating. */
+  onReady?: (takeDir: string) => void;
   /** Injectable for tests; defaults to process.platform. */
   platform?: NodeJS.Platform;
 }
@@ -253,6 +255,53 @@ export async function moveRawIntoTake(
 
 /** 12 h: the stop signal, not the deadline, ends an interactive recording. */
 const MAX_SECONDS = 12 * 3600;
+/** Grace period for a silent-but-alive recorder before signalling ready anyway. */
+const READY_GRACE_MS = 10_000;
+/** Poll interval while waiting for the recorder output to appear. */
+const READY_POLL_MS = 250;
+
+/**
+ * Fire `onReady` once, as soon as the simctl output file exists (capture is
+ * really writing) or, failing that, while the recorder is still alive past
+ * the grace period. Never rejects and never fails the take: a reporting hook
+ * must not break a recording.
+ */
+async function signalIosReady(
+  raw: string,
+  rec: ChildProcess,
+  takeDir: string,
+  onReady: ((takeDir: string) => void) | undefined,
+): Promise<void> {
+  if (onReady === undefined) return;
+  try {
+    const deadline = Date.now() + READY_GRACE_MS;
+    let seen = false;
+    while (Date.now() < deadline) {
+      try {
+        seen = (await stat(raw)).isFile();
+      } catch {
+        seen = false;
+      }
+      if (seen || rec.exitCode !== null) break;
+      await new Promise((resolve) => setTimeout(resolve, READY_POLL_MS));
+    }
+    if (!seen) {
+      try {
+        seen = (await stat(raw)).isFile();
+      } catch {
+        seen = false;
+      }
+    }
+    if (!seen && rec.exitCode !== null) return;
+    try {
+      onReady(takeDir);
+    } catch {
+      // a reporting hook must never fail the take
+    }
+  } catch {
+    // readiness signalling never fails the take
+  }
+}
 
 export async function runIosSimRecord(options: IosSimRecordOptions = {}): Promise<IosSimRecordResult> {
   refuseUnlessMac(options.platform);
@@ -298,6 +347,12 @@ export async function runIosSimRecord(options: IosSimRecordOptions = {}): Promis
       const rec = spawn("xcrun", ["simctl", "io", device, "recordVideo", "--codec=h264", raw], {
         stdio: ["ignore", "pipe", "pipe"],
       });
+      // simctl prints no start line, so the output file appearing behind a
+      // live recorder is the only proof capture is really running. A
+      // silent-but-alive recorder still signals after a grace period so
+      // scripts never wait forever; a dead recorder never signals and the
+      // close handler below reports the real error instead.
+      void signalIosReady(raw, rec, takeDir, options.onReady);
       const onOutput = (): void => {
         if (startLineWall === null) startLineWall = Date.now();
       };

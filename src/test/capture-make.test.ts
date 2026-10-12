@@ -60,6 +60,25 @@ function buildTake(): string {
   return dir;
 }
 
+/** Video-only take: 5 s of static grey, then a hard cut to white. No events.jsonl. */
+function buildVideoOnlyTake(): string {
+  const dir = mkdtempSync(join(tmpdir(), "takeone-videonly-"));
+  execFileSync("ffmpeg", [
+    "-nostdin",
+    "-f", "lavfi", "-i", "color=c=gray:s=320x180:d=5:r=30",
+    "-f", "lavfi", "-i", "color=c=white:s=320x180:d=5:r=30",
+    "-filter_complex", "[0:v][1:v]concat=n=2:v=1:a=0",
+    "-c:v", "mpeg4", "-q:v", "2", "-f", "matroska", "-y", join(dir, "screen.webm"),
+  ], { stdio: "ignore" });
+  const lines: string[] = [];
+  for (let i = 0; i < 300; i++) lines.push(`${i * 3000}\t${i * 33333333}`);
+  writeFileSync(join(dir, "frames.tsv"), lines.join("\n") + "\n");
+  writeFileSync(join(dir, "take.json"), JSON.stringify({
+    id: "t1", stream: { w: 320, h: 180 }, scale: 1, offset_ms: 0, pointer: "none", events: "none",
+  }, null, 1));
+  return dir;
+}
+
 function writeKeyFile(dir: string, key = "sk-test-key"): string {
   const path = join(dir, "key");
   writeFileSync(path, key);
@@ -266,5 +285,21 @@ test("makeTake planOnly prices the plan with zero planner calls", { skip: needsF
     assert.ok(!existsSync(join(dir, "out")), "plan-only renders nothing");
   } finally {
     rmSync(dir, { recursive: true, force: true });
+  }
+  // Video-only takes (no input events) open just before the first visual
+  // change: 5 s of static grey, then a hard cut, plans its first beat at 4.5 s.
+  const silent = buildVideoOnlyTake();
+  try {
+    const v = await makeTake(silent, {
+      planOnly: true,
+      apiKey: null,
+      log: () => {},
+      warn: () => {},
+    });
+    assert.ok(v.beats.length > 0);
+    assert.equal(v.beats[0]!.t0, 4500);
+    assert.ok(v.beats.some((b) => b.kind === "change" || b.kind === "cut"));
+  } finally {
+    rmSync(silent, { recursive: true, force: true });
   }
 });
