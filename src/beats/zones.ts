@@ -35,7 +35,7 @@ export function zonesForBeat(
   const act = actZone(beat, o, screen);
   if (act) cands.push({ kind: "act", ...act });
 
-  const txt = txtZone(beat, o);
+  const txt = txtZone(beat, o.scale);
   if (txt) cands.push({ kind: "txt", bbox: txt.bbox, t: txt.t });
 
   const path = pathZone(beat);
@@ -174,34 +174,20 @@ function actPointOf(a: Action): [number, number] | null {
  * result opening within a control's height of them (the dropdown a field
  * opens): one beat filling a form frames the form, not the first field's caret.
  */
-function txtZone(beat: Beat,
-  o: { stream: { w: number; h: number }; scale: number; frames: FrameRegions[]; uiBoxes?: BoxFrame[] },
-): { bbox: BBox; t: number } | null {
+function txtZone(beat: Beat, scale: number): { bbox: BBox; t: number } | null {
   let zone: { bbox: BBox; t: number } | null = null;
   for (const a of beat.actions) {
     if (a.k === "type" && a.region) zone = zone ? { bbox: unionBBox(zone.bbox, a.region), t: zone.t } : { bbox: a.region, t: a.t0 };
   }
   if (!zone) return null;
-  const reach = 2 * ACT_PAD_LOGICAL[1] * o.scale;
-  const [zx, zy, zw, zh] = zone.bbox;
-  const surfaces = uiBoxesAt(o.uiBoxes ?? [], o.frames, zone.t)
-    .filter(([x, y, w, h]) => x <= zx && y <= zy && x + w >= zx + zw && y + h >= zy + zh
-      && w * h <= screenArea(o.stream) * PANEL_MAX_AREA)
-    .sort((a, b) => bboxArea(a) - bboxArea(b));
-  const near: BBox = [zx - reach, zy - reach, zw + 2 * reach, zh + 2 * reach];
   for (const a of beat.actions) {
-    // The button that opened a dialog is not a field inside that dialog.
-    if (a.k === "click" && a.x >= near[0] && a.x <= near[0] + near[2]
-      && a.y >= near[1] && a.y <= near[1] + near[3]) zone.bbox = unionBBox(zone.bbox, [a.x, a.y, 1, 1]);
+    if (a.k === "click") zone.bbox = unionBBox(zone.bbox, [a.x, a.y, 1, 1]);
   }
+  const reach = 2 * ACT_PAD_LOGICAL[1] * scale;
+  const [zx, zy, zw, zh] = zone.bbox;
+  const near: BBox = [zx - reach, zy - reach, zw + 2 * reach, zh + 2 * reach];
   for (const r of beat.results ?? []) {
-    if (r.area_frac > PANEL_MAX_AREA) continue;
-    // A later popup can sit far below the caret but still overlap the same
-    // form. Include its enclosing surface too, so framing never loses the form
-    // when the extended txt bbox no longer fits inside that surface.
-    const surface = surfaces.find(box => bboxIoU(r.bbox, box) > 0);
-    if (surface) zone.bbox = unionBBox(unionBBox(zone.bbox, surface), r.bbox);
-    else if (bboxIoU(r.bbox, near) > 0) zone.bbox = unionBBox(zone.bbox, r.bbox);
+    if (r.area_frac <= PANEL_MAX_AREA && bboxIoU(r.bbox, near) > 0) zone.bbox = unionBBox(zone.bbox, r.bbox);
   }
   return zone;
 }
