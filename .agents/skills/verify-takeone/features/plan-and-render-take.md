@@ -38,7 +38,13 @@ the assigned memory gate with bounded encoder/filter threads.
 
 For each beat, map its times through the same idle/edit clock as the render and
 record `z = max(width, height * out_w / out_h) / cameraFrame.w`. The first dialog
-must rise above 1× (the default 4K→1080p ceiling is 2×). A 1920×1080 synthetic take
+must rise above 1× (the default 4K→1080p ceiling is 2×). With a stored Jev key,
+repeat `make` without `--no-jev` on a third copy (a paid run: record `take.json`
+`jev.input_tokens`/`jev.usd` per output minute): the Jev plan must also push in on
+the first dialog while its title is typed, and its max zoom and frames above 1.05×
+must not fall below the `--no-jev` film's (on the fixed take: 2× and 656 vs 622
+frames, from 1.097× and 77 before the median-tightness fix). `analysis/jev-cache.jsonl`
+holds Jev's raw tightness distribution per beat when a level looks wrong. A 1920×1080 synthetic take
 at default 1920×1080 output correctly stays at 1×: do not lift `max_upscale` to
 make that control pass.
 

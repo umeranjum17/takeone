@@ -9,7 +9,7 @@ export interface Zone {
   bbox: [number, number, number, number]; // x, y, w, h in stream pixels
   /** UI context from perception; independent of the planner's candidate deduplication. */
   boxes?: [number, number, number, number][];
-  /** Result zone: time the region first changed (video-relative s). */
+  /** Result or typed-text zone: time the region first changed (video-relative s). */
   t_change?: number;
 }
 

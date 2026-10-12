@@ -8,7 +8,6 @@ import { WIN_MAX_COVER } from "../beats/zones.ts";
 export const LOW_CONF = 0.5;
 export const HOLD_P = 0.35;
 export const MOVE_P = 0.65;
-export const FIT_MARGIN = 0.08;
 export const WIDE_UNION_FRAC = 0.7; // union of top two over this -> all
 export const NEAR_UNION_FRAC = 0.2; // union up to a panel: keep the top choice when no zone contains it
 export const KEY_MOMENT_TIGHTEN = 1;
@@ -69,17 +68,6 @@ function pad(b: BBox, f: number): BBox {
   return [b[0] - (w - b[2]) / 2, b[1] - (h - b[3]) / 2, w, h];
 }
 
-function fitsInside(inner: BBox, outer: BBox, margin: number): boolean {
-  const mx = outer[2] * margin;
-  const my = outer[3] * margin;
-  return (
-    inner[0] >= outer[0] - mx &&
-    inner[1] >= outer[1] - my &&
-    inner[0] + inner[2] <= outer[0] + outer[2] + mx &&
-    inner[1] + inner[3] <= outer[1] + outer[3] + my
-  );
-}
-
 /** Probabilities must sum to 1 +/- 0.01 or the answer falls back to heuristic. */
 export function sumsTo1(probs: Record<string, number> | number[] | undefined): boolean {
   if (!probs) return false;
@@ -95,6 +83,14 @@ export function argmaxLevel(probs: number[] | undefined): number | null {
   let bi = 0;
   for (let i = 1; i < probs.length; i++) if (probs[i]! > probs[bi]!) bi = i;
   return bi;
+}
+
+/** Median level of a score answer: the first level where cumulative probability reaches one half. */
+export function medianLevel(probs: number[] | undefined): number | null {
+  if (!probs || probs.length === 0 || !sumsTo1(probs)) return null;
+  let sum = 0;
+  for (let i = 0; i < probs.length; i++) if ((sum += probs[i]!) >= 0.5 - 1e-9) return i;
+  return probs.length - 1;
 }
 
 /**
@@ -126,18 +122,23 @@ export function mapAnswers(
   const confB = fe.confidence ?? choiceConfidence(fe.probabilities);
 
   let A = resolveChoice(zA, confA, fs.probabilities, beat);
-  let B = resolveChoice(zB, confB, fe.probabilities, beat);
+  // B stays Jev's end zone even when it fits A's frame: a wide A (a full-width
+  // header click) would otherwise drop the subject; the solver holds a B its
+  // deadzone already shows, as it does for heuristic decisions.
+  const B = resolveChoice(zB, confB, fe.probabilities, beat);
   // An uncertain start that widened to the whole screen defers to a confident
-  // end: that zone is the beat's subject, and B = A below would discard it.
+  // end: that zone is the beat's subject.
   if (byName(A)?.kind === "all" && byName(B)?.kind !== "all" && confB >= LOW_CONF) A = B;
 
-  // tightness: argmax level, one level wider when confidence is low
+  // tightness: the median level. The scale is ordinal and Jev spreads its mass
+  // over it (confidence is under LOW_CONF on nearly every beat), so argmax plus
+  // "one level wider when unsure" widened every shot; the median hedges toward
+  // the middle only as far as the spread itself says.
   if (answers.tightness?.probabilities?.length !== 4) return null;
-  const rawL = argmaxLevel(answers.tightness?.probabilities);
+  const rawL = medianLevel(answers.tightness?.probabilities);
   if (rawL === null) return null;
   let L: Tightness = rawL as Tightness;
   const confL = answers.tightness?.confidence ?? 0;
-  if (confL < LOW_CONF) L = Math.max(0, rawL - 1) as Tightness;
 
   // new_subject probability
   const p = answers.new_subject?.p;
@@ -155,10 +156,6 @@ export function mapAnswers(
       if (K === 2 && confK >= LOW_CONF) L = Math.min(3, L + KEY_MOMENT_TIGHTEN) as Tightness;
     }
   }
-
-  // B = A when B fits the frame chosen for A with 8% margin
-  const frameA = frameRect(byName(A) ?? null, L, { stream: ctx.stream, winRect: ctx.winRect, aspect: ctx.aspect });
-  if (fitsInside(byName(B)!.bbox, frameA, FIT_MARGIN)) B = A;
 
   return {
     beat: beat.id,
