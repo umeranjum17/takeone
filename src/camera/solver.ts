@@ -94,6 +94,9 @@ function withContext(zone: Zone, boxes: Box[], width: number, height: number): Z
   let neighbor: Box | undefined;
   let nearest = Infinity;
   for (const box of boxes) {
+    // Nearby labels/cards add context; an unrelated sidebar or panel must not
+    // expand a local subject to the whole screen.
+    if (box[2] * box[3] > width * height * LABEL_AREA_MAX) continue;
     const dx = Math.max(sx - box[0] - box[2], box[0] - sx - sw, 0);
     const dy = Math.max(sy - box[1] - box[3], box[1] - sy - sh, 0);
     if (dx === 0 && dy === 0) continue; // enclosed or overlapping surfaces
@@ -225,7 +228,10 @@ export function frame(
   if (level === 1 && windowRect && inWindow) {
     rect = windowRect;
   } else {
-    const padding = level === 1 ? d.l1_pad : level === 2 ? d.l2_pad : d.l3_pad;
+    // A panel is already context, not a tiny control needing another ring of
+    // context. Hold it whole instead of padding a dialog back to the board.
+    const padding = zoneW * zoneH > width * height * LABEL_AREA_MAX ? d.hold_pad
+      : level === 1 ? d.l1_pad : level === 2 ? d.l2_pad : d.l3_pad;
     rect = [
       x - zoneW * (padding - 1) / 2,
       y - zoneH * (padding - 1) / 2,
@@ -260,12 +266,45 @@ export function frame(
     cx: rx + rw / 2,
     cy: ry + rh / 2,
     z: clamp(baseWidth(width, height, d) / rw, 1, zMax(width, height, d)),
-  }, rect === windowRect ? { ...zone, bbox: rect } : zone, boxes, width, height, d);
+  }, rect === windowRect ? { ...zone, bbox: rect } : zone,
+    boxes.filter(box => box[2] * box[3] <= width * height * LABEL_AREA_MAX), width, height, d);
 }
 
 export function moveDuration(drift: number, d: CameraDefaults = DEFAULTS): number {
   const proposed = d.move_t_min + d.move_t_slope * Math.log2(1 + Math.max(0, drift));
   return clamp(proposed, d.move_t_min, d.move_t_max);
+}
+
+/** Explicit holds direct the final path, including the opt-in held path. */
+export function applyManualZooms(frames: CameraFrame[], take: TakeMeta, d: CameraDefaults): CameraFrame[] {
+  const start = take.trim_start ?? 0;
+  const end = start + frames.at(-1)!.t;
+  const zooms = [...(take.zooms ?? [])].filter(z => z.t1 > start && z.t0 < end)
+    .sort((a, b) => a.t0 - b.t0);
+  if (!zooms.length) return frames;
+  const baseW = baseWidth(take.width, take.height, d);
+  const state = (f: CameraFrame): CameraState => ({ cx: f.x + f.w / 2, cy: f.y + f.h / 2, z: baseW / f.w });
+  const at = (t: number) => state(frames[clamp(Math.round((t - start) * d.fps), 0, frames.length - 1)]!);
+  const holds = zooms.map((z, i) => {
+    const target = frame({ name: "manual", type: "act", bbox: z.bbox }, z.level ?? 2,
+      take.width, take.height, undefined, d);
+    const a = Math.max(start, z.t0), b = Math.min(end, z.t1);
+    const enter = Math.min(moveDuration(distance(at(a), target, baseW), d),
+      Math.max(0, a - (zooms[i - 1]?.t1 ?? start)) / 2);
+    const leave = Math.min(moveDuration(distance(target, at(b), baseW), d),
+      Math.max(0, (zooms[i + 1]?.t0 ?? end) - b) / 2);
+    return { a, b, enter, leave, target };
+  });
+  return frames.map(f => {
+    const t = f.t + start;
+    const hold = holds.find(h => t >= h.a - h.enter && t <= h.b + h.leave);
+    if (!hold) return f;
+    const u = t < hold.a ? smooth((t - hold.a + hold.enter) / hold.enter)
+      : t > hold.b ? 1 - smooth((t - hold.b) / hold.leave) : 1;
+    const from = state(f), to = hold.target;
+    return { ...toFrame({ cx: lerp(from.cx, to.cx, u), cy: lerp(from.cy, to.cy, u),
+      z: Math.exp(lerp(Math.log(from.z), Math.log(to.z), u)) }, take.width, take.height, d), t: f.t };
+  });
 }
 
 /** Pair decisions with their zones and establish the requested A arrival time. */
@@ -353,6 +392,10 @@ function applyDwellAndShotLength(shots: Shot[], d: CameraDefaults): Shot[] {
   let wide = true;
   for (const shot of shots) {
     if (shot.beat.kind === "scroll" || shot.beat.kind === "idle") continue;
+    // Pointer travel alone is not an action shot. Zooming to its empty trail
+    // delays the next real action behind dwell and can crop a newly opened dialog.
+    if (shot.beat.kind === "travel" && !shot.beat.actions.some(action =>
+      ["click", "type", "drag", "shortcut"].includes((action as { k?: string }).k ?? ""))) continue;
     // A simultaneous subject shot already covers the cut's arrival. Accepting
     // a redundant wide cut would let shot spacing discard that subject instead.
     if (shot.beat.kind === "cut" && wholeStage(shot) && shots.some((other) =>

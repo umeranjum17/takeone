@@ -89,10 +89,26 @@ const SECRETS = /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----|\b(?:AKIA[0-9
 // 2. A test made easier (added skips).
 const SKIPS = /\.(skip|todo)\b|\b(skip|todo)["']?\s*:(?!\s*false\s*(?:[,}]|$))|\bxit\(|\bxdescribe\(|@pytest\.mark\.skip|t\.Skip\(/;
 
+// A changed timeout re-adds the declaration's existing ffmpeg prerequisite.
+// Compare simple skip fields only within the same BASE declaration; uncertain
+// expressions and other skip forms remain findings rather than gaining an exemption.
+const TEST_DECLARATION = /\b(?:test|it|describe)\s*\(\s*("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`)/;
+const SKIP_FIELD = /\b(skip|todo)["']?\s*:\s*("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*)\s*(?=[,}]|$)/g;
+function addedSkip(file, text) {
+  const declaration = TEST_DECLARATION.exec(text)?.[0];
+  const before = declaration && removed.find(r => r.file === file
+    && TEST_DECLARATION.exec(r.text)?.[0] === declaration)?.text;
+  if (!before) return SKIPS.test(text);
+  const fields = [...before.matchAll(SKIP_FIELD)];
+  const changed = text.replace(SKIP_FIELD, (token, key, value) =>
+    fields.some(f => f[1] === key && f[2] === value) ? '' : token);
+  return SKIPS.test(changed);
+}
+
 for (const { file, text } of added) {
   if (isCode(file) && /(^\s*(\/\/|\/\*|\*|#)|\s(\/\/|\/\*|#))/.test(text) && SUPPRESSIONS.test(text)) flag('silenced-checker', file);
   if (isCode(file) && STUBS.test(text)) flag('unfinished-work', file);
-  if (isTest(file) && SKIPS.test(text)) flag('test-made-easier', file);
+  if (isTest(file) && addedSkip(file, text)) flag('test-made-easier', file);
   if (SECRETS.test(text)) flag('secret-in-source', file);
   if (isConstraints(file) && /^\| *(W|E)\d+ *\|/.test(text)) flag('new-exception', file, text);
 }

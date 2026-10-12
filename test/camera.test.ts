@@ -66,7 +66,8 @@ test("render CLI rejects unknown and malformed override arguments", () => {
 
 // One consumer journey: inferred duration, then the real make -> saved render path over
 // typing, a revealed dialog result and drags trimmed at the video boundary, released and not.
-test("render without trim_end uses the latest beat end", { timeout: 120_000, skip: needsFfmpeg }, async () => {
+// The added portrait render needs a 240s journey budget (measured 144.853s at two CPUs).
+test("render without trim_end uses the latest beat end", { timeout: 240_000, skip: needsFfmpeg }, async () => {
   const dir = await mkdtemp(join(process.cwd(), "takeone:duration-"));
   try {
     await mkdir(join(dir, "analysis"));
@@ -185,6 +186,83 @@ test("render without trim_end uses the latest beat end", { timeout: 120_000, ski
     const bareLast = JSON.parse(await readFile(join(dir, "camera.json"), "utf8")).at(-1);
     assert.ok(Math.abs(bareLast.t - warp(10.9, trimmed, bare.idle_speed)) <= 1 / DEFAULTS.fps,
       `outro_s=0 exported to ${bareLast.t}s, not the result at ${warp(10.9, trimmed, bare.idle_speed)}s`);
+
+    // Real 4K make journey: a form beside a tall panel, not a solver-only fixture.
+    // Keep the export small; the source geometry and native-pixel ceiling are real.
+    execFileSync("ffmpeg", ["-y", "-v", "error", "-filter_threads", "2", "-threads", "2",
+      "-f", "lavfi", "-i", "color=c=0x202328:s=3840x2160:r=10:d=10",
+      "-vf", "drawbox=x=0:y=0:w=3840:h=136:color=0xeeeeee:t=fill," +
+        "drawbox=x=2972:y=188:w=824:h=1916:color=0xdddddd:t=fill," +
+        "drawbox=x=1344:y=504:w=1152:h=940:color=white:t=fill," +
+        "drawbox=x=1428:y=736:w=900:h=96:color=0xeeeeee:t=fill," +
+        "drawbox=x=1440:y=750:w=44:h=52:color=black:t=fill:enable='gte(t,4)'," +
+        "drawbox=x=1490:y=750:w=44:h=52:color=black:t=fill:enable='gte(t,4.2)'," +
+        "drawbox=x=1420:y=1340:w=440:h=480:color=white:t=fill:enable='between(t,6,7.5)'",
+      "-c:v", "mpeg4", "-q:v", "2", "-threads", "2", "-f", "matroska", join(dir, "screen.webm")]);
+    await writeFile(join(dir, "frames.tsv"), Array.from({ length: 100 }, (_, i) =>
+      `${i * 9000}\t${i * 100_000_000}`).join("\n") + "\n");
+    const fourK = { id: "duration", stream: { w: 3840, h: 2160 }, scale: 2,
+      offset_ms: 0, pointer: "mapped", trim: { start: 0, end: 10000 } };
+    await writeFile(join(dir, "take.json"), JSON.stringify(fourK));
+    await writeFile(join(dir, "events.jsonl"), [
+      { k: "win", t: 0, cls: "board", title: "Umer's board", rect: [0, 0, 3840, 2160] },
+      { k: "ptr", t: 0, x: 2250, y: 1350 },
+      { k: "ptr", t: 1000, x: 2625, y: 558 },
+      { k: "ptr", t: 2000, x: 1600, y: 780 },
+      { k: "btn", t: 2000, b: "left", down: true },
+      { k: "btn", t: 2080, b: "left", down: false },
+      ...Array.from({ length: 18 }, (_, i) => ({ k: "key", t: 4000 + i * 200, cls: "char", down: true })),
+      { k: "ptr", t: 6000, x: 1640, y: 1360 },
+      { k: "btn", t: 6000, b: "left", down: true },
+      { k: "btn", t: 6080, b: "left", down: false },
+    ].map(e => JSON.stringify(e)).join("\n") + "\n");
+    const drive4K = (command: string, ...args: string[]) => execFileSync(process.execPath,
+      ["bin/takeone.mjs", command, dir, ...["out_w=960", "out_h=540", "fps=10",
+        "preset=ultrafast", "motion_blur=0", "idle_speed=1", "ripple_ms=0"]
+        .flatMap(v => ["--set", v]), ...args],
+      { env: { ...process.env, TAKEONE_DIR: dir, TAKEONE_STATE_DIR: join(dir, "state") } });
+    drive4K("make", "--no-jev");
+    const camera4K = async () => JSON.parse(await readFile(join(dir, "camera.json"), "utf8")) as
+      { t: number; x: number; y: number; w: number; h: number }[];
+    const auto = await camera4K();
+    assert.ok(auto.some(f => f.t >= 3 && f.t <= 4.2 && 3840 / f.w > 1.4),
+      `4K action beat must push in, not merge its form with the unrelated tall panel: ${JSON.stringify({
+        frames: auto.filter(f => Number.isInteger(f.t)),
+        beats: JSON.parse(await readFile(join(dir, "analysis/beats.json"), "utf8")),
+      })}`);
+    assert.ok(auto.filter(f => f.t >= 2 && f.t <= 4.2)
+      .every(f => contains(f, [1344, 504, 1152, 940])), "dialog stays whole during the push, not only settled");
+    assert.ok(auto.filter(f => f.t >= 6 && f.t <= 7.4)
+      .every(f => contains(f, [1344, 504, 1152, 1316])),
+      "a popup attached to the typed form stays whole from arrival, not only settled");
+    const plannedMeta = JSON.parse(await readFile(join(dir, "take.json"), "utf8"));
+    // Portrait motion is explicitly OFF, including held paths and manual spans.
+    // This tests the public scope cut, not the retired portrait-push-in tuning.
+    await writeFile(join(dir, "take.json"), JSON.stringify({ ...plannedMeta, trim_end: 4.3,
+      zooms: [{ t0: 3, t1: 4.2, bbox: [1344, 504, 1152, 940], level: 3 }] }));
+    drive4K("render", "--set", "out_w=540", "--set", "out_h=960", "--set", "outro_s=0",
+      "--set", "camera_path=hold");
+    const portrait = await camera4K();
+    const restH = 3840 * 960 / 540;
+    assert.ok(portrait.length >= 20 && portrait.every(f => f.x === 0 && f.y === (2160 - restH) / 2
+      && f.w === 3840 && f.h === restH), "portrait auto/held/manual camera stays at the centred rest frame");
+    await writeFile(join(dir, "take.json"), JSON.stringify({ ...plannedMeta,
+      zooms: [{ t0: 3, t1: 4.2, bbox: [1344, 504, 1152, 940], level: 3 }] }));
+    for (const path of ["solver", "hold"]) {
+      drive4K("render", "--set", `camera_path=${path}`);
+      const manual = (await camera4K()).filter(f => f.t >= 3 && f.t <= 4.2);
+      assert.ok(manual.length >= 10 && manual.every(f => 3840 / f.w > 2),
+        `manual zoom must direct ${path} camera.json throughout its hold`);
+      assert.ok(manual.every(f => contains(f, [1344, 504, 1152, 940])), "manual subject stays whole");
+      assert.ok(manual.every(f => f.w >= 960), "manual zoom retains the native-pixel ceiling");
+    }
+    await writeFile(join(dir, "take.json"), JSON.stringify({ ...plannedMeta,
+      cuts: [{ t0: 1, t1: 1.5 }], speed: [{ t0: 3, t1: 4.2, rate: 2 }],
+      zooms: [{ t0: 3, t1: 4.2, bbox: [1344, 504, 1152, 940], level: 3 }] }));
+    drive4K("render");
+    const editedHold = (await camera4K()).filter(f => f.t >= 2.5 && f.t <= 3.1);
+    assert.ok(editedHold.length >= 6 && editedHold.every(f => 3840 / f.w > 2),
+      "manual span follows footage across a cut and 2x speed, not the old source clock");
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
