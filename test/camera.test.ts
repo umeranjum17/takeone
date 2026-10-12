@@ -241,14 +241,18 @@ test("render without trim_end uses the latest beat end", { timeout: 240_000, ski
     // span right of the form (outside the centred rest window) holds it whole.
     await writeFile(join(dir, "take.json"), JSON.stringify({ ...plannedMeta, trim_end: 4.3,
       zooms: [{ t0: 3, t1: 4.2, bbox: [2400, 600, 500, 400], level: 1 }] }));
-    drive4K("render", "--set", "out_w=540", "--set", "out_h=960", "--set", "outro_s=0",
-      "--set", "camera_path=hold");
+    drive4K("render", "--set", "out_w=540", "--set", "out_h=960", "--set", "outro_s=0");
     const tall = { ...resolveTheme(undefined), out_w: 540, out_h: 960 };
     const tallStage = stageGeometry(3840, 2160, tall);
     const pushed = (await camera4K()).filter(f => f.t >= 3 && f.t <= 4.2)
       .map(f => sourceViewport(f, 3840, 2160, tallStage, tall));
     assert.ok(pushed.length >= 10 && pushed.every(f => contains(f, [2400, 600, 500, 400])),
       `portrait manual zoom pushes in to its whole subject: ${JSON.stringify(pushed[0])}`);
+    // Square motion is not qualified: auto and manual spans keep the centred rest frame.
+    drive4K("render", "--set", "out_w=540", "--set", "out_h=540", "--set", "outro_s=0");
+    const square = await camera4K();
+    assert.ok(square.length >= 20 && square.every(f => f.x === 0 && f.y === -840 && f.w === 3840 && f.h === 3840),
+      "square camera stays at the centred rest frame");
     await writeFile(join(dir, "take.json"), JSON.stringify({ ...plannedMeta,
       zooms: [{ t0: 3, t1: 4.2, bbox: [1344, 504, 1152, 940], level: 3 }] }));
     for (const path of ["solver", "hold"]) {

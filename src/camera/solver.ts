@@ -161,9 +161,11 @@ function cropped(width: number, height: number, d: CameraDefaults): boolean {
   return view.w < width || view.h < height;
 }
 
-/** Width of the output-aspect canvas the source sits in; z = 1 shows all of it. */
+/** Width of the output-aspect canvas the source sits in; z = 1 shows all of it.
+ * A portrait cut from a wider screen plans on the crop-to-fill window it renders. */
 export function baseWidth(width: number, height: number, d: CameraDefaults = DEFAULTS): number {
-  return fillWidth(width, height, stageGeometry(width, height, d), d) ?? Math.max(width, height * d.out_w / d.out_h);
+  const padded = Math.max(width, height * d.out_w / d.out_h);
+  return d.out_h > d.out_w ? fillWidth(width, height, stageGeometry(width, height, d), d) ?? padded : padded;
 }
 
 /** Deepest zoom, measured against the aspect-padded canvas, that keeps within max_upscale. */

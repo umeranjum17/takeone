@@ -81,8 +81,8 @@ export async function renderTake(dir: string, d?: CameraDefaults): Promise<{ out
   const trimStart = meta.trim_start ?? 0;
   const wide = d.out_w > d.out_h;
   // Wide motion and portrait crop-to-fill motion (a portrait cut from a wider
-  // screen) are qualified. Square and other portrait exports keep the centred rest framing.
-  const moving = wide || (d.out_h > d.out_w && d.out_w / d.out_h < meta.width / meta.height);
+  // desktop screen) are qualified. Square, phone and other exports keep the centred rest framing.
+  const moving = wide || (!phone && d.out_h > d.out_w && d.out_w / d.out_h < meta.width / meta.height);
   const cameraWarning = moving ? manualZoomLimitWarning(meta, d)
     : meta.zooms?.length ? "take.json: camera motion is disabled for this export shape; use wide output, or portrait from a wider screen, for zooms" : undefined;
   if (cameraWarning) console.warn(cameraWarning);
