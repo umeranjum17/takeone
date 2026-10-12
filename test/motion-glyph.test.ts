@@ -1,11 +1,18 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { resolve } from "node:path";
 import { validateStoryboard } from "../src/motion/storyboard.ts";
 import { writePage } from "../src/motion/motion.ts";
 import { withPage } from "../src/motion/render.ts";
 import { allTimelines } from "../src/motion/layout.ts";
+import { parseMotionArgs, planStoryboard } from "../src/motion/cli.ts";
+import { ingest } from "../src/motion/ingest.ts";
+import { sceneCameras } from "../src/motion/camera.ts";
+import { clippedFractions, HIGH_CLIP_FRACTION, LABEL_AREA_MAX } from "../src/camera/solver.ts";
+import { detectUiBoxes } from "../src/perceive/boxes.ts";
+import { edgeCuts } from "../src/render/framing.ts";
 
 test("end-card defaults and explicit logos reach display coverage on every timeline",()=>{
   for(const display_font of ["Instrument Serif","Geist SemiBold"]) {
@@ -134,5 +141,46 @@ test("emitted motion glyphs use bundled faces with default and serif roles", asy
         }
       });
     }
+  } finally {rmSync(dir,{recursive:true,force:true});}
+});
+
+test("launch-film close-ups and bento crops show whole words, fields and buttons",{timeout:240_000},async()=>{
+  const dir=mkdtempSync(resolve(".motion-whole-test-"));
+  try {
+    const a=parseMotionArgs([resolve("scripts/e2e/scene.html"),"--title","Tidewater","--device","browser",
+      "--state","board=wait 200","--state",'newtask=click #newTask; type #title "Book demo room"; type #notes "Friday 10am, room 4"; wait 400',
+      "--state","created=click #create; wait 800",
+      "--region","320,128,1624,620:Plan the launch@board","--region","900,340,760,620:Capture a task@newtask","--region","320,128,520,760:Ship it@created"]);
+    const sb=validateStoryboard(planStoryboard(a,"motion"));
+    const planned=Object.entries(sb.crops??{}).map(([id,c])=>[id,c.screen,[...c.rect]] as const);
+    await ingest(dir,sb);
+    // Whole: no box (field, button, card) sliced short of the sliver allowance, no word under an edge.
+    const judges=new Map<string,(r:{x:number;y:number;w:number;h:number})=>string[]>();
+    const judge=(screen:string)=>{
+      if(judges.has(screen))return judges.get(screen)!;
+      const {file,width,height}=sb.screens[screen]!;
+      const grey=(w:number,h:number)=>new Uint8Array(execFileSync("ffmpeg",["-nostdin","-v","error","-i",resolve(dir,file),"-vf",`scale=${w}:${h},format=gray`,"-f","rawvideo","-"],{maxBuffer:w*h+1024}));
+      const qw=Math.floor(width/4),qh=Math.floor(height/4);
+      const boxes=detectUiBoxes(grey(qw,qh),qw,qh,width,height).filter(b=>b[2]*b[3]<=width*height*LABEL_AREA_MAX);
+      const cuts=edgeCuts([grey(width,height)],width,height);
+      const f=(r:{x:number;y:number;w:number;h:number})=>[
+        ...clippedFractions(r,boxes).flatMap((c,i)=>c>0&&c<HIGH_CLIP_FRACTION?[`box ${boxes[i]} clipped ${c.toFixed(2)}`]:[]),
+        ...(cuts(r)?[`edge cuts ${cuts(r)}`]:[])];
+      judges.set(screen,f);return f;
+    };
+    const rect=([x,y,w,h]:readonly number[])=>({x:x!,y:y!,w:w!,h:h!});
+    assert.ok(planned.some(([,screen,r])=>judge(screen)(rect(r)).length),"the planned crops already were whole; this journey no longer covers the defect");
+    for(const [id,c] of Object.entries(sb.crops??{}))assert.deepEqual(judge(c.screen)(rect(c.rect)),[],`crop ${id} ${c.rect}`);
+    const holds=(cameras:ReturnType<typeof sceneCameras>)=>sb.scenes.flatMap((scene,i)=>{
+      if(scene.pattern!=="zoom-tour")return [];
+      const {width}=sb.screens[scene.screen!]!;
+      const views=new Set(cameras[String(i)]!.filter((v,j,all)=>j&&v.w<width&&["x","y","w","h"].every(k=>v[k as "x"]===all[j-1]![k as "x"])).map(v=>JSON.stringify([v.x,v.y,v.w,v.h])));
+      assert.ok(views.size,`tour ${i} settles on a close-up`);
+      return [...views].map(h=>[i,scene.screen!,JSON.parse(h) as number[]] as const);
+    });
+    assert.ok(holds(sceneCameras(sb)).some(([,screen,r])=>judge(screen)(rect(r)).length),"the planned tour holds already were whole; this journey no longer covers the defect");
+    for(const [i,screen,r] of holds(sceneCameras(sb,dir)))assert.deepEqual(judge(screen)(rect(r)),[],`tour ${i} hold ${r}`);
+    const bento=sb.scenes.find(s=>s.pattern==="bento")!;
+    assert.deepEqual(bento.tiles!.map(t=>t.title),["Plan the launch","Capture a task","Ship it",""]);
   } finally {rmSync(dir,{recursive:true,force:true});}
 });
