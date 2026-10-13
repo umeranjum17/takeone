@@ -52,6 +52,14 @@ Also copy the planned take, add `zooms: [{t0:3.4,t1:13.3,
 bbox:[1344,504,1152,940],level:3}]` to `take.json`, and drive `render` with default
 settings and `--set camera_path=hold`. Compare the emitted camera hold to the
 requested whole dialog; test a cut/speed-edited span on the same source clock.
+A manual hold arrives on painted content: when a cut or result paints its box
+during the approach, the camera stays still until it settles, then pushes in
+(on the fixed take: still at 1.29× until the 3.2 s paint, not 1.99× before it).
+A popup that `analysis/regions.json` sees paint partly inside the box widens the
+hold to keep it whole from that frame (the Priority menu at 11.2 s, 1.75×), when
+the export's window can hold both. The pull-out from ~11.0 s on that take is
+drag visibility for the 13.6 s drag, not the popup. A take without `zooms` must
+keep a byte-identical `camera.json` (wide and 4:5, `--no-jev` and Jev plans).
 Render an untitled copy, a `--theme paper` copy, and a portrait re-frame
 (`--set out_w=1080 --set out_h=1920`); portrait is not a responsive phone UI.
 

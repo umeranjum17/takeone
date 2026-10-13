@@ -1,6 +1,6 @@
 import { applyDragVisibility, gesturePointer, gestures, type Gesture } from "./gesture.ts";
 import { fillWidth, stageFrames, stageGeometry } from "../render/stage.ts";
-import { WIN_MAX_COVER } from "../beats/zones.ts";
+import { PANEL_MAX_AREA, WIN_MAX_COVER } from "../beats/zones.ts";
 import { DEFAULTS, type CameraDefaults } from "./defaults.ts";
 import type {
   Beat,
@@ -286,8 +286,16 @@ export function moveDuration(drift: number, d: CameraDefaults = DEFAULTS): numbe
   return clamp(proposed, d.move_t_min, d.move_t_max);
 }
 
-/** Explicit holds direct the final path, including the opt-in held path. */
-export function applyManualZooms(frames: CameraFrame[], take: TakeMeta, d: CameraDefaults): CameraFrame[] {
+/**
+ * Explicit holds direct the final path, including the opt-in held path. Like a
+ * planned shot, a hold arrives on painted content: a cut or result painting the
+ * box during the approach holds the camera until it settles, then the move starts.
+ * A change that paints partly in the box but past the hold (a popup opened in
+ * it) widens the hold to the box with it, arriving on the frame it paints, as a
+ * planned shot frames a field's popup with its modal.
+ */
+export function applyManualZooms(frames: CameraFrame[], take: TakeMeta, d: CameraDefaults, beats: Beat[] = [],
+  changes: { t: number; bbox: Zone["bbox"] }[] = []): CameraFrame[] {
   const start = take.trim_start ?? 0;
   const end = start + frames.at(-1)!.t;
   const zooms = [...(take.zooms ?? [])].filter(z => z.t1 > start && z.t0 < end)
@@ -297,22 +305,50 @@ export function applyManualZooms(frames: CameraFrame[], take: TakeMeta, d: Camer
   const state = (f: CameraFrame): CameraState => ({ cx: f.x + f.w / 2, cy: f.y + f.h / 2, z: baseW / f.w });
   const at = (t: number) => state(frames[clamp(Math.round((t - start) * d.fps), 0, frames.length - 1)]!);
   const holds = zooms.map((z, i) => {
-    const target = frame({ name: "manual", type: "act", bbox: z.bbox }, z.level ?? 2,
-      take.width, take.height, undefined, d);
-    const a = Math.max(start, z.t0), b = Math.min(end, z.t1);
-    const enter = Math.min(moveDuration(distance(at(a), target, baseW), d),
-      Math.max(0, a - (zooms[i - 1]?.t1 ?? start)) / 2);
+    const box: Zone = { name: "manual", type: "act", bbox: z.bbox };
+    const aim = (zone: Zone) => frame(zone, z.level ?? 2, take.width, take.height, undefined, d);
+    const inBox = (bbox: Zone["bbox"]) => clippedFractions({ x: z.bbox[0], y: z.bbox[1], w: z.bbox[2], h: z.bbox[3] }, [bbox])[0]! < 1;
+    let target = aim(box);
+    const a0 = Math.max(start, z.t0);
+    const enter = Math.min(moveDuration(distance(at(a0), target, baseW), d),
+      Math.max(0, a0 - (zooms[i - 1]?.t1 ?? start)) / 2);
+    const s0 = a0 - enter;
+    const painted = beats.flatMap(beat => [
+      ...(beat.kind === "cut" ? [[beat.anchor_t, cutSettledAt(beat, beat.anchor_t, d)]] : []),
+      ...beat.zones.filter(zone => zone.type === "res" && zone.t_change !== undefined && inBox(zone.bbox))
+        .map(zone => [zone.t_change!, zone.t_change!]),
+    ]).filter(([t]) => t! > s0 && t! <= a0).map(([, ready]) => ready!);
+    const go = Math.max(s0, ...painted);
+    const a = go + enter, b = Math.max(a, Math.min(end, z.t1));
+    const stages = [{ go: a, t: a, target }];
+    for (const change of changes) {
+      if (change.t <= s0 || change.t > b || !inBox(change.bbox)
+        || change.bbox[2] * change.bbox[3] > PANEL_MAX_AREA * take.width * take.height
+        || clippedFractions(toFrame(target, take.width, take.height, d), [change.bbox])[0] === 0) continue;
+      const union = mergeZones(box, { ...box, bbox: change.bbox }), next = aim(union);
+      // A crop-to-fill view may be unable to hold both; the box then keeps its framing.
+      if (clippedFractions(toFrame(next, take.width, take.height, d), [union.bbox])[0] !== 0) continue;
+      const previous = target;
+      box.bbox = union.bbox;
+      target = next;
+      const move = change.t - moveDuration(distance(previous, target, baseW), d);
+      if (move <= a) stages[0]!.target = target;
+      else stages.push({ go: move, t: change.t, target });
+    }
     const leave = Math.min(moveDuration(distance(target, at(b), baseW), d),
       Math.max(0, (zooms[i + 1]?.t0 ?? end) - b) / 2);
-    return { a, b, enter, leave, target };
+    return { s0, go, a, b, enter, leave, stages, from: go > s0 ? at(s0) : undefined };
   });
   return frames.map(f => {
     const t = f.t + start;
-    const hold = holds.find(h => t >= h.a - h.enter && t <= h.b + h.leave);
+    const hold = holds.find(h => t >= h.s0 && t <= h.b + h.leave);
     if (!hold) return f;
-    const u = t < hold.a ? smooth((t - hold.a + hold.enter) / hold.enter)
-      : t > hold.b ? 1 - smooth((t - hold.b) / hold.leave) : 1;
-    const from = state(f), to = hold.target;
+    const k = hold.stages.findLastIndex(s => s.go <= t);
+    const stage = hold.stages[Math.max(0, k)]!;
+    const [from, to, u] = t < hold.a ? [hold.from ?? state(f), stage.target, t < hold.go ? 0 : smooth((t - hold.go) / hold.enter)]
+      : t > hold.b ? [state(f), hold.stages.at(-1)!.target, 1 - smooth((t - hold.b) / hold.leave)]
+      : k > 0 && t < stage.t ? [hold.stages[k - 1]!.target, stage.target, smooth((t - stage.go) / (stage.t - stage.go))]
+      : [stage.target, stage.target, 1];
     return { ...toFrame({ cx: lerp(from.cx, to.cx, u), cy: lerp(from.cy, to.cy, u),
       z: Math.exp(lerp(Math.log(from.z), Math.log(to.z), u)) }, take.width, take.height, d), t: f.t };
   });

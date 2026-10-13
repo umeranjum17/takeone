@@ -198,7 +198,9 @@ test("render without trim_end uses the latest beat end", { timeout: 240_000, ski
         "drawbox=x=1428:y=736:w=900:h=96:color=0xeeeeee:t=fill," +
         "drawbox=x=1440:y=750:w=44:h=52:color=black:t=fill:enable='gte(t,4)'," +
         "drawbox=x=1490:y=750:w=44:h=52:color=black:t=fill:enable='gte(t,4.2)'," +
-        "drawbox=x=1420:y=1340:w=440:h=480:color=white:t=fill:enable='between(t,6,7.5)'",
+        "drawbox=x=1420:y=1340:w=440:h=480:color=white:t=fill:enable='between(t,6,7.5)'," +
+        "drawbox=x=0:y=0:w=3840:h=2160:color=0x3a4250:t=fill:enable='gte(t,8.5)'," +
+        "drawbox=x=600:y=400:w=1000:h=700:color=white:t=fill:enable='gte(t,8.5)'",
       "-c:v", "mpeg4", "-q:v", "2", "-threads", "2", "-f", "matroska", join(dir, "screen.webm")]);
     await writeFile(join(dir, "frames.tsv"), Array.from({ length: 100 }, (_, i) =>
       `${i * 9000}\t${i * 100_000_000}`).join("\n") + "\n");
@@ -263,6 +265,22 @@ test("render without trim_end uses the latest beat end", { timeout: 240_000, ski
       assert.ok(manual.every(f => contains(f, [1344, 504, 1152, 940])), "manual subject stays whole");
       assert.ok(manual.every(f => f.w >= 960), "manual zoom retains the native-pixel ceiling");
     }
+    // A hold across the popup widens to keep it whole from its first frame; a
+    // hold asked for just before a screen paints waits for it, still until then.
+    await writeFile(join(dir, "take.json"), JSON.stringify({ ...plannedMeta, zooms: [
+      { t0: 3, t1: 7.5, bbox: [1344, 504, 1152, 940], level: 3 },
+      { t0: 8.6, t1: 9.6, bbox: [600, 400, 1000, 700], level: 3 }] }));
+    drive4K("render");
+    const widened = await camera4K();
+    assert.ok(widened.filter(f => f.t >= 3 && f.t <= 5).every(f => 3840 / f.w > 2),
+      "typing inside the box leaves the hold tight until the popup paints");
+    assert.ok(widened.filter(f => f.t >= 6 && f.t <= 7.4).every(f => contains(f, [1344, 504, 1152, 1316])),
+      `a popup opened inside a manual hold stays whole from its first frame: ${JSON.stringify(widened.filter(f => f.t >= 5.5 && f.t <= 7.4))}`);
+    const prePaint = widened.filter(f => f.t >= 8.1 && f.t < 8.5);
+    assert.ok(prePaint.every(f => f.x === prePaint[0]!.x && f.w === prePaint[0]!.w),
+      `a manual zoom never pushes in before its box paints: ${JSON.stringify(prePaint)}`);
+    assert.ok(widened.filter(f => f.t >= 9.5 && f.t <= 9.6).every(f => contains(f, [600, 400, 1000, 700]) && 3840 / f.w > 2),
+      "once the cut settles it arrives on the painted card");
     await writeFile(join(dir, "take.json"), JSON.stringify({ ...plannedMeta,
       cuts: [{ t0: 1, t1: 1.5 }], speed: [{ t0: 3, t1: 4.2, rate: 2 }],
       zooms: [{ t0: 3, t1: 4.2, bbox: [1344, 504, 1152, 940], level: 3 }] }));
