@@ -61,14 +61,23 @@ function prefilterSigma(frames: CameraFrame[], d: CameraDefaults): number[] {
  */
 export function cameraFilter(frames: CameraFrame[], width: number, height: number, d: CameraDefaults): string {
   const degrees = (range: number) => 2 * Math.atan(range) * 180 / Math.PI;
-  const parameters = (f: CameraFrame) => ({
-    h_fov: degrees(f.w / (width - 1)),
-    v_fov: degrees(f.h / (height - 1)),
-    h_offset: 2 * (f.x + f.w / 2 - 0.5) / (width - 1) - 1,
-    v_offset: 2 * (f.y + f.h / 2 - 0.5) / (height - 1) - 1,
-  });
   const first = frames[0];
   if (!first || width < 2 || height < 2) throw new Error("invalid camera surface");
+  // Each v360 command rebuilds the whole remap table. With a fixed window
+  // aspect, fold that aspect into the input fov so a zoom is one d_fov command
+  // instead of h_fov plus v_fov; the sampled positions stay the same.
+  const aspect = first.w / first.h;
+  const fixed = frames.every(f => Math.abs(f.w - aspect * f.h) / f.w * d.out_w < 0.001);
+  const ratio = aspect * (d.out_h / d.out_w) * (height - 1) / (width - 1);
+  const [inX, inY] = ratio <= 1 ? [1, ratio] : [1 / ratio, 1];
+  const parameters = (f: CameraFrame): Record<string, number> => {
+    const h_offset = 2 * (f.x + f.w / 2 - 0.5) / (width - 1) - 1;
+    const v_offset = 2 * (f.y + f.h / 2 - 0.5) / (height - 1) - 1;
+    if (!fixed) return { h_fov: degrees(f.w / (width - 1)), v_fov: degrees(f.h / (height - 1)), h_offset, v_offset };
+    return { d_fov: degrees(f.w / (width - 1) * inX * Math.hypot(d.out_w, d.out_h) / d.out_w),
+      h_offset: h_offset * inX, v_offset: v_offset * inY };
+  };
+  const input = fixed ? `ih_fov=${degrees(inX).toFixed(10)}:iv_fov=${degrees(inY).toFixed(10)}` : "ih_fov=90:iv_fov=90";
   const initial = parameters(first);
   let previous = first;
   let applied = Object.fromEntries(Object.entries(initial).map(([key, value]) => [key, value.toFixed(10)]));
@@ -94,14 +103,17 @@ export function cameraFilter(frames: CameraFrame[], width: number, height: numbe
   let appliedSigma = 0;
   sigmas.forEach((sigma, i) => {
     if (sigma === appliedSigma) return;
-    // Same mid-interval timing as the v360 updates; gblur accepts per-frame sigma commands.
-    controlCommands.push(`${Math.max(0, frames[i]!.t - 0.5 / d.fps).toFixed(9)} gblur@prefilter sigma ${sigma}`);
+    // Same mid-interval timing as the v360 updates. gblur still filters the
+    // whole surface at sigma 0, so switch it off there instead: same pixels.
+    // sigmaV=0 keeps the blur horizontal, as it was when gblur started at
+    // sigma 0 (it latches sigmaV from the initial sigma).
+    controlCommands.push(`${Math.max(0, frames[i]!.t - 0.5 / d.fps).toFixed(9)} gblur@prefilter enable ${sigma ? 1 : 0}`);
     appliedSigma = sigma;
   });
-  const blur = sigmas.some((s) => s !== 0) ? `gblur@prefilter=sigma=0,` : "";
+  const blur = sigmas.some((s) => s !== 0) ? `gblur@prefilter=sigma=${PREFILTER_SIGMA}:sigmaV=0:enable=0,` : "";
   const control = controlCommands.length ? `sendcmd=commands='${controlCommands.join(";")};',` : "";
   const settings = Object.entries(initial).map(([key, value]) => `${key}=${value.toFixed(10)}`).join(":");
   // Lanczos normalizes its kernel coefficients, preserving flat card colours.
-  return `format=gbrp16le,${control}${blur}v360=input=flat:output=flat:w=${d.out_w}:h=${d.out_h}:ih_fov=90:iv_fov=90:${settings}`
+  return `format=gbrp16le,${control}${blur}v360=input=flat:output=flat:w=${d.out_w}:h=${d.out_h}:${input}:${settings}`
     + `:interp=${d.quality === "draft" ? "linear" : "lanczos"},setsar=1`;
 }
