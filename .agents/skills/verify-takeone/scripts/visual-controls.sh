@@ -45,12 +45,18 @@ control() { # <name> <cell> <theme> <expected check> <ffmpeg -vf or -filter_comp
 read -r ex ey ew eh <<< "$(fact desktop-dark element.rect b2/z1)"
 read -r cx cy cw ch <<< "$(fact desktop-dark shown)"
 read -r px py pw ph <<< "$(fact portrait-dark shown)"
+read -r mx my mw mh <<< "$(fact motion-dark shown)"
 font=$(cd "$here/../../../.." && pwd)/resources/fonts/Inter-SemiBold.ttf
 
 control stretch desktop-dark midnight stretch "scale=iw*1.04:ih,crop=1920:1080"
 control stretch-phone font-dark midnight stretch "scale=iw*1.04:ih,crop=1080:1920"
 control strip-film-edge desktop-light paper blank-strip "drawbox=x=0:y=0:w=48:h=ih:color=black:t=fill"
 control strip-in-screen portrait-dark midnight blank-strip "drawbox=x=$px:y=$py:w=32:h=$ph:color=black:t=fill"
+# A real defect inside the phone screen still fails: a bar over the motion hero's
+# settled left edge (starting before the edge and spanning every hold's full height,
+# so the push drift between sampled holds cannot uncover it) must read as a
+# screen-edge blank strip.
+control strip-in-phone motion-dark midnight blank-strip "drawbox=x=$((mx - 8)):y=$((my - 20)):w=56:h=$((mh + 40)):color=black:t=fill"
 control clipped-text font-dark midnight clipped-text "crop=iw*0.7:ih*0.7:iw*0.3:ih*0.15,scale=1080:1920"
 control overlap desktop-dark midnight overlap \
   "drawbox=x=$((ex - 60)):y=$((ey - 16)):w=$((ew + 200)):h=$((eh + 32)):color=0x23242b:t=fill,drawtext=fontfile='$font':text='New caption':x=$((ex - 40)):y=$((ey + 4)):fontsize=30:fontcolor=white"

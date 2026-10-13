@@ -173,6 +173,12 @@ TAKEONE_GATE=<memory gate, optional> .agents/skills/verify-takeone/scripts/visua
 .agents/skills/verify-takeone/scripts/visual-controls.sh tmp/evidence/visual-main tmp/evidence/visual-controls
 ```
 
+The pass rebuilds `dist/` first when any `src/` file is newer: every render runs from
+`dist/`, so a stale build renders old product code with new checker expectations and
+stale sidecars fail good films (measured on main: a pre-112 cover-fit `camera.json`
+against the contain-fit phone frame reads as status-bar and stage bands plus mismatch).
+`visual-controls.sh` proves real defects still fail, including a blank strip drawn inside
+the phone screen (`strip-in-phone`).
 The pass ends with a required done-done design step (`scripts/visual-design.sh`, run
 automatically unless `--no-design`): it judges the held screen inside every cell still
 with `done-done design`, one judge call per cell (a few screens each, not one call for the
