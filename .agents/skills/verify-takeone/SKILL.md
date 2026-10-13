@@ -166,11 +166,43 @@ A defect fails the check: the pass exits 1, names the defect, its frame time and
 
 ```sh
 TAKEONE_GATE=<memory gate, optional> .agents/skills/verify-takeone/scripts/visual-pass.sh \
-  tmp/evidence/visual-main                                   # on main first: the reference
+  tmp/evidence/visual-main --no-design                    # on main first: the reference (no design step: its stills have no reference film to take mocks from)
 .agents/skills/verify-takeone/scripts/visual-pass.sh tmp/evidence/visual-branch \
-  --ref tmp/evidence/visual-main --motion-ref <approved-contact.png>   # on the branch
+  --ref tmp/evidence/visual-main \
+  --motion-ref <approved-motion-dark-contact.png> --motion-ref <approved-motion-light-contact.png>   # on the branch
 .agents/skills/verify-takeone/scripts/visual-controls.sh tmp/evidence/visual-main tmp/evidence/visual-controls
 ```
+
+The pass ends with a required done-done design step (`scripts/visual-design.sh`, run
+automatically unless `--no-design`): it judges the held screen inside every cell still
+with `done-done design`, one judge call per cell (a few screens each, not one call for the
+whole pass, so a killed session loses at most one cell). Each `<cell>-t<time>.png` is
+cropped to the shown rect its own check records
+(`<cell>.json` facts.shown, `<cell>-t<time>-screen.png`), so the judge sees the screen
+rather than the stage matte around it, and each screen goes next to the same moment from
+the reference pass's film cropped the same way (`--mock <screen>=<cell>-t<time>-mock-screen.png`),
+motion cells included. A still past the end of its reference film has no same moment and
+is judged alone (logged) — an alone screen can fail on intended UI such as a dialog, so
+the reference pass must render every cell film in full. The `--motion-ref` contacts stay side-sheet references only,
+never design mocks: a live probe showed a motion still judged next to a contact sheet of
+other content fails with a bogus `layout` defect (a future approved motion mock can use
+`visual-design.sh --motion-mock`, first for motion-dark, second for motion-light).
+A fail (exit 1) fails the pass; unsure (exit 3) fails it too and names the screen for a
+human look. An unsure whose reason shows the judge never answered (transport failure, not
+a verdict) is retried up to 3 attempts per screen. Each cell's verdicts append to
+`pass.log` and `design.log` as they land (`design.<cell>.json` keeps them; `--resume`
+reuses those files after a kill), and the aggregate lands in `design.json` and `index.md`.
+
+done-done is not on npm: the script installs the pinned commit
+`ee0e65f5f9e9c4c695749f53bcb3c86424fe748e` into a private prefix (default
+`~/.cache/takeone-visual-done-done`, override with `--prefix`/`DONE_DONE_PREFIX`) with
+exactly `npm install --prefix <prefix> --allow-git=all
+github:umeranjum17/done-done-axi#ee0e65f5f9e9c4c695749f53bcb3c86424fe748e
+@byokit/decide@0.8.0` — never `npm install -g`, never the repo's `package.json`. The
+judge is a model call on Go Muse through BYOKit as done-done configures it (route
+`answerer:opencode`, model `opencode-go/muse-spark-1.3-contributor`, written to a scratch
+`DONE_DONE_HOME` inside the pass dir, so no key is printed or committed and the machine's
+global tooling and `~/.done-done` are untouched; it uses the existing OpenCode login).
 
 It renders 10 offline cells, each in midnight (dark) and paper (light): desktop 1920×1080
 (`synth-take.ts`), phone 1080×1920 and 4:5 (`synth-portrait.ts`), large font
