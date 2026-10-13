@@ -43,6 +43,16 @@ log=$out/pass.log; : > "$log"
 say() { echo "$*" | tee -a "$log"; }
 say "visual pass $(git rev-parse --short HEAD) $(date -u +%FT%TZ) cells: $cells"
 
+# Every render below runs from dist/: a build older than src/ renders old product code
+# with new checker expectations, so stale sidecars fail good films (measured: a pre-112
+# cover-fit camera.json against the contain-fit phone frame reads as a status-bar band
+# and stage bands plus mismatch on clean main). Rebuild first when stale.
+[ -d "$repo/node_modules" ] || { echo "visual-pass: no node_modules in $repo; run npm install first" >&2; exit 2; }
+if [ ! -f "$repo/dist/motion/camera.js" ] || [ -n "$(cd "$repo" && find src -name '*.ts' -newer dist/motion/camera.js -print -quit)" ]; then
+  say "visual pass: rebuilding dist (sources newer than the build)"
+  run npm --prefix "$repo" run build >>"$log" 2>&1 || { say "FAIL visual pass: npm run build failed, see $log"; exit 2; }
+fi
+
 # One planned base per fixture (make --no-jev: no model calls), then one copy per cell.
 base() { # <name> <generator...>
   local d=$TAKEONE_DIR/base-$1; shift
