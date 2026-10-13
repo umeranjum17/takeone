@@ -2,9 +2,11 @@
 # verify-takeone visual defect pass: render the canonical offline takes from this checkout and check
 # every cell with visual-check.ts. Exit 1 when any cell shows a defect. See ../SKILL.md.
 #
-#   visual-pass.sh <out-dir> [--ref <main-pass-dir>] [--motion-ref <contact.png>]... [--cells "<cell> ..."] [--work <dir>] [--check-only]
+#   visual-pass.sh <out-dir> [--ref <main-pass-dir>] [--motion-ref <contact.png>]... [--cells "<cell> ..."] [--work <dir>] [--check-only] [--no-design]
 #
 # --check-only reuses the cell takes already rendered in --work and only re-runs the checks.
+# --no-design skips the done-done design step: reference passes run with it (their stills
+# have no reference film to take mocks from, so every screen would judge alone).
 #
 # Cells (10): desktop-{dark,light} (synth-take.ts, 1920x1080), portrait-{dark,light} (synth-portrait.ts,
 # 1080x1920), 45-{dark,light} (synth-portrait.ts --aspect 4:5), font-{dark,light} (synth-phone-font.ts,
@@ -15,7 +17,7 @@
 # for every render and check; make always runs --no-jev in an isolated TAKEONE_DIR/TAKEONE_STATE_DIR.
 set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd); repo=$(cd "$here/../../../.." && pwd)
-out=; ref=; work=; only=; cells="desktop-dark desktop-light portrait-dark portrait-light 45-dark 45-light font-dark font-light motion-dark motion-light"
+out=; ref=; work=; only=; nodesign=; cells="desktop-dark desktop-light portrait-dark portrait-light 45-dark 45-light font-dark font-light motion-dark motion-light"
 mrefs=()
 while [ $# -gt 0 ]; do
   case $1 in
@@ -24,6 +26,7 @@ while [ $# -gt 0 ]; do
     --cells) cells=$2; shift 2;;
     --work) work=$2; shift 2;;
     --check-only) only=1; shift;;
+    --no-design) nodesign=1; shift;;
     -*) echo "visual-pass: unknown option $1" >&2; exit 2;;
     *) out=$1; shift;;
   esac
@@ -100,5 +103,16 @@ done
 { echo "# Visual defect pass $(git rev-parse --short HEAD)"; echo
   echo "Reference: ${ref:-none} ${mrefs[*]:-}"; echo
   echo "| cell | verdict | side-by-side sheets | defects |"; echo "|---|---|---|---|"; printf '%s\n' "${rows[@]}"; } > "$out/index.md"
+# Required last step (skipped with --no-design): the done-done design check judges every
+# cell still (exit 1 fail and exit 3 unsure both fail the pass). Stills take their mock
+# from the reference pass's film (motion cells included); the --motion-ref contacts stay
+# side-sheet references only, never design mocks (a mock showing other content fails good
+# stills, see visual-design.sh).
+dargs=(); [ -n "$ref" ] && dargs+=(--ref "$ref")
+if [ -n "$nodesign" ]; then say "SKIP design check (--no-design reference run)"
+else
+drc=0; "$here/visual-design.sh" "$out" "${dargs[@]}" || drc=$?
+case $drc in 0) say "PASS design check";; 3) say "FAIL design check: unsure, needs a human look"; fail=1;; *) say "FAIL design check (exit $drc)"; fail=1;; esac
+fi
 say "$([ $fail = 0 ] && echo PASS || echo FAIL) visual pass: see $out/index.md"
 exit $fail
