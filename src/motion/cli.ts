@@ -177,7 +177,8 @@ export function planStoryboard(a: MotionArgs, id: string): unknown {
   // its edge: column thirds keep the header plus exactly the first card (Tidewater: lane
   // background runs to ~198, first card 200..332, gap centre ~340), dialog windows trim
   // 32 px to the whitespace above the lower labels (Tidewater: Priority label top ~724).
-  // Tiles letterbox the remainder, which the matte absorbs.
+  // Tiles letterbox the remainder, which the matte absorbs. These are plans: ingest snaps
+  // each window to whole UI on the captured pixels before cutting it (cutCrops).
   const COL_TRIM = 91, DIALOG_TRIM = 32;
   const cropWindow = (r: Region, aspect: number, third = 0): [number, number, number, number] => {
     const css: [number, number, number, number] = [r.rect[0]! / dsf, r.rect[1]! / dsf, r.rect[2]! / dsf, r.rect[3]! / dsf];
@@ -236,11 +237,12 @@ export function planStoryboard(a: MotionArgs, id: string): unknown {
   const recap = (): Scene[] => {
     if (!bento) return [];
     const [s0, s1, s2] = [labelled[0]!, labelled[1]!, labelled[labelled.length - 1]!];
-    // Only the dialog tile keeps a pill; column tiles are named by their headers already.
+    // Each labelled state's tile wears its label pill; the second board tile repeats s0's.
+    const title = (s: string) => labels[screens.indexOf(s)]!;
     const tiles = [
-      { title: "", screen: crop(`${s0}c0`, s0, cropWindow(regionOf(s0), TILE_A)) },
-      { title: labels[screens.indexOf(s1)]!, screen: crop(`${s1}c0`, s1, cropWindow(regionOf(s1), TILE_A)) },
-      { title: "", screen: crop(`${s2}c0`, s2, cropWindow(regionOf(s2), TILE_A, 2)) },
+      { title: title(s0), screen: crop(`${s0}c0`, s0, cropWindow(regionOf(s0), TILE_A)) },
+      { title: title(s1), screen: crop(`${s1}c0`, s1, cropWindow(regionOf(s1), TILE_A)) },
+      { title: title(s2), screen: crop(`${s2}c0`, s2, cropWindow(regionOf(s2), TILE_A, 2)) },
       { title: "", screen: crop(`${s0}c1`, s0, cropWindow(regionOf(s0), TILE_A, 1)) },
     ];
     const scene: Scene = { pattern: "bento", d: 0, tiles };

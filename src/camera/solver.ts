@@ -2,6 +2,7 @@ import { applyDragVisibility, gesturePointer, gestures, type Gesture } from "./g
 import { fillWidth, stageFrames, stageGeometry } from "../render/stage.ts";
 import { PANEL_MAX_AREA, WIN_MAX_COVER } from "../beats/zones.ts";
 import { DEFAULTS, type CameraDefaults } from "./defaults.ts";
+import { unionBBox } from "../types.ts";
 import type {
   Beat,
   CameraFrame,
@@ -52,7 +53,7 @@ const smooth = (u: number) => u * u * u * (u * (u * 6 - 15) + 10);
 
 type Box = Zone["bbox"];
 /** Largest surface a shot may slice: a panel or window this size cannot fit any crop. */
-const LABEL_AREA_MAX = 0.05;
+export const LABEL_AREA_MAX = 0.05;
 
 /** The labels and controls a reveal must not slice, dropping panels and window chrome. */
 function labelBoxes(beat: Beat, width: number, height: number): Box[] {
@@ -113,10 +114,21 @@ function withContext(zone: Zone, boxes: Box[], width: number, height: number, d:
 function compose(state: CameraState, subject: Zone, boxes: Box[], width: number, height: number, d: CameraDefaults): CameraState {
   const desired = toFrame(state, width, height, d);
   if (!boxes.length || (desired.w >= width && desired.h >= height)) return state;
-  const aspect = d.out_w / d.out_h;
   const baseW = baseWidth(width, height, d);
+  const best = wholeCrop(desired.w, baseW, d.out_w / d.out_h, subject.bbox, boxes, width, height);
+  if (best) return { cx: best.x + best.w / 2, cy: best.y + best.h / 2, z: baseW / best.w };
   const [sx, sy, sw, sh] = subject.bbox;
-  for (let w = desired.w; ; w = Math.min(baseW, w + baseW * 0.025)) {
+  return cropped(width, height, d)
+    ? { cx: sx + sw / 2, cy: sy + sh / 2, z: 1 } : { cx: width / 2, cy: height / 2, z: 1 };
+}
+
+/** The crop holding the subject that keeps every UI box whole (or all but a sliver out), from
+ * width w0 up to maxW at a fixed aspect: edge-aligned positions at each width, the one that
+ * best centres the visible cluster at the first width that has one. `accept` can veto a crop. */
+export function wholeCrop(w0: number, maxW: number, aspect: number, subject: Box, boxes: Box[], width: number, height: number,
+  accept: (crop: CameraFrame) => boolean = () => true): CameraFrame | undefined {
+  const [sx, sy, sw, sh] = subject;
+  for (let w = w0; ; w = Math.min(maxW, w + maxW * 0.025)) {
     const h = w / aspect;
     const gap = Math.min(w, h) * 0.01;
     const positions = (s: number, span: number, view: number, size: number, axis: 0 | 1): number[] => {
@@ -142,16 +154,14 @@ function compose(state: CameraState, subject: Zone, boxes: Box[], width: number,
         // Balance space around the visible cluster, rather than an isolated click.
         const visible = boxes.filter((_, i) => clips[i] === 0);
         let cluster = subject;
-        for (const box of visible) cluster = mergeZones(cluster, { ...subject, bbox: box });
-        const [cx, cy, cw, ch] = cluster.bbox;
+        for (const box of visible) cluster = unionBBox(cluster, box);
+        const [cx, cy, cw, ch] = cluster;
         const score = Math.pow((x + w / 2 - cx - cw / 2) / w, 2)
           + Math.pow((y + h / 2 - cy - ch / 2) / h, 2);
-        if (score < bestScore) { best = crop; bestScore = score; }
+        if (score < bestScore && accept(crop)) { best = crop; bestScore = score; }
       }
     }
-    if (best) return { cx: best.x + w / 2, cy: best.y + h / 2, z: baseW / w };
-    if (w >= baseW) return cropped(width, height, d)
-      ? { cx: sx + sw / 2, cy: sy + sh / 2, z: 1 } : { cx: width / 2, cy: height / 2, z: 1 };
+    if (best || w >= maxW) return best;
   }
 }
 

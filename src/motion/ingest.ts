@@ -5,8 +5,9 @@ import { basename, extname, isAbsolute, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { INGEST_CLOCK } from "./ingest-clock.ts";
 import { launch, navigate } from "./cdp.ts";
+import { screenSnap, type Snap } from "./camera.ts";
 import { pinnedShell } from "./shell.ts";
-import type { StateOp, Storyboard } from "./types.ts";
+import type { Rect, StateOp, Storyboard } from "./types.ts";
 
 export function validateStateNames(names: Iterable<string>): void {
   const seen = new Set<string>();
@@ -92,12 +93,19 @@ export async function ingest(dir: string, sb: Storyboard): Promise<void> {
   } finally { await b.close(); }
 }
 
-/** Cut storyboard crops from captured screens: deterministic ffmpeg crops, no extra capture. */
+/** Cut storyboard crops from captured screens: deterministic ffmpeg crops, no extra capture.
+ *  Each window first snaps to whole UI (its top-centre anchor kept) and the storyboard keeps
+ *  the rect it was cut at. */
 function cutCrops(out: string, sb: Storyboard): void {
+  const snaps = new Map<string, Snap>();
   for (const [id, c] of Object.entries(sb.crops ?? {})) {
     const base = sb.screens[c.screen];
     if (!base) throw new Error(`crops.${id}: unknown screen ${c.screen}`);
-    const [x, y, w, h] = c.rect.map(Math.round);
+    if (!snaps.has(c.screen)) snaps.set(c.screen, screenSnap(join(out, basename(base.file)), base.width, base.height));
+    const [x0, y0, w0, h0] = c.rect;
+    const v = snaps.get(c.screen)!({ x: x0, y: y0, w: w0, h: h0 }, [x0 + w0 / 2, y0, 0, 0], `crop ${id}`);
+    c.rect = [v.x, v.y, v.w, v.h].map(Math.floor) as Rect;
+    const [x, y, w, h] = c.rect;
     execFileSync("ffmpeg", ["-nostdin", "-v", "error", "-y", "-i", join(out, basename(base.file)), "-vf", `crop=${w}:${h}:${x}:${y}`, join(out, `${id}.png`)], { timeout: 60000 });
     sb.screens[id] = { file: `sources/${id}.png`, width: w!, height: h! };
   }
