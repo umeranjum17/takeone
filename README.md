@@ -14,11 +14,11 @@
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/hero-dark.webp" />
     <source media="(prefers-color-scheme: light)" srcset="docs/assets/readme/hero-light.webp" />
-    <img src="docs/assets/readme/hero-light.jpg" width="960" alt="The raw recording of the Tidewater demo board wipes into the takeone render on a warm themed stage, at double speed. The camera pushes in on the New task dialog while notes are typed and Priority is set to High, pulls back as the task is created, and the card is dragged to In progress" />
+    <img src="docs/assets/readme/hero-light.jpg" width="960" alt="The takeone render of the Tidewater demo board on a warm themed stage, at double speed. It opens pushed in on the New task dialog while the title and notes are typed and Priority is set to High, pulls back as the task is created, the card is dragged to In progress, and the camera pushes in on the dialog again" />
   </picture>
 </p>
 
-<p align="center"><sub>One take: the raw recording, then the takeone render pushing in on the dialog. <code>sand</code> theme in light mode, <code>aurora</code> in dark mode.</sub></p>
+<p align="center"><sub>One take, rendered by takeone: the camera holds the dialog you type into, then pulls back for the result. <code>sand</code> theme in light mode, <code>aurora</code> in dark mode.</sub></p>
 
 ## Why takeone
 
