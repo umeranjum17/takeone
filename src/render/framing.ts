@@ -35,9 +35,11 @@ export const videoFrames = (video: string, W: number, H: number, sourceAt: (t: n
  * Content a source rectangle's edges cross over all sample frames: ink pixels within +-guard px
  * of each edge, plus 1e4 per stretch of text the edge runs through; 0 means clean. Content is ink (a luma step); a straight ink run of 1600+ px at 4K
  * (a page-wide rule, the sidebar line) is a separator, which an edge may cross. An edge on
- * the source border cuts nothing.
+ * the source border cuts nothing. `seg` clips the counted spans to a visible segment, so an
+ * edge is judged only on what the frame shows: ink beyond the shown region is fully outside
+ * the frame, never cut by the edge. Without it the whole edge span counts, as before.
  */
-export function edgeCuts(frames: Uint8Array[], W: number, H: number, guard = GUARD): (r: Rect) => number {
+export function edgeCuts(frames: Uint8Array[], W: number, H: number, guard = GUARD): (r: Rect, seg?: Rect) => number {
   const m = new Uint8Array(W * H); // bit 1 ink, 2 horizontal separator, 4 vertical separator
   for (const g of frames) for (let y = 1; y < H; y++) for (let x = 1; x < W; x++) if (inked(g, y * W + x, W)) m[y * W + x] = 1;
   const sep = 1600 * Math.max(W, H) / 3840;
@@ -57,15 +59,20 @@ export function edgeCuts(frames: Uint8Array[], W: number, H: number, guard = GUA
   }
   const colInk = (c: number, a: number, b: number) => c < 0 || c >= W ? 0 : col[c * (H + 1) + b]! - col[c * (H + 1) + a]!;
   const rowInk = (r: number, a: number, b: number) => r < 0 || r >= H ? 0 : row[r * (W + 1) + b]! - row[r * (W + 1) + a]!;
-  return (r) => {
+  return (r, seg) => {
     const x0 = Math.round(r.x), x1 = Math.round(r.x + r.w) - 1, y0 = Math.round(r.y), y1 = Math.round(r.y + r.h) - 1;
     const ya = clamp(y0, 0, H), yb = clamp(y1 + 1, 0, H), xa = clamp(x0, 0, W), xb = clamp(x1 + 1, 0, W);
+    // A visible segment clips each edge's counted span; without one the rect's own span counts.
+    const sy = seg ? [clamp(Math.round(seg.y), ya, yb), clamp(Math.round(seg.y + seg.h), ya, yb)] as const
+      : [ya, yb] as const;
+    const sx = seg ? [clamp(Math.round(seg.x), xa, xb), clamp(Math.round(seg.x + seg.w), xa, xb)] as const
+      : [xa, xb] as const;
     // A word or control the edge runs through is dense ink along it; a border it crosses is a
     // pixel or two. Each dense stretch outweighs any amount of thin crossings.
     const dense = (ink: (a: number, b: number) => number, a: number, b: number) => Array.from({ length: Math.max(0, Math.ceil((b - a) * 2 / TEXT_SPAN)) },
       (_, j) => a + j * TEXT_SPAN / 2).filter(s => ink(s, Math.min(b, s + TEXT_SPAN)) >= TEXT_INK).length;
     let n = 0;
-    for (const [, ink, z, p, q] of ([[x0 > 0, colInk, x0, ya, yb], [x1 < W - 1, colInk, x1, ya, yb], [y0 > 0, rowInk, y0, xa, xb], [y1 < H - 1, rowInk, y1, xa, xb]] as const).filter(e => e[0])) {
+    for (const [, ink, z, p, q] of ([[x0 > 0, colInk, x0, sy[0], sy[1]], [x1 < W - 1, colInk, x1, sy[0], sy[1]], [y0 > 0, rowInk, y0, sx[0], sx[1]], [y1 < H - 1, rowInk, y1, sx[0], sx[1]]] as const).filter(e => e[0])) {
       // Over a +-3 px band, so an edge inside a glyph's stroke still counts the stroke.
       n += 1e4 * dense((s, e) => Math.max(...[-3, -2, -1, 0, 1, 2, 3].map(k => ink(z + k, s, e))), p, q);
       for (let k = -guard; k <= guard; k++) n += ink(z + k, p, q);

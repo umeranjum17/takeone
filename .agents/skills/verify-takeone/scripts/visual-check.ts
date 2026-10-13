@@ -430,11 +430,12 @@ function check(s: Sample) {
     for (const [label, r, off] of [["film left", { x: 1, y: 0, w: ow - 1, h: oh }, { x: 0, y: 0, w: 24, h: oh }], ["film right", { x: 0, y: 0, w: ow - 1, h: oh }, { x: ow - 24, y: 0, w: 24, h: oh }],
       ["film top", { x: 0, y: 1, w: ow, h: oh - 1 }, { x: 0, y: 0, w: ow, h: 24 }], ["film bottom", { x: 0, y: 0, w: ow, h: oh - 1 }, { x: 0, y: oh - 24, w: ow, h: 24 }]] as const) note(label, Math.floor(all(r) / 1e4), off);
     // Crop edges are judged on the source screen, as make's framing does: a film overlay (a phone's
-    // status bar, a bezel) meeting the window edge is not a cut word.
+    // status bar, a bezel) meeting the window edge is not a cut word. Each edge counts only over
+    // the shown segment: ink outside the visible region is fully outside the frame, never cut.
     if (v && m && S && shown && shown.w > 40 && shown.h > 40) {
       const at0 = at(m, shown.x, shown.y), at1 = at(m, shown.x + shown.w, shown.y + shown.h), tol = 0.01 * Math.max(v.W, v.H);
       const [l, t, r, b] = [Math.max(0, Math.round(at0[0])), Math.max(0, Math.round(at0[1])), Math.min(v.W, Math.round(at1[0])), Math.min(v.H, Math.round(at1[1]))];
-      const src = edgeCuts([S.p], S.w, S.h, 0), side = (label: string, rect: Rect, off: Rect) => note(label, Math.floor(src(rect) / 1e4), off);
+      const src = edgeCuts([S.p], S.w, S.h, 0), side = (label: string, rect: Rect, off: Rect) => note(label, Math.floor(src(rect, { x: l, y: t, w: r - l, h: b - t }) / 1e4), off);
       const [x, y, w, h] = [shown.x, shown.y, shown.w, shown.h];
       if (l > tol) side("screen crop left", { x: l, y: 0, w: v.W - l, h: v.H }, { x, y, w: 24, h });
       if (r < v.W - tol) side("screen crop right", { x: 0, y: 0, w: r, h: v.H }, { x: x + w - 24, y, w: 24, h });

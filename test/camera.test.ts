@@ -11,7 +11,7 @@ import { renderTake } from "../src/render/render.ts";
 import { idleSqueezes, warp, warpBeats } from "../src/render/pace.ts";
 import { sourceViewport, stageGeometry } from "../src/render/stage.ts";
 import { resolveTheme } from "../src/themes.ts";
-import { contains } from "../scripts/check-framing.ts";
+import { contains, settledFrames } from "../scripts/check-framing.ts";
 import { hasFfmpeg } from "./helpers.ts";
 
 // Only tests pass a fast preset and tiny output: shipped output stays
@@ -534,4 +534,35 @@ test("a revealed result never parks slicing the detected surfaces beside it", ()
     assert.deepEqual(clips.map(c => c === 0 || c >= 0.9), clips.map(() => true),
       `surface sliced at t=${f.t.toFixed(2)}: ${clips.map((c, i) => c > 0 && c < 0.9 ? `${surfaces[i]} cut ${(c * 100).toFixed(0)}%` : null).filter(Boolean).join("; ")}`);
   }
+});
+
+// Rail-cut regression (README hero, main a2fe36e): the push-ins on the New
+// task dialog parked the crop edge inside the right-hand Activity rail, so the
+// render sliced words at the frame edge (visual-check clipped-text failed at
+// film 4.72 s and 8.77 s). The planner already knows the rail surface, so the
+// solver keeps no projected edge inside it: every pushed-in hold keeps the
+// rail and the top bar whole or leaves them out, on the projected stage view
+// the render shows - while the hero opening push-in stays a close-up.
+test("a dialog push-in never parks its edge inside the known side rail", () => {
+  const heroBeats = [{"id":"b3","t0":3.2,"t1":6.366666666666667,"anchor_t":3.2,"kind":"type","window_cls":"headless-demo","window_rect":[0,0,3840,2160],"actions":[{"k":"dwell","t0":3.2,"t1":6.083333333333333,"x":3450,"y":66,"window_cls":"headless-demo"},{"k":"click","t":3.2,"x":3450,"y":66,"window_cls":"headless-demo"},{"k":"type","t0":3.9,"t1":5.5,"window_cls":"headless-demo","region":[1428,736,396,52]},{"k":"travel","t0":5.366666666666667,"t1":6.366666666666667,"from":[3450,66],"to":[2458.56,655.0319999999999],"bbox":[2458.56,66,991.44,589.0319999999999],"window_cls":"headless-demo"}],"zones":[{"name":"z1","type":"txt","bbox":[1396,704,1048,372],"boxes":[[2972,188,824,1916],[1344,504,1152,940],[0,128,424,2032],[0,0,3840,136],[1412,888,1016,176],[496,516,748,212],[500,296,740,208],[1328,296,740,208],[2156,296,740,208],[500,740,740,208],[1412,720,1016,88],[2524,516,376,208],[1468,28,904,76],[1412,1152,456,92],[24,172,372,96],[2156,1320,276,88],[3296,28,308,76],[1900,1316,236,96],[1428,736,48,52],[1452,744,52,44],[1476,736,36,52],[1484,740,36,48],[1504,736,32,52],[1508,744,60,44]],"t_change":3.9},{"name":"z2","type":"act","bbox":[0,0,3840,136],"boxes":[[2972,188,824,1916],[1344,504,1152,940],[0,128,424,2032],[0,0,3840,136],[1412,888,1016,176],[496,516,748,212],[500,296,740,208],[1328,296,740,208],[2156,296,740,208],[500,740,740,208],[1412,720,1016,88],[2524,516,376,208],[1468,28,904,76],[1412,1152,456,92],[24,172,372,96],[2156,1320,276,88],[3296,28,308,76],[1900,1316,236,96],[1396,704,1048,120]]},{"name":"z3","type":"path","bbox":[2459,66,991,589],"boxes":[[2972,188,824,1916],[1344,504,1152,940],[0,128,424,2032],[0,0,3840,136],[1412,888,1016,176],[496,516,748,212],[500,296,740,208],[1328,296,740,208],[2156,296,740,208],[500,740,740,208],[1412,720,1016,88],[2524,516,376,208],[1468,28,904,76],[1412,1152,456,92],[24,172,372,96],[2156,1320,276,88],[3296,28,308,76],[1900,1316,236,96],[1396,704,1048,120]]},{"name":"z4","type":"all","bbox":[0,0,3840,2160]}]},{"id":"b4","t0":6.766666666666667,"t1":12.4,"anchor_t":6.766666666666667,"kind":"type","window_cls":"headless-demo","window_rect":[0,0,3840,2160],"actions":[{"k":"dwell","t0":6.766666666666667,"t1":10.533333333333333,"x":1920,"y":975,"window_cls":"headless-demo"},{"k":"click","t":6.766666666666667,"x":1920,"y":975,"window_cls":"headless-demo"},{"k":"type","t0":7.066666666666667,"t1":9.933333333333334,"window_cls":"headless-demo","region":[1428,908,628,56]},{"k":"click","t":11.2,"x":1641,"y":1198.5,"window_cls":"headless-demo"},{"k":"click","t":12.4,"x":1641,"y":1462.5,"window_cls":"headless-demo"}],"zones":[{"name":"z1","type":"res","bbox":[1388,1264,504,372],"boxes":[[2972,188,824,1916],[1344,504,1152,940],[0,128,424,2032],[0,0,3840,136],[1412,888,1016,176],[496,516,748,212],[500,296,740,208],[1328,296,740,208],[2156,296,740,208],[500,740,740,208],[1412,716,1016,96],[2524,516,376,208],[1468,28,904,76],[1412,1152,456,92],[24,172,372,96],[2156,1320,276,88],[3296,28,308,76],[1900,1316,236,96],[1420,1256,152,100],[1712,1256,152,100],[1420,1256,444,176],[1420,1336,444,176],[1432,1172,120,56],[1388,1264,504,372],[1440,1280,80,52],[1440,1360,124,48]],"t_change":12.4},{"name":"z2","type":"act","bbox":[1344,504,1152,1132],"boxes":[[2972,188,824,1916],[1344,504,1152,940],[0,128,424,2032],[0,0,3840,136],[1412,888,1016,176],[496,516,748,212],[500,296,740,208],[1328,296,740,208],[2156,296,740,208],[500,740,740,208],[1412,716,1016,96],[2524,516,376,208],[1468,28,904,76],[1412,1152,456,92],[24,172,372,96],[2156,1320,276,88],[3296,28,308,76],[1900,1316,236,96],[1428,908,68,48],[1468,912,44,44]]},{"name":"z3","type":"all","bbox":[0,0,3840,2160]}]}] as Beat[];
+  const heroDecisions = [{"beat":"b3","A":"z1","B":"z1","L":2,"p":0,"K":1,"conf":0,"decided_by":"heuristic"},{"beat":"b4","A":"z2","B":"z2","L":2,"p":1,"K":1,"conf":0,"decided_by":"heuristic"}] as Decision[];
+  const d = { ...DEFAULTS, outro_s: 0 };
+  const stage = stageGeometry(3840, 2160, d);
+  const project = (f: Parameters<typeof sourceViewport>[0]) => sourceViewport(f, 3840, 2160, stage, d);
+  const raw = solveCamera(heroBeats, heroDecisions, { width: 3840, height: 2160, trim_end: 13 }, d, project);
+  const frames = raw.map(project);
+  const rail: Zone["bbox"] = [2972, 188, 824, 1916];
+  const topbar: Zone["bbox"] = [0, 0, 3840, 136];
+  for (const [lo, hi] of [[3.9, 6], [7.5, 11]] as const) {
+    const hold = frames.filter((f) => f.t >= lo && f.t <= hi);
+    assert.ok(hold.length > 100, "check every held frame, not just the arrival");
+    for (const f of hold) {
+      const clips = clippedFractions(f, [rail, topbar]);
+      assert.ok(clips.every((c) => c === 0 || c >= 1 - 1e-9),
+        "rail or top bar sliced at t=" + f.t.toFixed(2) + ": " + clips.map((c) => (c * 100).toFixed(1) + "% out").join(", "));
+    }
+  }
+  // The hero opens on the b3 push-in: it stays a close-up, not a wide shot.
+  assert.ok(raw.filter((f) => f.t >= 3.9 && f.t <= 6).every((f) => f.w < 2600),
+    "the opening push-in keeps its close-up instead of parking wide");
 });
