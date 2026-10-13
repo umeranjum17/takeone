@@ -56,7 +56,7 @@ export function pageData(dir: string, sb: Storyboard, cameras: Record<string, un
 
 /** Write the page for a storyboard and return its path (dir/.motion/film.html). */
 export function writePage(dir: string, sb: Storyboard): { html: string; cameras: ReturnType<typeof sceneCameras> } {
-  const cameras = sceneCameras(sb);
+  const cameras = sceneCameras(sb, dir);
   const data = pageData(dir, sb, cameras);
   mkdirSync(join(dir, ".motion"), { recursive: true });
   const html = join(dir, ".motion", "film.html");

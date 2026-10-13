@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 cd "$(dirname "$0")/../../.."
+# The fixture compiles with javac/keytool from mise's JDK. The repo pins
+# java 21.0.2 in .mise.toml, but a machine with mise and no global Java only
+# resolves the shims when the version is set, so default it here (the repo pin
+# stays authoritative; this never touches global/user tool config).
+export MISE_JAVA_VERSION="${MISE_JAVA_VERSION:-21.0.2}"
+command -v javac >/dev/null 2>&1 || { echo "build.sh: javac not found (need JDK 21 via mise; repo .mise.toml pins java 21.0.2)" >&2; exit 1; }
 sdk="${ANDROID_SDK_ROOT:-$HOME/Android/Sdk}"
 build="$PWD/tmp/android-fixture"
 mkdir -p "$build/assets" "$build/classes"
@@ -9,7 +15,7 @@ from pathlib import Path
 import sys
 scene=Path('scripts/e2e/scene.html').read_text()
 css=Path('scripts/e2e/android/mobile.css').read_text()
-scene=scene.replace('<head>', '<head><meta name="viewport" content="width=device-width, initial-scale=1">')
+scene=scene.replace('<head>', '<head><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">')
 scene=scene.replace('</style>', css+'\n</style>')
 # Prefilled demo task avoids showing a keyboard or relying on external accounts.
 scene=scene.replace('$("title").value = ""', '$("title").value = "Prepare launch brief"')

@@ -113,6 +113,12 @@ test("record writes a complete take (pid file, events, take.json) and stops on S
   const code = await new Promise<number | null>((resolveP) => child.on("exit", (exitCode) => resolveP(exitCode)));
   assert.equal(code, 0, `record exited ${code}; stderr: ${stderr.join("")}`);
 
+  // The ready line fires once capture is really running, before the stop.
+  assert.ok(
+    stderr.join("").includes(`recording: ${takeDir}; Ctrl-C or takeone stop to finish`),
+    `ready line missing; stderr: ${stderr.join("")}`,
+  );
+
   // The pid file is gone after a clean stop.
   await assert.rejects(stat(pidFile), undefined as unknown as never, "pid file should be removed");
 

@@ -7,8 +7,10 @@ import { resolveTheme } from "../themes.ts";
 import { basename, join, resolve } from "node:path";
 import type { CameraDefaults } from "../camera/defaults.ts";
 import { actionCameraMilliseconds } from "../beats/clock.ts";
-import { manualZoomLimitWarning, solveCamera } from "../camera/solver.ts";
+import { applyManualZooms, baseWidth, manualZoomLimitWarning, solveCamera } from "../camera/solver.ts";
+import { applyDragVisibility } from "../camera/gesture.ts";
 import type { Beat, Decision, TakeMeta } from "../camera/types.ts";
+import type { FrameRegions } from "../types.ts";
 import { blurGraph, keycapAss, keycapBackdropGraph, keycapMaskAss, keycapObstacles, overlayRegions, spotlightAss, spotlightGraph, toastWindows } from "./overlays.ts";
 import { motionBlurGraph, shutterPlan } from "./motion-blur.ts";
 import { idleSqueezes, purposefulEnd, setptsExpr, warp, warpBeats } from "./pace.ts";
@@ -49,17 +51,34 @@ function runFfmpeg(args: string[]): Promise<string> {
   });
 }
 
+/** Event-clock time of the first video frame. */
+function videoStartMs(dir: string, meta: TakeMeta): number {
+  try {
+    return firstFrameTimeMs(join(dir, "frames.tsv"), { offset_ms: meta.offset_ms } as Parameters<typeof firstFrameTimeMs>[1]);
+  } catch {
+    // frames.tsv missing or malformed: fall back to the saved offset.
+    return meta.offset_ms ?? 0;
+  }
+}
+
 /** Typing bursts from the take's saved key events, on the video clock. */
 async function takeTypingBursts(dir: string, meta: TakeMeta): Promise<{ t0: number; t1: number }[]> {
   const eventsPath = join(dir, "events.jsonl");
   if (!existsSync(eventsPath)) return [];
-  let videoStartMs = meta.offset_ms ?? 0;
-  try {
-    videoStartMs = firstFrameTimeMs(join(dir, "frames.tsv"), { offset_ms: meta.offset_ms } as Parameters<typeof firstFrameTimeMs>[1]);
-  } catch {
-    // frames.tsv missing or malformed: fall back to the saved offset.
-  }
-  return typingBursts(await readEvents(eventsPath), videoStartMs);
+  return typingBursts(await readEvents(eventsPath), videoStartMs(dir, meta));
+}
+
+/** Perception's changed regions (analysis/regions.json) on the edit clock, skipping cuts. */
+async function takeChanges(dir: string, meta: TakeMeta, start: number, end: number,
+  outTime: (t: number) => number, kept: (t: number) => boolean): Promise<{ t: number; bbox: [number, number, number, number] }[]> {
+  const path = join(dir, "analysis/regions.json");
+  if (!existsSync(path)) return [];
+  const origin = videoStartMs(dir, meta);
+  const { frames } = JSON.parse(await readFile(path, "utf8")) as { frames: FrameRegions[] };
+  return frames.flatMap(f => {
+    const t = (f.t - origin) / 1000;
+    return f.cut || t < start || t > end || !kept(t) ? [] : f.regions.map(r => ({ t: start + outTime(t), bbox: r.bbox }));
+  });
 }
 
 /** Read the take's durable inputs, write its camera path and render the silent MP4. */
@@ -78,7 +97,12 @@ export async function renderTake(dir: string, d?: CameraDefaults): Promise<{ out
     .map((line) => JSON.parse(line) as Decision);
 
   const trimStart = meta.trim_start ?? 0;
-  const cameraWarning = manualZoomLimitWarning(meta, d);
+  const wide = d.out_w > d.out_h;
+  // Wide motion and portrait crop-to-fill motion (a portrait cut from a wider
+  // desktop screen) are qualified. Square, phone and other exports keep the centred rest framing.
+  const moving = wide || (!phone && d.out_h > d.out_w && d.out_w / d.out_h < meta.width / meta.height);
+  const cameraWarning = moving ? manualZoomLimitWarning(meta, d)
+    : meta.zooms?.length ? "take.json: camera motion is disabled for this export shape; use wide output, or portrait from a wider screen, for zooms" : undefined;
   if (cameraWarning) console.warn(cameraWarning);
   const trimEnd = meta.trim_end ?? purposefulEnd(beats, trimStart,
     meta.duration ?? Math.max(0, ...beats.map((beat) => beat.t1)), d);
@@ -134,11 +158,27 @@ export async function renderTake(dir: string, d?: CameraDefaults): Promise<{ out
     for (let k = 0; k < 40; k++) { const mid = (lo + hi) / 2; if (outTime(mid) < t) lo = mid; else hi = mid; }
     return hi;
   };
-  const held = d.camera_path === "hold" && !phone ? holdPath(solvedFrames, outBeats, outDecisions,
+  const held = wide && d.camera_path === "hold" && !phone ? holdPath(solvedFrames, outBeats, outDecisions,
     { band, stage, width: meta.width, height: meta.height, d, minShot: d.min_shot * d.pace },
     videoFrames(join(dir, "screen.webm"), meta.width, meta.height, sourceAt)) : undefined;
   if (held) await writeFile(join(dir, "camera-holds.json"), JSON.stringify(held.holds, null, 2));
-  const frames = held?.frames ?? solvedFrames;
+  // Manual spans are source-video seconds; use the same edit clock as footage.
+  // Applying them after holdPath prevents its automatic composition from erasing
+  // the director's explicit framing. Drag visibility remains the final safety gate.
+  const zooms = (meta.zooms ?? []).flatMap(z => {
+    const spans = clock?.spans.filter(s => s.rate > 0) ?? [{ t0: trimStart, t1: trimEnd }];
+    return spans.flatMap(s => {
+      const a = Math.max(trimStart, s.t0, z.t0), b = Math.min(trimEnd, s.t1, z.t1);
+      return b > a ? [{ ...z, t0: trimStart + outTime(a), t1: trimStart + outTime(b) }] : [];
+    });
+  });
+  // Exports without qualified motion retain the centred rest framing; neither
+  // automatic/held paths nor manual spans can move it.
+  const restW = baseWidth(meta.width, meta.height, d), restH = restW * d.out_h / d.out_w;
+  const changes = moving && zooms.length ? await takeChanges(dir, meta, trimStart, trimEnd, outTime, clock?.contains ?? (() => true)) : [];
+  const directed = moving ? applyManualZooms(held?.frames ?? solvedFrames, { ...meta, zooms }, d, outBeats, changes)
+    : solvedFrames.map(f => ({ t: f.t, x: (meta.width - restW) / 2, y: (meta.height - restH) / 2, w: restW, h: restH }));
+  const frames = moving && zooms.length ? applyDragVisibility(directed, outBeats, meta.width, meta.height, trimStart, d) : directed;
   await writeFile(join(dir, "camera.json"), JSON.stringify(frames));
   const commandFile = join(dir, "camera.cmd");
   // With a band the camera frames the screen alone, into the fixed card.

@@ -75,12 +75,49 @@ export function shutterFrames(frames: CameraFrame[], plan: ReturnType<typeof shu
     : shutterFrame(frames, index - plan.half + 2 * plan.half * j / (count - 1)));
 }
 
+/** Margin around the sampled windows: covers the warp's Lanczos taps (2 px), the
+ * 4:2:0 chroma upsampling in the RGB16 conversion and the prefilter blur's tail. */
+const READ_MARGIN = 16;
+
+/** Even-aligned surface box that holds every sample window plus READ_MARGIN, or
+ * null when that is the whole surface. The pixels the warp reads are the same
+ * whether the surface is cropped to it before conversion or not. */
+function readBox(frames: CameraFrame[], width: number, height: number): { x: number; y: number; w: number; h: number } | null {
+  let left = Infinity, top = Infinity, right = -Infinity, bottom = -Infinity;
+  for (const f of frames) {
+    left = Math.min(left, f.x); top = Math.min(top, f.y);
+    right = Math.max(right, f.x + f.w); bottom = Math.max(bottom, f.y + f.h);
+  }
+  const x = Math.max(0, 2 * Math.floor((left - READ_MARGIN) / 2));
+  const y = Math.max(0, 2 * Math.floor((top - READ_MARGIN) / 2));
+  const w = Math.min(width, 2 * Math.ceil((right + READ_MARGIN) / 2)) - x;
+  const h = Math.min(height, 2 * Math.ceil((bottom + READ_MARGIN) / 2)) - y;
+  // An odd edge cannot be cropped exactly in 4:2:0; keep the whole surface then.
+  return (w < width || h < height) && w % 2 === 0 && h % 2 === 0 ? { x, y, w, h } : null;
+}
+
+/** Crop the composed surface to what the camera reads and convert it to RGB16
+ * once per source frame, ahead of the shutter resampling, then warp. A
+ * crop-to-fill export samples a small window of a tall card, and every motion
+ * blur sample used to convert the whole card. */
+function warpGraph(frames: CameraFrame[], width: number, height: number, d: CameraDefaults): { input: string; warp: string } {
+  const box = readBox(frames, width, height);
+  if (!box) return { input: "format=gbrp16le,", warp: cameraFilter(frames, width, height, d) };
+  return {
+    input: `crop=${box.w}:${box.h}:${box.x}:${box.y},format=gbrp16le,`,
+    warp: cameraFilter(frames.map(f => ({ ...f, x: f.x - box.x, y: f.y - box.y })), box.w, box.h, d),
+  };
+}
+
 /** Duplicate source images by reference, discard unneeded samples before the
  * warp, and average only each exposure's samples. One chronological stream
  * avoids buffering whole shots across parallel velocity branches.
  */
 export function motionBlurGraph(frames: CameraFrame[], plan: ReturnType<typeof shutterPlan>, width: number, height: number, d: CameraDefaults): string {
-  if (!plan.metrics.blurredFrames) return `[c4]${cameraFilter(frames, width, height, d)}[camera]`;
+  if (!plan.metrics.blurredFrames) {
+    const { input, warp } = warpGraph(frames, width, height, d);
+    return `[c4]${input}${warp}[camera]`;
+  }
   const counts = plan.counts;
   const sampled: CameraFrame[] = [];
   const ends: number[] = [];
@@ -103,10 +140,12 @@ export function motionBlurGraph(frames: CameraFrame[], plan: ReturnType<typeof s
   }
   const countExpr = frameExpr(counts).replaceAll("in-1", `floor(n/${plan.samples})`);
   const endExpr = `eq(round(${frameExpr(ends).replaceAll("in-1", "n")}),1)`;
+  const { input, warp } = warpGraph(sampled.map((f, i) => ({ ...f, t: i / (d.fps * plan.samples) })), width, height,
+    { ...d, fps: d.fps * plan.samples });
   // Pad before resampling: older fps filters can discard the last image at EOF.
-  return `[c4]tpad=stop_mode=clone:stop=1,fps=${d.fps * plan.samples}:round=up:start_time=0,`
+  return `[c4]${input}tpad=stop_mode=clone:stop=1,fps=${d.fps * plan.samples}:round=up:start_time=0,`
     + `trim=end_frame=${frames.length * plan.samples},select='lt(mod(n,${plan.samples}),round(${countExpr}))',`
-    + `setpts=N/(${d.fps * plan.samples}*TB),${cameraFilter(sampled.map((f, i) => ({ ...f, t: i / (d.fps * plan.samples) })), width, height, { ...d, fps: d.fps * plan.samples })},`
+    + `setpts=N/(${d.fps * plan.samples}*TB),${warp},`
     + `sendcmd=c='${commands.join(";")}',tmix@shutter=frames=${plan.samples + 1}:enable='${endExpr}',`
     + `select='${endExpr}',settb=AVTB,setpts=N/(${d.fps}*TB)[camera]`;
 }

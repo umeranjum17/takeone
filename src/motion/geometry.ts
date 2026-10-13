@@ -9,8 +9,14 @@ export function bitmapSize(scr: Pick<Screen, "width" | "height">, width: number,
 
 export function heroSize(scr: Pick<Screen, "width" | "height">, scene: Scene, W: number, H: number) {
   const phone = scene.device === "phone";
-  const width = phone ? Math.min(W * .6, H * .3) : Math.min(W * .78, H * .58 * scr.width / scr.height);
-  return bitmapSize(scr, width, phone ? H * .52 : width * scr.height / scr.width, 1 + (scene.push ?? .03), 1);
+  if (phone) {
+    // The phone frame fits the captured screen: the whole screen shows AND fills the frame,
+    // never letterboxed. Fit the screen aspect inside the hero footprint.
+    const width = Math.min(W * .6, H * .3, H * .52 * scr.width / scr.height);
+    return bitmapSize(scr, width, width * scr.height / scr.width, 1 + (scene.push ?? .03), 1);
+  }
+  const width = Math.min(W * .78, H * .58 * scr.width / scr.height);
+  return bitmapSize(scr, width, width * scr.height / scr.width, 1 + (scene.push ?? .03), 1);
 }
 
 export function heroTransform(t: number, duration: number, push: number) {

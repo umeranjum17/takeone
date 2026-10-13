@@ -3,6 +3,7 @@ import { join } from "node:path";
 import type {
   Beat,
   Decision,
+  FrameRegions,
   JevAnswers,
   TakeMeta,
 } from "./types.ts";
@@ -11,7 +12,7 @@ import { perceiveRegions } from "./perceive/regions.ts";
 import { analyzeUiBoxes } from "./perceive/boxes.ts";
 import { actionsFromEvents } from "./perceive/actions.ts";
 import { decodeAnalysisFrames, firstFrameTimeMs, readEvents } from "./perceive/decode.ts";
-import { segmentBeats, actStart, resultTime } from "./beats/segment.ts";
+import { segmentBeats, actStart, resultTime, RESULT_MIN_AREA } from "./beats/segment.ts";
 import { actionVideoSeconds } from "./beats/clock.ts";
 import { zonesForBeat, OCR_MAX_AREA } from "./beats/zones.ts";
 import { buildRequest, PRICE_PER_MTOK, REQUEST_TOKEN_CAP, RequestTooLarge } from "./decide/request.ts";
@@ -116,6 +117,23 @@ function scrubEventTitles(eventsPath: string): void {
   if (changed) writeFileSync(eventsPath, out.join("\n"));
 }
 
+/**
+ * Static-head trim for video-only takes (no input events). The first frame
+ * carrying a change region worth a beat opens the film, less a short lead so
+ * the change itself is never cut; a take that never changes keeps its start.
+ * The threshold matches the segmenter's own change beats, and the lead
+ * mirrors the record-time trim's 500 ms.
+ */
+export const VIDEO_ONLY_HEAD_LEAD_MS = 500;
+
+export function videoOnlyHeadStart(frames: FrameRegions[], recordStartMs: number): number {
+  const first = frames.find((f) =>
+    f.t >= recordStartMs && f.regions.some((r) => r.area_frac >= RESULT_MIN_AREA),
+  );
+  if (first === undefined) return recordStartMs;
+  return Math.max(recordStartMs, first.t - VIDEO_ONLY_HEAD_LEAD_MS);
+}
+
 export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<MakeResult> {
   const log = opts.log ?? ((s: string) => console.log(s));
   const warn = opts.warn ?? ((s: string) => console.error(s));
@@ -151,9 +169,9 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
   }
   const dec = await decodeAnalysisFrames(webm, take, framesTsv);
   const videoEndMs = videoStartMs + dec.frames.length * 100;
-  const startMs = Math.max(videoStartMs, take.trim?.start ?? videoStartMs);
+  const recordStartMs = Math.max(videoStartMs, take.trim?.start ?? videoStartMs);
   const endMs = Math.min(videoEndMs, take.trim?.end ?? videoEndMs);
-  if (!(endMs > startMs)) throw new TakeInputError("take.json", "trim does not overlap video");
+  if (!(endMs > recordStartMs)) throw new TakeInputError("take.json", "trim does not overlap video");
   // advancing pointer walk: both streams are time-ordered
   let pi = 0;
   let last: { x: number; y: number } | null = null;
@@ -174,6 +192,10 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
     pointers,
     { w: dec.w, h: dec.h, streamW: take.stream.w, streamH: take.stream.h },
   );
+  // Video-only takes have no input events, so the record-time trim never
+  // anchors and the film would open on the static head. Start just before the
+  // first visual change instead; takes with events keep the record trim.
+  const startMs = take.events === "none" ? videoOnlyHeadStart(frames, recordStartMs) : recordStartMs;
   const revealed = dialogResults(dec.frames.map((f) => f.data), dec.frames.map((f) => f.t), pointers,
     { w: dec.w, h: dec.h, streamW: take.stream.w, streamH: take.stream.h })
     .filter((result) => result.t >= startMs && result.t <= endMs);
@@ -234,7 +256,8 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
       actions: b.actions.map(a => actionVideoSeconds(a, videoStartMs)),
       zones: b.zones.map((z) => ({ name: z.name, type: z.kind, bbox: z.bbox,
         ...(z.boxes?.length ? { boxes: z.boxes } : {}),
-        ...(z.kind === "res" && z.t !== undefined ? { t_change: seconds(Math.max(b.t0, Math.min(endMs, z.t))) } : {}),
+        // A typed field changes when typing starts: a shot that ends on it arrives then, not at beat end.
+        ...((z.kind === "res" || z.kind === "txt") && z.t !== undefined ? { t_change: seconds(Math.max(b.t0, Math.min(endMs, z.t))) } : {}),
       })),
       ...(b.kind === "cut" ? { changed_frac: scopedFrames.filter((f) => f.t >= b.t0 && f.t <= b.t1).map((f) => ({ t: seconds(f.t), f: f.changed_frac })) } : {}),
     };

@@ -417,6 +417,7 @@ async function record(args: string[]): Promise<void> {
       ...(flags.bitrateKbps === undefined ? {} : { bitrateKbps: flags.bitrateKbps }),
       ...(flags.root === undefined ? {} : { takesRoot: flags.root }),
       ...(flags.state === undefined ? {} : { stateDirPath: flags.state }),
+      onRecording: reportRecordingReady,
     });
     const { takeJson } = result;
     console.log(toonTable("record", ["id", "take_path", "frames", "offset_ms", "spread_ms", "trim_ms"], [
@@ -438,13 +439,18 @@ async function record(args: string[]): Promise<void> {
   }
 }
 
+/** One shared ready line for every record path, printed once capture is really running. */
+function reportRecordingReady(takeDir: string): void {
+  console.error(`recording: ${takeDir}; Ctrl-C or takeone stop to finish`);
+}
+
 async function recordAndroid(flags: Flags): Promise<void> {
   const { runAndroidRecord } = await import("./android/record.js");
   const { toonTable } = await import("./toon.js");
   try {
     const result = await runAndroidRecord({
       serial: flags.android!,
-      onReady: (dir) => console.error(`recording: ${dir}; Ctrl-C or takeone stop to finish`),
+      onReady: reportRecordingReady,
       ...(flags.touchOffsetMs === undefined ? {} : { touchOffsetMs: flags.touchOffsetMs }),
       ...(flags.root === undefined ? {} : { takesRoot: flags.root }),
       ...(flags.state === undefined ? {} : { stateDirPath: flags.state }),
@@ -477,6 +483,7 @@ async function recordIosSim(flags: Flags): Promise<void> {
       ...(flags.iosUdid === undefined ? {} : { udid: flags.iosUdid }),
       ...(flags.root === undefined ? {} : { takesRoot: flags.root }),
       ...(flags.state === undefined ? {} : { stateDirPath: flags.state }),
+      onReady: reportRecordingReady,
     });
     const { takeJson } = result;
     console.log(toonTable("record", ["id", "take_path", "frames", "offset_ms", "scale"], [

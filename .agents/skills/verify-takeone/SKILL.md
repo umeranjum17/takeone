@@ -33,7 +33,7 @@ export TAKEONE_DIR="$PWD/tmp/verify-takes" TAKEONE_STATE_DIR="$PWD/tmp/verify-st
 node bin/takeone.mjs doctor
 ```
 
-Prints TOON `doctor[8]{check,ok,detail}` rows: `engine`, `engine-protocol`, `hyprland`, `evdev`, `ffmpeg`, `motion-shell`, `state-dir`, `takes-root`. The exit code is 0 only when every check passes, so read the `ok` column per check, not just the exit code: for make/render verification the gate is `ffmpeg,true` plus `takes-root,true`/`state-dir,true` — `hyprland`/`evdev`/`engine*` rows matter only for desktop recording, and `motion-shell,false` (pinned chrome-headless-shell missing) blocks only motion drives, where the fix is `takeone motion install-shell`.
+Prints TOON `doctor[N]{check,ok,detail}` rows: `engine`, `engine-protocol`, `jev-key`, `ffmpeg`, `motion-shell`, `state-dir`, `takes-root`, plus `hyprland` and `evdev` on Linux only and `xcrun` (iOS Simulator) on macOS only. The exit code is 0 only when every check passes, so read the `ok` column per check, not just the exit code: for make/render verification the gate is `ffmpeg,true` plus `takes-root,true`/`state-dir,true` — `hyprland`/`evdev`/`engine*` rows matter only for desktop recording, `jev-key,false` means planned films fall back to `--no-jev` (fix: `takeone key set` from stdin), and `motion-shell,false` (pinned chrome-headless-shell missing) blocks only motion drives, where the fix is `takeone motion install-shell`.
 
 ## Drive
 
@@ -90,7 +90,7 @@ Standards: exercise the real user path (published CLI flags only — no internal
 
 ## Review evidence (fleet standard)
 
-Every user-visible change ships proof for all three kinds below in the same run's
+Every user-visible change ships proof for all four kinds below in the same run's
 `tmp/evidence/verify-takeone-<YYYYMMDD-HHMMSS>/` folder. takeone is a CLI with no
 window and no stylesheet of its own, so a "screen" here is a rendered frame, a
 "theme" is the look token set handed to `make`/`render`/`motion`, and a "form
@@ -112,10 +112,9 @@ Extract both stills at the `<before>` timestamp so the pairs compare. Dark theme
 floor; add another name from the relevant class when the change touches that token
 (`display_font`, `bg_style`, `bg_pattern`, grain). `make --theme <name>` is the
 one-drive equivalent. Copy the take per theme — `render` overwrites `out/<id>.mp4`
-in place. **Not applicable:** motion takes reject `--theme`/`--set` by design
-(`features/motion-films.md`); for a motion change the look pass is captured by
-editing `storyboard.json` and rerendering, and say so rather than substituting a
-placeholder capture.
+in place. For a motion change run `takeone motion ... --theme midnight` and
+`--theme paper` as two fresh films; only the rerender of a saved motion take
+rejects `--theme`/`--set` (`features/motion-films.md`).
 
 ### Form factor: phone and desktop
 
@@ -159,6 +158,87 @@ a flat grey page. **Not applicable, with the reason:** a `record`-only change
 `takeone record` on a dedicated empty workspace or test device, and on a host where
 `doctor` reports `hyprland,false` say so and drive the Android/emulator route or
 report the capture path unverifiable rather than faking it.
+
+### Visual defect pass
+
+Every user-visible change runs this pass on the branch, with main's pass as the reference.
+A defect fails the check: the pass exits 1, names the defect, its frame time and a crop.
+
+```sh
+TAKEONE_GATE=<memory gate, optional> .agents/skills/verify-takeone/scripts/visual-pass.sh \
+  tmp/evidence/visual-main --no-design                    # on main first: the reference (no design step: its stills have no reference film to take mocks from)
+.agents/skills/verify-takeone/scripts/visual-pass.sh tmp/evidence/visual-branch \
+  --ref tmp/evidence/visual-main \
+  --motion-ref <approved-motion-dark-contact.png> --motion-ref <approved-motion-light-contact.png>   # on the branch
+.agents/skills/verify-takeone/scripts/visual-controls.sh tmp/evidence/visual-main tmp/evidence/visual-controls
+```
+
+The pass rebuilds `dist/` first when any `src/` file is newer: every render runs from
+`dist/`, so a stale build renders old product code with new checker expectations and
+stale sidecars fail good films (measured on main: a pre-112 cover-fit `camera.json`
+against the contain-fit phone frame reads as status-bar and stage bands plus mismatch).
+`visual-controls.sh` proves real defects still fail, including a blank strip drawn inside
+the phone screen (`strip-in-phone`).
+The pass ends with a required done-done design step (`scripts/visual-design.sh`, run
+automatically unless `--no-design`): it judges the held screen inside every cell still
+with `done-done design`, one judge call per cell (a few screens each, not one call for the
+whole pass, so a killed session loses at most one cell). Each `<cell>-t<time>.png` is
+cropped to the shown rect its own check records
+(`<cell>.json` facts.shown, `<cell>-t<time>-screen.png`), so the judge sees the screen
+rather than the stage matte around it, and each screen goes next to the same moment from
+the reference pass's film cropped the same way (`--mock <screen>=<cell>-t<time>-mock-screen.png`),
+motion cells included. A still past the end of its reference film has no same moment and
+is judged alone (logged) — an alone screen can fail on intended UI such as a dialog, so
+the reference pass must render every cell film in full. The `--motion-ref` contacts stay side-sheet references only,
+never design mocks: a live probe showed a motion still judged next to a contact sheet of
+other content fails with a bogus `layout` defect (a future approved motion mock can use
+`visual-design.sh --motion-mock`, first for motion-dark, second for motion-light).
+A fail (exit 1) fails the pass; unsure (exit 3) fails it too and names the screen for a
+human look. An unsure whose reason shows the judge never answered (transport failure, not
+a verdict) is retried up to 3 attempts per screen. Each cell's verdicts append to
+`pass.log` and `design.log` as they land (`design.<cell>.json` keeps them; `--resume`
+reuses those files after a kill), and the aggregate lands in `design.json` and `index.md`.
+
+done-done is not on npm: the script installs the pinned commit
+`ee0e65f5f9e9c4c695749f53bcb3c86424fe748e` into a private prefix (default
+`~/.cache/takeone-visual-done-done`, override with `--prefix`/`DONE_DONE_PREFIX`) with
+exactly `npm install --prefix <prefix> --allow-git=all
+github:umeranjum17/done-done-axi#ee0e65f5f9e9c4c695749f53bcb3c86424fe748e
+@byokit/decide@0.8.0` — never `npm install -g`, never the repo's `package.json`. The
+judge is a model call on Go Muse through BYOKit as done-done configures it (route
+`answerer:opencode`, model `opencode-go/muse-spark-1.3-contributor`, written to a scratch
+`DONE_DONE_HOME` inside the pass dir, so no key is printed or committed and the machine's
+global tooling and `~/.done-done` are untouched; it uses the existing OpenCode login).
+
+It renders 10 offline cells, each in midnight (dark) and paper (light): desktop 1920×1080
+(`synth-take.ts`), phone 1080×1920 and 4:5 (`synth-portrait.ts`), large font
+(`scripts/synth-phone-font.ts`: the Android fixture's board at font_scale 1.3, the largest
+common Android setting, 1080×1920), and `motion --device phone` of that board. It then checks
+the settled holds (plus transition midpoints for strips) against each take's own source, mapped
+by its sidecars (`camera.json`, `camera.cmd`, `stage.png`, beats/decisions, storyboard). Output is
+flat: `<cell>.mp4`, stills, `<cell>-t<time>-side.png` (the still next to the reference at the same
+moment, or the motion contact sheets), defect crops, `<cell>.json`, `pass.log`, `index.md`.
+`--cells` picks cells; `--check-only` re-checks cells already rendered in `--work`. Edit-clock
+takes (cuts, speed) are rejected, not checked. A real device run at the largest font is
+`adb -s <emulator> shell settings put system font_scale 1.3` or
+`xcrun simctl ui <udid> content_size accessibility-extra-extra-extra-large`, under the device
+lock and memory gate, then `make --no-jev` and `visual-check.ts <take> --name <cell> --out <dir>`.
+
+Limits (`LIMIT` in `scripts/visual-check.ts`), measured on main 868ff39:
+
+| check | limit | why |
+|---|---|---|
+| stretch | x/y scale differ > 1% | main's worst is 0.33%; a 4% ffmpeg stretch measures 4.0–4.6% (7.7% at one hold) |
+| measurable axis | NCC drop ≥ 0.05 at a 3% scale error | text UIs drop 0.097–0.49; the testsrc2 bars in `synth-portrait.ts` drop ≤ 0.021, so that cell's stretch is reported unmeasured, and the font cell measures phone stretch |
+| mismatch | robust NCC < 0.5 | main ≥ 0.988; a caption box over the UI stays ≥ 0.98; a cropped, rescaled film scores 0.02–0.37 |
+| blank strip | ≥ 8 px (at 1080 short side) of flat band (luma sd ≤ 9) from a film or screen edge that differs by > 24 luma from the stage or screen expected there | main shows 0 px in every cell; the 32 and 48 px controls show 32 and 48. 8 px stays clear of anti-aliased card edges. A band within 24 luma of what it covers (black on midnight) is not seen |
+| clipped text | ≥ 1 word or control cut (make's `edgeCuts`) at a film edge (on the film) or at a screen crop edge (on the source) | main's make cells cut nothing |
+| off-screen | < 98% of the held element inside the visible window | main's worst is 100%; the slid-card control holds 32% |
+| overlap | > 15% of the held element differs from its source | main's worst is 9.1% (the pointer resting on the field it just typed in); a caption box over the element is 92% |
+
+Known on main 868ff39: `motion --device phone` cover-crops the phone hero, so both motion cells
+fail clipped-text at the window's bottom edge (the Activity row's second line). That is a product
+defect for its own task; it is not a reason to loosen the limit.
 
 ## Cleanup
 

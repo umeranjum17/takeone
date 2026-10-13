@@ -5,6 +5,7 @@ Turn saved screens (images, HTML, or a URL) into a motion-design film without re
 ## Sub-features
 
 - Pattern planning: `--pattern hero-reveal,zoom-tour,end-card,kinetic-type` (all three when omitted); zoom-tour stops via `--region x,y,w,h[:caption][@SCREEN]`. With no `--pattern` and 3+ screens the planner builds a launch film: a kinetic-type title, each labelled screen announced by a full-type beat (message subtitle/CTA included; first beat also mounts a phone frame over a region close-up crop) ahead of a clean tour, a bento recap grid of real cropped screen states with 3+ labels, end card, black/cream beats alternating.
+- Whole-UI framing: settled zoom-tour close-ups (render) and the phone/bento crops (ingest) keep a planned view that is already whole, else move to the tightest same-aspect framing that keeps every field, button and card whole or all but a sliver out (make's `detectUiBoxes`) and runs no edge through a word (`edgeCuts`). A stop or crop with no whole framing prints `motion: no framing of … keeps every word and control whole`; a snapped tour longer than its planned `d` prints `motion: whole-UI stops of scene N need …` and uses the planned stops. The bento's three state tiles each wear their label pill; the fourth tile has none.
 - Interactive page states: `--state NAME='click #id; type #id "text"; wait 100'` captures real HTML/URL states in one page, in order.
 - Copy chrome: `--title`, `--subtitle`, `--cta`, `--url`, `--logo`, `--device browser|phone|laptop|none`; theme tokens as elsewhere.
 - Storyboard workflow: `--plan-only` writes an editable `storyboard.json` without ingest/render; `--storyboard file.json` renders a plan; `takeone render <dir>` rerenders the saved storyboard (motion takes reject `--theme`/`--set`).
@@ -31,4 +32,5 @@ Proving end state: exit 0; the output take dir contains `storyboard.json`, `sour
 - Motion pages reject CSS gradients (use SVG gradients/patterns) and enforce font glyph coverage: a rejected plan names the missing glyph; that is by design.
 - Worker count is part of the render identity — keep `--workers` fixed between deterministic rerenders.
 - Rerendering a motion take takes no options: edit `storyboard.json` instead; `render <motion-dir> --set …` is an error.
+- Whole-UI proof: decode settled hold frames (`camera-scenes.json` constant runs) and look at them; snapped views can widen well past the planned region when a tight close-up would slice a dimmed card or field. `test/motion-glyph.test.ts` ("whole words, fields and buttons") is the journey gate.
 - Ingest and encode are heavy — hold the shared heavy lock in fleet contexts.

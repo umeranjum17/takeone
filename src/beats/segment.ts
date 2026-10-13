@@ -341,8 +341,13 @@ export function resultTime(beat: Beat, frames: FrameRegions[]): number | null {
 
 /**
  * Video-only takes have observed changes, not inferred clicks. Group animation
- * frames into one subject, retaining quiet time as a hold until the next change.
- * The same beat cap and result-zone vocabulary feed the shared planner.
+ * frames into one subject. A burst ends at its last changed frame; a long
+ * quiet gap after it is an idle beat, the same dead air event takes squeeze
+ * between actions, so the shared pacing path compresses static stretches
+ * wherever they occur. Static means no change region worth a beat
+ * (RESULT_MIN_AREA, the grouping threshold) and long means IDLE_GAP_MS, the
+ * event path's own idle threshold. The same beat cap and result-zone
+ * vocabulary feed the shared planner.
  */
 export function segmentScreenChanges(
   frames: FrameRegions[],
@@ -351,20 +356,33 @@ export function segmentScreenChanges(
   const beats: Beat[] = [];
   let lastChange = -Infinity;
   const screen = o.stream.w * o.stream.h;
+  const idleBeat = (t0: number, t1: number): Beat => ({ id: "", t0, t1, anchor_t: t0,
+    window_cls: "", actions: [], zones: [], kind: "idle" });
+  // Close the open change burst at its last changed frame, keeping a long
+  // quiet gap after it as an idle beat for the pacing path to squeeze.
+  const closeOpen = (t: number): void => {
+    const current = beats[beats.length - 1];
+    if (!current || current.kind !== "change") return;
+    current.t1 = lastChange;
+    if (t - lastChange >= IDLE_GAP_MS) beats.push(idleBeat(lastChange, t));
+  };
   for (const f of frames) {
     if (f.t < o.startMs || f.t >= o.endMs) continue;
     const regions = f.regions.filter((r) => r.area_frac >= RESULT_MIN_AREA);
     if (regions.length === 0) continue;
     const current = beats[beats.length - 1];
-    if (current && f.t - lastChange <= BEAT_GAP_MS) {
+    if (current && current.kind === "change" && f.t - lastChange <= BEAT_GAP_MS) {
       current.results!.push(...regions);
     } else {
-      if (current) current.t1 = f.t;
+      closeOpen(f.t);
       beats.push({ id: "", t0: f.t, t1: o.endMs, anchor_t: f.t,
         window_cls: "", actions: [], zones: [], kind: "change", results: [...regions] });
     }
     lastChange = f.t;
   }
+  // The trailing hold past the last change is idle time too, so the purposeful
+  // end trims the dead tail exactly like an event take's recorder tail.
+  closeOpen(o.endMs);
   // Keep the initial establishing view, and a genuinely unchanged take idle.
   const first = beats[0]?.t0 ?? o.endMs;
   if (first > o.startMs) beats.unshift({ id: "", t0: o.startMs, t1: first,

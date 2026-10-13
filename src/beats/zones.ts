@@ -33,10 +33,14 @@ export function zonesForBeat(
   const cands: { kind: ZoneKind; bbox: BBox; t?: number }[] = [];
 
   const act = actZone(beat, o, screen);
-  if (act) cands.push({ kind: "act", ...act });
-
   const txt = txtZone(beat, o.scale);
-  if (txt) cands.push({ kind: "txt", bbox: txt.bbox, t: txt.t });
+  // A typing beat whose field opened a popup in its own modal frames that
+  // modal with the popup, not the field: the act footprint replaces the field
+  // footprint, extended by any part of the field's change region below it.
+  const opened = act && txt && beat.kind === "type" && fieldOpenedResult(beat, act.bbox, txt.bbox);
+  if (opened) act.bbox = unionBBox(act.bbox, txt.bbox);
+  if (act) cands.push({ kind: "act", ...act });
+  if (txt && !opened) cands.push({ kind: "txt", bbox: txt.bbox, t: txt.t });
 
   const path = pathZone(beat);
   if (path) cands.push({ kind: "path", bbox: path.bbox });
@@ -180,16 +184,34 @@ function txtZone(beat: Beat, scale: number): { bbox: BBox; t: number } | null {
     if (a.k === "type" && a.region) zone = zone ? { bbox: unionBBox(zone.bbox, a.region), t: zone.t } : { bbox: a.region, t: a.t0 };
   }
   if (!zone) return null;
-  for (const a of beat.actions) {
-    if (a.k === "click") zone.bbox = unionBBox(zone.bbox, [a.x, a.y, 1, 1]);
-  }
   const reach = 2 * ACT_PAD_LOGICAL[1] * scale;
   const [zx, zy, zw, zh] = zone.bbox;
   const near: BBox = [zx - reach, zy - reach, zw + 2 * reach, zh + 2 * reach];
+  for (const a of beat.actions) {
+    // The button that opened a dialog is not a field inside that dialog.
+    if (a.k === "click" && a.x >= near[0] && a.x <= near[0] + near[2]
+      && a.y >= near[1] && a.y <= near[1] + near[3]) zone.bbox = unionBBox(zone.bbox, [a.x, a.y, 1, 1]);
+  }
   for (const r of beat.results ?? []) {
     if (r.area_frac <= PANEL_MAX_AREA && bboxIoU(r.bbox, near) > 0) zone.bbox = unionBBox(zone.bbox, r.bbox);
   }
   return zone;
+}
+
+/**
+ * Whether the typed field opened a result popup that belongs to its own modal:
+ * the modal holds the field's origin, and either an attached result overlaps
+ * that modal or the field's change region reaches below it (a popup that
+ * arrives while typing never becomes a separate attached result).
+ */
+function fieldOpenedResult(beat: Beat, modal: BBox, field: BBox): boolean {
+  const [mx, my, mw, mh] = modal;
+  const [fx, fy] = field;
+  if (fx < mx || fx > mx + mw || fy < my || fy > my + mh) return false;
+  for (const r of beat.results ?? []) {
+    if (r.area_frac <= PANEL_MAX_AREA && bboxIoU(r.bbox, modal) > 0) return true;
+  }
+  return field[1] + field[3] > my + mh;
 }
 
 function pathZone(beat: Beat): { bbox: BBox } | null {
