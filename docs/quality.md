@@ -8,7 +8,7 @@ Harness captions explicitly use Liberation Sans to avoid machine-specific
 production-font fallback; the production font default is unchanged.
 The portrait fixture uses the existing test pattern, with demo title and
 caption metadata added by the harness. It does not exercise Android phone
-rendering; see the [Tidewater recording evidence](../README.md#3b-record-a-phone-instead-android-hand-driven-on-the-device)
+rendering; see the [Tidewater recording evidence](guide.md#3b-record-a-phone-instead-android-hand-driven-on-the-device)
 for real-app output. The sharpness fixture additionally exercises the production
 camera sampler and encoder on a frozen native 4K Tidewater browser capture.
 
@@ -29,7 +29,7 @@ this reports goal status but does not change the baseline ratchet gate.
   source pixels. Rest frames are excluded.
 - Determinism: SHA-256 of two actual MP4 encodes, not just camera JSON.
 - Upscale: maximum output width / stage viewport width, goal 1.0.
-  See [render settings](../README.md#render-an-existing-take) for the native
+  See [render settings](guide.md#render-an-existing-take) for the native
   default and explicit upscale override. Lower-resolution whole-screen footage
   cannot gain detail from export resolution.
 - Zoom speed/acceleration: first and second differences of ln(viewport width),

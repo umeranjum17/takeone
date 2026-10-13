@@ -5,5 +5,5 @@
 fictional launch board with Umer as its demo person. No desktop, accounts,
 network content or personal applications are involved.
 
-The screenshot is frozen for the theme proof. See the [theme preview guidance](../../README.md#look-and-pacing)
+The screenshot is frozen for the theme proof. See the [theme preview guidance](../../docs/look.md)
 for the generator, committed preview status and framing settings.

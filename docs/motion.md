@@ -1,6 +1,6 @@
 # Motion renders
 
-See [Motion design from screens](../README.md#motion-design-from-screens) for the basic command.
+See [Motion design from screens](guide.md#motion-design-from-screens) for the basic command.
 
 This mode turns saved screens into a film without recording. It requires `ffmpeg` and `ffprobe` on PATH and runs offline after ingest, with a sha256 and version pinned Linux x86_64 headless shell. Install the shell with `takeone motion install-shell` (requires network access and `unzip` on PATH); `takeone doctor` reports its identity. The installer uses TakeOne's cache under `XDG_CACHE_HOME` or `~/.cache`. `TAKEONE_CHROME` can select an existing shell, which must match both pins in [shell.ts](../src/motion/shell.ts).
 

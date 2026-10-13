@@ -4,7 +4,7 @@ The offline board fixture produces a normal take without opening a display,
 portal, input device, phone, or account. All content is fictional; its demo user
 is Umer. This is an asset-production script, not a new recording mode.
 
-On Linux x86_64 with Node meeting the [installation requirements](../README.md#download--install), ffmpeg (libvpx-vp9), unzip and Chromium's shared
+On Linux x86_64 with Node meeting the [installation requirements](guide.md#download--install), ffmpeg (libvpx-vp9), unzip and Chromium's shared
 libraries installed:
 
 ```sh
@@ -44,7 +44,7 @@ renderer draws its own vector cursor from the pointer track instead
 streamed to ffmpeg with backpressure, and encoded as lossless VP9 in yuv420p at
 constant 60 fps.
 
-The output follows the [take directory format](../README.md#files-of-a-take).
+The output follows the [take directory format](recording.md#files-of-a-take).
 Each captured frame has one TSV row, with a virtual receive time as integral
 nanoseconds and zero clock offset.
 Wheel deltas preserve the recorder's sign convention: negative scrolls down.
