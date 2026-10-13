@@ -148,12 +148,13 @@ function motionModel(): Model {
       const i = scene(k / fps), s = sb.scenes[i], F = cam[Math.min(k, cam.length - 1)]!;
       if (!s?.screen || !(String(i) in cams)) return null;
       const scr = sb.screens[s.screen], m = { ax: ow / F.w, bx: -F.x * ow / F.w, ay: oh / F.h, by: -F.y * oh / F.h };
-      // The device window, in screen px: a zoom-tour frame's own view; a hero's bitmap, which on a
-      // phone cover-crops the screen about its centre (src/motion/camera.ts, heroSize).
+      // The device window, in screen px: a zoom-tour frame's own view; a hero bitmap, which
+      // shows the whole screen (browser/laptop frames are aspect-exact; the phone frame
+      // contain-fits: resources/motion/chrome.js deviceFrame, src/motion/camera.ts).
       const cf = (cams[String(i)] as Rect[])[Math.min((cams[String(i)] as Rect[]).length - 1, Math.round((k / fps - s.at) * fps))]!;
       let win: Rect = { x: 0, y: 0, w: scr.width, h: scr.height };
       if (s.pattern === "zoom-tour") win = { x: cf.x, y: cf.y, w: cf.w, h: cf.h };
-      else if (s.pattern === "hero-reveal") {
+      else if (s.pattern === "hero-reveal" && s.device !== "phone") {
         const vp = cameraViewport(sb, 0), size = heroSize(scr, s, vp.width, vp.height);
         const fit = s.device === "phone" ? Math.max(size.width / scr.width, size.height / scr.height) : size.width / scr.width;
         win = { x: (scr.width - size.width / fit) / 2, y: (scr.height - size.height / fit) / 2, w: size.width / fit, h: size.height / fit };

@@ -6,7 +6,9 @@ window.deviceFrame = (scr, device, width, height) => {
   const frame=h(`<div class="device" data-moves style="position:relative;box-sizing:content-box;width:${width}px;height:${height+bar}px;background:var(--card);border:2px solid var(--line);border-radius:${phone ? '36px' : 'var(--radius)'};overflow:hidden;box-shadow:var(--shadow-x) var(--shadow-y) var(--shadow-blur) color-mix(in srgb,var(--shadow-color) calc(var(--shadow)*100%),transparent)"></div>`);
   if(browser) frame.append(h(`<div style="height:${bar}px;display:flex;align-items:center;gap:8px;padding:0 18px;border-bottom:1px solid var(--line);color:var(--ink)"><span style="font-family:var(--symbols)">● ● ●</span><div style="margin:auto;border:1px solid var(--line);border-radius:8px;padding:3px 50px;font:14px var(--body)">Design preview</div></div>`));
   if(phone) frame.append(h(`<div style="height:${bar}px;text-align:center;font:14px var(--mono);color:var(--ink)">9:41 &nbsp; <span style="font-family:var(--rules)">━</span></div>`));
-  const viewport=h(`<div class="viewport" style="position:relative;width:100%;height:${height}px;overflow:hidden;background:var(--card)"><img src="${scr.url}" style="width:100%;height:100%;object-fit:${phone ? 'cover' : 'fill'};display:block"></div>`);
+  // Phone shows the whole captured screen: contain-fit letterboxes the aspect gap
+  // (the card matte absorbs it) instead of cover-cropping the header and bottom rows.
+  const viewport=h(`<div class="viewport" style="position:relative;width:100%;height:${height}px;overflow:hidden;background:var(--card)"><img src="${scr.url}" style="width:100%;height:100%;object-fit:${phone ? 'contain' : 'fill'};display:block"></div>`);
   frame.append(viewport);
   if(laptop) { frame.style.borderWidth="12px"; frame.style.borderColor="var(--line)"; }
   return {frame,viewport,img:$("img",viewport)};

@@ -104,7 +104,9 @@ export function sceneCameras(sb: Storyboard, dir?: string): Record<string, (Came
       if (scene.d < need) throw new Error(`hero-reveal.d: needs ${need.toFixed(2)} s for bounded push`);
       const border = scene.device === "laptop" ? 12 : 2;
       const size = heroSize(screen, scene, width, height);
-      const fit = scene.device === "phone" ? Math.max(size.width / screen.width, size.height / screen.height) : size.width / screen.width;
+      // Phone shows the whole screen (contain-fit, as the device frame renders it):
+      // min-fit maps the letterboxed film back onto the screen; crop terms go negative.
+      const fit = scene.device === "phone" ? Math.min(size.width / screen.width, size.height / screen.height) : size.width / screen.width;
       const region = scene.focus ? sb.regions.find(r => r.id === scene.focus) : undefined;
       const ox = region ? (region.rect[0] + region.rect[2] / 2) / screen.width : .5;
       const oy = region ? (region.rect[1] + region.rect[3] / 2) / screen.height : .5;
