@@ -42,9 +42,9 @@ export function frameExpr(values: number[], tolerance = 0.001): string {
  * alone still 0.19; codec and grain ruled out at 0.43/0.45). A small Gaussian
  * at the real per-frame scale band-limits the edge before sampling (sweep:
  * sigma 0.7 holds 0.11-0.13 across m 1.05-1.3). Nonzero only on moving
- * minified frames, so rest and magnified frames render bit-exact (a disabled
- * gblur is a verified passthrough) and the single-frame sharpness probes
- * keep today's exact graph. */
+ * minified frames, so rest and magnified frames keep today's prefilter-free
+ * graph (gblur disabled, bit-exact to main). Fixed-aspect windows use
+ * ih_fov/iv_fov plus d_fov, pixel-equivalent within float32 rounding. */
 const PREFILTER_SIGMA = 0.7;
 function prefilterSigma(frames: CameraFrame[], d: CameraDefaults): number[] {
   return frames.map((f, i) => {
