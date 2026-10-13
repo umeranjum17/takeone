@@ -11,4 +11,6 @@ User-facing features of the takeone CLI, in README order. Each file tells you wh
 | 5 | Motion films from screens (`motion`) | yes after one shell install | [motion-films.md](motion-films.md) |
 | 6 | Drawn vector cursor on a cursor-free take | yes | [vector-cursor.md](vector-cursor.md) |
 
+The visual defect pass (`../SKILL.md`, `scripts/visual-pass.sh`) renders features 1, 3 and 5 in phone, 4:5, desktop and large-font cells, dark and light, and fails on stretched, blank, clipped, off-screen or covered content.
+
 Supporting surface, not mapped separately: `takeone doctor` (read-only environment report), `takeone key set` (BYOKit secret store), and the `takeone capture` verbs (`hello`/`record`/`stop`/`make`) implementing the BYOKit recorder protocol — drive those only when the change touches them.
