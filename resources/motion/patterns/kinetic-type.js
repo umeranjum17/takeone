@@ -11,7 +11,9 @@ PATTERNS["kinetic-type"] = (layer,s,ctx) => {
   const stagger=(root)=>$$(".type-word",root).forEach((word,i)=>K(word,[[i*70,{transform:"translateY(108%)"},SMOOTH],[420+i*70,{transform:"none"}]]));
   if(s.device && s.device!=="none" && s.screen) {
     const scr=ctx.screen(s.screen);
-    const {frame}=deviceFrame(scr,s.device,H*.34,H*.7);
+    // The frame fits the screen aspect exactly: the whole screen shows and fills it, never letterboxed.
+    const fw=Math.min(H*.34,H*.7*scr.width/scr.height);
+    const {frame}=deviceFrame(scr,s.device,fw,fw*scr.height/scr.width);
     frame.style.cssText+=`;flex:none`;
     const copy=h(`<div style="flex:none;text-align:left"></div>`);
     const t=title(Math.min(W*.05,H*.085)),u=sub(Math.min(W*.024,H*.04));

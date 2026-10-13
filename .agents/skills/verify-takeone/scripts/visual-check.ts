@@ -148,12 +148,13 @@ function motionModel(): Model {
       const i = scene(k / fps), s = sb.scenes[i], F = cam[Math.min(k, cam.length - 1)]!;
       if (!s?.screen || !(String(i) in cams)) return null;
       const scr = sb.screens[s.screen], m = { ax: ow / F.w, bx: -F.x * ow / F.w, ay: oh / F.h, by: -F.y * oh / F.h };
-      // The device window, in screen px: a zoom-tour frame's own view; a hero's bitmap, which on a
-      // phone cover-crops the screen about its centre (src/motion/camera.ts, heroSize).
+      // The device window, in screen px: a zoom-tour frame's own view; a hero bitmap, which
+      // shows the whole screen (browser/laptop frames are aspect-exact; the phone frame
+      // contain-fits: resources/motion/chrome.js deviceFrame, src/motion/camera.ts).
       const cf = (cams[String(i)] as Rect[])[Math.min((cams[String(i)] as Rect[]).length - 1, Math.round((k / fps - s.at) * fps))]!;
       let win: Rect = { x: 0, y: 0, w: scr.width, h: scr.height };
       if (s.pattern === "zoom-tour") win = { x: cf.x, y: cf.y, w: cf.w, h: cf.h };
-      else if (s.pattern === "hero-reveal") {
+      else if (s.pattern === "hero-reveal" && s.device !== "phone") {
         const vp = cameraViewport(sb, 0), size = heroSize(scr, s, vp.width, vp.height);
         const fit = s.device === "phone" ? Math.max(size.width / scr.width, size.height / scr.height) : size.width / scr.width;
         win = { x: (scr.width - size.width / fit) / 2, y: (scr.height - size.height / fit) / 2, w: size.width / fit, h: size.height / fit };
@@ -390,12 +391,30 @@ function check(s: Sample) {
   };
   scan("film left", true, 0, 1, 0, oh, ow / 4); scan("film right", true, ow - 1, -1, 0, oh, ow / 4);
   scan("film top", false, 0, 1, 0, ow, oh / 4); scan("film bottom", false, oh - 1, -1, 0, ow, oh / 4);
+  // Bars a device frame puts around the screen (a letterboxed phone film): flat unexpected
+  // bands running outward from a screen edge that stop at the frame. Stage also runs flat,
+  // but it reaches the film edge, so only bounded runs flag.
+  const scanOut = (label: string, vertical: boolean, from: number, dir: number, a: number, b: number) => {
+    let m = 0;
+    const max = dir > 0 ? (vertical ? ow - 1 - from : oh - 1 - from) : from;
+    while (m < max && line(vertical, from + dir * m, a, b)) m++;
+    strips[label] = m;
+    const end = from + dir * m, bounded = dir > 0 ? end < (vertical ? ow - 1 : oh - 1) : end > 0;
+    if (m >= LIMIT.strip * unit && bounded) {
+      const lo = dir > 0 ? from : from - m + 1;
+      flag("blank-strip", m, LIMIT.strip * unit, vertical ? { x: lo, y: a, w: m, h: b - a } : { x: a, y: lo, w: b - a, h: m }, `${m} px solid band inside the device frame at the ${label}`);
+    }
+  };
   if (content && content.w > 20 && content.h > 20) {
     const [x0, y0, x1, y1] = [Math.ceil(content.x), Math.ceil(content.y), Math.floor(content.x + content.w) - 1, Math.floor(content.y + content.h) - 1];
     if (x0 > 0) scan("screen left", true, x0, 1, y0, y1, content.w / 4);
     if (x1 < ow - 1) scan("screen right", true, x1, -1, y0, y1, content.w / 4);
     if (y0 > 0) scan("screen top", false, y0, 1, x0, x1, content.h / 4);
     if (y1 < oh - 1) scan("screen bottom", false, y1, -1, x0, x1, content.h / 4);
+    if (x0 > 0) scanOut("screen frame left", true, x0 - 1, -1, y0, y1);
+    if (x1 < ow - 1) scanOut("screen frame right", true, x1 + 1, 1, y0, y1);
+    if (y0 > 0) scanOut("screen frame top", false, y0 - 1, -1, x0, x1);
+    if (y1 < oh - 1) scanOut("screen frame bottom", false, y1 + 1, 1, x0, x1);
   }
   facts.strips = strips;
 

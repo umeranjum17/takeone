@@ -3,13 +3,19 @@
 # check it against that cell's own sidecars. Every control must exit 1 and name its defect; the good
 # films are the pass itself (its pass.log). See ../SKILL.md.
 #
-#   visual-controls.sh <good-pass-dir> <out-dir> [--work <that pass's work dir>]
+#   visual-controls.sh <good-pass-dir> <out-dir> [--work <that pass's work dir>] [--letterbox-take <dir>]
+#
+# --letterbox-take names a take rendered by a letterboxing phone build (whole screen shown
+# with matte bars inside the phone frame): its own film must FAIL on blank-strip, proving
+# the check catches bars inside a device frame. Every other control breaks a good film.
 set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
 [ $# -ge 2 ] || { sed -n '6p' "$0" >&2; exit 2; }
 pass=$(cd "$1" && pwd); out=$2; shift 2
 work=${TMPDIR:-/tmp}/takeone-visual-$(basename "$pass")
-[ "${1:-}" = --work ] && work=$2
+[ "${1:-}" = --work ] && { work=$2; shift 2; }
+letterbox=
+[ "${1:-}" = --letterbox-take ] && { letterbox=$2; shift 2; }
 mkdir -p "$out"; out=$(cd "$out" && pwd)
 read -r -a gate <<< "${TAKEONE_GATE:-}"
 run() { "${gate[@]}" "$@"; }
@@ -51,5 +57,12 @@ control overlap desktop-dark midnight overlap \
 # The card's picture slides up 30 px inside the card: the top toolbar the last beat holds leaves the frame.
 control off-screen desktop-dark midnight off-screen \
   "split[a][b];[b]crop=$cw:$((ch - 30)):$cx:$((cy + 30))[c];[a][c]overlay=$cx:$cy"
+if [ -n "$letterbox" ]; then # the letterboxing phone build's own film must fail on blank-strip
+  film=$(ls "$letterbox"/out/*.mp4 | head -1); rc=0
+  run node "$here/visual-check.ts" "$letterbox" --name control-letterbox --out "$out" --theme midnight \
+    --film "$film" > "$out/control-letterbox.log" 2>&1 || rc=$?
+  if [ "$rc" = 1 ] && grep -q "^FAIL [^ ]* t=[^ ]* blank-strip " "$out/control-letterbox.log"; then v=PASS; else v=FAIL; fail=1; fi
+  echo "$v control letterbox ($film): exit $rc, expected blank-strip" | tee -a "$log"
+fi
 echo "$([ $fail = 0 ] && echo PASS || echo FAIL) controls: every control must fail its own check" | tee -a "$log"
 exit $fail
