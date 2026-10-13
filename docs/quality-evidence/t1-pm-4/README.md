@@ -83,7 +83,7 @@ no-regression criteria; keep stored numerical quality limits at least as strict
 as both accepted histories.
 
 The retained real input is
-`/home/umer/.treehouse/takeone-9abf5c/11/takeone/tmp/real/screen.webm`, with
+`<takeone-worktree>/tmp/real/screen.webm`, with
 SHA-256 `bfe7d750c092c13db9db04781d927b7f5d711e7b2a91b10be0d825dfe497cfc7`.
 Copy it into the worktree with the committed `tidewater-plan/` bundle; keep the
 real Umer/Tidewater recording and plans. The Acme fixture producer is
@@ -97,7 +97,7 @@ Build the current CLI within the worktree, then use `node bin/takeone.mjs render
 worktree-local directory for `make`. Do not invoke new Jev calls. Serialize each
 heavy build, render, test, or ffmpeg command and all its children under the
 existing shared lock
-`/home/umer/.treehouse/firstmate-8bf1b0/1/firstmate/state/takeone-heavy.lock`;
+`<firstmate-home>/state/takeone-heavy.lock`;
 keep AXI control calls outside the lock.
 
 Use freshly produced camera paths and output-clock beats with

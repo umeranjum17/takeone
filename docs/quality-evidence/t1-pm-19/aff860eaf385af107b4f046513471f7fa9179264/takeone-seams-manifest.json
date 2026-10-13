@@ -9,7 +9,7 @@
     "method": "render landscape only, --set preset=veryfast, through fm-mem-gate; camera solver and edits unchanged from main"
   },
   "source_take": {
-    "path": "/home/umer/.treehouse/firstmate-8bf1b0/1/firstmate/data/takes/headless-run-a",
+    "path": "<firstmate-home>/data/takes/headless-run-a",
     "screen_webm_sha256": "bfe7d750c092c13db9db04781d927b7f5d711e7b2a91b10be0d825dfe497cfc7",
     "width": 3840,
     "height": 2160,
@@ -80,7 +80,7 @@
       "sha256": "21e199767b2c9990f0af7ec8509a1e05c6385e9645e91dec0dd45dec01f436f8",
       "bytes": 24413957,
       "location": "external",
-      "external_path": "/home/umer/.treehouse/firstmate-8bf1b0/1/firstmate/data/t1-pm-19/evidence/takeone-seams-before.mp4"
+      "external_path": "<firstmate-home>/data/t1-pm-19/evidence/takeone-seams-before.mp4"
     },
     "after": {
       "file": "takeone-seams-after.mp4",
@@ -94,7 +94,7 @@
       "camera": "takeone-seams-after-camera.json",
       "camera_sha256": "d9342656e27a306eaeb7a9db7f9cb144a09199bd340765ff6dd8e59d3652eda6",
       "location": "external",
-      "external_path": "/home/umer/.treehouse/firstmate-8bf1b0/1/firstmate/data/t1-pm-19/evidence/takeone-seams-after.mp4"
+      "external_path": "<firstmate-home>/data/t1-pm-19/evidence/takeone-seams-after.mp4"
     }
   },
   "duration_delta_seconds": 0.8167,

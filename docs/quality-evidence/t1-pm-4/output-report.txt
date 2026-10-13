@@ -4,7 +4,7 @@ Acme: scripts/synth-take.ts; identical raw video/event fixture for baseline and 
 Acme baseline and current renders both use Liberation Sans captions, matching the quality harness.
 Acme output 16–30 s: 841 frames; thumb crop misses=0; cursor ink crop misses=0.
 The detail panel first opens at output 18.175 s; before that the future thumb footprint is retained in the crop.
-Tidewater: existing scored headless board take, source copied read-only from /home/umer/.treehouse/takeone-9abf5c/3/takeone/tmp/headless-run-a, generated from scripts/e2e/scene.html. No desktop or personal apps were captured for this task.
+Tidewater: existing scored headless board take, source copied read-only from <takeone-worktree>/tmp/headless-run-a, generated from scripts/e2e/scene.html. No desktop or personal apps were captured for this task.
 Tidewater native source: 3840x2160 at 60 fps, scripted demo data, Umer as demo person.
 Tidewater real drag: 16.65–18.583333 s; 117 output frames; cursor/object misses=0 (see per-beat table).
 Object grab footprint measured from first changed region: [476,288,800,280] source pixels; per-frame offset follows recorded pointer samples.
