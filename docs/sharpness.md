@@ -45,9 +45,10 @@ percentages of OCR confidence or perceptual quality.
 | New master: RGB16 direct Lanczos, CRF 12, animation tune, 4:4:4 | 0.776 |
 
 The final graph uses `v360` with flat input/output, no rotation, and independent
-horizontal/vertical field of view and offsets. This is an affine camera crop,
-not a spherical lens effect. It maps native source pixels directly into export
-pixels in one Lanczos resample in a 16-bit RGB intermediate; draft uses linear. There is no pre-scale,
+horizontal/vertical field of view and offsets. A fixed-aspect window folds its
+aspect into the input field of view and zooms with one `d_fov`. This is an
+affine camera crop, not a spherical lens effect. It maps native source pixels
+directly into export pixels in one Lanczos resample in a 16-bit RGB intermediate; draft uses linear. There is no pre-scale,
 intermediate upscale or final dimensional resize. Colour-matrix conversion
 still uses `scale` without changing dimensions. Frame commands preserve
 fractional positions; updates fall between frame timestamps to avoid rounding
