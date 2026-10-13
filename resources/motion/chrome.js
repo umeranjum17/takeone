@@ -14,4 +14,4 @@ window.deviceFrame = (scr, device, width, height) => {
   return {frame,viewport,img:$("img",viewport)};
 };
 CHROME.browser=(ctx)=>{const screen=ctx.screen(ctx.scene.screen),width=Math.min(ctx.W*.8,ctx.H*.7*screen.width/screen.height);return deviceFrame(screen,"browser",width,width*screen.height/screen.width).frame;};
-CHROME.phone=(ctx)=>deviceFrame(ctx.screen(ctx.scene.screen),"phone",ctx.H*.34,ctx.H*.7).frame;
+CHROME.phone=(ctx)=>{const s=ctx.screen(ctx.scene.screen),w=Math.min(ctx.H*.34,ctx.H*.7*s.width/s.height);return deviceFrame(s,"phone",w,w*s.height/s.width).frame;};
