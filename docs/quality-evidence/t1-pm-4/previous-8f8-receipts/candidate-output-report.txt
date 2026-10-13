@@ -6,7 +6,7 @@ Pinned package-lock.json SHA-256: 3ca337ebec3a137c79ec1c82a85635098c9465c8337304
 Runtime: Node v26.7.0; ffmpeg n9.0.1
 
 Tidewater real take
-Source: recovered scored headless board take from scripts/e2e/scene.html; raw input /home/umer/.treehouse/takeone-9abf5c/11/takeone/tmp/real/screen.webm
+Source: recovered scored headless board take from scripts/e2e/scene.html; raw input <takeone-worktree>/tmp/real/screen.webm
 Raw input SHA-256: bfe7d750c092c13db9db04781d927b7f5d711e7b2a91b10be0d825dfe497cfc7
 Plan bundle SHA-256: 8abb4ec5807c45bc3621755427e4500d771c609d846157856b9f9f5be0990c7e
 Plan digest covers events.jsonl, frames.tsv, take.json, analysis/actions.json, analysis/beats.json, analysis/decisions.jsonl, analysis/regions.json in that order; SHA-256 of their ordered sha256sum records.

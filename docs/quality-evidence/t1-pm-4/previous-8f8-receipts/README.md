@@ -54,15 +54,15 @@ Run every media render under the shared lock. Dependencies are specified in
 `package-lock.json`.
 
 Tidewater raw input is at
-`/home/umer/.treehouse/takeone-9abf5c/11/takeone/tmp/real/screen.webm`. Its
+`<takeone-worktree>/tmp/real/screen.webm`. Its
 matching plan is committed in `tidewater-plan/`:
 
 ```sh
 mkdir -p tmp/t1-pm-4-reviewed-real/analysis
-cp /home/umer/.treehouse/takeone-9abf5c/11/takeone/tmp/real/screen.webm tmp/t1-pm-4-reviewed-real/
+cp <takeone-worktree>/tmp/real/screen.webm tmp/t1-pm-4-reviewed-real/
 cp docs/quality-evidence/t1-pm-4/tidewater-plan/{events.jsonl,frames.tsv,take.json} tmp/t1-pm-4-reviewed-real/
 cp docs/quality-evidence/t1-pm-4/tidewater-plan/analysis/* tmp/t1-pm-4-reviewed-real/analysis/
-flock /home/umer/.treehouse/firstmate-8bf1b0/1/firstmate/state/takeone-heavy.lock node --input-type=module -e 'import { renderTake } from "./src/render/render.ts"; import { DEFAULTS } from "./src/camera/defaults.ts"; await renderTake("tmp/t1-pm-4-reviewed-real", DEFAULTS);'
+flock <firstmate-home>/state/takeone-heavy.lock node --input-type=module -e 'import { renderTake } from "./src/render/render.ts"; import { DEFAULTS } from "./src/camera/defaults.ts"; await renderTake("tmp/t1-pm-4-reviewed-real", DEFAULTS);'
 cp tmp/t1-pm-4-reviewed-real/out/headless-demo.mp4 docs/quality-evidence/t1-pm-4/tidewater-candidate-after.mp4
 cp tmp/t1-pm-4-reviewed-real/camera.json docs/quality-evidence/t1-pm-4/tidewater-candidate-camera.json
 ```
@@ -70,8 +70,8 @@ cp tmp/t1-pm-4-reviewed-real/camera.json docs/quality-evidence/t1-pm-4/tidewater
 Generate and render the Acme fixture with this candidate:
 
 ```sh
-flock /home/umer/.treehouse/firstmate-8bf1b0/1/firstmate/state/takeone-heavy.lock node scripts/synth-take.ts tmp/t1-pm-4-reviewed-acme
-flock /home/umer/.treehouse/firstmate-8bf1b0/1/firstmate/state/takeone-heavy.lock node --input-type=module -e 'import { makeTake } from "./src/make.ts"; import { DEFAULTS } from "./src/camera/defaults.ts"; await makeTake("tmp/t1-pm-4-reviewed-acme", { noJev: true, camera: { ...DEFAULTS, fps: 60, caption_font: "Liberation Sans" } });'
+flock <firstmate-home>/state/takeone-heavy.lock node scripts/synth-take.ts tmp/t1-pm-4-reviewed-acme
+flock <firstmate-home>/state/takeone-heavy.lock node --input-type=module -e 'import { makeTake } from "./src/make.ts"; import { DEFAULTS } from "./src/camera/defaults.ts"; await makeTake("tmp/t1-pm-4-reviewed-acme", { noJev: true, camera: { ...DEFAULTS, fps: 60, caption_font: "Liberation Sans" } });'
 cp tmp/t1-pm-4-reviewed-acme/out/synth-demo.mp4 docs/quality-evidence/t1-pm-4/acme-candidate-after.mp4
 cp tmp/t1-pm-4-reviewed-acme/camera.json docs/quality-evidence/t1-pm-4/acme-candidate-camera.json
 node docs/quality-evidence/t1-pm-4/check-acme-detail-visibility.ts tmp/t1-pm-4-reviewed-acme
@@ -80,8 +80,8 @@ node docs/quality-evidence/t1-pm-4/check-acme-detail-visibility.ts tmp/t1-pm-4-r
 Create the contact sheet and drag strip from those rendered MP4s:
 
 ```sh
-flock /home/umer/.treehouse/firstmate-8bf1b0/1/firstmate/state/takeone-heavy.lock ffmpeg -nostdin -v error -y -ss 16 -t 17 -i docs/quality-evidence/t1-pm-4/acme-candidate-after.mp4 -vf "select=not(mod(n\,60)),scale=480:270,pad=480:302:0:32:color=0x101116,drawtext=fontfile='resources/fonts/Geist.ttf':text='After %{eif\:16+n\:d} s':fontsize=20:fontcolor=white:x=12:y=6,tile=4x5" -frames:v 1 docs/quality-evidence/t1-pm-4/acme-candidate-after-half-sheet.png
-flock /home/umer/.treehouse/firstmate-8bf1b0/1/firstmate/state/takeone-heavy.lock ffmpeg -nostdin -v error -y -ss 15.5 -t 4 -i docs/quality-evidence/t1-pm-4/tidewater-candidate-after.mp4 -vf "select=not(mod(n\,30)),scale=640:360,pad=640:398:0:38:color=0x101116,drawtext=fontfile='resources/fonts/Geist.ttf':text='Tidewater %{expr\:15.5+n/2} s':fontsize=24:fontcolor=white:x=12:y=7,tile=4x2" -frames:v 1 docs/quality-evidence/t1-pm-4/tidewater-candidate-strip.png
+flock <firstmate-home>/state/takeone-heavy.lock ffmpeg -nostdin -v error -y -ss 16 -t 17 -i docs/quality-evidence/t1-pm-4/acme-candidate-after.mp4 -vf "select=not(mod(n\,60)),scale=480:270,pad=480:302:0:32:color=0x101116,drawtext=fontfile='resources/fonts/Geist.ttf':text='After %{eif\:16+n\:d} s':fontsize=20:fontcolor=white:x=12:y=6,tile=4x5" -frames:v 1 docs/quality-evidence/t1-pm-4/acme-candidate-after-half-sheet.png
+flock <firstmate-home>/state/takeone-heavy.lock ffmpeg -nostdin -v error -y -ss 15.5 -t 4 -i docs/quality-evidence/t1-pm-4/tidewater-candidate-after.mp4 -vf "select=not(mod(n\,30)),scale=640:360,pad=640:398:0:38:color=0x101116,drawtext=fontfile='resources/fonts/Geist.ttf':text='Tidewater %{expr\:15.5+n/2} s':fontsize=24:fontcolor=white:x=12:y=7,tile=4x2" -frames:v 1 docs/quality-evidence/t1-pm-4/tidewater-candidate-strip.png
 ```
 
 The committed output-clock beat files and before/after camera paths use the
