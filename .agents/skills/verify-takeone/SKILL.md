@@ -200,15 +200,16 @@ a verdict) is retried up to 3 attempts per screen. Each cell's verdicts append t
 reuses those files after a kill), and the aggregate lands in `design.json` and `index.md`.
 
 done-done is not on npm: the script installs the pinned commit
-`ee0e65f5f9e9c4c695749f53bcb3c86424fe748e` into a private prefix (default
+`6b529b61135000d9fd610ca2c744287b0d1f87e2` into a private prefix (default
 `~/.cache/takeone-visual-done-done`, override with `--prefix`/`DONE_DONE_PREFIX`) with
 exactly `npm install --prefix <prefix> --allow-git=all
-github:umeranjum17/done-done-axi#ee0e65f5f9e9c4c695749f53bcb3c86424fe748e
+github:umeranjum17/done-done-axi#6b529b61135000d9fd610ca2c744287b0d1f87e2
 @byokit/decide@0.8.0` — never `npm install -g`, never the repo's `package.json`. The
-judge is a model call on Go Muse through BYOKit as done-done configures it (route
-`answerer:opencode`, model `opencode-go/muse-spark-1.3-contributor`, written to a scratch
-`DONE_DONE_HOME` inside the pass dir, so no key is printed or committed and the machine's
-global tooling and `~/.done-done` are untouched; it uses the existing OpenCode login).
+judge is a model call on Command Code DeepSeek v4.1 Flash through BYOKit as done-done
+configures it (route `answerer:pi`, model `commandcode/deepseek/deepseek-v4.1-flash`,
+written to a scratch `DONE_DONE_HOME` inside the pass dir, so no key is printed or
+committed and the machine's global tooling and `~/.done-done` are untouched; it uses the
+existing pi login and needs that model to be declared image-capable in `models.json`).
 
 It renders 10 offline cells, each in midnight (dark) and paper (light): desktop 1920×1080
 (`synth-take.ts`), phone 1080×1920 and 4:5 (`synth-portrait.ts`), large font
