@@ -4,8 +4,8 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import test from "node:test";
 import { DEFAULTS } from "../src/camera/defaults.ts";
-import { solveCamera, clippedFractions, wholeCrop, frame, baseWidth } from "../src/camera/solver.ts";
-import type { Beat, Decision, Zone } from "../src/camera/types.ts";
+import { solveCamera, clippedFractions, wholeCrop, frame, toFrame } from "../src/camera/solver.ts";
+import type { Beat, CameraFrame, Decision, Zone } from "../src/camera/types.ts";
 import type { Action } from "../src/types.ts";
 import { renderTake } from "../src/render/render.ts";
 import { idleSqueezes, warp, warpBeats } from "../src/render/pace.ts";
@@ -667,17 +667,22 @@ test("the stage viewport stays continuous through a push-in", () => {
 });
 
 // A framing whose projected margin lands under minStageMargin is snapped onto the
-// card or onto a readable margin, so a held shot never rests on a hairline matte.
-test("a held framing never rests on a hairline stage matte", () => {
+// card or onto a readable margin, and the snapped view is re-judged by the guard:
+// the emitted hold must pass the same cut predicate the search used.
+test("a held framing moved off a hairline matte still passes the cut guard", () => {
   const W = 3840, H = 2160;
   const st = stageGeometry(W, H, DEFAULTS);
-  const project = (f: Parameters<typeof sourceViewport>[0]) => sourceViewport(f, W, H, st, DEFAULTS);
+  const project = (f: CameraFrame) => sourceViewport(f, W, H, st, DEFAULTS);
   const min = minStageMargin(W, DEFAULTS);
   const band = (w: number) => w > W && w < W + 2 * min;
-  // Accept only framings that would rest in the hairline band, so compose lands there and the snap moves it out.
-  const cuts = (v: { x: number; y: number; w: number; h: number }): number => band(v.w) ? 0 : 1e4;
-  const state = frame({ name: "z", type: "act", bbox: [900, 700, 1900, 1000] }, 2, W, H, undefined, DEFAULTS, project, cuts);
-  const raw = { t: 0, x: 0, y: 0, w: baseWidth(W, H, DEFAULTS) / state.z, h: baseWidth(W, H, DEFAULTS) / state.z / (DEFAULTS.out_w / DEFAULTS.out_h) };
-  const view = project(raw);
-  assert.ok(!band(view.w), `held framing rests on a hairline matte (${view.w.toFixed(1)} px wide)`);
+  // Dense ink in a left column band: snapping this hold to the card parks its left
+  // edge inside the words, so the guard must reject that snap.
+  const grey = new Uint8Array(W * H);
+  for (let y = 900; y < 1300; y++) for (let x = 24; x < 520; x++) grey[y * W + x] = (y % 4) < 2 ? 255 : 0;
+  const mask = edgeCuts([grey], W, H, 0);
+  const cuts = (v: { x: number; y: number; w: number; h: number }): number => cutCount(mask(v));
+  const state = frame({ name: "z", type: "act", bbox: [330, 700, 3230, 1000] }, 1, W, H, undefined, DEFAULTS, project, cuts);
+  const view = project(toFrame(state, W, H, DEFAULTS));
+  assert.ok(!band(view.w), `emitted hold rests on a hairline matte (${view.w.toFixed(1)} px wide)`);
+  assert.equal(cutCount(mask(view)), 0, `emitted hold cuts the guard's own text at ${JSON.stringify(view)}`);
 });

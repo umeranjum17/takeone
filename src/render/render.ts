@@ -81,29 +81,33 @@ async function takeChanges(dir: string, meta: TakeMeta, start: number, end: numb
   });
 }
 
-/** One no-cut-text edge check per target, from that target's own source frame. The solver runs
- * its whole-element search against this, so every camera path (targets, holds, reveals and the
- * shortcut/search push-ins) rejects any crop whose visible edges cut a word or control, instead
- * of relying on each beat's planner boxes. The predicate is the acceptance check's own: no guard
- * band, one dense text stretch per cut word (see cutCount). `at` maps a solver time to a source
- * second; each target's mask is reused across its search. Returns undefined with no source. */
+/** One no-cut-text edge check per target, from the frames its hold shows: the arrival, the
+ * midpoint and the hold end, unioned. The solver runs its whole-element search against this, so
+ * every camera path (targets, holds, reveals and the shortcut/search push-ins) rejects any crop
+ * whose visible edges cut a word or control, instead of relying on each beat's planner boxes. The
+ * predicate is the acceptance check's own: no guard band, one dense text stretch per cut word
+ * (see cutCount). `at` maps a solver time to a source second; each hold's mask is reused across
+ * its search. Returns undefined with no source. */
 export function sourceEdgeCuts(dir: string, meta: TakeMeta, at: (t: number) => number): EdgeCuts | undefined {
   const file = join(dir, "screen.webm");
   if (!existsSync(file)) return undefined;
   const { width: W, height: H } = meta;
-  const cache = new Map<number, ReturnType<typeof edgeCuts>>();
-  return (view, t) => {
-    const key = Math.round(t * 10);
+  const cache = new Map<string, ReturnType<typeof edgeCuts>>();
+  return (view, t, until) => {
+    const key = `${Math.round(t * 10)}:${Math.round(until * 10)}`;
     let mask = cache.get(key);
     if (!mask) {
-      let frame: Uint8Array | undefined;
-      try {
-        const raw = execFileSync("ffmpeg", ["-nostdin", "-v", "error", "-ss", Math.max(0, at(t)).toFixed(3),
-          "-i", file, "-frames:v", "1", "-vf", "format=gray", "-f", "rawvideo", "-"],
-          { maxBuffer: W * H + 4096, timeout: 60000 });
-        if (raw.length === W * H) frame = new Uint8Array(raw);
-      } catch { /* a frame that will not decode reads as clean */ }
-      mask = frame ? edgeCuts([frame], W, H, 0) : () => 0;
+      const times = until > t + 1e-6 ? [t, (t + until) / 2, until] : [t];
+      const frames: Uint8Array[] = [];
+      for (const time of times) {
+        try {
+          const raw = execFileSync("ffmpeg", ["-nostdin", "-v", "error", "-ss", Math.max(0, at(time)).toFixed(3),
+            "-i", file, "-frames:v", "1", "-vf", "format=gray", "-f", "rawvideo", "-"],
+            { maxBuffer: W * H + 4096, timeout: 60000 });
+          if (raw.length === W * H) frames.push(new Uint8Array(raw));
+        } catch { /* a frame that will not decode reads as clean */ }
+      }
+      mask = frames.length ? edgeCuts(frames, W, H, 0) : () => 0;
       if (cache.size >= 2) cache.clear();
       cache.set(key, mask);
     }
