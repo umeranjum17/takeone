@@ -650,6 +650,36 @@ test("a shortcut push-in with no planner boxes keeps its crop edge out of rail t
   }
 });
 
+// The guard's window must cover the frames the hold shows, not stop at the beat
+// end: a hold continues to the next move, so content that paints after the beat
+// but while the camera still holds it must constrain the framing.
+test("a hold guard window covers the frames the hold shows, not just the beat", () => {
+  const W = 3840, H = 2160;
+  const first: Beat = { id: "first", kind: "click", t0: 0, t1: 2, anchor_t: 0.5, actions: [],
+    zones: [{ name: "a", type: "act", bbox: [1400, 800, 400, 300] }] };
+  const second: Beat = { id: "second", kind: "click", t0: 10, t1: 12, anchor_t: 10.5, actions: [],
+    zones: [{ name: "b", type: "act", bbox: [200, 200, 400, 300] }] };
+  const decisions: Decision[] = [
+    { beat: "first", A: "a", B: "a", L: 3, p: 0, K: 1, conf: 1, decided_by: "test" },
+    { beat: "second", A: "b", B: "b", L: 3, p: 0, K: 1, conf: 1, decided_by: "test" },
+  ];
+  const d = { ...DEFAULTS, outro_s: 0 };
+  const take = { width: W, height: H, trim_end: 13 };
+  // Content shown at 5 s: the tight first framing cuts it, so it may only be
+  // accepted while the guard's window still ends before that content paints.
+  const shown = (_v: { x: number; y: number; w: number; h: number }, _at: number, until: number): number =>
+    until > 5 && _v.w < 2000 ? 1 : 0;
+  const tight = solveCamera([first, second], decisions, take, d, undefined, () => 0)
+    .filter((f) => f.t >= 3 && f.t <= 8);
+  assert.ok(tight.length > 20, "sample the first hold");
+  assert.ok(tight.every((f) => f.w < 2000), "control: the tight first framing is reachable");
+  const guarded = solveCamera([first, second], decisions, take, d, undefined, shown)
+    .filter((f) => f.t >= 3 && f.t <= 8);
+  assert.ok(guarded.length > 20, "sample the guarded first hold");
+  assert.ok(guarded.every((f) => f.w >= 2000),
+    `the first hold must widen for content shown during it (${guarded.map((f) => f.w.toFixed(0)).slice(0, 3).join(",")}...)`);
+});
+
 // The stage margin fade used to clamp a hairline matte to a fixed width, so the
 // projected viewport jumped a whole matte wider at the zoom where the margin
 // reached zero. The projection must stay continuous through the push-in (the

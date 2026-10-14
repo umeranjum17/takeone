@@ -640,6 +640,20 @@ function cutSettledAt(beat: Beat, arrival: number, d: CameraDefaults): number {
   return arrival;
 }
 
+/** A target before its framing is solved: its hold end is only known once
+ * every target's arrival time is. */
+interface Draft {
+  t: number;
+  build: (until: number) => CameraState;
+  importance: number;
+  subject?: Zone;
+  boxes?: Box[];
+  startAfter?: number;
+  screenChange?: boolean;
+  breathe?: boolean;
+  reveal?: { t: number; bbox: Zone["bbox"] };
+}
+
 /** Build A/B shots and idle widen targets; this is the camera timeline. */
 function buildTargets(
   shots: Shot[],
@@ -657,17 +671,14 @@ function buildTargets(
   const boxesFor = (beat: Beat) => (zone: Zone): Box[] => zone.boxes?.length ? zone.boxes
     : beat.zones.filter((z) => !["all", "win", "path"].includes(z.type)).map((z) => z.bbox);
   const narrow = cropped(width, height, d);
-  const targets = shots.flatMap((shot) => {
+  const drafts: Draft[] = shots.flatMap((shot) => {
     const inShot = boxesFor(shot.beat);
     const framed = (zone: Zone, at: number, until: number): CameraState => frame({ ...zone, boxes: inShot(zone) },
       shot.decision.L, width, height, shot.beat.window_rect, d, project, cuts, at, until);
-    const shotEnd = Math.max(shot.arrival, shot.beat.t1);
-    const targetA = framed(shot.zoneA, shot.arrival, shotEnd);
-    const result: Target[] = [{
+    const result: Draft[] = [{
       t: shot.arrival,
-      state: targetA,
+      build: (until) => framed(shot.zoneA, shot.arrival, until),
       importance: shot.decision.K,
-      until: shotEnd,
       subject: withContext(shot.zoneA, inShot(shot.zoneA), width, height, d),
       boxes: inShot(shot.zoneA),
       screenChange: shot.beat.kind === "change",
@@ -679,9 +690,8 @@ function buildTargets(
       const resultTime = shot.zoneB.t_change ?? shot.beat.t1;
       if (resultTime >= start && resultTime < end) result.push({
         t: resultTime + d.result_late,
-        state: framed(shot.zoneB, resultTime + d.result_late, Math.max(resultTime + d.result_late, shot.beat.t1)),
+        build: (until) => framed(shot.zoneB, resultTime + d.result_late, until),
         importance: shot.decision.K,
-        until: Math.max(resultTime + d.result_late, shot.beat.t1),
         subject: withContext(shot.zoneB, inShot(shot.zoneB), width, height, d),
         boxes: inShot(shot.zoneB),
       });
@@ -702,14 +712,16 @@ function buildTargets(
     // Widen before the close, retaining the dialog until the result is visible.
     // The union gives the final spring room to settle without losing the card.
     const context = shot ? mergeZones(shot.zoneA, revealed) : revealed;
-    if (!narrow) targets.push({ t: Math.max(start, result.t - 0.3), state: frame(context, 1, width, height, undefined, d, project, cuts, Math.max(start, result.t - 0.3), result.t + 1),
-      importance: 2, until: result.t + 1, subject: context, reveal: result });
+    if (!narrow) drafts.push({ t: Math.max(start, result.t - 0.3),
+      build: (until) => frame(context, 1, width, height, undefined, d, project, cuts, Math.max(start, result.t - 0.3), until),
+      importance: 2, subject: context, reveal: result });
     // A crop-to-fill view cannot hold the dialog and what it reveals: no move
     // may leave the dialog before it closes.
-    else for (const target of targets) if (target.t > result.t - d.move_t_max - 0.3 && target.t <= result.t + d.move_t_max)
+    else for (const target of drafts) if (target.t > result.t - d.move_t_max - 0.3 && target.t <= result.t + d.move_t_max)
       target.startAfter = Math.max(target.startAfter ?? result.t, result.t);
-    targets.push({ t: result.t + 1, startAfter: result.t,
-      state: frame(revealed, 2, width, height, undefined, d, project, cuts, result.t + 1, end), importance: 2, until: end, subject: revealed, reveal: result });
+    drafts.push({ t: result.t + 1, startAfter: result.t,
+      build: (until) => frame(revealed, 2, width, height, undefined, d, project, cuts, result.t + 1, until),
+      importance: 2, subject: revealed, reveal: result });
   }
 
   // A crop-to-fill view is already as wide as it gets, so drag visibility cannot
@@ -720,7 +732,7 @@ function buildTargets(
     // keeps the surface whole by holding it exactly where it was picked up.
     const [x, y, w, h] = g.whole_object ?? [g.from[0], g.from[1], 0, 0];
     const grab: Zone = { name: "grab", type: "act", bbox: [x, y, Math.max(1, w), Math.max(1, h)] };
-    targets.push({ t: g.t0 / 1000, state: { cx: x + w / 2, cy: y + h / 2, z: 1 },
+    drafts.push({ t: g.t0 / 1000, build: () => ({ cx: x + w / 2, cy: y + h / 2, z: 1 }),
       importance: 2, subject: grab });
   }
 
@@ -732,16 +744,28 @@ function buildTargets(
     if (!longIdle || !distantNext) continue;
     // Widen to the window itself; a fullscreen window widens to the whole screen.
     const zone: Zone = { name: "win", type: "win", bbox: beat.window_rect ?? [0, 0, width, height] };
-    targets.push({
+    drafts.push({
       t: beat.t0 + d.breathe_s,
-      state: frame(zone, 1, width, height, beat.window_rect, d, project, cuts, beat.t0 + d.breathe_s, Math.max(beat.t0 + d.breathe_s, beat.t1)),
+      build: (until) => frame(zone, 1, width, height, beat.window_rect, d, project, cuts, beat.t0 + d.breathe_s, until),
       importance: 0,
-      until: Math.max(beat.t0 + d.breathe_s, beat.t1),
       breathe: true,
     });
   }
-  return targets.filter((target) => target.t >= start && target.t < end
-    && (target.startAfter ?? start) < end).sort((a, b) => a.t - b.t);
+  // A target's guard mask must cover the frames its hold shows. Its hold ends
+  // when the camera starts the move to the next target, so the window is the
+  // next arrival less the move's duration, not the beat end.
+  const ordered = drafts.filter((draft) => draft.t >= start && draft.t < end
+    && (draft.startAfter ?? start) < end).sort((a, b) => a.t - b.t);
+  const baseW = baseWidth(width, height, d);
+  const provisional = ordered.map((draft, index) => draft.build(Math.max(draft.t, ordered[index + 1]?.t ?? end)));
+  return ordered.map((draft, index) => {
+    const { build, ...target } = draft;
+    const next = ordered[index + 1];
+    const until = next
+      ? Math.max(target.t, next.t - moveDuration(distance(provisional[index]!, provisional[index + 1]!, baseW), d))
+      : end;
+    return { ...target, until, state: build(until) };
+  });
 }
 
 function distance(from: CameraState, to: CameraState, baseW: number): number {
