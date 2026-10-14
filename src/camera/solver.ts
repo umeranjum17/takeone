@@ -137,8 +137,8 @@ function compose(state: CameraState, subject: Zone, boxes: Box[], width: number,
  * width w0 up to maxW at a fixed aspect: edge-aligned positions at each width, the one that
  * best centres the visible cluster at the first width that has a clean one. `accept` can veto a crop.
  * `avoid` constrains the edges without scoring the cluster: a large surface the crop may hold
- * whole or leave out, never slice mid-text — unless the subject itself reaches into it, when
- * slicing is unavoidable and the surface stays exempt. Within each width the search prefers a
+ * whole or leave out, never slice mid-text. Where the subject reaches into it, only the part of
+ * the surface outside the subject's own extent is constrained. Within each width the search prefers a
  * crop whose edges sit fully clear of every box (snapping into the gap); the sliver-tolerant
  * crop is the fallback only when no width up to maxW has a clean one: a framing whose first
  * width offers only a sliver-tolerant crop now widens to the first clean crop. screenSnap
@@ -150,8 +150,16 @@ export function wholeCrop(w0: number, maxW: number, aspect: number, subject: Box
   accept: (crop: CameraFrame) => boolean = () => true, avoid: Box[] = [],
   project: (frame: CameraFrame) => CameraFrame = identity): CameraFrame | undefined {
   const [sx, sy, sw, sh] = subject;
-  const solid = avoid.filter((box) => !(sx < box[0] + box[2] && sx + sw > box[0]
-    && sy < box[1] + box[3] && sy + sh > box[1]));
+  const solid = avoid.flatMap((box): Box[] => {
+    const [bx, by, bw, bh] = box;
+    if (!(sx < bx + bw && sx + sw > bx && sy < by + bh && sy + sh > by)) return [box];
+    return [
+      [bx, by, sx - bx, bh],
+      [sx + sw, by, bx + bw - sx - sw, bh],
+      [bx, by, bw, sy - by],
+      [bx, sy + sh, bw, by + bh - sy - sh],
+    ].filter(([, , w, h]) => w > 0 && h > 0);
+  });
   const veto = [...boxes, ...solid];
   let fallback: CameraFrame | undefined;
   for (let w = w0; ; w = Math.min(maxW, w + maxW * 0.025)) {

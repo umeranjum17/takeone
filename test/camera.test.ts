@@ -4,7 +4,7 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import test from "node:test";
 import { DEFAULTS } from "../src/camera/defaults.ts";
-import { solveCamera, clippedFractions } from "../src/camera/solver.ts";
+import { solveCamera, clippedFractions, wholeCrop } from "../src/camera/solver.ts";
 import type { Beat, Decision, Zone } from "../src/camera/types.ts";
 import type { Action } from "../src/types.ts";
 import { renderTake } from "../src/render/render.ts";
@@ -565,4 +565,21 @@ test("a dialog push-in never parks its edge inside the known side rail", () => {
   // The hero opens on the b3 push-in: it stays a close-up, not a wide shot.
   assert.ok(raw.filter((f) => f.t >= 3.9 && f.t <= 6).every((f) => f.w < 2600),
     "the opening push-in keeps its close-up instead of parking wide");
+});
+
+// Subject-in-rail regression: a card inside the Activity rail may own its own
+// rows, but a crop edge must not slice the rail rows above or below it. Those
+// rows are the rail outside the subject's extent, so each stays whole or out.
+test("a rail-item subject never parks a crop edge through the rail rows beside it", () => {
+  const rail: Zone["bbox"] = [2972, 188, 824, 1916];
+  const card: Zone["bbox"] = [2990, 400, 700, 300];
+  const above: Zone["bbox"] = [rail[0], rail[1], rail[2], card[1] - rail[1]];
+  const below: Zone["bbox"] = [rail[0], card[1] + card[3], rail[2], rail[1] + rail[3] - card[1] - card[3]];
+  for (const w0 of [1200, 1500, 2000]) {
+    const crop = wholeCrop(w0, 3840, 16 / 9, card, [card], 3840, 2160, undefined, [rail]);
+    assert.ok(crop, `a crop exists at w0=${w0}`);
+    const clips = clippedFractions(crop, [above, below]);
+    assert.ok(clips.every((c) => c === 0 || c >= 1 - 1e-9),
+      `rail rows beside the card sliced at w0=${w0}: ${clips.map((c) => (c * 100).toFixed(1) + "% out").join(", ")}`);
+  }
 });
