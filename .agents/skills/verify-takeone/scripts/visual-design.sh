@@ -34,15 +34,15 @@
 # done-done is not published to npm, so this installs the pinned commit into a private prefix
 # (never `npm install -g`, never the repo's package.json). The default prefix is
 # ~/.cache/takeone-visual-done-done (override with --prefix or DONE_DONE_PREFIX); a marker file
-# records the installed pin and a mismatch reinstalls. The judge runs on Go Muse through
-# BYOKit as done-done configures it (route answerer:opencode, model
-# opencode-go/muse-spark-1.3-contributor, written to a scratch DONE_DONE_HOME inside <out-dir>
+# records the installed pin and a mismatch reinstalls. The judge runs on Command Code
+# DeepSeek v4.1 Flash through BYOKit as done-done configures it (route answerer:pi, model
+# commandcode/deepseek/deepseek-v4.1-flash, written to a scratch DONE_DONE_HOME inside <out-dir>
 # so no key is needed, none is printed, and the machine's ~/.done-done is untouched; the
-# agent's existing OpenCode login is used as is).
+# machine's existing pi login is used as is).
 set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd); repo=$(cd "$here/../../../.." && pwd)
-PIN=ee0e65f5f9e9c4c695749f53bcb3c86424fe748e
-MODEL=opencode-go/muse-spark-1.3-contributor
+PIN=6b529b61135000d9fd610ca2c744287b0d1f87e2
+MODEL=commandcode/deepseek/deepseek-v4.1-flash
 out=; ref=; resume=; prefix=${DONE_DONE_PREFIX:-$HOME/.cache/takeone-visual-done-done}
 mmocks=()
 while [ $# -gt 0 ]; do
@@ -82,7 +82,7 @@ fi
 
 # Scratch judge home: explicit route and model, no keys, machine config untouched.
 ddhome=$out/dd-home; mkdir -p "$ddhome"
-printf 'judge:\n  route: answerer:opencode\n  model: %s\n' "$MODEL" > "$ddhome/config.yaml"
+printf 'judge:\n  route: answerer:pi\n  model: %s\n' "$MODEL" > "$ddhome/config.yaml"
 
 declare -A mock_of
 screens=()
@@ -180,7 +180,7 @@ judge_cell() { # <cell> <cell-json> <screen...>: one done-done call, retrying tr
 cells=(); declare -A seen
 for img in "${screens[@]}"; do c=$(cell_of "$img"); [ -n "${seen[$c]:-}" ] || { cells+=("$c"); seen[$c]=1; }; done
 withmocks=0; for img in "${screens[@]}"; do [ -n "${mock_of["$img"]:-}" ] && withmocks=$((withmocks + 1)); done
-say "visual-design: done-done@$PIN design on ${#screens[@]} stills ($withmocks with mocks) in ${#cells[@]} cell calls, judge answerer:opencode $MODEL"
+say "visual-design: done-done@$PIN design on ${#screens[@]} stills ($withmocks with mocks) in ${#cells[@]} cell calls, judge answerer:pi $MODEL"
 
 have_fail=0; have_unsure=0
 for c in "${cells[@]}"; do
@@ -218,7 +218,7 @@ fs.writeFileSync(process.argv[1], JSON.stringify({ command: "design",
   judge: first.judge, counts, screens }, null, 2) + "\n");' \
   "$out/design.json" $(for c in "${cells[@]}"; do echo "$out/design.$c.json"; done)
 
-{ echo; echo "## Design check (done-done design @$PIN, judge answerer:opencode $MODEL)"; echo
+{ echo; echo "## Design check (done-done design @$PIN, judge answerer:pi $MODEL)"; echo
   echo "| screen | verdict | mock | defects |"; echo "|---|---|---|---|"
   node -e '
 const r = require(process.argv[1]);
