@@ -123,7 +123,14 @@ export function stageFrames(frames: CameraFrame[], width: number, height: number
     }
     const zoom = st.baseW / f.w;
     const keep = top > 1 ? 1 - smooth(clamp((zoom - 1) / (top - 1), 0, 1)) : 1;
-    const w = Math.min(st.w, f.w * (1 + 2 * d.stage_margin * keep));
+    // The margin fades out as the camera pushes in, but a sliver of it leaves the card's own
+    // boundary just inside the frame border, which reads as a cut card (the visual check counts
+    // it as cut text). Show either the card alone or a margin wide enough to read as one. The
+    // camera frame itself is untouched, so the move that composed it still stands.
+    const grown = Math.min(st.w, f.w * (1 + 2 * d.stage_margin * keep));
+    const minMargin = width * 0.028 * Math.min(d.out_w, d.out_h) / d.out_w;
+    const margin = (grown - width) / 2;
+    const w = margin > 0 && margin < minMargin ? Math.min(st.w, width + 2 * minMargin) : grown;
     const h = Math.min(st.h, w / aspect);
     return {
       t: f.t,

@@ -613,3 +613,37 @@ test("a rail-item subject never parks a crop edge through the rail rows beside i
       `rail rows beside the card sliced at w0=${w0}: ${clips.map((c) => (c * 100).toFixed(1) + "% out").join(", ")}`);
   }
 });
+
+// The Ctrl+K / search shortcut push-in the planner left unannotated: the saved
+// demo take's beat zone carried no rail box (perception skips a surface across a
+// redraw), so the solver's whole-element search had nothing constraining its
+// edges and parked the crop inside the Activity rail. The final-crop guard - the
+// take's own source edge check, shared by every camera path - now rejects any
+// crop whose visible edge lands inside the rail, so the emitted frames never
+// slice it. The stage crop-to-fill side trims on a non-16:9 source are not camera
+// cuts, so only the rail is asserted, not the total cut count.
+test("a shortcut push-in with no planner boxes never slices the side rail", () => {
+  const rail: Zone["bbox"] = [1980, 196, 552, 1164];
+  const search: Beat = { id: "shortcut", kind: "shortcut", t0: 2.4, t1: 5.4, anchor_t: 2.9237,
+    actions: [{ k: "shortcut", t: 2923.7, combo: "Ctrl+K" }],
+    zones: [{ name: "search", type: "act", bbox: [980, 20, 600, 48] }] };
+  const decisions: Decision[] = [{ beat: "shortcut", A: "search", L: 1, p: 0, K: 0, conf: 1, decided_by: "test" }];
+  const d = { ...DEFAULTS, outro_s: 0 };
+  const stage = stageGeometry(2540, 1360, d);
+  const project = (f: Parameters<typeof sourceViewport>[0]) => sourceViewport(f, 2540, 1360, stage, d);
+  const slices = (f: { x: number; y: number; w: number; h: number }): boolean => {
+    const [clip] = clippedFractions(f, [rail]);
+    return clip! > 1e-6 && clip! < 1 - 1e-9;
+  };
+  const cuts = (f: { x: number; y: number; w: number; h: number }): number => slices(f) ? 1 : 0;
+  const unguarded = solveCamera([search], decisions, { width: 2540, height: 1360, trim_end: 6 }, d, project)
+    .map(project).filter((f) => f.t >= 3 && f.t <= 5);
+  assert.ok(unguarded.some(slices), "the unguarded push-in is the regression: it parks the edge in the rail");
+  const guarded = solveCamera([search], decisions, { width: 2540, height: 1360, trim_end: 6 }, d, project, cuts)
+    .map(project).filter((f) => f.t >= 3 && f.t <= 5);
+  assert.ok(guarded.length >= 100, "sample the push-in, not just the arrival");
+  for (const f of guarded) {
+    assert.ok(!slices(f),
+      `side rail sliced at t=${f.t.toFixed(2)}: ${JSON.stringify(f)}`);
+  }
+});
