@@ -56,13 +56,13 @@ type Box = Zone["bbox"];
 /** Largest surface a shot may slice: a panel or window this size cannot fit any crop. */
 export const LABEL_AREA_MAX = 0.05;
 
-/** The labels and controls a reveal must not slice, dropping panels and window chrome. */
+/** The labels, controls and large surfaces a reveal must not slice; window chrome is dropped. */
 function labelBoxes(beat: Beat, width: number, height: number): Box[] {
   const screen = width * height;
   return [...new Map(beat.zones
     .filter((zone) => !["all", "win", "path"].includes(zone.type))
     .flatMap((zone) => zone.boxes?.length ? zone.boxes : [zone.bbox])
-    .filter((box) => box[2] * box[3] <= screen * LABEL_AREA_MAX)
+    .filter((box) => box[2] * box[3] <= screen * PANEL_MAX_AREA)
     .map((box) => [box.join(), box])).values()];
 }
 export const HIGH_CLIP_FRACTION = 0.9;
@@ -650,8 +650,8 @@ function buildTargets(
     // A revealed result frames with the labels and controls of the beat that
     // produced it: without static boxes compose never runs its search, and the
     // reveal parks slicing the column headings or the sidebar item beside the
-    // result. Panels and window chrome stay excludable, so the reveal still
-    // moves instead of widening to the whole screen.
+    // result. Large surfaces are avoid edges, excludable rather than scored, so
+    // the reveal still moves instead of widening to the whole screen.
     const surfaces = labelBoxes(beat, width, height);
     const revealed: Zone = { name: "revealed", type: "res", bbox: result.bbox, boxes: surfaces };
     // Widen before the close, retaining the dialog until the result is visible.

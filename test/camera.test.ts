@@ -536,6 +536,36 @@ test("a revealed result never parks slicing the detected surfaces beside it", ()
   }
 });
 
+// Reveal sibling of the rail-cut regression: a revealed result must frame with
+// the large Activity rail as an edge constraint too, so the settled hold never
+// slices the rail. The geometry is the reveal test's surfaces with a narrower result.
+test("a revealed result never parks slicing the Activity rail", () => {
+  const surfaces: Zone["bbox"][] = [[0, 0, 3840, 136], [24, 172, 372, 96],
+    [480, 192, 780, 64], [1308, 192, 780, 64], [2136, 192, 780, 64],
+    [1344, 504, 1152, 940], [2972, 188, 824, 1916]];
+  const rail = surfaces[6]!;
+  const result: Zone["bbox"] = [500, 300, 2400, 1500];
+  const reveal: Beat = { id: "b10", kind: "click", t0: 37.87, t1: 43.07, anchor_t: 37.87,
+    actions: [],
+    zones: [{ name: "z1", type: "act", bbox: [1344, 504, 1152, 1046], boxes: surfaces },
+      { name: "z2", type: "all", bbox: [0, 0, 3840, 2160] }],
+    dialog_results: [{ t: 37.9, bbox: result }] };
+  const decisions: Decision[] = [
+    { beat: "b10", A: "z1", L: 2, p: 0, K: 1, conf: 1, decided_by: "test" },
+  ];
+  const d = { ...DEFAULTS, outro_s: 0 };
+  const stage = stageGeometry(3840, 2160, d);
+  const project = (f: Parameters<typeof sourceViewport>[0]) => sourceViewport(f, 3840, 2160, stage, d);
+  const frames = solveCamera([reveal], decisions, { width: 3840, height: 2160, trim_end: 42 }, d, project)
+    .map(project).filter(f => f.t >= 38.9);
+  assert.ok(frames.length > 100, "check the settled hold, not just the arrival");
+  for (const f of frames) {
+    const [clip] = clippedFractions(f, [rail]);
+    assert.ok(clip === 0 || clip! >= 0.9,
+      `rail sliced at t=${f.t.toFixed(2)}: ${((clip ?? 0) * 100).toFixed(1)}% out`);
+  }
+});
+
 // Rail-cut regression (README hero, main a2fe36e): the push-ins on the New
 // task dialog parked the crop edge inside the right-hand Activity rail, so the
 // render sliced words at the frame edge (visual-check clipped-text failed at
