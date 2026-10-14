@@ -153,12 +153,13 @@ export function wholeCrop(w0: number, maxW: number, aspect: number, subject: Box
   const solid = avoid.flatMap((box): Box[] => {
     const [bx, by, bw, bh] = box;
     if (!(sx < bx + bw && sx + sw > bx && sy < by + bh && sy + sh > by)) return [box];
-    return [
+    const outside: Box[] = [
       [bx, by, sx - bx, bh],
       [sx + sw, by, bx + bw - sx - sw, bh],
       [bx, by, bw, sy - by],
       [bx, sy + sh, bw, by + bh - sy - sh],
-    ].filter(([, , w, h]) => w > 0 && h > 0);
+    ];
+    return outside.filter((rect) => rect[2] > 0 && rect[3] > 0);
   });
   const veto = [...boxes, ...solid];
   let fallback: CameraFrame | undefined;
