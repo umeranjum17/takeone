@@ -4,12 +4,13 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import test from "node:test";
 import { DEFAULTS } from "../src/camera/defaults.ts";
-import { solveCamera, clippedFractions, wholeCrop } from "../src/camera/solver.ts";
+import { solveCamera, clippedFractions, wholeCrop, frame, baseWidth } from "../src/camera/solver.ts";
 import type { Beat, Decision, Zone } from "../src/camera/types.ts";
 import type { Action } from "../src/types.ts";
 import { renderTake } from "../src/render/render.ts";
 import { idleSqueezes, warp, warpBeats } from "../src/render/pace.ts";
-import { sourceViewport, stageGeometry } from "../src/render/stage.ts";
+import { sourceViewport, stageGeometry, stageFrames, minStageMargin } from "../src/render/stage.ts";
+import { edgeCuts, cutCount } from "../src/render/framing.ts";
 import { resolveTheme } from "../src/themes.ts";
 import { contains, settledFrames } from "../scripts/check-framing.ts";
 import { hasFfmpeg } from "./helpers.ts";
@@ -615,35 +616,68 @@ test("a rail-item subject never parks a crop edge through the rail rows beside i
 });
 
 // The Ctrl+K / search shortcut push-in the planner left unannotated: the saved
-// demo take's beat zone carried no rail box (perception skips a surface across a
-// redraw), so the solver's whole-element search had nothing constraining its
-// edges and parked the crop inside the Activity rail. The final-crop guard - the
-// take's own source edge check, shared by every camera path - now rejects any
-// crop whose visible edge lands inside the rail, so the emitted frames never
-// slice it. The stage crop-to-fill side trims on a non-16:9 source are not camera
-// cuts, so only the rail is asserted, not the total cut count.
-test("a shortcut push-in with no planner boxes never slices the side rail", () => {
-  const rail: Zone["bbox"] = [1980, 196, 552, 1164];
+// demo take's beat zone carried no rail box, so the solver's whole-element search
+// had nothing constraining its edges and parked the crop edge inside the rail.
+// The guard is the acceptance check's own definition - edgeCuts with no guard band,
+// one dense text stretch counting as a cut - so no emitted crop edge runs through a
+// word. The board is synthetic ink: horizontal strokes in the rail read as a dense
+// run along a vertical edge, exactly what the guard measures.
+test("a shortcut push-in with no planner boxes keeps its crop edge out of rail text", () => {
+  const W = 3840, H = 2160;
+  const rail: Zone["bbox"] = [2600, 100, 1200, 1960];
   const search: Beat = { id: "shortcut", kind: "shortcut", t0: 2.4, t1: 5.4, anchor_t: 2.9237,
     actions: [{ k: "shortcut", t: 2923.7, combo: "Ctrl+K" }],
-    zones: [{ name: "search", type: "act", bbox: [980, 20, 600, 48] }] };
+    zones: [{ name: "search", type: "act", bbox: [800, 400, 2000, 900] }] };
   const decisions: Decision[] = [{ beat: "shortcut", A: "search", L: 1, p: 0, K: 0, conf: 1, decided_by: "test" }];
   const d = { ...DEFAULTS, outro_s: 0 };
-  const stage = stageGeometry(2540, 1360, d);
-  const project = (f: Parameters<typeof sourceViewport>[0]) => sourceViewport(f, 2540, 1360, stage, d);
-  const slices = (f: { x: number; y: number; w: number; h: number }): boolean => {
-    const [clip] = clippedFractions(f, [rail]);
-    return clip! > 1e-6 && clip! < 1 - 1e-9;
-  };
-  const cuts = (f: { x: number; y: number; w: number; h: number }): number => slices(f) ? 1 : 0;
-  const unguarded = solveCamera([search], decisions, { width: 2540, height: 1360, trim_end: 6 }, d, project)
+  const stage = stageGeometry(W, H, d);
+  const project = (f: Parameters<typeof sourceViewport>[0]) => sourceViewport(f, W, H, stage, d);
+  const grey = new Uint8Array(W * H);
+  for (let y = rail[1]; y < rail[1] + rail[3]; y++) {
+    if ((y - rail[1]) % 10 >= 5) continue;
+    for (let x = rail[0]; x < rail[0] + rail[2]; x++) grey[y * W + x] = 255;
+  }
+  const cut = edgeCuts([grey], W, H, 0);
+  const cuts = (v: { x: number; y: number; w: number; h: number }) => cutCount(cut(v));
+  const unguarded = solveCamera([search], decisions, { width: W, height: H, trim_end: 6 }, d, project)
     .map(project).filter((f) => f.t >= 3 && f.t <= 5);
-  assert.ok(unguarded.some(slices), "the unguarded push-in is the regression: it parks the edge in the rail");
-  const guarded = solveCamera([search], decisions, { width: 2540, height: 1360, trim_end: 6 }, d, project, cuts)
+  assert.ok(unguarded.some((f) => cuts(f) > 0), "the unguarded push-in is the regression: its edge runs through rail text");
+  const guarded = solveCamera([search], decisions, { width: W, height: H, trim_end: 6 }, d, project, cuts)
     .map(project).filter((f) => f.t >= 3 && f.t <= 5);
   assert.ok(guarded.length >= 100, "sample the push-in, not just the arrival");
   for (const f of guarded) {
-    assert.ok(!slices(f),
-      `side rail sliced at t=${f.t.toFixed(2)}: ${JSON.stringify(f)}`);
+    assert.equal(cuts(f), 0, `rail text cut at t=${f.t.toFixed(2)}: ${JSON.stringify(f)}`);
   }
+});
+
+// The stage margin fade used to clamp a hairline matte to a fixed width, so the
+// projected viewport jumped a whole matte wider at the zoom where the margin
+// reached zero. The projection must stay continuous through the push-in (the
+// solver moves a framing that would rest in the hairline band instead).
+test("the stage viewport stays continuous through a push-in", () => {
+  const st = stageGeometry(3840, 2160, DEFAULTS);
+  const aspect = DEFAULTS.out_w / DEFAULTS.out_h;
+  const widths = Array.from({ length: 600 }, (_, i) => 3800 - i * 3);
+  const views = widths.map((w) => stageFrames([{ t: 0, x: (3840 - w) / 2, y: (2160 - w / aspect) / 2, w, h: w / aspect }],
+    3840, 2160, st, DEFAULTS)[0]!);
+  for (let i = 1; i < views.length; i++) {
+    assert.ok(Math.abs(views[i]!.w - views[i - 1]!.w) < 4.5,
+      `stage viewport jumped ${views[i - 1]!.w} -> ${views[i]!.w} at source width ${widths[i]}`);
+  }
+});
+
+// A framing whose projected margin lands under minStageMargin is snapped onto the
+// card or onto a readable margin, so a held shot never rests on a hairline matte.
+test("a held framing never rests on a hairline stage matte", () => {
+  const W = 3840, H = 2160;
+  const st = stageGeometry(W, H, DEFAULTS);
+  const project = (f: Parameters<typeof sourceViewport>[0]) => sourceViewport(f, W, H, st, DEFAULTS);
+  const min = minStageMargin(W, DEFAULTS);
+  const band = (w: number) => w > W && w < W + 2 * min;
+  // Accept only framings that would rest in the hairline band, so compose lands there and the snap moves it out.
+  const cuts = (v: { x: number; y: number; w: number; h: number }): number => band(v.w) ? 0 : 1e4;
+  const state = frame({ name: "z", type: "act", bbox: [900, 700, 1900, 1000] }, 2, W, H, undefined, DEFAULTS, project, cuts);
+  const raw = { t: 0, x: 0, y: 0, w: baseWidth(W, H, DEFAULTS) / state.z, h: baseWidth(W, H, DEFAULTS) / state.z / (DEFAULTS.out_w / DEFAULTS.out_h) };
+  const view = project(raw);
+  assert.ok(!band(view.w), `held framing rests on a hairline matte (${view.w.toFixed(1)} px wide)`);
 });

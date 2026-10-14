@@ -17,6 +17,8 @@ export type FrameAt = (t: number) => Uint8Array;
 const ZOOM_V = 0.9, ZOOM_A = 3.2, PAN_A = 8000;
 const SETTLE = 0.002, MIN_HOLD_S = 0.2, MOVE_MAX_S = 2.5;
 const INK_STEP = 12, LANDMARK_INK = 0.01, GUARD = 6, GAP = 8, SAMPLES = 9, TEXT_SPAN = 32, TEXT_INK = 6, PANEL_GROW = 4;
+/** One dense text stretch an edge runs through counts as one cut word. */
+export const cutCount = (n: number): number => Math.floor(n / 1e4);
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
 const ease = (u: number) => u * u * u * (u * (6 * u - 15) + 10);
 const inked = (g: Uint8Array, i: number, W: number) => Math.abs(g[i]! - g[i - 1]!) > INK_STEP || Math.abs(g[i]! - g[i - W]!) > INK_STEP;

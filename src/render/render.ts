@@ -9,7 +9,7 @@ import type { CameraDefaults } from "../camera/defaults.ts";
 import { actionCameraMilliseconds } from "../beats/clock.ts";
 import { applyManualZooms, baseWidth, manualZoomLimitWarning, solveCamera, type EdgeCuts } from "../camera/solver.ts";
 import { applyDragVisibility } from "../camera/gesture.ts";
-import type { Beat, Decision, TakeMeta } from "../camera/types.ts";
+import type { Beat, CameraFrame, Decision, TakeMeta } from "../camera/types.ts";
 import type { FrameRegions } from "../types.ts";
 import { blurGraph, keycapAss, keycapBackdropGraph, keycapMaskAss, keycapObstacles, overlayRegions, spotlightAss, spotlightGraph, toastWindows } from "./overlays.ts";
 import { motionBlurGraph, shutterPlan } from "./motion-blur.ts";
@@ -17,7 +17,7 @@ import { idleSqueezes, purposefulEnd, setptsExpr, warp, warpBeats } from "./pace
 import { cursorAss } from "./cursor.ts";
 import { firstFrameTimeMs, readEvents } from "../perceive/decode.ts";
 import { phoneTapShots } from "./phone.ts";
-import { edgeCuts, holdPath, videoFrames } from "./framing.ts";
+import { edgeCuts, cutCount, holdPath, videoFrames } from "./framing.ts";
 import { typingBursts, editBeats, editTimeline, validateEdits, validateZooms } from "./edits.ts";
 import {
   bandEligible, bandFrames, bandLayout, bandText, beatClicks, captionAss, cardFilter, clickAss, measureAss, sourceViewport, stageFrames, stageGeometry, stageImageFilter,
@@ -81,25 +81,34 @@ async function takeChanges(dir: string, meta: TakeMeta, start: number, end: numb
   });
 }
 
-/** One no-cut-text edge check over a sample of the take's own source frames. The solver runs
+/** One no-cut-text edge check per target, from that target's own source frame. The solver runs
  * its whole-element search against this, so every camera path (targets, holds, reveals and the
  * shortcut/search push-ins) rejects any crop whose visible edges cut a word or control, instead
- * of relying on each beat's planner boxes. Returns undefined when no frame decodes. */
-export function sourceEdgeCuts(dir: string, meta: TakeMeta, start: number, end: number): EdgeCuts | undefined {
+ * of relying on each beat's planner boxes. The predicate is the acceptance check's own: no guard
+ * band, one dense text stretch per cut word (see cutCount). `at` maps a solver time to a source
+ * second; each target's mask is reused across its search. Returns undefined with no source. */
+export function sourceEdgeCuts(dir: string, meta: TakeMeta, at: (t: number) => number): EdgeCuts | undefined {
   const file = join(dir, "screen.webm");
-  if (!existsSync(file) || end <= start) return undefined;
-  const samples = Math.max(3, Math.min(12, Math.round(end - start)));
-  const frames: Uint8Array[] = [];
-  for (let i = 0; i < samples; i++) {
-    const t = start + (end - start) * (i / (samples - 1));
-    try {
-      const raw = execFileSync("ffmpeg", ["-nostdin", "-v", "error", "-ss", t.toFixed(3), "-i", file,
-        "-frames:v", "1", "-vf", "format=gray", "-f", "rawvideo", "-"],
-        { maxBuffer: meta.width * meta.height + 4096, timeout: 60000 });
-      if (raw.length === meta.width * meta.height) frames.push(new Uint8Array(raw));
-    } catch { /* a sample that will not decode is skipped */ }
-  }
-  return frames.length ? edgeCuts(frames, meta.width, meta.height) : undefined;
+  if (!existsSync(file)) return undefined;
+  const { width: W, height: H } = meta;
+  const cache = new Map<number, ReturnType<typeof edgeCuts>>();
+  return (view, t) => {
+    const key = Math.round(t * 10);
+    let mask = cache.get(key);
+    if (!mask) {
+      let frame: Uint8Array | undefined;
+      try {
+        const raw = execFileSync("ffmpeg", ["-nostdin", "-v", "error", "-ss", Math.max(0, at(t)).toFixed(3),
+          "-i", file, "-frames:v", "1", "-vf", "format=gray", "-f", "rawvideo", "-"],
+          { maxBuffer: W * H + 4096, timeout: 60000 });
+        if (raw.length === W * H) frame = new Uint8Array(raw);
+      } catch { /* a frame that will not decode reads as clean */ }
+      mask = frame ? edgeCuts([frame], W, H, 0) : () => 0;
+      if (cache.size >= 2) cache.clear();
+      cache.set(key, mask);
+    }
+    return cutCount(mask(view));
+  };
 }
 
 /** Read the take's durable inputs, write its camera path and render the silent MP4. */
@@ -160,28 +169,30 @@ export async function renderTake(dir: string, d?: CameraDefaults): Promise<{ out
   text = fitted;
   const band = banded ? bandLayout(meta.width, meta.height, text, captions, captionInk) : null;
   const stage = band?.stage ?? stageGeometry(meta.width, meta.height, d);
+  // Output time -> source second, so the guard builds its ink mask from the frame shown.
+  const sourceAt = (t: number) => {
+    let lo = trimStart, hi = trimEnd;
+    for (let k = 0; k < 40; k++) { const mid = (lo + hi) / 2; if (outTime(mid) < t) lo = mid; else hi = mid; }
+    return hi;
+  };
   // The one no-cut-text guard: a single edge check over the take's own source frames, shared by
   // every camera path, so no target, hold, reveal or push-in can park a crop edge in a word.
-  const cuts = moving ? sourceEdgeCuts(dir, meta, trimStart, trimEnd) : undefined;
-  const solved = solveCamera(tapShots?.beats ?? outBeats, tapShots?.decisions ?? outDecisions, { ...meta, trim_end: trimStart + duration },
-    { ...d, min_shot: d.min_shot * d.pace, dwell: d.dwell * d.pace, dwell_k2: d.dwell_k2 * d.pace },
-    phone || banded ? undefined : (frame) => sourceViewport(frame, meta.width, meta.height, stage, d), cuts);
-  // A handset's controls span its narrow screen. Keep that entire width while
-  // pushing in and following the tapped row; horizontal pans slice labels.
-  const solvedFrames = phone ? solved.map(f => {
+  const cuts = moving ? sourceEdgeCuts(dir, meta, (t) => sourceAt(t - trimStart)) : undefined;
+  // A handset's controls span its narrow screen. Keep that entire width while pushing in and
+  // following the tapped row; the guard judges this re-framed view, not the raw solver crop.
+  const phoneReframe = (f: CameraFrame): CameraFrame => {
     const w = Math.max(f.w, meta.width * d.hold_pad);
     const h = w * d.out_h / d.out_w;
     const cy = f.y + f.h / 2;
     const y = h >= meta.height ? (meta.height - h) / 2
       : Math.max(0, Math.min(meta.height - h, cy - h / 2));
     return { t: f.t, x: (meta.width - w) / 2, y, w, h };
-  }) : solved;
-  // Opt-in held path, judged on the visible frame against the source pixels it shows.
-  const sourceAt = (t: number) => {
-    let lo = trimStart, hi = trimEnd;
-    for (let k = 0; k < 40; k++) { const mid = (lo + hi) / 2; if (outTime(mid) < t) lo = mid; else hi = mid; }
-    return hi;
   };
+  const project = (frame: CameraFrame) => sourceViewport(frame, meta.width, meta.height, stage, d);
+  const solved = solveCamera(tapShots?.beats ?? outBeats, tapShots?.decisions ?? outDecisions, { ...meta, trim_end: trimStart + duration },
+    { ...d, min_shot: d.min_shot * d.pace, dwell: d.dwell * d.pace, dwell_k2: d.dwell_k2 * d.pace },
+    banded ? undefined : phone ? (frame) => project(phoneReframe(frame)) : project, cuts);
+  const solvedFrames = phone ? solved.map(phoneReframe) : solved;
   const held = wide && d.camera_path === "hold" && !phone ? holdPath(solvedFrames, outBeats, outDecisions,
     { band, stage, width: meta.width, height: meta.height, d, minShot: d.min_shot * d.pace },
     videoFrames(join(dir, "screen.webm"), meta.width, meta.height, sourceAt)) : undefined;

@@ -1,5 +1,5 @@
 import { applyDragVisibility, gesturePointer, gestures, type Gesture } from "./gesture.ts";
-import { fillWidth, stageFrames, stageGeometry } from "../render/stage.ts";
+import { fillWidth, minStageMargin, stageFrames, stageGeometry } from "../render/stage.ts";
 import { PANEL_MAX_AREA, WIN_MAX_COVER } from "../beats/zones.ts";
 import { DEFAULTS, type CameraDefaults } from "./defaults.ts";
 import { unionBBox } from "../types.ts";
@@ -53,8 +53,10 @@ const smooth = (u: number) => u * u * u * (u * (u * 6 - 15) + 10);
 const identity = (frame: CameraFrame): CameraFrame => frame;
 
 type Box = Zone["bbox"];
-/** Content a rectangle's edges cut (0 when clean), judged on the take's own source pixels. */
-export type EdgeCuts = (view: { x: number; y: number; w: number; h: number }) => number;
+/** Words a projected rectangle's edges cut (0 when clean), judged on the take's own source
+ * pixels shown at `at`: the acceptance check's definition (no guard band, one dense text
+ * stretch per cut word, see cutCount). */
+export type EdgeCuts = (view: { x: number; y: number; w: number; h: number }, at: number) => number;
 /** Largest surface a shot may slice: a panel or window this size cannot fit any crop. */
 export const LABEL_AREA_MAX = 0.05;
 
@@ -115,7 +117,7 @@ function withContext(zone: Zone, boxes: Box[], width: number, height: number, d:
 
 /** Search edge-aligned crops at this zoom, then widen only if none can hold the UI whole. */
 function compose(state: CameraState, subject: Zone, boxes: Box[], width: number, height: number, d: CameraDefaults,
-  project: (frame: CameraFrame) => CameraFrame = identity, cuts?: EdgeCuts): CameraState {
+  project: (frame: CameraFrame) => CameraFrame = identity, cuts?: EdgeCuts, at = 0): CameraState {
   const desired = toFrame(state, width, height, d);
   if ((!boxes.length && !cuts) || (desired.w >= width && desired.h >= height)) return state;
   const baseW = baseWidth(width, height, d);
@@ -128,7 +130,7 @@ function compose(state: CameraState, subject: Zone, boxes: Box[], width: number,
   const avoid = boxes.filter((box) => box[2] * box[3] > screen * LABEL_AREA_MAX
     && box[2] * box[3] <= screen * PANEL_MAX_AREA);
   const best = wholeCrop(desired.w, baseW, d.out_w / d.out_h, subject.bbox, small, width, height,
-    (crop) => !cuts || cuts(project(crop)) === 0, avoid, project);
+    (crop) => !cuts || cuts(project(crop), at) === 0, avoid, project);
   if (best) return { cx: best.x + best.w / 2, cy: best.y + best.h / 2, z: baseW / best.w };
   const [sx, sy, sw, sh] = subject.bbox;
   return cropped(width, height, d)
@@ -292,6 +294,25 @@ function toFrame(
   return { t: 0, x, y, w, h };
 }
 
+/** A held framing must not rest showing a hairline of background at the border: snap it onto
+ * the card (no margin) or onto a margin wide enough to read as one. The projection itself stays
+ * continuous, so a move passes smoothly through the band instead of jumping. */
+function snapHairline(state: CameraState, width: number, height: number, d: CameraDefaults,
+  project: (frame: CameraFrame) => CameraFrame): CameraState {
+  if (project === identity) return state;
+  const min = minStageMargin(width, d);
+  const projected = project(toFrame(state, width, height, d)).w;
+  const margin = (projected - width) / 2;
+  if (!(margin > 0 && margin < min)) return state;
+  const target = margin * 2 < min ? width : width + 2 * min;
+  let lo = 1, hi = zMax(width, height, d);
+  for (let i = 0; i < 40; i++) {
+    const z = (lo + hi) / 2;
+    if (project(toFrame({ ...state, z }, width, height, d)).w > target) lo = z; else hi = z;
+  }
+  return { ...state, z: (lo + hi) / 2 };
+}
+
 /** Expand a zone at its requested tightness, preserving output aspect and zoom bounds. */
 export function frame(
   zone: Zone,
@@ -302,6 +323,7 @@ export function frame(
   d: CameraDefaults = DEFAULTS,
   project: (frame: CameraFrame) => CameraFrame = identity,
   cuts?: EdgeCuts,
+  at = 0,
 ): CameraState {
   if (level === 0 || zone.type === "all") {
     return { cx: width / 2, cy: height / 2, z: 1 };
@@ -355,13 +377,14 @@ export function frame(
     rh = fitW / aspect;
   }
 
-  return compose({
+  const placed = compose({
     cx: rx + rw / 2,
     cy: ry + rh / 2,
     z: clamp(baseWidth(width, height, d) / rw, 1, zMax(width, height, d)),
   }, rect === windowRect ? { ...zone, bbox: rect } : zone,
     // compose splits small scoring boxes from large edge-avoid surfaces itself.
-    boxes, width, height, d, project, cuts);
+    boxes, width, height, d, project, cuts, at);
+  return snapHairline(placed, width, height, d, project);
 }
 
 export function moveDuration(drift: number, d: CameraDefaults = DEFAULTS): number {
@@ -488,7 +511,7 @@ function canHold(state: CameraState, target: Target, width: number, height: numb
   if (!isDeadzone(state, target.state, baseWidth(width, height, d), d)) return false;
   // The hold's visible edges must not cut a word anywhere in the take, whatever the beat's boxes.
   const crop = project(toFrame(state, width, height, d));
-  if (cuts && cuts(crop) > 0) return false;
+  if (cuts && cuts(crop, target.t) > 0) return false;
   if (target.screenChange) {
     const viewW = baseWidth(width, height, d) / state.z;
     const viewH = viewW * d.out_h / d.out_w;
@@ -624,9 +647,9 @@ function buildTargets(
   const narrow = cropped(width, height, d);
   const targets = shots.flatMap((shot) => {
     const inShot = boxesFor(shot.beat);
-    const framed = (zone: Zone): CameraState => frame({ ...zone, boxes: inShot(zone) },
-      shot.decision.L, width, height, shot.beat.window_rect, d, project, cuts);
-    const targetA = framed(shot.zoneA);
+    const framed = (zone: Zone, at: number): CameraState => frame({ ...zone, boxes: inShot(zone) },
+      shot.decision.L, width, height, shot.beat.window_rect, d, project, cuts, at);
+    const targetA = framed(shot.zoneA, shot.arrival);
     const result: Target[] = [{
       t: shot.arrival,
       state: targetA,
@@ -642,7 +665,7 @@ function buildTargets(
       const resultTime = shot.zoneB.t_change ?? shot.beat.t1;
       if (resultTime >= start && resultTime < end) result.push({
         t: resultTime + d.result_late,
-        state: framed(shot.zoneB),
+        state: framed(shot.zoneB, resultTime + d.result_late),
         importance: shot.decision.K,
         subject: withContext(shot.zoneB, inShot(shot.zoneB), width, height, d),
         boxes: inShot(shot.zoneB),
@@ -664,14 +687,14 @@ function buildTargets(
     // Widen before the close, retaining the dialog until the result is visible.
     // The union gives the final spring room to settle without losing the card.
     const context = shot ? mergeZones(shot.zoneA, revealed) : revealed;
-    if (!narrow) targets.push({ t: Math.max(start, result.t - 0.3), state: frame(context, 1, width, height, undefined, d, project, cuts),
+    if (!narrow) targets.push({ t: Math.max(start, result.t - 0.3), state: frame(context, 1, width, height, undefined, d, project, cuts, Math.max(start, result.t - 0.3)),
       importance: 2, subject: context, reveal: result });
     // A crop-to-fill view cannot hold the dialog and what it reveals: no move
     // may leave the dialog before it closes.
     else for (const target of targets) if (target.t > result.t - d.move_t_max - 0.3 && target.t <= result.t + d.move_t_max)
       target.startAfter = Math.max(target.startAfter ?? result.t, result.t);
     targets.push({ t: result.t + 1, startAfter: result.t,
-      state: frame(revealed, 2, width, height, undefined, d, project, cuts), importance: 2, subject: revealed, reveal: result });
+      state: frame(revealed, 2, width, height, undefined, d, project, cuts, result.t + 1), importance: 2, subject: revealed, reveal: result });
   }
 
   // A crop-to-fill view is already as wide as it gets, so drag visibility cannot
@@ -696,7 +719,7 @@ function buildTargets(
     const zone: Zone = { name: "win", type: "win", bbox: beat.window_rect ?? [0, 0, width, height] };
     targets.push({
       t: beat.t0 + d.breathe_s,
-      state: frame(zone, 1, width, height, beat.window_rect, d, project, cuts),
+      state: frame(zone, 1, width, height, beat.window_rect, d, project, cuts, beat.t0 + d.breathe_s),
       importance: 0,
       breathe: true,
     });
