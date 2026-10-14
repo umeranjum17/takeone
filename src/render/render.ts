@@ -7,7 +7,7 @@ import { resolveTheme } from "../themes.ts";
 import { basename, join, resolve } from "node:path";
 import type { CameraDefaults } from "../camera/defaults.ts";
 import { actionCameraMilliseconds } from "../beats/clock.ts";
-import { applyManualZooms, baseWidth, manualZoomLimitWarning, solveCamera } from "../camera/solver.ts";
+import { applyManualZooms, baseWidth, manualZoomLimitWarning, solveCamera, type EdgeCuts } from "../camera/solver.ts";
 import { applyDragVisibility } from "../camera/gesture.ts";
 import type { Beat, Decision, TakeMeta } from "../camera/types.ts";
 import type { FrameRegions } from "../types.ts";
@@ -17,7 +17,7 @@ import { idleSqueezes, purposefulEnd, setptsExpr, warp, warpBeats } from "./pace
 import { cursorAss } from "./cursor.ts";
 import { firstFrameTimeMs, readEvents } from "../perceive/decode.ts";
 import { phoneTapShots } from "./phone.ts";
-import { holdPath, videoFrames } from "./framing.ts";
+import { edgeCuts, holdPath, videoFrames } from "./framing.ts";
 import { typingBursts, editBeats, editTimeline, validateEdits, validateZooms } from "./edits.ts";
 import {
   bandEligible, bandFrames, bandLayout, bandText, beatClicks, captionAss, cardFilter, clickAss, measureAss, sourceViewport, stageFrames, stageGeometry, stageImageFilter,
@@ -81,6 +81,27 @@ async function takeChanges(dir: string, meta: TakeMeta, start: number, end: numb
   });
 }
 
+/** One no-cut-text edge check over a sample of the take's own source frames. The solver runs
+ * its whole-element search against this, so every camera path (targets, holds, reveals and the
+ * shortcut/search push-ins) rejects any crop whose visible edges cut a word or control, instead
+ * of relying on each beat's planner boxes. Returns undefined when no frame decodes. */
+export function sourceEdgeCuts(dir: string, meta: TakeMeta, start: number, end: number): EdgeCuts | undefined {
+  const file = join(dir, "screen.webm");
+  if (!existsSync(file) || end <= start) return undefined;
+  const samples = Math.max(3, Math.min(12, Math.round(end - start)));
+  const frames: Uint8Array[] = [];
+  for (let i = 0; i < samples; i++) {
+    const t = start + (end - start) * (i / (samples - 1));
+    try {
+      const raw = execFileSync("ffmpeg", ["-nostdin", "-v", "error", "-ss", t.toFixed(3), "-i", file,
+        "-frames:v", "1", "-vf", "format=gray", "-f", "rawvideo", "-"],
+        { maxBuffer: meta.width * meta.height + 4096, timeout: 60000 });
+      if (raw.length === meta.width * meta.height) frames.push(new Uint8Array(raw));
+    } catch { /* a sample that will not decode is skipped */ }
+  }
+  return frames.length ? edgeCuts(frames, meta.width, meta.height) : undefined;
+}
+
 /** Read the take's durable inputs, write its camera path and render the silent MP4. */
 export async function renderTake(dir: string, d?: CameraDefaults): Promise<{ out: string; seconds: number }> {
   const meta = JSON.parse(await readFile(join(dir, "take.json"), "utf8")) as TakeMeta;
@@ -139,9 +160,12 @@ export async function renderTake(dir: string, d?: CameraDefaults): Promise<{ out
   text = fitted;
   const band = banded ? bandLayout(meta.width, meta.height, text, captions, captionInk) : null;
   const stage = band?.stage ?? stageGeometry(meta.width, meta.height, d);
+  // The one no-cut-text guard: a single edge check over the take's own source frames, shared by
+  // every camera path, so no target, hold, reveal or push-in can park a crop edge in a word.
+  const cuts = moving ? sourceEdgeCuts(dir, meta, trimStart, trimEnd) : undefined;
   const solved = solveCamera(tapShots?.beats ?? outBeats, tapShots?.decisions ?? outDecisions, { ...meta, trim_end: trimStart + duration },
     { ...d, min_shot: d.min_shot * d.pace, dwell: d.dwell * d.pace, dwell_k2: d.dwell_k2 * d.pace },
-    phone || banded ? undefined : (frame) => sourceViewport(frame, meta.width, meta.height, stage, d));
+    phone || banded ? undefined : (frame) => sourceViewport(frame, meta.width, meta.height, stage, d), cuts);
   // A handset's controls span its narrow screen. Keep that entire width while
   // pushing in and following the tapped row; horizontal pans slice labels.
   const solvedFrames = phone ? solved.map(f => {

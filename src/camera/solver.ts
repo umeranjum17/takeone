@@ -53,6 +53,8 @@ const smooth = (u: number) => u * u * u * (u * (u * 6 - 15) + 10);
 const identity = (frame: CameraFrame): CameraFrame => frame;
 
 type Box = Zone["bbox"];
+/** Content a rectangle's edges cut (0 when clean), judged on the take's own source pixels. */
+export type EdgeCuts = (view: { x: number; y: number; w: number; h: number }) => number;
 /** Largest surface a shot may slice: a panel or window this size cannot fit any crop. */
 export const LABEL_AREA_MAX = 0.05;
 
@@ -113,9 +115,9 @@ function withContext(zone: Zone, boxes: Box[], width: number, height: number, d:
 
 /** Search edge-aligned crops at this zoom, then widen only if none can hold the UI whole. */
 function compose(state: CameraState, subject: Zone, boxes: Box[], width: number, height: number, d: CameraDefaults,
-  project: (frame: CameraFrame) => CameraFrame = identity): CameraState {
+  project: (frame: CameraFrame) => CameraFrame = identity, cuts?: EdgeCuts): CameraState {
   const desired = toFrame(state, width, height, d);
-  if (!boxes.length || (desired.w >= width && desired.h >= height)) return state;
+  if ((!boxes.length && !cuts) || (desired.w >= width && desired.h >= height)) return state;
   const baseW = baseWidth(width, height, d);
   const screen = width * height;
   // Small boxes score the visible cluster; large known surfaces (a side rail,
@@ -126,7 +128,7 @@ function compose(state: CameraState, subject: Zone, boxes: Box[], width: number,
   const avoid = boxes.filter((box) => box[2] * box[3] > screen * LABEL_AREA_MAX
     && box[2] * box[3] <= screen * PANEL_MAX_AREA);
   const best = wholeCrop(desired.w, baseW, d.out_w / d.out_h, subject.bbox, small, width, height,
-    () => true, avoid, project);
+    (crop) => !cuts || cuts(project(crop)) === 0, avoid, project);
   if (best) return { cx: best.x + best.w / 2, cy: best.y + best.h / 2, z: baseW / best.w };
   const [sx, sy, sw, sh] = subject.bbox;
   return cropped(width, height, d)
@@ -299,6 +301,7 @@ export function frame(
   windowRect?: [number, number, number, number],
   d: CameraDefaults = DEFAULTS,
   project: (frame: CameraFrame) => CameraFrame = identity,
+  cuts?: EdgeCuts,
 ): CameraState {
   if (level === 0 || zone.type === "all") {
     return { cx: width / 2, cy: height / 2, z: 1 };
@@ -358,7 +361,7 @@ export function frame(
     z: clamp(baseWidth(width, height, d) / rw, 1, zMax(width, height, d)),
   }, rect === windowRect ? { ...zone, bbox: rect } : zone,
     // compose splits small scoring boxes from large edge-avoid surfaces itself.
-    boxes, width, height, d, project);
+    boxes, width, height, d, project, cuts);
 }
 
 export function moveDuration(drift: number, d: CameraDefaults = DEFAULTS): number {
@@ -481,8 +484,11 @@ function isDeadzone(state: CameraState, target: CameraState, baseW: number, d: C
 
 /** A nearby target may still need a correction when the current hold cuts its context. */
 function canHold(state: CameraState, target: Target, width: number, height: number, d: CameraDefaults,
-  project: (frame: CameraFrame) => CameraFrame): boolean {
+  project: (frame: CameraFrame) => CameraFrame, cuts?: EdgeCuts): boolean {
   if (!isDeadzone(state, target.state, baseWidth(width, height, d), d)) return false;
+  // The hold's visible edges must not cut a word anywhere in the take, whatever the beat's boxes.
+  const crop = project(toFrame(state, width, height, d));
+  if (cuts && cuts(crop) > 0) return false;
   if (target.screenChange) {
     const viewW = baseWidth(width, height, d) / state.z;
     const viewH = viewW * d.out_h / d.out_w;
@@ -495,7 +501,6 @@ function canHold(state: CameraState, target: Target, width: number, height: numb
       || Math.abs(y + h / 2 - state.cy) > viewH * d.deadzone_margin) return false;
   }
   if (!target.boxes?.length || !target.subject) return true;
-  const crop = project(toFrame(state, width, height, d));
   const [x, y, w, h] = target.subject.bbox;
   const margin = Math.min(crop.w, crop.h) * 0.01;
   return crop.x <= x - Math.min(margin, x)
@@ -548,7 +553,7 @@ function applyDwellAndShotLength(shots: Shot[], d: CameraDefaults): Shot[] {
 }
 
 function applyMoveRateLimit(targets: Target[], width: number, height: number, d: CameraDefaults,
-  project: (frame: CameraFrame) => CameraFrame): Target[] {
+  project: (frame: CameraFrame) => CameraFrame, cuts?: EdgeCuts): Target[] {
   const baseW = baseWidth(width, height, d);
   targets = targets.map((target) => {
     const viewport = toFrame(target.state, width, height, d);
@@ -558,7 +563,7 @@ function applyMoveRateLimit(targets: Target[], width: number, height: number, d:
   let state: CameraState = { cx: width / 2, cy: height / 2, z: 1 };
   const moving: Target[] = [];
   for (const target of targets) {
-    if (!target.reveal && !target.screenChange && canHold(state, target, width, height, d, project)) {
+    if (!target.reveal && !target.screenChange && canHold(state, target, width, height, d, project, cuts)) {
       const previous = moving.at(-1);
       if (previous) previous.importance = Math.max(previous.importance, target.importance);
       continue;
@@ -580,7 +585,7 @@ function applyMoveRateLimit(targets: Target[], width: number, height: number, d:
   }
   state = { cx: width / 2, cy: height / 2, z: 1 };
   return kept.filter((target) => {
-    if (!target.reveal && !target.screenChange && canHold(state, target, width, height, d, project)) return false;
+    if (!target.reveal && !target.screenChange && canHold(state, target, width, height, d, project, cuts)) return false;
     state = target.state;
     return true;
   });
@@ -610,6 +615,7 @@ function buildTargets(
   end: number,
   d: CameraDefaults,
   project: (frame: CameraFrame) => CameraFrame = identity,
+  cuts?: EdgeCuts,
 ): Target[] {
   // The surfaces a beat's own zones frame against; a reveal borrows the shot in
   // effect so its composed crop keeps the same UI whole instead of none of it.
@@ -619,7 +625,7 @@ function buildTargets(
   const targets = shots.flatMap((shot) => {
     const inShot = boxesFor(shot.beat);
     const framed = (zone: Zone): CameraState => frame({ ...zone, boxes: inShot(zone) },
-      shot.decision.L, width, height, shot.beat.window_rect, d, project);
+      shot.decision.L, width, height, shot.beat.window_rect, d, project, cuts);
     const targetA = framed(shot.zoneA);
     const result: Target[] = [{
       t: shot.arrival,
@@ -658,14 +664,14 @@ function buildTargets(
     // Widen before the close, retaining the dialog until the result is visible.
     // The union gives the final spring room to settle without losing the card.
     const context = shot ? mergeZones(shot.zoneA, revealed) : revealed;
-    if (!narrow) targets.push({ t: Math.max(start, result.t - 0.3), state: frame(context, 1, width, height, undefined, d, project),
+    if (!narrow) targets.push({ t: Math.max(start, result.t - 0.3), state: frame(context, 1, width, height, undefined, d, project, cuts),
       importance: 2, subject: context, reveal: result });
     // A crop-to-fill view cannot hold the dialog and what it reveals: no move
     // may leave the dialog before it closes.
     else for (const target of targets) if (target.t > result.t - d.move_t_max - 0.3 && target.t <= result.t + d.move_t_max)
       target.startAfter = Math.max(target.startAfter ?? result.t, result.t);
     targets.push({ t: result.t + 1, startAfter: result.t,
-      state: frame(revealed, 2, width, height, undefined, d, project), importance: 2, subject: revealed, reveal: result });
+      state: frame(revealed, 2, width, height, undefined, d, project, cuts), importance: 2, subject: revealed, reveal: result });
   }
 
   // A crop-to-fill view is already as wide as it gets, so drag visibility cannot
@@ -690,7 +696,7 @@ function buildTargets(
     const zone: Zone = { name: "win", type: "win", bbox: beat.window_rect ?? [0, 0, width, height] };
     targets.push({
       t: beat.t0 + d.breathe_s,
-      state: frame(zone, 1, width, height, beat.window_rect, d, project),
+      state: frame(zone, 1, width, height, beat.window_rect, d, project, cuts),
       importance: 0,
       breathe: true,
     });
@@ -894,6 +900,7 @@ function sampleCamera(
   end: number,
   d: CameraDefaults,
   project: (frame: CameraFrame) => CameraFrame,
+  cuts?: EdgeCuts,
 ): CameraFrame[] {
   const baseW = baseWidth(width, height, d);
   const narrow = cropped(width, height, d);
@@ -1029,7 +1036,7 @@ function sampleCamera(
       if (target.screenChange) {
         move = { ...candidateMove, mid: { ...state, z: Math.max(1, state.z / 1.03) }, hop: true };
       } else {
-        if (!urgent && canHold(state, target, width, height, d, project)) continue;
+        if (!urgent && canHold(state, target, width, height, d, project, cuts)) continue;
         move = candidateMove;
       }
       if (urgent) break;
@@ -1164,6 +1171,7 @@ export function solveCamera(
   take: TakeMeta,
   d: CameraDefaults = DEFAULTS,
   project: (frame: CameraFrame) => CameraFrame = identity,
+  cuts?: EdgeCuts,
 ): CameraFrame[] {
   validateCameraInputs(beats, decisions, take);
   const start = take.trim_start ?? 0;
@@ -1178,12 +1186,13 @@ export function solveCamera(
     .filter((shot) => visibleBeats.includes(shot.beat));
   const quietShots = applyDwellAndShotLength(shots, d).filter((shot) => shot.arrival < end);
   const directed = visibleBeats.filter(beat => !beat.camera_suppressed);
-  const targets = applyMoveRateLimit(buildTargets(quietShots, directed, width, height, start, end, d, project), width, height, d, project);
+  const targets = applyMoveRateLimit(buildTargets(quietShots, directed, width, height, start, end, d, project, cuts),
+    width, height, d, project, cuts);
   // A crop-to-fill view carries every drag, even one whose shot merged away.
   const sampled = sampleCamera(targets, visibleBeats.map((beat) => ({ ...beat,
     kind: quietShots.some((shot) => shot.beat === beat) ? beat.kind : "idle",
     actions: quietShots.some((shot) => shot.beat === beat) ? beat.actions : [],
-  })), cropped(width, height, d) ? directed.flatMap(gestures) : [], decisionMap, width, height, start, end, d, project);
+  })), cropped(width, height, d) ? directed.flatMap(gestures) : [], decisionMap, width, height, start, end, d, project, cuts);
   // Bookends are editorial boundaries, independent of action dwell, move caps
   // and pointer follow. Ease out before the outro, then hold the exact stage.
   // Drag visibility is applied last, so a drag-safe viewport is never discarded.
