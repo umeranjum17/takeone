@@ -27,22 +27,26 @@ Proving end state: exit 0; `analysis/decisions.jsonl` has one line per decided b
 
 Error shapes worth asserting: `takeone make: no take at <dir> (take.json missing)` exits 2; `PreflightRefusal` exits 2 with a message naming the token cap.
 
-## verify-takeone: portrait board scene
+## verify-takeone: board scene safe area (every aspect)
 
-`node scripts/headless-scene.mjs /abs/evidence/board-portrait --cursor=hidden --portrait`
-captures the same board choreography (same actions and frame clock) in the scene's own
-1080x1920 layout: nav strip, three narrowed lanes, activity feed below, centred modal.
-The source is 2160x3840 and `take.json` `source.css` is 1080x1920. `make <dir> --no-jev`
-renders 1080x1920 with no crop (same-aspect exports keep the centred rest framing), so
-proof is the MP4 itself: decode the typing (4.5 s) and widest modal holds (9.0 s, 10.6 s)
-and require the To do / In progress / Done headers and the whole modal in frame, with no
-cut words at any frame edge. Inspect layout screenshots before encoding. Acceptance gate:
-`node scripts/test-headless-scene.mjs <dir> --portrait` (heavy: two captures plus `make`).
+`node scripts/headless-scene.mjs /abs/evidence/board-<aspect> --cursor=hidden --aspect=<aspect>`
+(landscape, portrait, square) captures the same choreography in that shape's own layout,
+fitted inside a 5% inset, and writes `text-boxes.json`. Render each at its own shape:
+`node bin/takeone.mjs render <dir> --aspect <aspect> --set stage_margin=0 --set max_upscale=0.5`
+(1920x1080, 1080x1920, 1080x1080). The render's safe-area gate is the hard check: exit 0 plus
+`safe-area.json` with `failures: []` and a nonzero `checked`. Negative control, required in each
+proof: render the same landscape take without `max_upscale=0.5` (push-in) or with `--aspect square`
+(crop-to-fill); it must exit 1 before encoding and name a box, frame and output rectangle. Then
+decode the MP4 at the typing (4.5 s), modal (6.0, 9.0, 10.6 s), settled board (19.5 s) and second
+dialog (36.5 s) holds, draw the 5% box on each and look: every word and the whole modal inside,
+the modal centred. Acceptance gate: `node scripts/test-headless-scene.mjs <dir> --aspect=<aspect>`
+(heavy: two captures plus `make`). Camera-motion proofs on a scene take delete `text-boxes.json`
+from their copy first (no safe-area acceptance on that copy).
 
 ## verify-takeone: 4K action and manual camera proof
 
 Use `node scripts/headless-scene.mjs /abs/evidence/board-before --cursor=hidden`
-for a fresh 3840×2160 Tidewater take. Run `node bin/takeone.mjs make
+for a fresh 3840×2160 Tidewater take, then delete its `text-boxes.json` (this proof needs push-ins; see the safe-area entry). Run `node bin/takeone.mjs make
 /abs/evidence/board-before --no-jev` on the baseline; preserve its MP4 and
 `camera.json`. Copy the same inputs to `board-after` and repeat on the candidate.
 Use task-owned HOME/XDG/state/takes roots; run capture, renders and ffmpeg through
