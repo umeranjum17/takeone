@@ -123,6 +123,9 @@ export function stageFrames(frames: CameraFrame[], width: number, height: number
     }
     const zoom = st.baseW / f.w;
     const keep = top > 1 ? 1 - smooth(clamp((zoom - 1) / (top - 1), 0, 1)) : 1;
+    // The margin fades out continuously as the camera pushes in, so the projected view never
+    // jumps frame to frame. A framing whose margin lands under minStageMargin is moved before
+    // it becomes a hold (see the solver), rather than clamped here into a pop.
     const w = Math.min(st.w, f.w * (1 + 2 * d.stage_margin * keep));
     const h = Math.min(st.h, w / aspect);
     return {
@@ -133,6 +136,12 @@ export function stageFrames(frames: CameraFrame[], width: number, height: number
       h,
     };
   });
+}
+
+/** Margin in source px below which a frame's background shows only as a hairline at the
+ * border, reading as a cut card (the visual check counts it as cut text). */
+export function minStageMargin(width: number, d: CameraDefaults): number {
+  return width * 0.028 * Math.min(d.out_w, d.out_h) / d.out_w;
 }
 
 /** Crop-to-fill window width when the output is narrower than the screen: the

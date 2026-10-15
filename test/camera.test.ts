@@ -4,14 +4,15 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import test from "node:test";
 import { DEFAULTS } from "../src/camera/defaults.ts";
-import { solveCamera, clippedFractions } from "../src/camera/solver.ts";
-import type { Beat, Decision, Zone } from "../src/camera/types.ts";
+import { solveCamera, clippedFractions, wholeCrop, frame, toFrame } from "../src/camera/solver.ts";
+import type { Beat, CameraFrame, Decision, Zone } from "../src/camera/types.ts";
 import type { Action } from "../src/types.ts";
 import { renderTake } from "../src/render/render.ts";
 import { idleSqueezes, warp, warpBeats } from "../src/render/pace.ts";
-import { sourceViewport, stageGeometry } from "../src/render/stage.ts";
+import { sourceViewport, stageGeometry, stageFrames, minStageMargin } from "../src/render/stage.ts";
+import { edgeCuts, cutCount } from "../src/render/framing.ts";
 import { resolveTheme } from "../src/themes.ts";
-import { contains } from "../scripts/check-framing.ts";
+import { contains, settledFrames } from "../scripts/check-framing.ts";
 import { hasFfmpeg } from "./helpers.ts";
 
 // Only tests pass a fast preset and tiny output: shipped output stays
@@ -534,4 +535,184 @@ test("a revealed result never parks slicing the detected surfaces beside it", ()
     assert.deepEqual(clips.map(c => c === 0 || c >= 0.9), clips.map(() => true),
       `surface sliced at t=${f.t.toFixed(2)}: ${clips.map((c, i) => c > 0 && c < 0.9 ? `${surfaces[i]} cut ${(c * 100).toFixed(0)}%` : null).filter(Boolean).join("; ")}`);
   }
+});
+
+// Reveal sibling of the rail-cut regression: a revealed result must frame with
+// the large Activity rail as an edge constraint too, so the settled hold never
+// slices the rail. The geometry is the reveal test's surfaces with a narrower result.
+test("a revealed result never parks slicing the Activity rail", () => {
+  const surfaces: Zone["bbox"][] = [[0, 0, 3840, 136], [24, 172, 372, 96],
+    [480, 192, 780, 64], [1308, 192, 780, 64], [2136, 192, 780, 64],
+    [1344, 504, 1152, 940], [2972, 188, 824, 1916]];
+  const rail = surfaces[6]!;
+  const result: Zone["bbox"] = [500, 300, 2400, 1500];
+  const reveal: Beat = { id: "b10", kind: "click", t0: 37.87, t1: 43.07, anchor_t: 37.87,
+    actions: [],
+    zones: [{ name: "z1", type: "act", bbox: [1344, 504, 1152, 1046], boxes: surfaces },
+      { name: "z2", type: "all", bbox: [0, 0, 3840, 2160] }],
+    dialog_results: [{ t: 37.9, bbox: result }] };
+  const decisions: Decision[] = [
+    { beat: "b10", A: "z1", L: 2, p: 0, K: 1, conf: 1, decided_by: "test" },
+  ];
+  const d = { ...DEFAULTS, outro_s: 0 };
+  const stage = stageGeometry(3840, 2160, d);
+  const project = (f: Parameters<typeof sourceViewport>[0]) => sourceViewport(f, 3840, 2160, stage, d);
+  const frames = solveCamera([reveal], decisions, { width: 3840, height: 2160, trim_end: 42 }, d, project)
+    .map(project).filter(f => f.t >= 38.9);
+  assert.ok(frames.length > 100, "check the settled hold, not just the arrival");
+  for (const f of frames) {
+    const [clip] = clippedFractions(f, [rail]);
+    assert.ok(clip === 0 || clip! >= 0.9,
+      `rail sliced at t=${f.t.toFixed(2)}: ${((clip ?? 0) * 100).toFixed(1)}% out`);
+  }
+});
+
+// Rail-cut regression (README hero, main a2fe36e): the push-ins on the New
+// task dialog parked the crop edge inside the right-hand Activity rail, so the
+// render sliced words at the frame edge (visual-check clipped-text failed at
+// film 4.72 s and 8.77 s). The planner already knows the rail surface, so the
+// solver keeps no projected edge inside it: every pushed-in hold keeps the
+// rail and the top bar whole or leaves them out, on the projected stage view
+// the render shows - while the hero opening push-in stays a close-up.
+test("a dialog push-in never parks its edge inside the known side rail", () => {
+  const heroBeats = [{"id":"b3","t0":3.2,"t1":6.366666666666667,"anchor_t":3.2,"kind":"type","window_cls":"headless-demo","window_rect":[0,0,3840,2160],"actions":[{"k":"dwell","t0":3.2,"t1":6.083333333333333,"x":3450,"y":66,"window_cls":"headless-demo"},{"k":"click","t":3.2,"x":3450,"y":66,"window_cls":"headless-demo"},{"k":"type","t0":3.9,"t1":5.5,"window_cls":"headless-demo","region":[1428,736,396,52]},{"k":"travel","t0":5.366666666666667,"t1":6.366666666666667,"from":[3450,66],"to":[2458.56,655.0319999999999],"bbox":[2458.56,66,991.44,589.0319999999999],"window_cls":"headless-demo"}],"zones":[{"name":"z1","type":"txt","bbox":[1396,704,1048,372],"boxes":[[2972,188,824,1916],[1344,504,1152,940],[0,128,424,2032],[0,0,3840,136],[1412,888,1016,176],[496,516,748,212],[500,296,740,208],[1328,296,740,208],[2156,296,740,208],[500,740,740,208],[1412,720,1016,88],[2524,516,376,208],[1468,28,904,76],[1412,1152,456,92],[24,172,372,96],[2156,1320,276,88],[3296,28,308,76],[1900,1316,236,96],[1428,736,48,52],[1452,744,52,44],[1476,736,36,52],[1484,740,36,48],[1504,736,32,52],[1508,744,60,44]],"t_change":3.9},{"name":"z2","type":"act","bbox":[0,0,3840,136],"boxes":[[2972,188,824,1916],[1344,504,1152,940],[0,128,424,2032],[0,0,3840,136],[1412,888,1016,176],[496,516,748,212],[500,296,740,208],[1328,296,740,208],[2156,296,740,208],[500,740,740,208],[1412,720,1016,88],[2524,516,376,208],[1468,28,904,76],[1412,1152,456,92],[24,172,372,96],[2156,1320,276,88],[3296,28,308,76],[1900,1316,236,96],[1396,704,1048,120]]},{"name":"z3","type":"path","bbox":[2459,66,991,589],"boxes":[[2972,188,824,1916],[1344,504,1152,940],[0,128,424,2032],[0,0,3840,136],[1412,888,1016,176],[496,516,748,212],[500,296,740,208],[1328,296,740,208],[2156,296,740,208],[500,740,740,208],[1412,720,1016,88],[2524,516,376,208],[1468,28,904,76],[1412,1152,456,92],[24,172,372,96],[2156,1320,276,88],[3296,28,308,76],[1900,1316,236,96],[1396,704,1048,120]]},{"name":"z4","type":"all","bbox":[0,0,3840,2160]}]},{"id":"b4","t0":6.766666666666667,"t1":12.4,"anchor_t":6.766666666666667,"kind":"type","window_cls":"headless-demo","window_rect":[0,0,3840,2160],"actions":[{"k":"dwell","t0":6.766666666666667,"t1":10.533333333333333,"x":1920,"y":975,"window_cls":"headless-demo"},{"k":"click","t":6.766666666666667,"x":1920,"y":975,"window_cls":"headless-demo"},{"k":"type","t0":7.066666666666667,"t1":9.933333333333334,"window_cls":"headless-demo","region":[1428,908,628,56]},{"k":"click","t":11.2,"x":1641,"y":1198.5,"window_cls":"headless-demo"},{"k":"click","t":12.4,"x":1641,"y":1462.5,"window_cls":"headless-demo"}],"zones":[{"name":"z1","type":"res","bbox":[1388,1264,504,372],"boxes":[[2972,188,824,1916],[1344,504,1152,940],[0,128,424,2032],[0,0,3840,136],[1412,888,1016,176],[496,516,748,212],[500,296,740,208],[1328,296,740,208],[2156,296,740,208],[500,740,740,208],[1412,716,1016,96],[2524,516,376,208],[1468,28,904,76],[1412,1152,456,92],[24,172,372,96],[2156,1320,276,88],[3296,28,308,76],[1900,1316,236,96],[1420,1256,152,100],[1712,1256,152,100],[1420,1256,444,176],[1420,1336,444,176],[1432,1172,120,56],[1388,1264,504,372],[1440,1280,80,52],[1440,1360,124,48]],"t_change":12.4},{"name":"z2","type":"act","bbox":[1344,504,1152,1132],"boxes":[[2972,188,824,1916],[1344,504,1152,940],[0,128,424,2032],[0,0,3840,136],[1412,888,1016,176],[496,516,748,212],[500,296,740,208],[1328,296,740,208],[2156,296,740,208],[500,740,740,208],[1412,716,1016,96],[2524,516,376,208],[1468,28,904,76],[1412,1152,456,92],[24,172,372,96],[2156,1320,276,88],[3296,28,308,76],[1900,1316,236,96],[1428,908,68,48],[1468,912,44,44]]},{"name":"z3","type":"all","bbox":[0,0,3840,2160]}]}] as Beat[];
+  const heroDecisions = [{"beat":"b3","A":"z1","B":"z1","L":2,"p":0,"K":1,"conf":0,"decided_by":"heuristic"},{"beat":"b4","A":"z2","B":"z2","L":2,"p":1,"K":1,"conf":0,"decided_by":"heuristic"}] as Decision[];
+  const d = { ...DEFAULTS, outro_s: 0 };
+  const stage = stageGeometry(3840, 2160, d);
+  const project = (f: Parameters<typeof sourceViewport>[0]) => sourceViewport(f, 3840, 2160, stage, d);
+  const raw = solveCamera(heroBeats, heroDecisions, { width: 3840, height: 2160, trim_end: 13 }, d, project);
+  const frames = raw.map(project);
+  const rail: Zone["bbox"] = [2972, 188, 824, 1916];
+  const topbar: Zone["bbox"] = [0, 0, 3840, 136];
+  for (const [lo, hi] of [[3.9, 6], [7.5, 11]] as const) {
+    const hold = frames.filter((f) => f.t >= lo && f.t <= hi);
+    assert.ok(hold.length > 100, "check every held frame, not just the arrival");
+    for (const f of hold) {
+      const clips = clippedFractions(f, [rail, topbar]);
+      assert.ok(clips.every((c) => c === 0 || c >= 1 - 1e-9),
+        "rail or top bar sliced at t=" + f.t.toFixed(2) + ": " + clips.map((c) => (c * 100).toFixed(1) + "% out").join(", "));
+    }
+  }
+  // The hero opens on the b3 push-in: it stays a close-up, not a wide shot.
+  assert.ok(raw.filter((f) => f.t >= 3.9 && f.t <= 6).every((f) => f.w < 2600),
+    "the opening push-in keeps its close-up instead of parking wide");
+});
+
+// Subject-in-rail regression: a card inside the Activity rail may own its own
+// rows, but a crop edge must not slice the rail rows above or below it. Those
+// rows are the rail outside the subject's extent, so each stays whole or out.
+test("a rail-item subject never parks a crop edge through the rail rows beside it", () => {
+  const rail: Zone["bbox"] = [2972, 188, 824, 1916];
+  const card: Zone["bbox"] = [2990, 400, 700, 300];
+  const above: Zone["bbox"] = [rail[0], rail[1], rail[2], card[1] - rail[1]];
+  const below: Zone["bbox"] = [rail[0], card[1] + card[3], rail[2], rail[1] + rail[3] - card[1] - card[3]];
+  for (const w0 of [1200, 1500, 2000]) {
+    const crop = wholeCrop(w0, 3840, 16 / 9, card, [card], 3840, 2160, undefined, [rail]);
+    assert.ok(crop, `a crop exists at w0=${w0}`);
+    const clips = clippedFractions(crop, [above, below]);
+    assert.ok(clips.every((c) => c === 0 || c >= 1 - 1e-9),
+      `rail rows beside the card sliced at w0=${w0}: ${clips.map((c) => (c * 100).toFixed(1) + "% out").join(", ")}`);
+  }
+});
+
+// The Ctrl+K / search shortcut push-in the planner left unannotated: the saved
+// demo take's beat zone carried no rail box, so the solver's whole-element search
+// had nothing constraining its edges and parked the crop edge inside the rail.
+// The guard is the acceptance check's own definition - edgeCuts with no guard band,
+// one dense text stretch counting as a cut - so no emitted crop edge runs through a
+// word. The board is synthetic ink: horizontal strokes in the rail read as a dense
+// run along a vertical edge, exactly what the guard measures.
+test("a shortcut push-in with no planner boxes keeps its crop edge out of rail text", () => {
+  const W = 3840, H = 2160;
+  const rail: Zone["bbox"] = [2600, 100, 1200, 1960];
+  const search: Beat = { id: "shortcut", kind: "shortcut", t0: 2.4, t1: 5.4, anchor_t: 2.9237,
+    actions: [{ k: "shortcut", t: 2923.7, combo: "Ctrl+K" }],
+    zones: [{ name: "search", type: "act", bbox: [800, 400, 2000, 900] }] };
+  const decisions: Decision[] = [{ beat: "shortcut", A: "search", L: 1, p: 0, K: 0, conf: 1, decided_by: "test" }];
+  const d = { ...DEFAULTS, outro_s: 0 };
+  const stage = stageGeometry(W, H, d);
+  const project = (f: Parameters<typeof sourceViewport>[0]) => sourceViewport(f, W, H, stage, d);
+  const grey = new Uint8Array(W * H);
+  for (let y = rail[1]; y < rail[1] + rail[3]; y++) {
+    if ((y - rail[1]) % 10 >= 5) continue;
+    for (let x = rail[0]; x < rail[0] + rail[2]; x++) grey[y * W + x] = 255;
+  }
+  const cut = edgeCuts([grey], W, H, 0);
+  const cuts = (v: { x: number; y: number; w: number; h: number }) => cutCount(cut(v));
+  const unguarded = solveCamera([search], decisions, { width: W, height: H, trim_end: 6 }, d, project)
+    .map(project).filter((f) => f.t >= 3 && f.t <= 5);
+  assert.ok(unguarded.some((f) => cuts(f) > 0), "the unguarded push-in is the regression: its edge runs through rail text");
+  const guarded = solveCamera([search], decisions, { width: W, height: H, trim_end: 6 }, d, project, cuts)
+    .map(project).filter((f) => f.t >= 3 && f.t <= 5);
+  assert.ok(guarded.length >= 100, "sample the push-in, not just the arrival");
+  for (const f of guarded) {
+    assert.equal(cuts(f), 0, `rail text cut at t=${f.t.toFixed(2)}: ${JSON.stringify(f)}`);
+  }
+});
+
+// The guard's window must cover the frames the hold shows, not stop at the beat
+// end: a hold continues to the next move, so content that paints after the beat
+// but while the camera still holds it must constrain the framing.
+test("a hold guard window covers the frames the hold shows, not just the beat", () => {
+  const W = 3840, H = 2160;
+  const first: Beat = { id: "first", kind: "click", t0: 0, t1: 2, anchor_t: 0.5, actions: [],
+    zones: [{ name: "a", type: "act", bbox: [1400, 800, 400, 300] }] };
+  const second: Beat = { id: "second", kind: "click", t0: 10, t1: 12, anchor_t: 10.5, actions: [],
+    zones: [{ name: "b", type: "act", bbox: [200, 200, 400, 300] }] };
+  const decisions: Decision[] = [
+    { beat: "first", A: "a", B: "a", L: 3, p: 0, K: 1, conf: 1, decided_by: "test" },
+    { beat: "second", A: "b", B: "b", L: 3, p: 0, K: 1, conf: 1, decided_by: "test" },
+  ];
+  const d = { ...DEFAULTS, outro_s: 0 };
+  const take = { width: W, height: H, trim_end: 13 };
+  // Content shown at 5 s: the tight first framing cuts it, so it may only be
+  // accepted while the guard's window still ends before that content paints.
+  const shown = (_v: { x: number; y: number; w: number; h: number }, _at: number, until: number): number =>
+    until > 5 && _v.w < 2000 ? 1 : 0;
+  const tight = solveCamera([first, second], decisions, take, d, undefined, () => 0)
+    .filter((f) => f.t >= 3 && f.t <= 8);
+  assert.ok(tight.length > 20, "sample the first hold");
+  assert.ok(tight.every((f) => f.w < 2000), "control: the tight first framing is reachable");
+  const guarded = solveCamera([first, second], decisions, take, d, undefined, shown)
+    .filter((f) => f.t >= 3 && f.t <= 8);
+  assert.ok(guarded.length > 20, "sample the guarded first hold");
+  assert.ok(guarded.every((f) => f.w >= 2000),
+    `the first hold must widen for content shown during it (${guarded.map((f) => f.w.toFixed(0)).slice(0, 3).join(",")}...)`);
+});
+
+// The stage margin fade used to clamp a hairline matte to a fixed width, so the
+// projected viewport jumped a whole matte wider at the zoom where the margin
+// reached zero. The projection must stay continuous through the push-in (the
+// solver moves a framing that would rest in the hairline band instead).
+test("the stage viewport stays continuous through a push-in", () => {
+  const st = stageGeometry(3840, 2160, DEFAULTS);
+  const aspect = DEFAULTS.out_w / DEFAULTS.out_h;
+  const widths = Array.from({ length: 600 }, (_, i) => 3800 - i * 3);
+  const views = widths.map((w) => stageFrames([{ t: 0, x: (3840 - w) / 2, y: (2160 - w / aspect) / 2, w, h: w / aspect }],
+    3840, 2160, st, DEFAULTS)[0]!);
+  for (let i = 1; i < views.length; i++) {
+    assert.ok(Math.abs(views[i]!.w - views[i - 1]!.w) < 4.5,
+      `stage viewport jumped ${views[i - 1]!.w} -> ${views[i]!.w} at source width ${widths[i]}`);
+  }
+});
+
+// A framing whose projected margin lands under minStageMargin is snapped onto the
+// card or onto a readable margin, and the snapped view is re-judged by the guard:
+// the emitted hold must pass the same cut predicate the search used.
+test("a held framing moved off a hairline matte still passes the cut guard", () => {
+  const W = 3840, H = 2160;
+  const st = stageGeometry(W, H, DEFAULTS);
+  const project = (f: CameraFrame) => sourceViewport(f, W, H, st, DEFAULTS);
+  const min = minStageMargin(W, DEFAULTS);
+  const band = (w: number) => w > W && w < W + 2 * min;
+  // Dense ink in a left column band: snapping this hold to the card parks its left
+  // edge inside the words, so the guard must reject that snap.
+  const grey = new Uint8Array(W * H);
+  for (let y = 900; y < 1300; y++) for (let x = 24; x < 520; x++) grey[y * W + x] = (y % 4) < 2 ? 255 : 0;
+  const mask = edgeCuts([grey], W, H, 0);
+  const cuts = (v: { x: number; y: number; w: number; h: number }): number => cutCount(mask(v));
+  const state = frame({ name: "z", type: "act", bbox: [330, 700, 3230, 1000] }, 1, W, H, undefined, DEFAULTS, project, cuts);
+  const view = project(toFrame(state, W, H, DEFAULTS));
+  assert.ok(!band(view.w), `emitted hold rests on a hairline matte (${view.w.toFixed(1)} px wide)`);
+  assert.equal(cutCount(mask(view)), 0, `emitted hold cuts the guard's own text at ${JSON.stringify(view)}`);
 });
