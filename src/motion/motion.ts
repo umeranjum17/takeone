@@ -7,7 +7,7 @@ import { pathToFileURL } from "node:url";
 import { blurPlan } from "./blur.ts";
 import { allTimelines } from "./layout.ts";
 import { sceneCameras } from "./camera.ts";
-import { ingest, ingestClips } from "./ingest.ts";
+import { ingest, ingestClips, clipStale } from "./ingest.ts";
 import { samplePalette } from "./palette.ts";
 import { motionPage } from "./page.ts";
 import { ffmpegVersion, MOTION_CRF, renderFrames } from "./render.ts";
@@ -53,6 +53,7 @@ export function pageData(dir: string, sb: Storyboard, cameras: Record<string, un
   const ar = sb.output.out_w / sb.output.out_h, off = (f: { aspect: number }) => Math.abs(Math.log(f.aspect / ar));
   const clips = Object.fromEntries(Object.entries(sb.clips ?? {}).map(([id, c]) => {
     if (!c.frames) throw new Error(`clips.${id}: not ingested`);
+    for (const f of c.frames) if (!existsSync(resolve(dir, f.dir))) throw new Error(`clips.${id}: ${f.dir} is missing; re-run ingest`);
     const f = c.frames.reduce((a, b) => (off(b) < off(a) ? b : a));
     return [id, { url: pathToFileURL(resolve(dir, f.dir)).href + "/", count: f.count, width: f.width, height: f.height, fps: 60 }];
   }));
@@ -86,7 +87,7 @@ export async function renderMotion(dir: string, o?: Omit<RenderOptions, "stills"
 export async function renderMotion(dir: string, o: RenderOptions = {}): Promise<{ out: string; manifest?: RenderManifest; stills?: string[] }> {
   let raw = readFileSync(join(dir, "storyboard.json"));
   let sb = validateStoryboard(JSON.parse(raw.toString("utf8")));
-  if (!Object.keys(sb.screens).length || Object.values(sb.clips ?? {}).some(c => !c.frames)) { // first render of a hand-written storyboard: ingest once, keep the result
+  if (!Object.keys(sb.screens).length || Object.values(sb.clips ?? {}).some(c => clipStale(dir, c))) { // first render of a hand-written storyboard: ingest once, keep the result
     if (!Object.keys(sb.screens).length) await ingest(dir, sb);
     ingestClips(dir, sb);
     raw = Buffer.from(JSON.stringify(sb, null, 2) + "\n");

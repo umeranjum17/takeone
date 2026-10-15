@@ -118,6 +118,7 @@ function scene(raw: unknown, path: string): Scene {
   for (const k of ["invert", "cut"] as const) if (raw[k] !== undefined && typeof raw[k] !== "boolean") throw new StoryboardError(`${path}.${k}`, "expected true or false");
   for (const k of ["label", "note"] as const) if (raw[k] !== undefined) s[k] = str(raw[k], `${path}.${k}`, k === "label" ? 60 : 120);
   for (const k of ["scale", "from"] as const) if (raw[k] !== undefined) s[k] = num(raw[k], `${path}.${k}`, 0.1, 1.5);
+  if (s.pattern === "statement" && (typeof s.title !== "string" || !s.title.trim())) throw new StoryboardError(`${path}.title`, "statement needs a non-empty title");
   if (s.pattern === "clip") {
     if (!ID.test(String(raw["clip"]))) throw new StoryboardError(`${path}.clip`, "expected a clip id");
     const cuts = raw["cuts"] ?? [];

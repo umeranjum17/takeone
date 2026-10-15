@@ -39,8 +39,10 @@ export interface Clip {
   d: number;
   /** Optional per file: ffmpeg crop "w:h:x:y" in source pixels, cutting the real frame down to its subject. */
   crop?: (string | null)[];
-  /** Filled by ingest, one per file: frame directory (frames 0001.jpg...), frame size and the uncropped file's aspect. */
+  /** Filled by ingest, one per file: frame directory (frames 0001.jpg...), frame size and the uncropped file's aspect.
+   *  `framesSource` records the window the frames were cut from; a later edit to files/start/d/crop re-ingests. */
   frames?: { dir: string; count: number; width: number; height: number; aspect: number }[];
+  framesSource?: { files: string[]; start: number; d: number; crop?: (string | null)[] };
 }
 
 /** clip pattern: at `at` scene seconds, retarget the window (one spring added) and optionally swap footage/label. */

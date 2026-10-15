@@ -1,14 +1,14 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
 import { resolve } from "node:path";
 import { validateStoryboard } from "../src/motion/storyboard.ts";
-import { writePage } from "../src/motion/motion.ts";
+import { pageData, writePage } from "../src/motion/motion.ts";
 import { withPage } from "../src/motion/render.ts";
 import { allTimelines } from "../src/motion/layout.ts";
 import { parseMotionArgs, planStoryboard } from "../src/motion/cli.ts";
-import { ingest } from "../src/motion/ingest.ts";
+import { ingest, clipStale } from "../src/motion/ingest.ts";
 import { sceneCameras } from "../src/motion/camera.ts";
 import { clippedFractions, HIGH_CLIP_FRACTION, LABEL_AREA_MAX } from "../src/camera/solver.ts";
 import { detectUiBoxes } from "../src/perceive/boxes.ts";
@@ -195,4 +195,18 @@ test("demo film storyboard: clips, cuts and statements validate; short label win
   assert.throws(()=>validateStoryboard(short),/reading-time floor/);
   const stale=structuredClone(raw); stale.clips.raw.frames=[{dir:"sources/clips/raw-1",count:120,width:1920,height:1080}];
   assert.throws(()=>validateStoryboard(stale),/one frame set per file/);
+  assert.throws(()=>validateStoryboard({...raw,scenes:[{pattern:"statement",d:3}]}),/scenes\[0\]\.title.*non-empty title/);
+  assert.throws(()=>validateStoryboard({...raw,scenes:[{pattern:"statement",d:3,title:"  ",subtitle:"sub"}]}),/non-empty title/);
+  const dir=mkdtempSync(resolve(".motion-stale-test-"));
+  try {
+    const clip={files:["a.mp4"],start:3.5,d:1.5,crop:[null],frames:[{dir:"sources/clips/open-1",count:90,width:1920,height:1080,aspect:16/9}],framesSource:{files:["a.mp4"],start:3.5,d:1.5,crop:[null]}};
+    mkdirSync(resolve(dir,clip.frames[0].dir),{recursive:true});
+    assert.equal(clipStale(dir,clip),false);
+    assert.equal(clipStale(dir,{...clip,start:4}),true);
+    assert.equal(clipStale(dir,{...clip,framesSource:{...clip.framesSource!,files:["b.mp4"]}}),true);
+    assert.equal(clipStale(dir,{...clip,crop:["10:10:0:0"]}),true);
+    assert.equal(clipStale(dir,{...structuredClone(clip),framesSource:undefined}),true);
+    const gone=structuredClone(sb); gone.clips={open:{...structuredClone(clip),frames:[{dir:"sources/clips/gone",count:90,width:1920,height:1080,aspect:16/9}]}};
+    assert.throws(()=>pageData(dir,gone,{}),/clips\.open: .*missing; re-run ingest/);
+  } finally {rmSync(dir,{recursive:true,force:true});}
 });
