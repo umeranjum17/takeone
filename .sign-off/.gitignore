@@ -1,5 +1,9 @@
 mocks/
-evidence/
+evidence/*
+!evidence/1/
+evidence/1/*
+!evidence/1/1.mp4
+!evidence/1/2.png
 *.answers.jsonl
 *.rounds.jsonl
 *.messages.jsonl

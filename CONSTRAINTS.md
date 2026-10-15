@@ -18,8 +18,11 @@ Run `node scripts/floor-guard.mjs --base origin/main` before handoff and in CI.
 It adapts the installed `constraint-driven-development/references/floor-guard.md`:
 merge-base → working tree (staged, unstaged and untracked), exits 0 clean, 1 violation,
 2 unable to check. A 2 is not a pass. The done-done journeys in `.done-done.yaml`
-(`checks`, `offline-render`) and `.no-mistakes.yaml` carry the real-product
-validation linkage; CI gates on the done-done job.
+(`checks`, `offline-render`, `visual-reference`, `visual`, `visual-controls`,
+`visual-design`) and `.no-mistakes.yaml` carry the real-product validation linkage;
+[verification recipes](docs/verification/README.md) retain feature-specific proof.
+CI's existing `ci` job gates static checks through done-done and retains output
+quality gates and their artifacts.
 
 The guard is regex-shallow, not a semantic proof or exhaustive secret scanner.
 Review diffs for multiline stubs, arbitrary credentials, rewritten assertions and

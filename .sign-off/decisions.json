@@ -6,7 +6,7 @@
       "kind": "evidence",
       "schema": 1,
       "key": "t1-tool-migrate-evidence",
-      "title": "takeone tool migration: done-done proof for checks + offline render",
+      "title": "Historical takeone migration proof: checks + offline render",
       "filer": "done-done",
       "about": "Static checks pass (floor guard, typecheck, full test suite) and the offline demo take plans with --no-jev and renders to a real 1920x1080 h264 MP4. The verify-takeone skill is deleted with no shim; CI gates on a done-done run+check job; learn-from-mistakes retro run 1 completed.",
       "type": "evidence",

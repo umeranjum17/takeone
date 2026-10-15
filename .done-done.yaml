@@ -15,4 +15,16 @@ journeys:
   # The verify-takeone canonical offline journey (synthetic take, local-only
   # planning, real render): the MP4, a decoded still and the probe are the evidence.
   offline-render:
-    command: node scripts/synth-take.ts $DONE_DONE_EVIDENCE_ROOT/${RUN_ID}/synth-demo && node bin/takeone.mjs make $DONE_DONE_EVIDENCE_ROOT/${RUN_ID}/synth-demo --no-jev && ffmpeg -y -ss 5 -i $DONE_DONE_EVIDENCE_ROOT/${RUN_ID}/synth-demo/out/synth-demo.mp4 -frames:v 1 $DONE_DONE_EVIDENCE_ROOT/${RUN_ID}/takeone-offline-render-after.png && ffprobe -v error -show_entries format=duration,size -show_entries stream=width,height,codec_name -of json $DONE_DONE_EVIDENCE_ROOT/${RUN_ID}/synth-demo/out/synth-demo.mp4 > $DONE_DONE_EVIDENCE_ROOT/${RUN_ID}/probe.json && sha256sum $DONE_DONE_EVIDENCE_ROOT/${RUN_ID}/synth-demo/out/synth-demo.mp4 $DONE_DONE_EVIDENCE_ROOT/${RUN_ID}/takeone-offline-render-after.png > $DONE_DONE_EVIDENCE_ROOT/${RUN_ID}/SHA256SUMS && git rev-parse HEAD > $DONE_DONE_EVIDENCE_ROOT/${RUN_ID}/commit.txt
+    command: npm run build && export TAKEONE_DIR="$DONE_DONE_EVIDENCE_ROOT/${RUN_ID}/takes" TAKEONE_STATE_DIR="$DONE_DONE_EVIDENCE_ROOT/${RUN_ID}/state" && node scripts/synth-take.ts $DONE_DONE_EVIDENCE_ROOT/${RUN_ID}/synth-demo && node bin/takeone.mjs make $DONE_DONE_EVIDENCE_ROOT/${RUN_ID}/synth-demo --no-jev && node scripts/verification/visual-check.ts $DONE_DONE_EVIDENCE_ROOT/${RUN_ID}/synth-demo --name offline-dark --out $DONE_DONE_EVIDENCE_ROOT/${RUN_ID} && ffmpeg -y -threads 2 -filter_threads 2 -filter_complex_threads 2 -ss 5 -i $DONE_DONE_EVIDENCE_ROOT/${RUN_ID}/synth-demo/out/synth-demo.mp4 -frames:v 1 $DONE_DONE_EVIDENCE_ROOT/${RUN_ID}/takeone-offline-render-after.png && ffprobe -v error -show_entries format=duration,size -show_entries stream=width,height,codec_name -of json $DONE_DONE_EVIDENCE_ROOT/${RUN_ID}/synth-demo/out/synth-demo.mp4 > $DONE_DONE_EVIDENCE_ROOT/${RUN_ID}/probe.json && sha256sum $DONE_DONE_EVIDENCE_ROOT/${RUN_ID}/synth-demo/out/synth-demo.mp4 $DONE_DONE_EVIDENCE_ROOT/${RUN_ID}/takeone-offline-render-after.png > $DONE_DONE_EVIDENCE_ROOT/${RUN_ID}/SHA256SUMS && git rev-parse HEAD > $DONE_DONE_EVIDENCE_ROOT/${RUN_ID}/commit.txt
+  visual-reference:
+    command: bash scripts/verification/visual-pass.sh "$DONE_DONE_EVIDENCE_ROOT/${RUN_ID}" --no-design
+  visual:
+    spends: "design judgments using the approved answerer:pi DeepSeek model"
+    command: bash scripts/verification/visual-pass.sh "$DONE_DONE_EVIDENCE_ROOT/${RUN_ID}" --ref "${TAKEONE_VISUAL_REF:?set the approved reference pass directory}"
+  visual-desktop:
+    command: bash scripts/verification/visual-pass.sh "$DONE_DONE_EVIDENCE_ROOT/${RUN_ID}" --cells "desktop-dark desktop-light" --no-design
+  visual-controls:
+    command: bash scripts/verification/visual-controls.sh "${TAKEONE_VISUAL_REF:?set the good reference pass directory}" "$DONE_DONE_EVIDENCE_ROOT/${RUN_ID}" --work "${TAKEONE_VISUAL_WORK:?set that pass work directory}"
+  visual-design:
+    spends: "design judgments using the approved answerer:pi DeepSeek model"
+    command: bash scripts/verification/visual-design.sh "${TAKEONE_VISUAL_PASS:?set the candidate pass directory}" --ref "${TAKEONE_VISUAL_REF:?set the approved reference pass directory}" && cp "$TAKEONE_VISUAL_PASS"/design*.json "$TAKEONE_VISUAL_PASS"/design.log "$DONE_DONE_EVIDENCE_ROOT/"
