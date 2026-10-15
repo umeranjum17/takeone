@@ -72,6 +72,8 @@ jobs:
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      TAKEONE_CHROME: ${{ github.workspace }}/.cache/headless-shell/151.0.7922.34/chrome-headless-shell-linux64/chrome-headless-shell
     steps:
       - uses: actions/checkout@v4
         with:
@@ -81,6 +83,13 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - name: Install check prerequisites (same set the ci job uses: npm test renders real video)
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg tesseract-ocr unzip fonts-liberation libnss3 libatk1.0-0 libatk-bridge2.0-0 libx11-6 libxcomposite1 libxdamage1 libxrandr2 libgbm1 libasound2t64
+      - uses: actions/cache@v4
+        with:
+          path: .cache/headless-shell
+          key: headless-shell-linux-x64-151.0.7922.34-3cfc2bd0
+      - run: node scripts/install-headless-shell.mjs
       - name: Static checks through done-done
         run: |
           npx -y done-done-axi run checks
