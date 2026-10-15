@@ -1073,8 +1073,17 @@ function sampleCamera(
           for (let k = 6; k <= g; k += 6) if (cuts!({ ...v, x: v.x + dx * k, w: v.w + dw * k }, at, until) > 0) return true;
           return false;
         };
-        const clear = (v: CameraFrame) => !cuts || cuts(v, at, until) === 0
-          && !(near(v, -1, 1) && near(v, 1, -1)) && !(near(v, 0, 1) && near(v, 0, -1));
+        // Text an edge only grazes still reads as cut: each edge inside the screen
+        // must also cut nothing moved wholeCrop's gap (1% of the short side) in or
+        // out. An edge on the screen's own border cuts nothing, as in edgeCuts.
+        const clear = (v: CameraFrame) => {
+          const m = Math.min(v.w, v.h) * 0.01;
+          const [l, t] = [Math.round(v.x) > 0 ? m : 0, Math.round(v.y) > 0 ? m : 0];
+          const [r, b] = [Math.round(v.x + v.w) < width ? m : 0, Math.round(v.y + v.h) < height ? m : 0];
+          const grow = (k: number) => ({ ...v, x: v.x - k * l, y: v.y - k * t, w: v.w + k * (l + r), h: v.h + k * (t + b) });
+          return !cuts || [0, -1, 1].every((k) => cuts(grow(k), at, until) === 0)
+            && !(near(v, -1, 1) && near(v, 1, -1)) && !(near(v, 0, 1) && near(v, 0, -1));
+        };
         if (cuts && at < until && !clear(view)) {
           const [x, y, w, h] = activeDrag.whole_object ?? [...activeDrag.from, 1, 1];
           const fit = wholeCrop(toFrame(previousFiltered, width, height, d).w, baseW, d.out_w / d.out_h,

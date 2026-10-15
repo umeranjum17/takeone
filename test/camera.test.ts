@@ -359,9 +359,10 @@ test("render without trim_end uses the latest beat end", { timeout: 240_000, ski
       `the carry follows the pointer to the drop: ${JSON.stringify([at(0.5), at(1.4), at(2.3)])}`);
     assert.ok(dropped.filter(f => f.t >= 2.3 && f.t <= 2.6).every(f => Math.abs(f.x - at(2.3).x) + Math.abs(f.w - at(2.3).w) < 0.5),
       `the view holds still while the layout animates: ${JSON.stringify(dropped.filter(f => f.t >= 2.3 && f.t <= 2.7))}`);
-    const settledDrop = dropped.filter(f => f.t >= 4.5);
-    assert.ok(settledDrop.every(f => contains(f, line) && contains(f, [3300, 1060, 40, 40])),
-      `the settled view keeps the whole late line and the drop: ${JSON.stringify(settledDrop.find(f => !contains(f, line)))}`);
+    // An edge that only grazes the line still reads as a cut: the line stays 8 px clear of it.
+    const settledDrop = dropped.filter(f => f.t >= 4.5), clearLine = [line[0] - 8, line[1] - 8, line[2] + 16, line[3] + 16];
+    assert.ok(settledDrop.every(f => contains(f, clearLine) && contains(f, [3300, 1060, 40, 40])),
+      `the settled view keeps the whole late line clear of its edges, and the drop: ${JSON.stringify(settledDrop.find(f => !contains(f, clearLine)))}`);
     assert.ok(settledDrop.every(f => Math.abs(f.w - at(2.3).w) < 1), "a pan fits the line, so the view does not zoom out");
   } finally {
     await rm(dir, { recursive: true, force: true });
