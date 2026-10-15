@@ -1,0 +1,17 @@
+# done-done project config. `done-done init` never overwrites this file.
+# The app name finds this repo's evidence and receipts from every checkout.
+app: "takeone"
+# This repo's coding agent, over agent in ~/.done-done/config.yaml (model, effort and the other agent settings stay there).
+# agent: opencode
+# Docs-only commits keep evidence fresh, mirroring the code/docs split in .github/workflows/ci.yml.
+evidence:
+  ignore_paths: ["docs/**", ".agents/**", "data/**", "README.md", "LICENSE"]
+journeys:
+  # The repo's existing static checks (floor guard, typecheck, full test suite),
+  # expressed as a done-done journey: the log it writes is the evidence.
+  checks:
+    command: node scripts/floor-guard.mjs --base origin/main > $DONE_DONE_EVIDENCE_ROOT/${RUN_ID}.log 2>&1 && npm run typecheck >> $DONE_DONE_EVIDENCE_ROOT/${RUN_ID}.log 2>&1 && npm test >> $DONE_DONE_EVIDENCE_ROOT/${RUN_ID}.log 2>&1
+  # The verify-takeone canonical offline journey (synthetic take, local-only
+  # planning, real render): the MP4, a decoded still and the probe are the evidence.
+  offline-render:
+    command: node scripts/synth-take.ts $DONE_DONE_EVIDENCE_ROOT/${RUN_ID}/synth-demo && node bin/takeone.mjs make $DONE_DONE_EVIDENCE_ROOT/${RUN_ID}/synth-demo --no-jev && ffmpeg -y -ss 5 -i $DONE_DONE_EVIDENCE_ROOT/${RUN_ID}/synth-demo/out/synth-demo.mp4 -frames:v 1 $DONE_DONE_EVIDENCE_ROOT/${RUN_ID}/takeone-offline-render-after.png && ffprobe -v error -show_entries format=duration,size -show_entries stream=width,height,codec_name -of json $DONE_DONE_EVIDENCE_ROOT/${RUN_ID}/synth-demo/out/synth-demo.mp4 > $DONE_DONE_EVIDENCE_ROOT/${RUN_ID}/probe.json && sha256sum $DONE_DONE_EVIDENCE_ROOT/${RUN_ID}/synth-demo/out/synth-demo.mp4 $DONE_DONE_EVIDENCE_ROOT/${RUN_ID}/takeone-offline-render-after.png > $DONE_DONE_EVIDENCE_ROOT/${RUN_ID}/SHA256SUMS && git rev-parse HEAD > $DONE_DONE_EVIDENCE_ROOT/${RUN_ID}/commit.txt

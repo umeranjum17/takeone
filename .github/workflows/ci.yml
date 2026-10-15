@@ -67,6 +67,26 @@ jobs:
             tmp/quality/*/out/*.mp4
           if-no-files-found: error
 
+  done-done:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Static checks through done-done
+        run: |
+          npx -y done-done-axi run checks
+          RUN_DIR=$(ls -dt ~/.done-done/evidence/takeone/*/ | head -1)
+          npx -y done-done-axi check --outcome "takeone static checks pass on this commit" --claim-id "ci-checks" "${RUN_DIR}"*.log
+
   headless-scene:
     needs: changes
     if: needs.changes.outputs.code == 'true'

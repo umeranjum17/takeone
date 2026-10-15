@@ -17,8 +17,9 @@ checks remain authoritative; this is not a release-quality qualification.
 Run `node scripts/floor-guard.mjs --base origin/main` before handoff and in CI.
 It adapts the installed `constraint-driven-development/references/floor-guard.md`:
 merge-base → working tree (staged, unstaged and untracked), exits 0 clean, 1 violation,
-2 unable to check. A 2 is not a pass. `verify-takeone` and `.no-mistakes.yaml`
-carry the real-product validation linkage; CI retains its existing checks.
+2 unable to check. A 2 is not a pass. The done-done journeys in `.done-done.yaml`
+(`checks`, `offline-render`) and `.no-mistakes.yaml` carry the real-product
+validation linkage; CI gates on the done-done job.
 
 The guard is regex-shallow, not a semantic proof or exhaustive secret scanner.
 Review diffs for multiline stubs, arbitrary credentials, rewritten assertions and
