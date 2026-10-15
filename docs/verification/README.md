@@ -35,6 +35,6 @@ Approval resumes execution, so hold the assigned heavy lock and memory gate for 
 
 For the feature recipes below, use `done-done run --open <feature-name>`, drive the documented public CLI into that run's evidence folder, then `done-done run --close <run-id>` and `done-done check --outcome "<observable result>" --claim-id <feature-name> <evidence-files>`. Rebuild first and preserve inputs, outputs and hashes. Aspect/format/cut/speed recipes remain in [rerender-look-tweaks.md](rerender-look-tweaks.md); hardware and paid-planner recipes are conditional on explicit authority and prerequisites, not claimed as passed by offline runs.
 
-The sign-off migration card's MP4 and PNG are tracked under `.sign-off/evidence/1/`, recovered byte-for-byte from its original synthetic export. They are historical proof only, not acceptance of the current candidate; the card's recorded hashes, sizes and producing commit remain unchanged.
+The sign-off migration card's MP4 and PNG are not tracked in the repo; only their filename, hash and size receipts in `.sign-off/decisions.json` are versioned. They are historical proof only, not acceptance of the current candidate; the card's recorded hashes, sizes and producing commit remain unchanged.
 
 Supporting surface, not mapped separately: `takeone doctor` (read-only environment report), `takeone key set` (BYOKit secret store), and the `takeone capture` verbs (`hello`/`record`/`stop`/`make`) implementing the BYOKit recorder protocol — drive those only when the change touches them.
