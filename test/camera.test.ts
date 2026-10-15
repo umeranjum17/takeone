@@ -4,7 +4,7 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import test from "node:test";
 import { DEFAULTS } from "../src/camera/defaults.ts";
-import { solveCamera, clippedFractions, wholeCrop, frame, toFrame } from "../src/camera/solver.ts";
+import { solveCamera, solveCameraDetailed, clippedFractions, wholeCrop, frame, toFrame } from "../src/camera/solver.ts";
 import type { Beat, CameraFrame, Decision, Zone } from "../src/camera/types.ts";
 import type { Action } from "../src/types.ts";
 import { renderTake } from "../src/render/render.ts";
@@ -67,9 +67,11 @@ test("render CLI rejects unknown and malformed override arguments", () => {
 });
 
 // One consumer journey: inferred duration, then the real make -> saved render path over
-// typing, a revealed dialog result and drags trimmed at the video boundary, released and not.
-// The added portrait render needs a 240s journey budget (measured 144.853s at two CPUs).
-test("render without trim_end uses the latest beat end", { timeout: 240_000, skip: needsFfmpeg }, async () => {
+// typing, a revealed dialog result, drags trimmed at the video boundary, released and not,
+// and a drop whose settled layout the camera reframes.
+// The added portrait and drop renders need a 360s journey budget (the drop journey's
+// real 4K capture plus its guarded portrait solve measured 249s on a loaded two-CPU runner).
+test("render without trim_end uses the latest beat end", { timeout: 360_000, skip: needsFfmpeg }, async () => {
   const dir = await mkdtemp(join(process.cwd(), "takeone:duration-"));
   try {
     await mkdir(join(dir, "analysis"));
@@ -320,6 +322,49 @@ test("render without trim_end uses the latest beat end", { timeout: 240_000, ski
     const held = (t: number) => [400 + (1500 - 600) * (t - 3) / 1.5, 1000, 500, 250];
     assert.ok(during(3, 4.5).length >= 10 && during(3, 4.5).every(f => contains(f, held(f.t))),
       `the portrait crop carries the dragged item whole: ${JSON.stringify(during(3, 4.5).find(f => !contains(f, held(f.t))))}`);
+
+    // Drag then release, made from a real capture: the portrait view carries a card
+    // right to the Done lane, the card it displaces slides down after release
+    // (2.3-2.65 s), and at 5 s a text line paints left of the drop, across the
+    // carried view's left edge. The release framing waits out that layout
+    // animation, then pans at the same width until the line is whole.
+    const line: [number, number, number, number] = [2560, 1880, 750, 40];
+    const glyphs = (x: number, y: number, w: number, enable = "1") => Array.from({ length: Math.ceil(w / 12) }, (_, i) =>
+      `drawbox=x=${x + i * 12}:y=${y}:w=6:h=40:color=0x39424e:t=fill:enable='${enable}'`).join(",");
+    execFileSync("ffmpeg", ["-y", "-v", "error", "-filter_threads", "2", "-filter_complex_threads", "2",
+      "-filter_complex", `color=c=0xeef0f3:s=3840x2160:r=10:d=8.5,drawbox=x=3000:y=200:w=640:h=1880:color=0xe3e7ec:t=fill,` +
+        `${glyphs(3040, 240, 120)}[board];color=c=white:s=560x170:r=10:d=8.5,${glyphs(32, 34, 360)},split[card][carried];` +
+        `[board][card]overlay=x=3040:y='995+200*clip((t-2.3)/0.35,0,1)'[settling];` +
+        `[settling][carried]overlay=x='1640+1400*clip((t-0.6)/1.6,0,1)^2*(3-2*clip((t-0.6)/1.6,0,1))':y=995,` +
+        // Two words: an edge in the 14 px gap between them misses every glyph but still cuts the line.
+        `${glyphs(line[0], line[1], 120, "gte(t,5)")},${glyphs(line[0] + 128, line[1], line[2] - 128, "gte(t,5)")}`,
+      "-c:v", "mpeg4", "-q:v", "2", "-threads", "2", "-f", "matroska", join(dir, "screen.webm")]);
+    await writeFile(join(dir, "frames.tsv"), Array.from({ length: 85 }, (_, i) =>
+      `${i * 9000}\t${i * 100_000_000}`).join("\n") + "\n");
+    const carryX = (t: number) => {
+      const u = Math.min(1, Math.max(0, (t - 0.6) / 1.6));
+      return 1920 + 1400 * u * u * (3 - 2 * u);
+    };
+    await writeFile(join(dir, "events.jsonl"), [
+      { k: "win", t: 0, cls: "board", title: "Umer's board", rect: [0, 0, 3840, 2160] },
+      // A resting hand still jitters a pixel, so capture keeps reporting the pointer.
+      ...Array.from({ length: 86 }, (_, i) => ({ k: "ptr", t: i * 100, x: carryX(i / 10) + i % 2, y: 1080 })),
+      { k: "btn", t: 500, b: "left", down: true }, { k: "btn", t: 2300, b: "left", down: false },
+    ].sort((a, b) => a.t - b.t).map(e => JSON.stringify(e)).join("\n") + "\n");
+    await writeFile(join(dir, "take.json"), JSON.stringify({ ...fourK, trim: { start: 0, end: 8000 } }));
+    drive4K("make", "--no-jev", "--set", "out_w=540", "--set", "out_h=960", "--set", "outro_s=0");
+    const dropped = (await camera4K()).map(f => ({ ...sourceViewport(f, 3840, 2160, tallStage, tall), t: f.t }));
+    const at = (t: number) => dropped[Math.round(t * 10)]!;
+    assert.ok(dropped.at(-1)!.t >= 7.8, "the render holds the settled drop to the take end");
+    assert.ok(at(1.4).x > at(0.5).x + 600 && contains(at(2.3), [3300, 1060, 40, 40]),
+      `the carry follows the pointer to the drop: ${JSON.stringify([at(0.5), at(1.4), at(2.3)])}`);
+    assert.ok(dropped.filter(f => f.t >= 2.3 && f.t <= 2.6).every(f => Math.abs(f.x - at(2.3).x) + Math.abs(f.w - at(2.3).w) < 0.5),
+      `the view holds still while the layout animates: ${JSON.stringify(dropped.filter(f => f.t >= 2.3 && f.t <= 2.7))}`);
+    // An edge that only grazes the line still reads as a cut: the line stays 8 px clear of it.
+    const settledDrop = dropped.filter(f => f.t >= 4.5), clearLine = [line[0] - 8, line[1] - 8, line[2] + 16, line[3] + 16];
+    assert.ok(settledDrop.every(f => contains(f, clearLine) && contains(f, [3300, 1060, 40, 40])),
+      `the settled view keeps the whole late line clear of its edges, and the drop: ${JSON.stringify(settledDrop.find(f => !contains(f, clearLine)))}`);
+    assert.ok(settledDrop.every(f => Math.abs(f.w - at(2.3).w) < 1), "a pan fits the line, so the view does not zoom out");
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -678,6 +723,142 @@ test("a hold guard window covers the frames the hold shows, not just the beat", 
   assert.ok(guarded.length > 20, "sample the guarded first hold");
   assert.ok(guarded.every((f) => f.w >= 2000),
     `the first hold must widen for content shown during it (${guarded.map((f) => f.w.toFixed(0)).slice(0, 3).join(",")}...)`);
+});
+
+// Rate limiting, preparation deferral and stale-drag skips drop planned targets
+// after their guard windows are computed, so a dropped target must not end the
+// preceding hold's window: each window derives from the emitted move graph.
+// The wide take drops a full-width preparation hold past its deferral limit and
+// two mid-sequence targets past the rate cap; the portrait take's drag leaves
+// its mid-drag click (and the grab) stale. Every emitted hold then sits inside
+// its guard window, and the window still bites: the extended hold widens for
+// content painted mid-hold, where the unguarded control stays tight.
+test("dropped targets leave every emitted hold inside its guard window", () => {
+  const initialDefaults = { ...DEFAULTS, out_w: 1080, out_h: 1920, outro_s: 0 };
+  const initialTake = { width: 3840, height: 2160, trim_start: 1, trim_end: 10 };
+  const centered: Beat = { id: "centered", kind: "click", t0: 2, t1: 4, anchor_t: 3,
+    actions: [], zones: [{ name: "center", type: "act", bbox: [1600, 800, 640, 560] }] };
+  const centeredDecisions: Decision[] = [{ beat: "centered", A: "center", L: 3, p: 0, K: 1,
+    conf: 1, decided_by: "test" }];
+  const rest = toFrame({ cx: 1920, cy: 1080, z: 1 }, 3840, 2160, initialDefaults);
+  const lateText = (v: { x: number; y: number; w: number; h: number }, at: number, until: number) =>
+    at <= 6 && until >= 6 && Math.abs(v.x - rest.x) < 20 ? 1 : 0;
+  const unguardedInitial = solveCameraDetailed([centered], centeredDecisions, initialTake, initialDefaults);
+  assert.equal(unguardedInitial.holds.length, 1, "the centered target leaves only the implicit initial hold");
+  assert.ok(unguardedInitial.frames.some(f => lateText(f, f.t + 1, f.t + 1) > 0),
+    "control: later text cuts the unchanged initial viewport");
+  for (const beats of [[], [centered]]) {
+    const guardedInitial = solveCameraDetailed(beats, beats.length ? centeredDecisions : [],
+      initialTake, initialDefaults, undefined, lateText);
+    const initial = guardedInitial.holds[0]!;
+    assert.equal(initial.t, initialTake.trim_start);
+    assert.equal(initial.moveStart, initialTake.trim_start);
+    assert.ok(initial.until >= (guardedInitial.holds[1]?.moveStart ?? initialTake.trim_end));
+    for (const f of guardedInitial.frames) {
+      assert.equal(lateText(f, f.t + 1, f.t + 1), 0, "later text must not cut a held viewport");
+    }
+    assert.equal(lateText(guardedInitial.frames[0]!, 1, 10), 0,
+      "the initial framing uses the extended mask, not just its arrival");
+  }
+  const d = { ...DEFAULTS, outro_s: 0 };
+  const click = (id: string, anchor: number, bbox: Zone["bbox"]): Beat => ({
+    id, kind: "click", t0: anchor - 0.5, t1: anchor + 1, anchor_t: anchor, actions: [],
+    zones: [{ name: `${id}-z`, type: "act", bbox }],
+  });
+  const decide = (beaten: Beat[], K: 0 | 1 | 2 = 1): Decision[] => beaten.map((b) => ({
+    beat: b.id, A: b.zones[0]!.name, L: 3, p: 0, K, conf: 1, decided_by: "test",
+  }));
+  const wideBeats = [
+    click("b0", 2, [200, 900, 180, 120]),
+    click("bv", 3.5, [0, 900, 3840, 200]),
+    click("b1", 5.2, [900, 900, 180, 120]),
+    click("b2", 6.8, [1600, 900, 180, 120]),
+    click("b3", 8.4, [2300, 900, 180, 120]),
+    click("b4", 10, [3000, 900, 180, 120]),
+    click("b5", 11.6, [3400, 900, 180, 120]),
+  ];
+  const wideDecisions = decide(wideBeats).map((decided) =>
+    ["bv", "b4", "b5"].includes(decided.beat) ? { ...decided, K: 2 as const } : decided);
+  const wideTake = { width: 3840, height: 2160, trim_end: 14 };
+  const drag: Beat = { id: "g", kind: "drag", t0: 2, t1: 4.7, anchor_t: 2.4,
+    actions: [{ k: "drag", t0: 2200, t1: 4500, from: [1500, 1050], to: [2200, 1050],
+      bbox: [1480, 1030, 60, 60], whole_object: [1480, 1030, 60, 60] }],
+    zones: [{ name: "surf", type: "act", bbox: [1480, 1030, 60, 60] }] };
+  const portraitBeats = [
+    click("c1", 2, [1000, 900, 180, 120]),
+    drag,
+    click("v", 3.6, [2700, 900, 180, 120]),
+    click("c2", 6.5, [3400, 900, 180, 120]),
+  ];
+  const portraitDecisions: Decision[] = portraitBeats.map((b) => ({
+    beat: b.id, A: b.id === "g" ? "surf" : `${b.id}-z`, L: 3, p: 0, K: 1, conf: 1, decided_by: "test",
+  }));
+  const portraitTake = { width: 3840, height: 2160, trim_end: 10 };
+  const portraitDefaults = { ...d, out_w: 1080, out_h: 1920 };
+  const carriedView = solveCameraDetailed(portraitBeats, portraitDecisions, portraitTake,
+    portraitDefaults, undefined, () => 0);
+  const at = (t: number) => carriedView.frames[Math.round(t * portraitDefaults.fps)]!;
+  assert.ok(at(2.2).w < portraitTake.width, "the drag must run in a crop-to-fill export");
+  for (const t of [2.5, 3, 3.5, 4, 4.5]) {
+    assert.ok(Math.abs(at(t).x - at(2.2).x - 700 * (t - 2.2) / 2.3) < 1,
+      `the viewport must carry the dragged surface at t=${t}`);
+  }
+  for (const t of [4.6, 4.8, 5]) {
+    assert.ok(Math.abs(at(t).x - at(4.5).x) < 12, "release holds the drop instead of chasing a stale target");
+  }
+  assert.ok(at(7.5).x > at(5).x + 100, "a fresh post-release target still moves the camera");
+  const withoutCarry = solveCameraDetailed(portraitBeats.map(b => b === drag ? { ...b, actions: [] } : b),
+    portraitDecisions, portraitTake, portraitDefaults, undefined, () => 0);
+  assert.ok(withoutCarry.holds.some(h => Math.abs(h.t - 3.5) < 0.05),
+    "control: the mid-drag target emits when there is no carry to make it stale");
+  // Dropped draft arrivals: the full-width strip (deferral) and two capped
+  // mids on wide; the grab, the drag shot and the mid-drag click on portrait.
+  const takes = [
+    { beats: wideBeats, decisions: wideDecisions, take: wideTake, defaults: d, paint: 5, dropped: [3.4, 5.1, 6.7, 8.3] },
+    { beats: portraitBeats, decisions: portraitDecisions, take: portraitTake, defaults: portraitDefaults,
+      paint: 4, dropped: [2.2, 2.5, 3.5] },
+  ];
+  for (const { beats, decisions, take, defaults, paint, dropped } of takes) {
+    // Content painted mid-hold constrains only framings whose window reaches it.
+    const probe = (v: { x: number; y: number; w: number; h: number }, _at: number, until: number): number =>
+      until > paint && v.w < 2000 ? 1 : 0;
+    const { frames, holds } = solveCameraDetailed(beats, decisions, take, defaults, undefined, probe);
+    assert.ok(holds.length >= 2, `a next emitted move must exist to end the first hold (${take.width}x${take.height})`);
+    // Each hold's window reaches the next emitted move (or the take end),
+    // passing over the dropped arrivals on the way.
+    holds.forEach((h, i) => {
+      const next = holds[i + 1]?.moveStart ?? take.trim_end;
+      assert.ok(h.until >= next,
+        `hold t=${h.t.toFixed(2)} window ${h.until.toFixed(2)} ends before the next move ${next.toFixed(2)}`);
+    });
+    for (const t of dropped) {
+      assert.ok(holds.every((h) => Math.abs(h.t - t) > 0.05),
+        `draft t=${t} emitted a hold: the drop sequence did not fire (${take.width}x${take.height})`);
+      assert.ok(holds.some((h) => h.moveStart <= t && h.until >= t),
+        `no emitted move/hold interval covers the dropped arrival t=${t}`);
+    }
+    // The window masks the frames the hold displays.
+    holds.forEach((h, i) => {
+      const next = holds[i + 1]?.moveStart ?? take.trim_end;
+      const shown = frames.filter((f) => f.t >= h.moveStart && f.t < next);
+      assert.ok(shown.length > 0, `hold t=${h.t.toFixed(2)} displays no frames`);
+      for (const f of shown) {
+        assert.ok(f.t <= h.until, `hold t=${h.t.toFixed(2)} shows t=${f.t.toFixed(2)} past its window ${h.until.toFixed(2)}`);
+      }
+    });
+  }
+  // The guard is not inert: the wide take's extended first hold widens for
+  // the painted content, while the unguarded control stays tight.
+  const tight = solveCamera(wideBeats, wideDecisions, wideTake, d, undefined, () => 0)
+    .filter((f) => f.t >= 3 && f.t <= 8);
+  assert.ok(tight.length > 20 && tight.every((f) => f.w < 2000), "control: the extended hold is reachable tight");
+  const paint = (_v: { x: number; y: number; w: number; h: number }, _at: number, until: number): number =>
+    until > 5 && _v.w < 2000 ? 1 : 0;
+  const guarded = solveCamera(wideBeats, wideDecisions, wideTake, d, undefined, paint)
+    .filter((f) => f.t >= 3 && f.t <= 8);
+  assert.ok(guarded.length > 20, "sample the guarded extended hold");
+  assert.ok(guarded.every((f) => f.w >= 2000),
+    `the extended hold must widen for content painted mid-hold (${guarded.map((f) => f.w.toFixed(0)).slice(0, 3).join(",")}...)`);
 });
 
 // The stage margin fade used to clamp a hairline matte to a fixed width, so the

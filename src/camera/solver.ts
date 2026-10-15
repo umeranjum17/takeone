@@ -35,6 +35,8 @@ interface Target {
   breathe?: boolean;
   /** A disappearing subject cannot wait behind ordinary shot holds. */
   reveal?: { t: number; bbox: Zone["bbox"] };
+  /** Position in the draft order; the emitted move graph keys guard windows by it. */
+  draft: number;
 }
 
 interface Move {
@@ -151,10 +153,11 @@ function compose(state: CameraState, subject: Zone, boxes: Box[], width: number,
  * (motion tours) shares this search.
  * `project` maps a raw crop to what the viewer sees (the stage adds a margin around pushed-in
  * crops): the edge tests run on the projected crop, so a raw edge that looks clear but renders
- * inside a rail still fails. Positions and cluster scoring stay in raw camera space. */
+ * inside a rail still fails. Positions and cluster scoring stay in raw camera space.
+ * `step` adds positions that many pixels apart, for an `accept` with no boxes to align to. */
 export function wholeCrop(w0: number, maxW: number, aspect: number, subject: Box, boxes: Box[], width: number, height: number,
   accept: (crop: CameraFrame) => boolean = () => true, avoid: Box[] = [],
-  project: (frame: CameraFrame) => CameraFrame = identity): CameraFrame | undefined {
+  project: (frame: CameraFrame) => CameraFrame = identity, step = 0): CameraFrame | undefined {
   const [sx, sy, sw, sh] = subject;
   const solid = avoid.flatMap((box): Box[] => {
     const [bx, by, bw, bh] = box;
@@ -203,6 +206,7 @@ export function wholeCrop(w0: number, maxW: number, aspect: number, subject: Box
       const high = Math.min(size - view, s - Math.min(gap, s));
       if (low > high) return [];
       const candidates = [(low + high) / 2, low, high];
+      for (let p = low + step; step > 0 && p < high; p += step) candidates.push(p);
       for (const box of veto) {
         const start = box[axis];
         const end = start + box[axis + 2]!;
@@ -587,7 +591,7 @@ function applyDwellAndShotLength(shots: Shot[], d: CameraDefaults): Shot[] {
   return accepted;
 }
 
-function applyMoveRateLimit(targets: Target[], width: number, height: number, d: CameraDefaults,
+function applyMoveRateLimit(targets: Target[], initial: CameraState, width: number, height: number, d: CameraDefaults,
   project: (frame: CameraFrame) => CameraFrame, cuts?: EdgeCuts): Target[] {
   const baseW = baseWidth(width, height, d);
   targets = targets.map((target) => {
@@ -595,7 +599,7 @@ function applyMoveRateLimit(targets: Target[], width: number, height: number, d:
     return { ...target, state: { cx: viewport.x + viewport.w / 2,
       cy: viewport.y + viewport.h / 2, z: baseW / viewport.w } };
   });
-  let state: CameraState = { cx: width / 2, cy: height / 2, z: 1 };
+  let state = initial;
   const moving: Target[] = [];
   for (const target of targets) {
     if (!target.reveal && !target.screenChange && canHold(state, target, width, height, d, project, cuts)) {
@@ -618,7 +622,7 @@ function applyMoveRateLimit(targets: Target[], width: number, height: number, d:
       .slice(0, d.rate_max));
     kept = kept.filter((target) => !window.includes(target) || winners.has(target));
   }
-  state = { cx: width / 2, cy: height / 2, z: 1 };
+  state = initial;
   return kept.filter((target) => {
     if (!target.reveal && !target.screenChange && canHold(state, target, width, height, d, project, cuts)) return false;
     state = target.state;
@@ -640,8 +644,8 @@ function cutSettledAt(beat: Beat, arrival: number, d: CameraDefaults): number {
   return arrival;
 }
 
-/** A target before its framing is solved: its hold end is only known once
- * every target's arrival time is. */
+/** A target before its framing is solved: its hold end comes from the
+ * emitted move graph, after scheduling and skips. */
 interface Draft {
   t: number;
   build: (until: number) => CameraState;
@@ -654,8 +658,9 @@ interface Draft {
   reveal?: { t: number; bbox: Zone["bbox"] };
 }
 
-/** Build A/B shots and idle widen targets; this is the camera timeline. */
-function buildTargets(
+/** Planned A/B shots and idle widen drafts; materialized into targets once each
+ * hold's guard window is known. */
+function buildDrafts(
   shots: Shot[],
   beats: Beat[],
   width: number,
@@ -665,7 +670,7 @@ function buildTargets(
   d: CameraDefaults,
   project: (frame: CameraFrame) => CameraFrame = identity,
   cuts?: EdgeCuts,
-): Target[] {
+): Draft[] {
   // The surfaces a beat's own zones frame against; a reveal borrows the shot in
   // effect so its composed crop keeps the same UI whole instead of none of it.
   const boxesFor = (beat: Beat) => (zone: Zone): Box[] => zone.boxes?.length ? zone.boxes
@@ -751,21 +756,46 @@ function buildTargets(
       breathe: true,
     });
   }
-  // A target's guard mask must cover the frames its hold shows. Its hold ends
-  // when the camera starts the move to the next target, so the window is the
-  // next arrival less the move's duration, not the beat end.
-  const ordered = drafts.filter((draft) => draft.t >= start && draft.t < end
+  return drafts.filter((draft) => draft.t >= start && draft.t < end
     && (draft.startAfter ?? start) < end).sort((a, b) => a.t - b.t);
-  const baseW = baseWidth(width, height, d);
-  const provisional = ordered.map((draft, index) => draft.build(Math.max(draft.t, ordered[index + 1]?.t ?? end)));
-  return ordered.map((draft, index) => {
+}
+
+/** Frame every draft against its guard window. */
+function materialize(drafts: Draft[], windows: number[]): Target[] {
+  return drafts.map((draft, index) => {
     const { build, ...target } = draft;
-    const next = ordered[index + 1];
-    const until = next
-      ? Math.max(target.t, next.t - moveDuration(distance(provisional[index]!, provisional[index + 1]!, baseW), d))
-      : end;
-    return { ...target, until, state: build(until) };
+    const until = windows[index]!;
+    return { ...target, draft: index, until, state: build(until) };
   });
+}
+
+/** A move the sampler actually started, keyed by its draft. */
+interface EmittedMove {
+  draft: number;
+  start: number;
+}
+
+/** A hold the camera actually shows: the move that opens it, and the guard
+ * window that judged its framing. */
+export interface EmittedHold {
+  draft: number;
+  t: number;
+  moveStart: number;
+  until: number;
+}
+
+function holdsFromEmitted(drafts: Draft[], drags: Gesture[], emitted: EmittedMove[], windows: number[], end: number): EmittedHold[] {
+  return emitted.sort((a, b) => a.start - b.start || a.draft - b.draft).map((move) => ({
+    draft: move.draft,
+    t: move.draft < drafts.length ? drafts[move.draft]!.t : drags[move.draft - drafts.length]!.t1 / 1000,
+    moveStart: move.start,
+    until: windows[move.draft] ?? end,
+  }));
+}
+
+/** Every hold's window reaches the next move (or the take end). */
+function holdsCovered(holds: EmittedHold[], end: number): boolean {
+  return holds.every((hold, index) => hold.until >= (holds[index + 1]?.moveStart ?? end));
 }
 
 function distance(from: CameraState, to: CameraState, baseW: number): number {
@@ -954,6 +984,7 @@ function preparationTime(from: CameraState, to: CameraState, outgoing: Zone, inc
 /** Sample HOLD/MOVE/FOLLOW/BREATHE camera states at output fps. */
 function sampleCamera(
   targets: Target[],
+  initial: CameraState,
   beats: Beat[],
   drags: Gesture[],
   decisions: Map<string, Decision>,
@@ -963,11 +994,15 @@ function sampleCamera(
   end: number,
   d: CameraDefaults,
   project: (frame: CameraFrame) => CameraFrame,
-  cuts?: EdgeCuts,
+  cuts: EdgeCuts | undefined,
+  windows: number[],
+  draftCount: number,
+  emitted: EmittedMove[],
+  changes: { t: number; bbox: Box }[],
 ): CameraFrame[] {
   const baseW = baseWidth(width, height, d);
   const narrow = cropped(width, height, d);
-  let state: CameraState = { cx: width / 2, cy: height / 2, z: 1 };
+  let state = initial;
   let previousFiltered = state;
   let previousTime = start;
   let move: Move | undefined;
@@ -988,6 +1023,7 @@ function sampleCamera(
     return time === undefined ? [] : [time / 1000];
   }).sort((a, b) => a - b);
   let dragFrom: CameraState | undefined;
+  let activeDrag: Gesture | undefined;
   const reveals = beats.flatMap((beat) => (beat.dialog_results ?? []).map((result) => ({
     start: result.t - d.move_t_max - 0.3,
     end: intentTimes.find((time) => time > result.t + 0.1) ?? end,
@@ -1015,7 +1051,52 @@ function sampleCamera(
     }
     // No shot starts while a crop-to-fill view carries a dragged surface.
     const drag = drags.find((g) => time >= g.t0 / 1000 && time <= g.t1 / 1000);
-    if (!drag) dragFrom = undefined;
+    if (activeDrag !== drag) {
+      if (activeDrag && !drag) {
+        // Judge the drop on its settled layout: wait out the burst of on-screen
+        // changes the release starts (each within cut_settle_ms of the last, for
+        // at most the preparation deferral limit), then pan to the crop nearest the
+        // drop that cuts no text the hold shows, zooming out only when no pan at
+        // this width fits. A drag without a whole object anchors on its drop
+        // point: its bbox is the pointer's path, not an object.
+        const view = project(toFrame(previousFiltered, width, height, d));
+        let at = activeDrag.t1 / 1000;
+        for (const change of changes) {
+          if (change.t > at && change.t <= Math.min(at + d.cut_settle_ms / 1000, activeDrag.t1 / 1000 + deferLimit)
+            && clippedFractions(view, [change.bbox])[0]! < 1) at = change.t;
+        }
+        const until = windows[draftCount + drags.indexOf(activeDrag)]!;
+        // A side edge in a word gap misses every glyph but still cuts the line: text
+        // within a word gap (g) on both sides of it is one line running through it.
+        const g = width / 160;
+        const near = (v: CameraFrame, dx: number, dw: number) => {
+          for (let k = 6; k <= g; k += 6) if (cuts!({ ...v, x: v.x + dx * k, w: v.w + dw * k }, at, until) > 0) return true;
+          return false;
+        };
+        // Text an edge only grazes still reads as cut: each edge inside the screen
+        // must also cut nothing moved wholeCrop's gap (1% of the short side) in or
+        // out. An edge on the screen's own border cuts nothing, as in edgeCuts.
+        const clear = (v: CameraFrame) => {
+          const m = Math.min(v.w, v.h) * 0.01;
+          const [l, t] = [Math.round(v.x) > 0 ? m : 0, Math.round(v.y) > 0 ? m : 0];
+          const [r, b] = [Math.round(v.x + v.w) < width ? m : 0, Math.round(v.y + v.h) < height ? m : 0];
+          const grow = (k: number) => ({ ...v, x: v.x - k * l, y: v.y - k * t, w: v.w + k * (l + r), h: v.h + k * (t + b) });
+          return !cuts || [0, -1, 1].every((k) => cuts(grow(k), at, until) === 0)
+            && !(near(v, -1, 1) && near(v, 1, -1)) && !(near(v, 0, 1) && near(v, 0, -1));
+        };
+        if (cuts && at < until && !clear(view)) {
+          const [x, y, w, h] = activeDrag.whole_object ?? [...activeDrag.from, 1, 1];
+          const fit = wholeCrop(toFrame(previousFiltered, width, height, d).w, baseW, d.out_w / d.out_h,
+            [x + activeDrag.to[0] - activeDrag.from[0], y + activeDrag.to[1] - activeDrag.from[1], w, h], [],
+            width, height, (crop) => clear(project(crop)), [], project, Math.max(1, Math.round(width / 960)));
+          if (fit) move = createMove(previousFiltered, { cx: fit.x + fit.w / 2, cy: fit.y + fit.h / 2, z: baseW / fit.w },
+            0, baseW, d, at);
+        }
+      }
+      dragFrom = undefined;
+      activeDrag = drag;
+      if (drag) emitted.push({ draft: draftCount + drags.indexOf(drag), start: time });
+    }
     while (!drag && targetIndex < targets.length) {
       const target = targets[targetIndex]!;
       // A shot due before a drag's release is stale once the carried view has replaced it.
@@ -1080,6 +1161,7 @@ function sampleCamera(
           if (time < preparation.start) break;
         }
         move = { ...createMove(previousFiltered, target.state, 0, baseW, d, time), preparation: true };
+        emitted.push({ draft: target.draft, start: time });
         break;
       }
       if (preparation && time >= preparation.deadline && subject
@@ -1102,6 +1184,7 @@ function sampleCamera(
         if (!urgent && canHold(state, target, width, height, d, project, cuts)) continue;
         move = candidateMove;
       }
+      emitted.push({ draft: target.draft, start: move.start });
       if (urgent) break;
     }
 
@@ -1228,14 +1311,15 @@ function validateCameraInputs(beats: Beat[], decisions: Decision[], take: TakeMe
   }
 }
 
-export function solveCamera(
+export function solveCameraDetailed(
   beats: Beat[],
   decisions: Decision[],
   take: TakeMeta,
   d: CameraDefaults = DEFAULTS,
   project: (frame: CameraFrame) => CameraFrame = identity,
   cuts?: EdgeCuts,
-): CameraFrame[] {
+  changes: { t: number; bbox: Box }[] = [],
+): { frames: CameraFrame[]; holds: EmittedHold[] } {
   validateCameraInputs(beats, decisions, take);
   const start = take.trim_start ?? 0;
   const end = take.trim_end ?? Math.max(0, ...beats.flatMap(beat => [beat.t1, ...gestures(beat).map(g => g.t1 / 1000)]));
@@ -1249,13 +1333,42 @@ export function solveCamera(
     .filter((shot) => visibleBeats.includes(shot.beat));
   const quietShots = applyDwellAndShotLength(shots, d).filter((shot) => shot.arrival < end);
   const directed = visibleBeats.filter(beat => !beat.camera_suppressed);
-  const targets = applyMoveRateLimit(buildTargets(quietShots, directed, width, height, start, end, d, project, cuts),
-    width, height, d, project, cuts);
-  // A crop-to-fill view carries every drag, even one whose shot merged away.
-  const sampled = sampleCamera(targets, visibleBeats.map((beat) => ({ ...beat,
+  const drafts = buildDrafts(quietShots, directed, width, height, start, end, d, project, cuts);
+  drafts.unshift({ t: start, importance: 0,
+    build: (until) => compose({ cx: width / 2, cy: height / 2, z: 1 },
+      { name: "initial", type: "act", bbox: [width / 2, height / 2, 1, 1] },
+      [], width, height, d, project, cuts, start, until) });
+  const sampledBeats = visibleBeats.map((beat) => ({ ...beat,
     kind: quietShots.some((shot) => shot.beat === beat) ? beat.kind : "idle",
     actions: quietShots.some((shot) => shot.beat === beat) ? beat.actions : [],
-  })), cropped(width, height, d) ? directed.flatMap(gestures) : [], decisionMap, width, height, start, end, d, project, cuts);
+  }));
+  // A crop-to-fill view carries every drag, even one whose shot merged away.
+  const drags = cropped(width, height, d) ? directed.flatMap(gestures) : [];
+  // Start with arrival-only masks, then extend them to the next emitted move,
+  // not the next planned draft: rate limiting, deferral and drag can drop it.
+  // Reframing can change which moves survive, so repeat until covered. Windows
+  // only extend, on the finite output-frame clock, and never past the take end.
+  const windows = [...drafts.map(draft => draft.t), ...drags.map(drag => Math.min(end, drag.t1 / 1000))];
+  let sampled: CameraFrame[] = [];
+  let holds: EmittedHold[] = [];
+  for (;;) {
+    const [initial, ...requested] = materialize(drafts, windows);
+    const targets = applyMoveRateLimit(requested, initial!.state,
+      width, height, d, project, cuts);
+    const emitted: EmittedMove[] = [{ draft: 0, start }];
+    sampled = sampleCamera(targets, initial!.state, sampledBeats, drags, decisionMap, width, height,
+      start, end, d, project, cuts, windows, drafts.length, emitted, changes);
+    holds = holdsFromEmitted(drafts, drags, emitted, windows, end);
+    if (holdsCovered(holds, end)) break;
+    holds.forEach((hold, index) => {
+      const until = holds[index + 1]?.moveStart ?? end;
+      windows[hold.draft] = Math.max(windows[hold.draft]!, Math.min(end, Math.ceil(until * d.fps) / d.fps));
+    });
+    if (!cuts) {
+      holds = holdsFromEmitted(drafts, drags, emitted, windows, end);
+      break;
+    }
+  }
   // Bookends are editorial boundaries, independent of action dwell, move caps
   // and pointer follow. Ease out before the outro, then hold the exact stage.
   // Drag visibility is applied last, so a drag-safe viewport is never discarded.
@@ -1263,11 +1376,11 @@ export function solveCamera(
   const arrival = wide ? Math.max(0, end - start - d.outro_s) : 0;
   const moveStart = arrival - d.move_t_max;
   if (!wide || moveStart <= d.establish_s) {
-    return applyDragVisibility(wide ? sampled.map(f => ({ ...wide, t: f.t })) : sampled,
-      visibleBeats, width, height, start, d);
+    return { frames: applyDragVisibility(wide ? sampled.map(f => ({ ...wide, t: f.t })) : sampled,
+      visibleBeats, width, height, start, d), holds };
   }
   const origin = sampled[Math.floor(moveStart * d.fps)]!;
-  return applyDragVisibility(sampled.map(f => {
+  return { frames: applyDragVisibility(sampled.map(f => {
     if (f.t < moveStart) return f;
     if (f.t >= arrival) return { ...wide, t: f.t };
     const u = smooth((f.t - moveStart) / (arrival - moveStart));
@@ -1276,5 +1389,17 @@ export function solveCamera(
     return { t: f.t, w, h,
       x: lerp(origin.x + origin.w / 2, wide.x + wide.w / 2, u) - w / 2,
       y: lerp(origin.y + origin.h / 2, wide.y + wide.h / 2, u) - h / 2 };
-  }), visibleBeats, width, height, start, d);
+  }), visibleBeats, width, height, start, d), holds };
+}
+
+export function solveCamera(
+  beats: Beat[],
+  decisions: Decision[],
+  take: TakeMeta,
+  d: CameraDefaults = DEFAULTS,
+  project: (frame: CameraFrame) => CameraFrame = identity,
+  cuts?: EdgeCuts,
+  changes: { t: number; bbox: Box }[] = [],
+): CameraFrame[] {
+  return solveCameraDetailed(beats, decisions, take, d, project, cuts, changes).frames;
 }

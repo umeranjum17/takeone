@@ -93,6 +93,24 @@ export function sourceEdgeCuts(dir: string, meta: TakeMeta, at: (t: number) => n
   if (!existsSync(file)) return undefined;
   const { width: W, height: H } = meta;
   const cache = new Map<string, ReturnType<typeof edgeCuts>>();
+  // Decoded source seconds, shared across every guard window of this solve.
+  // Materialize, the release search and the guard loop re-ask the same seconds
+  // under different window keys; each miss below used to re-spawn ffmpeg for them.
+  // A frame is W*H bytes against ~5x that per mask, so these stay cached for the solve.
+  const decoded = new Map<string, Uint8Array>();
+  let warnedDecodes = false;
+  const frameAt = (time: number): Uint8Array | undefined => {
+    const second = Math.max(0, at(time)).toFixed(3);
+    let frame = decoded.get(second);
+    if (frame) return frame;
+    try {
+      const raw = execFileSync("ffmpeg", ["-nostdin", "-v", "error", "-ss", second,
+        "-i", file, "-frames:v", "1", "-vf", "format=gray", "-f", "rawvideo", "-"],
+        { maxBuffer: W * H + 4096, timeout: 60000 });
+      if (raw.length === W * H) decoded.set(second, frame = new Uint8Array(raw));
+    } catch { /* a frame that will not decode reads as clean */ }
+    return frame;
+  };
   return (view, t, until) => {
     const key = `${Math.round(t * 10)}:${Math.round(until * 10)}`;
     let mask = cache.get(key);
@@ -100,12 +118,12 @@ export function sourceEdgeCuts(dir: string, meta: TakeMeta, at: (t: number) => n
       const times = until > t + 1e-6 ? [t, (t + until) / 2, until] : [t];
       const frames: Uint8Array[] = [];
       for (const time of times) {
-        try {
-          const raw = execFileSync("ffmpeg", ["-nostdin", "-v", "error", "-ss", Math.max(0, at(time)).toFixed(3),
-            "-i", file, "-frames:v", "1", "-vf", "format=gray", "-f", "rawvideo", "-"],
-            { maxBuffer: W * H + 4096, timeout: 60000 });
-          if (raw.length === W * H) frames.push(new Uint8Array(raw));
-        } catch { /* a frame that will not decode reads as clean */ }
+        const frame = frameAt(time);
+        if (frame) frames.push(frame);
+      }
+      if (!frames.length && !warnedDecodes) {
+        warnedDecodes = true;
+        console.warn("source frames would not decode; the camera text guard is off");
       }
       mask = frames.length ? edgeCuts(frames, W, H, 0) : () => 0;
       if (cache.size >= 2) cache.clear();
@@ -193,9 +211,10 @@ export async function renderTake(dir: string, d?: CameraDefaults): Promise<{ out
     return { t: f.t, x: (meta.width - w) / 2, y, w, h };
   };
   const project = (frame: CameraFrame) => sourceViewport(frame, meta.width, meta.height, stage, d);
+  const changes = moving ? await takeChanges(dir, meta, trimStart, trimEnd, outTime, clock?.contains ?? (() => true)) : [];
   const solved = solveCamera(tapShots?.beats ?? outBeats, tapShots?.decisions ?? outDecisions, { ...meta, trim_end: trimStart + duration },
     { ...d, min_shot: d.min_shot * d.pace, dwell: d.dwell * d.pace, dwell_k2: d.dwell_k2 * d.pace },
-    banded ? undefined : phone ? (frame) => project(phoneReframe(frame)) : project, cuts);
+    banded ? undefined : phone ? (frame) => project(phoneReframe(frame)) : project, cuts, changes);
   const solvedFrames = phone ? solved.map(phoneReframe) : solved;
   const held = wide && d.camera_path === "hold" && !phone ? holdPath(solvedFrames, outBeats, outDecisions,
     { band, stage, width: meta.width, height: meta.height, d, minShot: d.min_shot * d.pace },
@@ -214,7 +233,6 @@ export async function renderTake(dir: string, d?: CameraDefaults): Promise<{ out
   // Exports without qualified motion retain the centred rest framing; neither
   // automatic/held paths nor manual spans can move it.
   const restW = baseWidth(meta.width, meta.height, d), restH = restW * d.out_h / d.out_w;
-  const changes = moving && zooms.length ? await takeChanges(dir, meta, trimStart, trimEnd, outTime, clock?.contains ?? (() => true)) : [];
   const directed = moving ? applyManualZooms(held?.frames ?? solvedFrames, { ...meta, zooms }, d, outBeats, changes)
     : solvedFrames.map(f => ({ t: f.t, x: (meta.width - restW) / 2, y: (meta.height - restH) / 2, w: restW, h: restH }));
   const frames = moving && zooms.length ? applyDragVisibility(directed, outBeats, meta.width, meta.height, trimStart, d) : directed;
