@@ -205,11 +205,19 @@ done-done is not on npm: the script installs the pinned commit
 exactly `npm install --prefix <prefix> --allow-git=all
 github:umeranjum17/done-done-axi#6b529b61135000d9fd610ca2c744287b0d1f87e2
 @byokit/decide@0.8.0` — never `npm install -g`, never the repo's `package.json`. The
-judge is a model call on Command Code DeepSeek v4.1 Flash through BYOKit as done-done
-configures it (route `answerer:pi`, model `commandcode/deepseek/deepseek-v4.1-flash`,
-written to a scratch `DONE_DONE_HOME` inside the pass dir, so no key is printed or
-committed and the machine's global tooling and `~/.done-done` are untouched; it uses the
-existing pi login and needs that model to be declared image-capable in `models.json`).
+judge runs on an APPROVED, LIVE model (`data/model-checks.md` APPROVED; `crew-dispatch.json`
+fallback order) through route `answerer:opencode` (the `opencode` CLI on PATH speaks the
+`opencode-go/...` catalog natively); a probe judges one screen per candidate and the first that
+answers is used, in order `opencode-go/step-5-preview-free`, `opencode/step-5-preview-free`,
+`opencode-go/mimo-v2.6-flash`, `opencode-go/deepseek-v4.1-flash`. Route, model and a real
+`agent` author (distinct from the judge agent, so independence stays `agent`) are written to a
+scratch `DONE_DONE_HOME` inside the pass dir, so no key is printed or committed and the machine's
+global tooling and `~/.done-done` are untouched. A screen whose reason shows the judge never
+answered ("did not answer", `ETIMEDOUT`, invalid JSON) is a transport failure, not a verdict: after
+the 3-attempt retry the run fails as JUDGE UNAVAILABLE (exit 4, `design.json` relabelled
+`result: judge-unavailable`), so a dead judge can never silently pass. The old route
+`answerer:pi` + model `commandcode/deepseek/deepseek-v4.1-flash` (Command Code out of credits)
+never answered and produced 56 transport unsures.
 
 It renders 10 offline cells, each in midnight (dark) and paper (light): desktop 1920×1080
 (`synth-take.ts`), phone 1080×1920 and 4:5 (`synth-portrait.ts`), large font
