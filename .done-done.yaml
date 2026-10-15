@@ -3,9 +3,10 @@
 app: "takeone"
 # This repo's coding agent, over agent in ~/.done-done/config.yaml (model, effort and the other agent settings stay there).
 # agent: opencode
-# Docs-only commits keep evidence fresh, mirroring the code/docs split in .github/workflows/ci.yml.
+# Docs-only commits and sign-off board traffic keep evidence fresh: neither is
+# a product change (mirrors the code/docs split in .github/workflows/ci.yml).
 evidence:
-  ignore_paths: ["docs/**", ".agents/**", "data/**", "README.md", "LICENSE"]
+  ignore_paths: ["docs/**", ".agents/**", "data/**", ".sign-off/**", "README.md", "LICENSE"]
 journeys:
   # The repo's existing static checks (floor guard, typecheck, full test suite),
   # expressed as a done-done journey: the log it writes is the evidence.
