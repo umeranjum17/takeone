@@ -69,8 +69,9 @@ test("render CLI rejects unknown and malformed override arguments", () => {
 // One consumer journey: inferred duration, then the real make -> saved render path over
 // typing, a revealed dialog result, drags trimmed at the video boundary, released and not,
 // and a drop whose settled layout the camera reframes.
-// The added portrait and drop renders need a 240s journey budget (measured 136.013s at two CPUs).
-test("render without trim_end uses the latest beat end", { timeout: 240_000, skip: needsFfmpeg }, async () => {
+// The added portrait and drop renders need a 360s journey budget (the drop journey's
+// real 4K capture plus its guarded portrait solve measured 249s on a loaded two-CPU runner).
+test("render without trim_end uses the latest beat end", { timeout: 360_000, skip: needsFfmpeg }, async () => {
   const dir = await mkdtemp(join(process.cwd(), "takeone:duration-"));
   try {
     await mkdir(join(dir, "analysis"));

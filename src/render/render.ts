@@ -93,7 +93,24 @@ export function sourceEdgeCuts(dir: string, meta: TakeMeta, at: (t: number) => n
   if (!existsSync(file)) return undefined;
   const { width: W, height: H } = meta;
   const cache = new Map<string, ReturnType<typeof edgeCuts>>();
+  // Decoded source seconds, shared across every guard window of this solve.
+  // Materialize, the release search and the guard loop re-ask the same seconds
+  // under different window keys; each miss below used to re-spawn ffmpeg for them.
+  // A frame is W*H bytes against ~5x that per mask, so these stay cached for the solve.
+  const decoded = new Map<string, Uint8Array>();
   let warnedDecodes = false;
+  const frameAt = (time: number): Uint8Array | undefined => {
+    const second = Math.max(0, at(time)).toFixed(3);
+    let frame = decoded.get(second);
+    if (frame) return frame;
+    try {
+      const raw = execFileSync("ffmpeg", ["-nostdin", "-v", "error", "-ss", second,
+        "-i", file, "-frames:v", "1", "-vf", "format=gray", "-f", "rawvideo", "-"],
+        { maxBuffer: W * H + 4096, timeout: 60000 });
+      if (raw.length === W * H) decoded.set(second, frame = new Uint8Array(raw));
+    } catch { /* a frame that will not decode reads as clean */ }
+    return frame;
+  };
   return (view, t, until) => {
     const key = `${Math.round(t * 10)}:${Math.round(until * 10)}`;
     let mask = cache.get(key);
@@ -101,12 +118,8 @@ export function sourceEdgeCuts(dir: string, meta: TakeMeta, at: (t: number) => n
       const times = until > t + 1e-6 ? [t, (t + until) / 2, until] : [t];
       const frames: Uint8Array[] = [];
       for (const time of times) {
-        try {
-          const raw = execFileSync("ffmpeg", ["-nostdin", "-v", "error", "-ss", Math.max(0, at(time)).toFixed(3),
-            "-i", file, "-frames:v", "1", "-vf", "format=gray", "-f", "rawvideo", "-"],
-            { maxBuffer: W * H + 4096, timeout: 60000 });
-          if (raw.length === W * H) frames.push(new Uint8Array(raw));
-        } catch { /* a frame that will not decode reads as clean */ }
+        const frame = frameAt(time);
+        if (frame) frames.push(frame);
       }
       if (!frames.length && !warnedDecodes) {
         warnedDecodes = true;
