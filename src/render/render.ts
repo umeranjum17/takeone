@@ -93,6 +93,7 @@ export function sourceEdgeCuts(dir: string, meta: TakeMeta, at: (t: number) => n
   if (!existsSync(file)) return undefined;
   const { width: W, height: H } = meta;
   const cache = new Map<string, ReturnType<typeof edgeCuts>>();
+  let warnedDecodes = false;
   return (view, t, until) => {
     const key = `${Math.round(t * 10)}:${Math.round(until * 10)}`;
     let mask = cache.get(key);
@@ -106,6 +107,10 @@ export function sourceEdgeCuts(dir: string, meta: TakeMeta, at: (t: number) => n
             { maxBuffer: W * H + 4096, timeout: 60000 });
           if (raw.length === W * H) frames.push(new Uint8Array(raw));
         } catch { /* a frame that will not decode reads as clean */ }
+      }
+      if (!frames.length && !warnedDecodes) {
+        warnedDecodes = true;
+        console.warn("source frames would not decode; the camera text guard is off");
       }
       mask = frames.length ? edgeCuts(frames, W, H, 0) : () => 0;
       if (cache.size >= 2) cache.clear();

@@ -4,7 +4,7 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import test from "node:test";
 import { DEFAULTS } from "../src/camera/defaults.ts";
-import { solveCamera, clippedFractions, wholeCrop, frame, toFrame } from "../src/camera/solver.ts";
+import { solveCamera, solveCameraDetailed, clippedFractions, wholeCrop, frame, toFrame } from "../src/camera/solver.ts";
 import type { Beat, CameraFrame, Decision, Zone } from "../src/camera/types.ts";
 import type { Action } from "../src/types.ts";
 import { renderTake } from "../src/render/render.ts";
@@ -678,6 +678,98 @@ test("a hold guard window covers the frames the hold shows, not just the beat", 
   assert.ok(guarded.length > 20, "sample the guarded first hold");
   assert.ok(guarded.every((f) => f.w >= 2000),
     `the first hold must widen for content shown during it (${guarded.map((f) => f.w.toFixed(0)).slice(0, 3).join(",")}...)`);
+});
+
+// Rate limiting, preparation deferral and stale-drag skips drop planned targets
+// after their guard windows are computed, so a dropped target must not end the
+// preceding hold's window: each window derives from the emitted move graph.
+// The wide take drops a full-width preparation hold past its deferral limit and
+// two mid-sequence targets past the rate cap; the portrait take's drag leaves
+// its mid-drag click (and the grab) stale. Every emitted hold then sits inside
+// its guard window, and the window still bites: the extended hold widens for
+// content painted mid-hold, where the unguarded control stays tight.
+test("dropped targets leave every emitted hold inside its guard window", () => {
+  const d = { ...DEFAULTS, outro_s: 0 };
+  const click = (id: string, anchor: number, bbox: Zone["bbox"]): Beat => ({
+    id, kind: "click", t0: anchor - 0.5, t1: anchor + 1, anchor_t: anchor, actions: [],
+    zones: [{ name: `${id}-z`, type: "act", bbox }],
+  });
+  const decide = (beaten: Beat[], K: 0 | 1 | 2 = 1): Decision[] => beaten.map((b) => ({
+    beat: b.id, A: b.zones[0]!.name, L: 3, p: 0, K, conf: 1, decided_by: "test",
+  }));
+  const wideBeats = [
+    click("b0", 2, [200, 900, 180, 120]),
+    click("bv", 3.5, [0, 900, 3840, 200]),
+    click("b1", 5.2, [900, 900, 180, 120]),
+    click("b2", 6.8, [1600, 900, 180, 120]),
+    click("b3", 8.4, [2300, 900, 180, 120]),
+    click("b4", 10, [3000, 900, 180, 120]),
+    click("b5", 11.6, [3400, 900, 180, 120]),
+  ];
+  const wideDecisions = decide(wideBeats).map((decided) =>
+    ["bv", "b4", "b5"].includes(decided.beat) ? { ...decided, K: 2 as const } : decided);
+  const wideTake = { width: 3840, height: 2160, trim_end: 14 };
+  const drag: Beat = { id: "g", kind: "drag", t0: 2, t1: 4.7, anchor_t: 2.4,
+    actions: [{ k: "drag", t0: 2200, t1: 4500, from: [540, 500], to: [540, 1200],
+      bbox: [520, 480, 60, 60], whole_object: [520, 480, 60, 60] }],
+    zones: [{ name: "surf", type: "act", bbox: [520, 480, 60, 60] }] };
+  const portraitBeats = [
+    click("c1", 2, [400, 50, 180, 120]),
+    drag,
+    click("v", 3.6, [400, 900, 180, 120]),
+    click("c2", 6.5, [400, 1750, 180, 120]),
+  ];
+  const portraitDecisions: Decision[] = portraitBeats.map((b) => ({
+    beat: b.id, A: b.id === "g" ? "surf" : `${b.id}-z`, L: 3, p: 0, K: 1, conf: 1, decided_by: "test",
+  }));
+  const portraitTake = { width: 1080, height: 1920, trim_end: 10 };
+  // Dropped draft arrivals: the full-width strip (deferral) and two capped
+  // mids on wide; the grab, the drag shot and the mid-drag click on portrait.
+  const takes = [
+    { beats: wideBeats, decisions: wideDecisions, take: wideTake, paint: 5, dropped: [3.4, 5.1, 6.7, 8.3] },
+    { beats: portraitBeats, decisions: portraitDecisions, take: portraitTake, paint: 4, dropped: [2.2, 2.3, 3.5] },
+  ];
+  for (const { beats, decisions, take, paint, dropped } of takes) {
+    // Content painted mid-hold constrains only framings whose window reaches it.
+    const probe = (v: { x: number; y: number; w: number; h: number }, _at: number, until: number): number =>
+      until > paint && v.w < 2000 ? 1 : 0;
+    const { frames, holds } = solveCameraDetailed(beats, decisions, take, d, undefined, probe);
+    assert.ok(holds.length >= 2, `a next emitted move must exist to end the first hold (${take.width}x${take.height})`);
+    // Each hold's window reaches the next emitted move (or the take end),
+    // passing over the dropped arrivals on the way.
+    holds.forEach((h, i) => {
+      const next = holds[i + 1]?.moveStart ?? take.trim_end;
+      assert.ok(h.until >= next,
+        `hold t=${h.t.toFixed(2)} window ${h.until.toFixed(2)} ends before the next move ${next.toFixed(2)}`);
+    });
+    for (const t of dropped) {
+      assert.ok(holds.every((h) => Math.abs(h.t - t) > 0.05),
+        `draft t=${t} emitted a hold: the drop sequence did not fire (${take.width}x${take.height})`);
+      assert.ok(holds.some((h) => h.t <= t && h.until >= t),
+        `no emitted hold's window covers the dropped arrival t=${t}`);
+    }
+    // The window masks the frames the hold displays.
+    holds.forEach((h, i) => {
+      const next = holds[i + 1]?.moveStart ?? take.trim_end;
+      const shown = frames.filter((f) => f.t >= h.moveStart && f.t < next);
+      assert.ok(shown.length > 0, `hold t=${h.t.toFixed(2)} displays no frames`);
+      for (const f of shown) {
+        assert.ok(f.t <= h.until, `hold t=${h.t.toFixed(2)} shows t=${f.t.toFixed(2)} past its window ${h.until.toFixed(2)}`);
+      }
+    });
+  }
+  // The guard is not inert: the wide take's extended first hold widens for
+  // the painted content, while the unguarded control stays tight.
+  const tight = solveCamera(wideBeats, wideDecisions, wideTake, d, undefined, () => 0)
+    .filter((f) => f.t >= 3 && f.t <= 8);
+  assert.ok(tight.length > 20 && tight.every((f) => f.w < 2000), "control: the extended hold is reachable tight");
+  const paint = (_v: { x: number; y: number; w: number; h: number }, _at: number, until: number): number =>
+    until > 5 && _v.w < 2000 ? 1 : 0;
+  const guarded = solveCamera(wideBeats, wideDecisions, wideTake, d, undefined, paint)
+    .filter((f) => f.t >= 3 && f.t <= 8);
+  assert.ok(guarded.length > 20, "sample the guarded extended hold");
+  assert.ok(guarded.every((f) => f.w >= 2000),
+    `the extended hold must widen for content painted mid-hold (${guarded.map((f) => f.w.toFixed(0)).slice(0, 3).join(",")}...)`);
 });
 
 // The stage margin fade used to clamp a hairline matte to a fixed width, so the
