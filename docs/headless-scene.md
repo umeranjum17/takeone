@@ -10,9 +10,33 @@ libraries installed:
 ```sh
 node scripts/install-headless-shell.mjs
 node scripts/headless-scene.mjs tmp/board-demo
-node bin/takeone.mjs make tmp/board-demo --no-jev --set fps=60
-node bin/takeone.mjs render tmp/board-demo --set fps=60
+node bin/takeone.mjs make tmp/board-demo --no-jev --set fps=60 --set max_upscale=0.5
+node bin/takeone.mjs render tmp/board-demo --set fps=60 --set max_upscale=0.5
 ```
+
+Each export shape has its own layout of the same board. `--aspect=portrait` captures
+the 1080×1920 layout (the nav becomes a strip, the three lanes narrow side by side,
+the activity feed sits below them and the dialog is centred) and `--aspect=square`
+the 1080×1080 one (the same, with compact cards and a shorter feed). Render each with
+the matching `--aspect`, so the output shows the whole layout without a crop:
+
+```sh
+node scripts/headless-scene.mjs tmp/board-portrait --aspect=portrait
+node bin/takeone.mjs make tmp/board-portrait --no-jev --set fps=60 --aspect portrait
+```
+
+### Safe area
+
+Every layout is fitted into its viewport inside a 5% inset on each side, and the take
+records every visible text line, editable field and the open dialog in
+`text-boxes.json` (stream px on the video clock, saved whenever they change). `render`
+(and `make`) project those boxes through the final camera and stage, exactly as the
+cursor overlay is placed, and exit 1 before encoding when any shown box crosses the
+5% inset of the output, naming the first box, output frame and rectangle; the full
+list is in `safe-area.json`. A push-in on this dense board always parks text in that
+band, so `max_upscale=0.5` keeps the 2× source at its rest framing. To prove camera
+motion on a scene take, delete `text-boxes.json` from a copy: that take then carries
+no safe-area acceptance.
 
 The output directory must be new; missing parent directories are created. The installer fetches
 the pinned Chrome for Testing headless shell, verifies the archive
@@ -23,8 +47,9 @@ dependencies. The pin, checksums and download URL are owned by
 Ubuntu's required shared libraries are listed in the `headless-scene` CI job.
 
 The existing board and desktop driver use 2560×1440 layout coordinates. Headless
-presentation scales that layout by 0.75 into a 1920×1080 CSS viewport, rendered
-at device scale factor 2. The source is therefore exactly 3840×2160. The
+presentation fits that layout (0.675) inside the safe inset of a 1920×1080 CSS
+viewport, rendered at device scale factor 2. The source is therefore exactly
+3840×2160 (2160×3840 portrait, 2160×2160 square, whose layouts are fitted at 0.9). The
 choreography creates two tasks, types notes, selects priority, drags a card,
 scrolls the activity feed, completes a task and archives completed cards.
 
@@ -56,12 +81,13 @@ take and closes its browser and encoder.
 Run the complete acceptance gate locally or in CI:
 
 ```sh
-node scripts/test-headless-scene.mjs
+node scripts/test-headless-scene.mjs                    # board
+node scripts/test-headless-scene.mjs --aspect=portrait  # or --aspect=square
 ```
 
 It captures the full sequence twice, checks every decoded frame with `framemd5`,
 compares event logs and frame clocks, probes dimensions, 60 Hz timestamps and
-frame count, then runs the unchanged `make --no-jev` pipeline and requires click,
+frame count, then runs `make --no-jev` (rest framing, so its safe-area gate applies) and requires click,
 drag and typing beats. WebM timestamps have millisecond precision: the gate
 allows only the rounding of a 60 Hz sample to that timebase. A JSON report, decoded frame hashes and a 4×4 contact sheet of the render are retained under `tmp/headless-validation/` and uploaded by CI.
 Determinism is checked between fresh runs on the same host. Moving the browser

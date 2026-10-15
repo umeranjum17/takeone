@@ -74,7 +74,9 @@ export function bandLayout(width: number, height: number, d: CameraDefaults, cap
   if (!bandEligible(width, height, d)) return null;
   const { titleH, captionH, gap, padding, band } = bandRows(captions, widths, d);
   const top = Math.round(d.out_h * d.stage_margin / (1 + 2 * d.stage_margin));
-  const h = Math.floor((d.out_h - top - band) / 2) * 2;
+  // Band text keeps the bottom 5% of the frame clear, like captions without a band (title safe).
+  const safe = Math.max(0, Math.ceil(d.out_h * 0.05 - padding));
+  const h = Math.floor((d.out_h - top - band - safe) / 2) * 2;
   if (h <= 0) throw new Error("text is too tall for the stage band");
   const w = even(h * d.out_w / d.out_h);
   const stage = { w: d.out_w, h: d.out_h, baseW: w, baseH: h, screenX: Math.round((d.out_w - w) / 2), screenY: top, restScale: 1 };

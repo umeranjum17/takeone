@@ -36,8 +36,8 @@ The offline proof uses the deterministic board fixture with its painted cursor o
 ```sh
 export TAKEONE_DIR="$PWD/tmp/verify-takes"
 node scripts/headless-scene.mjs "$TAKEONE_DIR/cursor-free" --cursor=hidden   # writes cursor_free: true, no painted cursor
-node bin/takeone.mjs make "$TAKEONE_DIR/cursor-free" --no-jev --set fps=60
-node bin/takeone.mjs render "$TAKEONE_DIR/cursor-free" --set motion_blur=0
+node bin/takeone.mjs make "$TAKEONE_DIR/cursor-free" --no-jev --set fps=60 --set max_upscale=0.5   # rest framing: the safe-area gate fails push-ins
+node bin/takeone.mjs render "$TAKEONE_DIR/cursor-free" --set motion_blur=0 --set max_upscale=0.5
 ```
 
 The render writes `cursor.ass` (the drawn cursor) next to `camera.json`.

@@ -30,7 +30,7 @@ export interface CameraDefaults {
   motion_blur: number; // 0..1, centred shutter up to half a frame
   camera_path: "solver" | "hold"; // hold: edge-safe held framings joined by single eased moves
   quality: "draft" | "standard" | "master"; // encode CRF 23 / 12 / 12; master keeps 4:4:4 chroma
-  max_upscale: number; // never upscale source pixels more than this
+  max_upscale: number; // never upscale source pixels more than this (0.5 keeps a 2x source at rest)
   deadzone_margin: number; // 8% margin for the deadzone rule
   deadzone_zoom: number; // max zoom change for the deadzone rule
   dwell: number; // s after previous arrival before a move may start
@@ -227,7 +227,7 @@ export function applyOverrides(overrides: Overrides, base: CameraDefaults = DEFA
       || (positive.includes(k) ? v <= 0 : v < 0)
       || (integers.includes(k) && !Number.isInteger(v))
       || (["out_w", "out_h"].includes(k) && v % 2 !== 0)
-      || (["max_upscale", "deadzone_zoom", "l1_pad", "l2_pad", "l3_pad", "hold_pad", "idle_speed"].includes(k) && v < 1)
+      || (["deadzone_zoom", "l1_pad", "l2_pad", "l3_pad", "hold_pad", "idle_speed"].includes(k) && v < 1)
       || (k === "frame_max" && v > 1)
       || (k === "deadzone_margin" && v >= 0.5)
       || (k === "stage_margin" && v > 0.25)
