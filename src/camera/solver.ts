@@ -153,10 +153,11 @@ function compose(state: CameraState, subject: Zone, boxes: Box[], width: number,
  * (motion tours) shares this search.
  * `project` maps a raw crop to what the viewer sees (the stage adds a margin around pushed-in
  * crops): the edge tests run on the projected crop, so a raw edge that looks clear but renders
- * inside a rail still fails. Positions and cluster scoring stay in raw camera space. */
+ * inside a rail still fails. Positions and cluster scoring stay in raw camera space.
+ * `step` adds positions that many pixels apart, for an `accept` with no boxes to align to. */
 export function wholeCrop(w0: number, maxW: number, aspect: number, subject: Box, boxes: Box[], width: number, height: number,
   accept: (crop: CameraFrame) => boolean = () => true, avoid: Box[] = [],
-  project: (frame: CameraFrame) => CameraFrame = identity): CameraFrame | undefined {
+  project: (frame: CameraFrame) => CameraFrame = identity, step = 0): CameraFrame | undefined {
   const [sx, sy, sw, sh] = subject;
   const solid = avoid.flatMap((box): Box[] => {
     const [bx, by, bw, bh] = box;
@@ -205,6 +206,7 @@ export function wholeCrop(w0: number, maxW: number, aspect: number, subject: Box
       const high = Math.min(size - view, s - Math.min(gap, s));
       if (low > high) return [];
       const candidates = [(low + high) / 2, low, high];
+      for (let p = low + step; step > 0 && p < high; p += step) candidates.push(p);
       for (const box of veto) {
         const start = box[axis];
         const end = start + box[axis + 2]!;
@@ -996,6 +998,7 @@ function sampleCamera(
   windows: number[],
   draftCount: number,
   emitted: EmittedMove[],
+  changes: { t: number; bbox: Box }[],
 ): CameraFrame[] {
   const baseW = baseWidth(width, height, d);
   const narrow = cropped(width, height, d);
@@ -1050,16 +1053,35 @@ function sampleCamera(
     const drag = drags.find((g) => time >= g.t0 / 1000 && time <= g.t1 / 1000);
     if (activeDrag !== drag) {
       if (activeDrag && !drag) {
-        const at = activeDrag.t1 / 1000;
+        // Judge the drop on its settled layout: wait out the burst of on-screen
+        // changes the release starts (each within cut_settle_ms of the last, for
+        // at most the preparation deferral limit), then pan to the crop nearest the
+        // drop that cuts no text the hold shows, zooming out only when no pan at
+        // this width fits. A drag without a whole object anchors on its drop
+        // point: its bbox is the pointer's path, not an object.
+        const view = project(toFrame(previousFiltered, width, height, d));
+        let at = activeDrag.t1 / 1000;
+        for (const change of changes) {
+          if (change.t > at && change.t <= Math.min(at + d.cut_settle_ms / 1000, activeDrag.t1 / 1000 + deferLimit)
+            && clippedFractions(view, [change.bbox])[0]! < 1) at = change.t;
+        }
         const until = windows[draftCount + drags.indexOf(activeDrag)]!;
-        if (cuts && cuts(project(toFrame(previousFiltered, width, height, d)), at, until) > 0) {
-          const [x, y, w, h] = activeDrag.whole_object ?? activeDrag.bbox;
-          const subject: Zone = { name: "drop", type: "act", bbox: [
-            x + activeDrag.to[0] - activeDrag.from[0],
-            y + activeDrag.to[1] - activeDrag.from[1], Math.max(1, w), Math.max(1, h),
-          ] };
-          state = compose(previousFiltered, subject, [], width, height, d, project, cuts, at, until);
-          move = { from: state, to: state, mid: state, start: previousTime, end: previousTime, hop: false };
+        // A side edge in a word gap misses every glyph but still cuts the line: text
+        // within a word gap (g) on both sides of it is one line running through it.
+        const g = width / 160;
+        const near = (v: CameraFrame, dx: number, dw: number) => {
+          for (let k = 6; k <= g; k += 6) if (cuts!({ ...v, x: v.x + dx * k, w: v.w + dw * k }, at, until) > 0) return true;
+          return false;
+        };
+        const clear = (v: CameraFrame) => !cuts || cuts(v, at, until) === 0
+          && !(near(v, -1, 1) && near(v, 1, -1)) && !(near(v, 0, 1) && near(v, 0, -1));
+        if (cuts && at < until && !clear(view)) {
+          const [x, y, w, h] = activeDrag.whole_object ?? [...activeDrag.from, 1, 1];
+          const fit = wholeCrop(toFrame(previousFiltered, width, height, d).w, baseW, d.out_w / d.out_h,
+            [x + activeDrag.to[0] - activeDrag.from[0], y + activeDrag.to[1] - activeDrag.from[1], w, h], [],
+            width, height, (crop) => clear(project(crop)), [], project, Math.max(1, Math.round(width / 960)));
+          if (fit) move = createMove(previousFiltered, { cx: fit.x + fit.w / 2, cy: fit.y + fit.h / 2, z: baseW / fit.w },
+            0, baseW, d, at);
         }
       }
       dragFrom = undefined;
@@ -1287,6 +1309,7 @@ export function solveCameraDetailed(
   d: CameraDefaults = DEFAULTS,
   project: (frame: CameraFrame) => CameraFrame = identity,
   cuts?: EdgeCuts,
+  changes: { t: number; bbox: Box }[] = [],
 ): { frames: CameraFrame[]; holds: EmittedHold[] } {
   validateCameraInputs(beats, decisions, take);
   const start = take.trim_start ?? 0;
@@ -1325,7 +1348,7 @@ export function solveCameraDetailed(
       width, height, d, project, cuts);
     const emitted: EmittedMove[] = [{ draft: 0, start }];
     sampled = sampleCamera(targets, initial!.state, sampledBeats, drags, decisionMap, width, height,
-      start, end, d, project, cuts, windows, drafts.length, emitted);
+      start, end, d, project, cuts, windows, drafts.length, emitted, changes);
     holds = holdsFromEmitted(drafts, drags, emitted, windows, end);
     if (holdsCovered(holds, end)) break;
     holds.forEach((hold, index) => {
@@ -1367,6 +1390,7 @@ export function solveCamera(
   d: CameraDefaults = DEFAULTS,
   project: (frame: CameraFrame) => CameraFrame = identity,
   cuts?: EdgeCuts,
+  changes: { t: number; bbox: Box }[] = [],
 ): CameraFrame[] {
-  return solveCameraDetailed(beats, decisions, take, d, project, cuts).frames;
+  return solveCameraDetailed(beats, decisions, take, d, project, cuts, changes).frames;
 }

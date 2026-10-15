@@ -198,9 +198,10 @@ export async function renderTake(dir: string, d?: CameraDefaults): Promise<{ out
     return { t: f.t, x: (meta.width - w) / 2, y, w, h };
   };
   const project = (frame: CameraFrame) => sourceViewport(frame, meta.width, meta.height, stage, d);
+  const changes = moving ? await takeChanges(dir, meta, trimStart, trimEnd, outTime, clock?.contains ?? (() => true)) : [];
   const solved = solveCamera(tapShots?.beats ?? outBeats, tapShots?.decisions ?? outDecisions, { ...meta, trim_end: trimStart + duration },
     { ...d, min_shot: d.min_shot * d.pace, dwell: d.dwell * d.pace, dwell_k2: d.dwell_k2 * d.pace },
-    banded ? undefined : phone ? (frame) => project(phoneReframe(frame)) : project, cuts);
+    banded ? undefined : phone ? (frame) => project(phoneReframe(frame)) : project, cuts, changes);
   const solvedFrames = phone ? solved.map(phoneReframe) : solved;
   const held = wide && d.camera_path === "hold" && !phone ? holdPath(solvedFrames, outBeats, outDecisions,
     { band, stage, width: meta.width, height: meta.height, d, minShot: d.min_shot * d.pace },
@@ -219,7 +220,6 @@ export async function renderTake(dir: string, d?: CameraDefaults): Promise<{ out
   // Exports without qualified motion retain the centred rest framing; neither
   // automatic/held paths nor manual spans can move it.
   const restW = baseWidth(meta.width, meta.height, d), restH = restW * d.out_h / d.out_w;
-  const changes = moving && zooms.length ? await takeChanges(dir, meta, trimStart, trimEnd, outTime, clock?.contains ?? (() => true)) : [];
   const directed = moving ? applyManualZooms(held?.frames ?? solvedFrames, { ...meta, zooms }, d, outBeats, changes)
     : solvedFrames.map(f => ({ t: f.t, x: (meta.width - restW) / 2, y: (meta.height - restH) / 2, w: restW, h: restH }));
   const frames = moving && zooms.length ? applyDragVisibility(directed, outBeats, meta.width, meta.height, trimStart, d) : directed;
