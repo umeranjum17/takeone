@@ -36,7 +36,7 @@ interface Target {
   /** A disappearing subject cannot wait behind ordinary shot holds. */
   reveal?: { t: number; bbox: Zone["bbox"] };
   /** Position in the draft order; the emitted move graph keys guard windows by it. */
-  draft?: number;
+  draft: number;
 }
 
 interface Move {
@@ -782,15 +782,10 @@ export interface EmittedHold {
   until: number;
 }
 
-function orderedMoves(emitted: EmittedMove[]): EmittedMove[] {
-  return emitted.filter((move) => move.draft >= 0)
-    .sort((a, b) => a.start - b.start || a.draft - b.draft);
-}
-
-function holdsFromEmitted(drafts: Draft[], emitted: EmittedMove[], windows: number[], end: number): EmittedHold[] {
-  return orderedMoves(emitted).map((move) => ({
+function holdsFromEmitted(drafts: Draft[], drags: Gesture[], emitted: EmittedMove[], windows: number[], end: number): EmittedHold[] {
+  return emitted.sort((a, b) => a.start - b.start || a.draft - b.draft).map((move) => ({
     draft: move.draft,
-    t: drafts[move.draft]!.t,
+    t: move.draft < drafts.length ? drafts[move.draft]!.t : drags[move.draft - drafts.length]!.t1 / 1000,
     moveStart: move.start,
     until: windows[move.draft] ?? end,
   }));
@@ -997,8 +992,10 @@ function sampleCamera(
   end: number,
   d: CameraDefaults,
   project: (frame: CameraFrame) => CameraFrame,
-  cuts?: EdgeCuts,
-  emitted?: EmittedMove[],
+  cuts: EdgeCuts | undefined,
+  windows: number[],
+  draftCount: number,
+  emitted: EmittedMove[],
 ): CameraFrame[] {
   const baseW = baseWidth(width, height, d);
   const narrow = cropped(width, height, d);
@@ -1023,6 +1020,7 @@ function sampleCamera(
     return time === undefined ? [] : [time / 1000];
   }).sort((a, b) => a - b);
   let dragFrom: CameraState | undefined;
+  let activeDrag: Gesture | undefined;
   const reveals = beats.flatMap((beat) => (beat.dialog_results ?? []).map((result) => ({
     start: result.t - d.move_t_max - 0.3,
     end: intentTimes.find((time) => time > result.t + 0.1) ?? end,
@@ -1050,7 +1048,24 @@ function sampleCamera(
     }
     // No shot starts while a crop-to-fill view carries a dragged surface.
     const drag = drags.find((g) => time >= g.t0 / 1000 && time <= g.t1 / 1000);
-    if (!drag) dragFrom = undefined;
+    if (activeDrag !== drag) {
+      if (activeDrag && !drag) {
+        const at = activeDrag.t1 / 1000;
+        const until = windows[draftCount + drags.indexOf(activeDrag)]!;
+        if (cuts && cuts(project(toFrame(previousFiltered, width, height, d)), at, until) > 0) {
+          const [x, y, w, h] = activeDrag.whole_object ?? activeDrag.bbox;
+          const subject: Zone = { name: "drop", type: "act", bbox: [
+            x + activeDrag.to[0] - activeDrag.from[0],
+            y + activeDrag.to[1] - activeDrag.from[1], Math.max(1, w), Math.max(1, h),
+          ] };
+          state = compose(previousFiltered, subject, [], width, height, d, project, cuts, at, until);
+          move = { from: state, to: state, mid: state, start: previousTime, end: previousTime, hop: false };
+        }
+      }
+      dragFrom = undefined;
+      activeDrag = drag;
+      if (drag) emitted.push({ draft: draftCount + drags.indexOf(drag), start: time });
+    }
     while (!drag && targetIndex < targets.length) {
       const target = targets[targetIndex]!;
       // A shot due before a drag's release is stale once the carried view has replaced it.
@@ -1115,7 +1130,7 @@ function sampleCamera(
           if (time < preparation.start) break;
         }
         move = { ...createMove(previousFiltered, target.state, 0, baseW, d, time), preparation: true };
-        emitted?.push({ draft: target.draft ?? -1, start: time });
+        emitted.push({ draft: target.draft, start: time });
         break;
       }
       if (preparation && time >= preparation.deadline && subject
@@ -1138,7 +1153,7 @@ function sampleCamera(
         if (!urgent && canHold(state, target, width, height, d, project, cuts)) continue;
         move = candidateMove;
       }
-      emitted?.push({ draft: target.draft ?? -1, start: move.start });
+      emitted.push({ draft: target.draft, start: move.start });
       if (urgent) break;
     }
 
@@ -1301,7 +1316,7 @@ export function solveCameraDetailed(
   // not the next planned draft: rate limiting, deferral and drag can drop it.
   // Reframing can change which moves survive, so repeat until covered. Windows
   // only extend, on the finite output-frame clock, and never past the take end.
-  const windows = drafts.map(draft => draft.t);
+  const windows = [...drafts.map(draft => draft.t), ...drags.map(drag => Math.min(end, drag.t1 / 1000))];
   let sampled: CameraFrame[] = [];
   let holds: EmittedHold[] = [];
   for (;;) {
@@ -1310,15 +1325,15 @@ export function solveCameraDetailed(
       width, height, d, project, cuts);
     const emitted: EmittedMove[] = [{ draft: 0, start }];
     sampled = sampleCamera(targets, initial!.state, sampledBeats, drags, decisionMap, width, height,
-      start, end, d, project, cuts, emitted);
-    holds = holdsFromEmitted(drafts, emitted, windows, end);
+      start, end, d, project, cuts, windows, drafts.length, emitted);
+    holds = holdsFromEmitted(drafts, drags, emitted, windows, end);
     if (holdsCovered(holds, end)) break;
     holds.forEach((hold, index) => {
       const until = holds[index + 1]?.moveStart ?? end;
       windows[hold.draft] = Math.max(windows[hold.draft]!, Math.min(end, Math.ceil(until * d.fps) / d.fps));
     });
     if (!cuts) {
-      holds = holdsFromEmitted(drafts, emitted, windows, end);
+      holds = holdsFromEmitted(drafts, drags, emitted, windows, end);
       break;
     }
   }

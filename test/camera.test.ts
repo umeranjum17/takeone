@@ -789,8 +789,8 @@ test("dropped targets leave every emitted hold inside its guard window", () => {
     for (const t of dropped) {
       assert.ok(holds.every((h) => Math.abs(h.t - t) > 0.05),
         `draft t=${t} emitted a hold: the drop sequence did not fire (${take.width}x${take.height})`);
-      assert.ok(holds.some((h) => h.t <= t && h.until >= t),
-        `no emitted hold's window covers the dropped arrival t=${t}`);
+      assert.ok(holds.some((h) => h.moveStart <= t && h.until >= t),
+        `no emitted move/hold interval covers the dropped arrival t=${t}`);
     }
     // The window masks the frames the hold displays.
     holds.forEach((h, i) => {
@@ -814,6 +814,53 @@ test("dropped targets leave every emitted hold inside its guard window", () => {
   assert.ok(guarded.length > 20, "sample the guarded extended hold");
   assert.ok(guarded.every((f) => f.w >= 2000),
     `the extended hold must widen for content painted mid-hold (${guarded.map((f) => f.w.toFixed(0)).slice(0, 3).join(",")}...)`);
+});
+
+test("drag-release holds guard their translated viewport after stale targets are skipped", () => {
+  const d = { ...DEFAULTS, out_w: 1080, out_h: 1920, outro_s: 0 };
+  const take = { width: 3840, height: 2160, trim_end: 8 };
+  const drag: Beat = { id: "carry", kind: "drag", t0: 0, t1: 2.3, anchor_t: 0,
+    actions: [{ k: "drag", t0: 0, t1: 2300, from: [1920, 1080], to: [2620, 1080],
+      bbox: [1880, 1030, 120, 100], whole_object: [1880, 1030, 120, 100] }],
+    zones: [{ name: "object", type: "act", bbox: [1880, 1030, 120, 100] }] };
+  const stale: Beat = { id: "stale", kind: "click", t0: 1.3, t1: 2, anchor_t: 1.8,
+    actions: [], zones: [{ name: "click", type: "act", bbox: [3100, 1000, 100, 100] }] };
+  const decisions: Decision[] = [
+    { beat: "carry", A: "object", L: 0, p: 0, K: 1, conf: 1, decided_by: "test" },
+    { beat: "stale", A: "click", L: 3, p: 0, K: 1, conf: 1, decided_by: "test" },
+  ];
+  const control = solveCameraDetailed([drag, stale], decisions, take, d, undefined, () => 0);
+  const at = (frames: CameraFrame[], t: number) => frames[Math.round(t * d.fps)]!;
+  const late = at(control.frames, 5);
+  const right = late.x + late.w;
+  const mask = (v: { x: number; y: number; w: number; h: number }, at: number, until: number) =>
+    at <= 5 && until >= 5 && Math.abs(v.x + v.w - right) < 8 ? 1 : 0;
+  assert.equal(mask(late, 5, 5), 1, "control: late text cuts the unguarded release hold");
+  assert.ok(Math.abs(at(control.frames, 2.3).x - control.frames[0]!.x - 700) < 0.01,
+    "the clean carry follows the pointer by exactly 700px");
+  assert.ok(Math.abs(late.x - at(control.frames, 2.3).x) < 0.01,
+    "without an edge cut, release keeps its original framing");
+  const noCarry = solveCameraDetailed([{ ...drag, actions: [] }, stale], decisions, take, d, undefined, () => 0);
+  assert.ok(noCarry.holds.some(h => Math.abs(h.t - 1.7) < 0.01),
+    "control: the mid-drag target would emit without the carry");
+  const guarded = solveCameraDetailed([drag, stale], decisions, take, d, undefined, mask);
+  assert.ok(guarded.holds.every(h => Math.abs(h.t - 1.7) > 0.01), "the mid-drag target became stale");
+  const release = guarded.holds.find(h => h.t === 2.3)!;
+  assert.ok(release, "the translated release framing must have its own emitted hold");
+  assert.equal(release.moveStart, 0, "carry is the move, not a stationary hold");
+  assert.equal(release.until, take.trim_end, "the terminal release mask reaches the take end");
+  assert.equal(guarded.holds[0]!.until, 0, "the initial framing ends when carry begins");
+  for (const f of guarded.frames.filter(f => f.t <= 2.3)) {
+    assert.deepEqual(f, at(control.frames, f.t), "the guard must not alter pointer-locked carry");
+  }
+  const dropped: Zone["bbox"] = [2580, 1030, 120, 100];
+  for (const f of guarded.frames.filter(f => f.t >= 3.3)) {
+    assert.equal(mask(f, release.t, release.until), 0, `release viewport fails its own mask at ${f.t}`);
+    assert.equal(clippedFractions(f, [dropped])[0], 0, "the clean offset retains the dropped object");
+  }
+  const empty = solveCamera([], [], take, d, undefined, () => 0);
+  assert.deepEqual(solveCamera([], [], take, d, undefined, mask), empty,
+    "a clean no-drag hold remains unchanged");
 });
 
 // The stage margin fade used to clamp a hairline matte to a fixed width, so the
