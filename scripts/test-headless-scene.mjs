@@ -42,6 +42,7 @@ for (const dir of [a,b]) {
   for (const e of events) {
     assert.ok(e.t >= last && e.t >= 0 && e.t < expected * 1000 / FPS); last = e.t;
     assert.ok(['ptr','btn','key','win','wheel'].includes(e.k));
+    if (e.k === 'ptr' && aspect === 'landscape') assert.ok(e.x >= 0 && e.x < 3840 && e.y >= 0 && e.y < 2160);
     if (e.k === 'ptr') assert.ok(e.x >= 0 && e.x < W && e.y >= 0 && e.y < H);
     if (e.k === 'key') {
       assert.deepEqual(Object.keys(e).sort(),['cls','down','k','t']);
