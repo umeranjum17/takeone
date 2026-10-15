@@ -32,7 +32,7 @@ Proving end state: exit 0; the output take dir contains `storyboard.json`, `sour
 - The first render needs the pinned headless shell installed (`install-shell`, network once); afterwards everything is offline. `doctor` reports the shell identity — check it before blaming the renderer.
 - Motion pages reject CSS gradients (use SVG gradients/patterns) and enforce font glyph coverage: a rejected plan names the missing glyph; that is by design.
 - Worker count is part of the render identity — keep `--workers` fixed between deterministic rerenders.
-- Rerendering a motion take takes no options: edit `storyboard.json` instead; `render <motion-dir> --set …` is an error.
+- Rerendering a motion take takes only `--aspect`/`--stills` (see docs/motion.md); edit `storyboard.json` for anything else — `render <motion-dir> --set …` is an error.
 - Whole-UI proof: decode settled hold frames (`camera-scenes.json` constant runs) and look at them; snapped views can widen well past the planned region when a tight close-up would slice a dimmed card or field. `test/motion-glyph.test.ts` ("whole words, fields and buttons") is the journey gate.
 - Ingest and encode are heavy — hold the shared heavy lock in fleet contexts.
 - Clip footage proof: `--stills` PNGs at settled times, one sheet per aspect; check the 1:1 film shows the square file's crop (a crop's own aspect must not decide the file). `test/motion-glyph.test.ts` ("demo film storyboard") gates clip/cut validation.
