@@ -1,1 +1,37 @@
-{"schema": 2, "items": []}
+{
+  "schema": 2,
+  "items": [
+    {
+      "contract": 1,
+      "kind": "evidence",
+      "schema": 1,
+      "key": "t1-tool-migrate-evidence",
+      "title": "takeone tool migration: done-done proof for checks + offline render",
+      "filer": "done-done",
+      "about": "Static checks pass (floor guard, typecheck, full test suite) and the offline demo take plans with --no-jev and renders to a real 1920x1080 h264 MP4. The verify-takeone skill is deleted with no shim; CI gates on a done-done run+check job; learn-from-mistakes retro run 1 completed.",
+      "type": "evidence",
+      "number": 1,
+      "media": [
+        {
+          "path": "evidence/1/1.mp4",
+          "sha256": "8a3d1e3965a4ba2696906326c31f5ed2733073353dbca055f6715e42d9403a52",
+          "bytes": 10931000
+        },
+        {
+          "path": "evidence/1/2.png",
+          "sha256": "a98a3dcf1391cd8016738a629e7ef74c4cc1c9548a6df013825b4b050c0fd73a",
+          "bytes": 2626999
+        }
+      ],
+      "evidence": {
+        "run_id": "20261015T065131Z-1ff1f3e1-c82011",
+        "commit": "1ff1f3e172039c0b31a8ae6e0e295d374843b195",
+        "outcome": "takeone static checks pass and the offline demo take plans and renders to a real MP4",
+        "repro": "n/a: no bug",
+        "proof": "no verify skill - done-done run checks + done-done run offline-render",
+        "evidence": "receipts/1ff1f3e172039c0b31a8ae6e0e295d374843b195.json + takeone-offline-render-after.png + synth-demo.mp4 + probe.json"
+      },
+      "filed": "2026-10-15T06:53:36.780Z"
+    }
+  ]
+}
