@@ -83,7 +83,7 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - name: Install check prerequisites (same set the ci job uses: npm test renders real video)
+      - name: Install check prerequisites (ffmpeg, fonts, headless shell)
         run: sudo apt-get update && sudo apt-get install -y ffmpeg tesseract-ocr unzip fonts-liberation libnss3 libatk1.0-0 libatk-bridge2.0-0 libx11-6 libxcomposite1 libxdamage1 libxrandr2 libgbm1 libasound2t64
       - uses: actions/cache@v4
         with:
