@@ -689,6 +689,32 @@ test("a hold guard window covers the frames the hold shows, not just the beat", 
 // its guard window, and the window still bites: the extended hold widens for
 // content painted mid-hold, where the unguarded control stays tight.
 test("dropped targets leave every emitted hold inside its guard window", () => {
+  const initialDefaults = { ...DEFAULTS, out_w: 1080, out_h: 1920, outro_s: 0 };
+  const initialTake = { width: 3840, height: 2160, trim_start: 1, trim_end: 10 };
+  const centered: Beat = { id: "centered", kind: "click", t0: 2, t1: 4, anchor_t: 3,
+    actions: [], zones: [{ name: "center", type: "act", bbox: [1600, 800, 640, 560] }] };
+  const centeredDecisions: Decision[] = [{ beat: "centered", A: "center", L: 3, p: 0, K: 1,
+    conf: 1, decided_by: "test" }];
+  const rest = toFrame({ cx: 1920, cy: 1080, z: 1 }, 3840, 2160, initialDefaults);
+  const lateText = (v: { x: number; y: number; w: number; h: number }, at: number, until: number) =>
+    at <= 6 && until >= 6 && Math.abs(v.x - rest.x) < 20 ? 1 : 0;
+  const unguardedInitial = solveCameraDetailed([centered], centeredDecisions, initialTake, initialDefaults);
+  assert.equal(unguardedInitial.holds.length, 1, "the centered target leaves only the implicit initial hold");
+  assert.ok(unguardedInitial.frames.some(f => lateText(f, f.t + 1, f.t + 1) > 0),
+    "control: later text cuts the unchanged initial viewport");
+  for (const beats of [[], [centered]]) {
+    const guardedInitial = solveCameraDetailed(beats, beats.length ? centeredDecisions : [],
+      initialTake, initialDefaults, undefined, lateText);
+    const initial = guardedInitial.holds[0]!;
+    assert.equal(initial.t, initialTake.trim_start);
+    assert.equal(initial.moveStart, initialTake.trim_start);
+    assert.ok(initial.until >= (guardedInitial.holds[1]?.moveStart ?? initialTake.trim_end));
+    for (const f of guardedInitial.frames) {
+      assert.equal(lateText(f, f.t + 1, f.t + 1), 0, "later text must not cut a held viewport");
+    }
+    assert.equal(lateText(guardedInitial.frames[0]!, 1, 10), 0,
+      "the initial framing uses the extended mask, not just its arrival");
+  }
   const d = { ...DEFAULTS, outro_s: 0 };
   const click = (id: string, anchor: number, bbox: Zone["bbox"]): Beat => ({
     id, kind: "click", t0: anchor - 0.5, t1: anchor + 1, anchor_t: anchor, actions: [],
@@ -710,30 +736,48 @@ test("dropped targets leave every emitted hold inside its guard window", () => {
     ["bv", "b4", "b5"].includes(decided.beat) ? { ...decided, K: 2 as const } : decided);
   const wideTake = { width: 3840, height: 2160, trim_end: 14 };
   const drag: Beat = { id: "g", kind: "drag", t0: 2, t1: 4.7, anchor_t: 2.4,
-    actions: [{ k: "drag", t0: 2200, t1: 4500, from: [540, 500], to: [540, 1200],
-      bbox: [520, 480, 60, 60], whole_object: [520, 480, 60, 60] }],
-    zones: [{ name: "surf", type: "act", bbox: [520, 480, 60, 60] }] };
+    actions: [{ k: "drag", t0: 2200, t1: 4500, from: [1500, 1050], to: [2200, 1050],
+      bbox: [1480, 1030, 60, 60], whole_object: [1480, 1030, 60, 60] }],
+    zones: [{ name: "surf", type: "act", bbox: [1480, 1030, 60, 60] }] };
   const portraitBeats = [
-    click("c1", 2, [400, 50, 180, 120]),
+    click("c1", 2, [1000, 900, 180, 120]),
     drag,
-    click("v", 3.6, [400, 900, 180, 120]),
-    click("c2", 6.5, [400, 1750, 180, 120]),
+    click("v", 3.6, [2700, 900, 180, 120]),
+    click("c2", 6.5, [3400, 900, 180, 120]),
   ];
   const portraitDecisions: Decision[] = portraitBeats.map((b) => ({
     beat: b.id, A: b.id === "g" ? "surf" : `${b.id}-z`, L: 3, p: 0, K: 1, conf: 1, decided_by: "test",
   }));
-  const portraitTake = { width: 1080, height: 1920, trim_end: 10 };
+  const portraitTake = { width: 3840, height: 2160, trim_end: 10 };
+  const portraitDefaults = { ...d, out_w: 1080, out_h: 1920 };
+  const carriedView = solveCameraDetailed(portraitBeats, portraitDecisions, portraitTake,
+    portraitDefaults, undefined, () => 0);
+  const at = (t: number) => carriedView.frames[Math.round(t * portraitDefaults.fps)]!;
+  assert.ok(at(2.2).w < portraitTake.width, "the drag must run in a crop-to-fill export");
+  for (const t of [2.5, 3, 3.5, 4, 4.5]) {
+    assert.ok(Math.abs(at(t).x - at(2.2).x - 700 * (t - 2.2) / 2.3) < 1,
+      `the viewport must carry the dragged surface at t=${t}`);
+  }
+  for (const t of [4.6, 4.8, 5]) {
+    assert.ok(Math.abs(at(t).x - at(4.5).x) < 12, "release holds the drop instead of chasing a stale target");
+  }
+  assert.ok(at(7.5).x > at(5).x + 100, "a fresh post-release target still moves the camera");
+  const withoutCarry = solveCameraDetailed(portraitBeats.map(b => b === drag ? { ...b, actions: [] } : b),
+    portraitDecisions, portraitTake, portraitDefaults, undefined, () => 0);
+  assert.ok(withoutCarry.holds.some(h => Math.abs(h.t - 3.5) < 0.05),
+    "control: the mid-drag target emits when there is no carry to make it stale");
   // Dropped draft arrivals: the full-width strip (deferral) and two capped
   // mids on wide; the grab, the drag shot and the mid-drag click on portrait.
   const takes = [
-    { beats: wideBeats, decisions: wideDecisions, take: wideTake, paint: 5, dropped: [3.4, 5.1, 6.7, 8.3] },
-    { beats: portraitBeats, decisions: portraitDecisions, take: portraitTake, paint: 4, dropped: [2.2, 2.3, 3.5] },
+    { beats: wideBeats, decisions: wideDecisions, take: wideTake, defaults: d, paint: 5, dropped: [3.4, 5.1, 6.7, 8.3] },
+    { beats: portraitBeats, decisions: portraitDecisions, take: portraitTake, defaults: portraitDefaults,
+      paint: 4, dropped: [2.2, 2.5, 3.5] },
   ];
-  for (const { beats, decisions, take, paint, dropped } of takes) {
+  for (const { beats, decisions, take, defaults, paint, dropped } of takes) {
     // Content painted mid-hold constrains only framings whose window reaches it.
     const probe = (v: { x: number; y: number; w: number; h: number }, _at: number, until: number): number =>
       until > paint && v.w < 2000 ? 1 : 0;
-    const { frames, holds } = solveCameraDetailed(beats, decisions, take, d, undefined, probe);
+    const { frames, holds } = solveCameraDetailed(beats, decisions, take, defaults, undefined, probe);
     assert.ok(holds.length >= 2, `a next emitted move must exist to end the first hold (${take.width}x${take.height})`);
     // Each hold's window reaches the next emitted move (or the take end),
     // passing over the dropped arrivals on the way.

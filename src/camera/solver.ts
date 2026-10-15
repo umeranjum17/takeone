@@ -589,7 +589,7 @@ function applyDwellAndShotLength(shots: Shot[], d: CameraDefaults): Shot[] {
   return accepted;
 }
 
-function applyMoveRateLimit(targets: Target[], width: number, height: number, d: CameraDefaults,
+function applyMoveRateLimit(targets: Target[], initial: CameraState, width: number, height: number, d: CameraDefaults,
   project: (frame: CameraFrame) => CameraFrame, cuts?: EdgeCuts): Target[] {
   const baseW = baseWidth(width, height, d);
   targets = targets.map((target) => {
@@ -597,7 +597,7 @@ function applyMoveRateLimit(targets: Target[], width: number, height: number, d:
     return { ...target, state: { cx: viewport.x + viewport.w / 2,
       cy: viewport.y + viewport.h / 2, z: baseW / viewport.w } };
   });
-  let state: CameraState = { cx: width / 2, cy: height / 2, z: 1 };
+  let state = initial;
   const moving: Target[] = [];
   for (const target of targets) {
     if (!target.reveal && !target.screenChange && canHold(state, target, width, height, d, project, cuts)) {
@@ -620,7 +620,7 @@ function applyMoveRateLimit(targets: Target[], width: number, height: number, d:
       .slice(0, d.rate_max));
     kept = kept.filter((target) => !window.includes(target) || winners.has(target));
   }
-  state = { cx: width / 2, cy: height / 2, z: 1 };
+  state = initial;
   return kept.filter((target) => {
     if (!target.reveal && !target.screenChange && canHold(state, target, width, height, d, project, cuts)) return false;
     state = target.state;
@@ -987,6 +987,7 @@ function preparationTime(from: CameraState, to: CameraState, outgoing: Zone, inc
 /** Sample HOLD/MOVE/FOLLOW/BREATHE camera states at output fps. */
 function sampleCamera(
   targets: Target[],
+  initial: CameraState,
   beats: Beat[],
   drags: Gesture[],
   decisions: Map<string, Decision>,
@@ -1001,7 +1002,7 @@ function sampleCamera(
 ): CameraFrame[] {
   const baseW = baseWidth(width, height, d);
   const narrow = cropped(width, height, d);
-  let state: CameraState = { cx: width / 2, cy: height / 2, z: 1 };
+  let state = initial;
   let previousFiltered = state;
   let previousTime = start;
   let move: Move | undefined;
@@ -1286,6 +1287,10 @@ export function solveCameraDetailed(
   const quietShots = applyDwellAndShotLength(shots, d).filter((shot) => shot.arrival < end);
   const directed = visibleBeats.filter(beat => !beat.camera_suppressed);
   const drafts = buildDrafts(quietShots, directed, width, height, start, end, d, project, cuts);
+  drafts.unshift({ t: start, importance: 0,
+    build: (until) => compose({ cx: width / 2, cy: height / 2, z: 1 },
+      { name: "initial", type: "act", bbox: [width / 2, height / 2, 1, 1] },
+      [], width, height, d, project, cuts, start, until) });
   const sampledBeats = visibleBeats.map((beat) => ({ ...beat,
     kind: quietShots.some((shot) => shot.beat === beat) ? beat.kind : "idle",
     actions: quietShots.some((shot) => shot.beat === beat) ? beat.actions : [],
@@ -1300,10 +1305,11 @@ export function solveCameraDetailed(
   let sampled: CameraFrame[] = [];
   let holds: EmittedHold[] = [];
   for (;;) {
-    const targets = applyMoveRateLimit(materialize(drafts, windows),
+    const [initial, ...requested] = materialize(drafts, windows);
+    const targets = applyMoveRateLimit(requested, initial!.state,
       width, height, d, project, cuts);
-    const emitted: EmittedMove[] = [];
-    sampled = sampleCamera(targets, sampledBeats, drags, decisionMap, width, height,
+    const emitted: EmittedMove[] = [{ draft: 0, start }];
+    sampled = sampleCamera(targets, initial!.state, sampledBeats, drags, decisionMap, width, height,
       start, end, d, project, cuts, emitted);
     holds = holdsFromEmitted(drafts, emitted, windows, end);
     if (holdsCovered(holds, end)) break;
