@@ -10,13 +10,13 @@
   "layout": { "kind": "single" },
   "planner": { "by": "user", "abstained": [] },
   "clips": {
-    "raw": { "files": ["../takes/film-board/screen.webm"], "crop": ["2930:1648:0:0"], "start": 1.6, "d": 2 },
-    "open": { "files": ["../takes/sa2/landscape-4k/out/headless-demo.mp4", "../takes/sa2/portrait/out/headless-demo.mp4", "../takes/sa2/square/out/headless-demo.mp4"], "crop": ["1024:836:1408:568", "684:558:198:681", "684:558:198:261"], "start": 3.5, "d": 1.5 },
-    "type": { "files": ["../takes/sa2/landscape-4k/out/headless-demo.mp4", "../takes/sa2/portrait/out/headless-demo.mp4", "../takes/sa2/square/out/headless-demo.mp4"], "crop": ["1024:836:1408:568", "684:558:198:681", "684:558:198:261"], "start": 6.4, "d": 3.5 },
-    "drag": { "files": ["../takes/sa2/landscape-4k/out/headless-demo.mp4", "../takes/sa2/portrait/out/headless-demo.mp4", "../takes/sa2/square/out/headless-demo.mp4"], "crop": ["2240:1260:592:250", "920:780:80:256", "900:560:90:200"], "start": 15.9, "d": 3.5 },
-    "wide": { "files": ["../takes/sa2/landscape-4k/out/headless-demo.mp4"], "crop": ["2240:1260:592:250"], "start": 19.05, "d": 1.5 },
-    "tall": { "files": ["../takes/sa2/portrait/out/headless-demo.mp4"], "crop": ["594:1056:86:236"], "start": 19.05, "d": 1.5 },
-    "square": { "files": ["../takes/sa2/square/out/headless-demo.mp4"], "start": 19.05, "d": 2 }
+    "raw": { "files": ["../takes/film-board/screen.webm"], "crop": ["1650:928:450:160"], "start": 1.6, "d": 2 },
+    "open": { "files": ["../takes/sa2/landscape-4k/out/headless-demo.mp4", "../takes/sa2/portrait-4k/out/headless-demo.mp4", "../takes/sa2/square-4k/out/headless-demo.mp4"], "crop": ["1024:836:1408:568", "1368:1116:396:1362", "2432:1984:704:928"], "start": 3.5, "d": 1.5 },
+    "type": { "files": ["../takes/sa2/landscape-4k/out/headless-demo.mp4", "../takes/sa2/portrait-4k/out/headless-demo.mp4", "../takes/sa2/square-4k/out/headless-demo.mp4"], "crop": ["1024:836:1408:568", "1368:1116:396:1362", "2432:1984:704:928"], "start": 6.4, "d": 3.5 },
+    "drag": { "files": ["../takes/sa2/landscape-4k/out/headless-demo.mp4", "../takes/sa2/portrait-4k/out/headless-demo.mp4", "../takes/sa2/square-4k/out/headless-demo.mp4"], "crop": ["2240:992:592:230", "1260:1260:150:490", "3272:1640:284:726"], "start": 15.9, "d": 3.5 },
+    "wide": { "files": ["../takes/sa2/landscape-4k/out/headless-demo.mp4"], "crop": ["1480:832:600:232"], "start": 19.05, "d": 1.5 },
+    "tall": { "files": ["../takes/sa2/portrait-4k/out/headless-demo.mp4"], "crop": ["608:1080:776:508"], "start": 19.05, "d": 1.5 },
+    "square": { "files": ["../takes/sa2/square-4k/out/headless-demo.mp4"], "crop": ["3456:3448:192:192"], "start": 19.05, "d": 2 }
   },
   "scenes": [
     { "pattern": "statement", "d": 3, "cut": true, "title": "Raw screen recordings look flat." },
