@@ -45,6 +45,23 @@ window.h = (html) => { const t = document.createElement("template"); t.innerHTML
 window.esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 // Per-frame tick helper: f(localMs) runs only while the scene clock is inside [0, d] (clamped outside).
 window.tick = (fn) => { const base = window.BASE; TICKS.push((ms) => fn(ms - base)); };
+// Closed-form damped spring step (0 -> 1): zeta 1 is critical (type, no overshoot); zeta < 1 overshoots a hair (UI).
+window.springStep = (tau, omega, zeta) => {
+  if (tau <= 0) return 0;
+  if (zeta >= 1) return 1 - (1 + omega * tau) * Math.exp(-omega * tau);
+  const wd = omega * Math.sqrt(1 - zeta * zeta);
+  return 1 - Math.exp(-zeta * omega * tau) * (Math.cos(wd * tau) + (zeta * omega / wd) * Math.sin(wd * tau));
+};
+window.UI_SPRING = { omega: 14, zeta: 0.8 };
+window.TYPE_SPRING = { omega: 14, zeta: 1 };
+// Spring track: x(ms) = x0 + sum of (v_i - v_{i-1}) * S(ms - t_i). One spring is added per target change [t_i ms, v_i]
+// and none restarts, so motion stays continuous and any frame is a pure function of time.
+window.track = (x0, targets, { omega, zeta } = UI_SPRING) => (ms) => {
+  let x = x0, prev = x0;
+  for (const [t, v] of targets) { x += (v - prev) * springStep((ms - t) / 1000, omega, zeta); prev = v; }
+  return x;
+};
+window.PENDING = []; // decode promises a tick queues (clip frames); each seek waits for them before it settles
 
 // Kerned glyph layout (L8-e). Never per-letter inline-block spans: set the run as one kerned text node, measure
 // every glyph's x with Range rects, then place absolutely positioned glyph spans at those x offsets.
@@ -114,8 +131,9 @@ window.installSeek = (settle = 2) => {
     for (const t of TICKS) t(ms);
   };
   window.__apply = apply;
-  window.__seek = (ms) => {
+  window.__seek = async (ms) => {
     apply(ms);
+    await Promise.all(PENDING.splice(0));
     document.documentElement.style.backgroundColor = (flip = !flip) ? "#010101" : "#000";
     let n = settle;
     return new Promise((r) => { const f = () => (n-- > 0 ? requestAnimationFrame(f) : r()); f(); });

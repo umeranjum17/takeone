@@ -4,7 +4,7 @@ import type { Overrides } from "../camera/defaults.ts";
 
 export type Rect = [number, number, number, number]; // x, y, w, h in source px of its screen
 export type Device = "browser" | "phone" | "laptop" | "none";
-export const PATTERNS = ["hero-reveal", "zoom-tour", "end-card", "fragment", "kinetic-type", "bento"] as const;
+export const PATTERNS = ["hero-reveal", "zoom-tour", "end-card", "fragment", "kinetic-type", "bento", "clip", "statement"] as const;
 export type PatternName = (typeof PATTERNS)[number];
 
 /** DOM-driven ingest ops (L8-h), played in order in one capture page; each named state is captured after its ops. */
@@ -30,6 +30,21 @@ export interface Region {
 export interface Stop { region: string; caption?: string; hold?: number }
 
 export interface BentoTile { title: string; screen?: string }
+
+/** Real footage: [start, start + d) seconds of one or more videos, cut at ingest into 60 fps JPEG frames.
+ *  `files` are renders of one take in different aspects; the page plays the one whose own (uncropped) aspect is nearest the output aspect. */
+export interface Clip {
+  files: string[];
+  start: number;
+  d: number;
+  /** Optional per file: ffmpeg crop "w:h:x:y" in source pixels, cutting the real frame down to its subject. */
+  crop?: (string | null)[];
+  /** Filled by ingest, one per file: frame directory (frames 0001.jpg...), frame size and the uncropped file's aspect. */
+  frames?: { dir: string; count: number; width: number; height: number; aspect: number }[];
+}
+
+/** clip pattern: at `at` scene seconds, retarget the window (one spring added) and optionally swap footage/label. */
+export interface ClipCut { at: number; clip?: string; label?: string; scale?: number }
 
 /** Named device-px sub-rects of screens, cut at ingest (close-ups with no extra capture). */
 export interface Crop { screen: string; rect: Rect }
@@ -60,6 +75,17 @@ export interface Scene {
   invert?: boolean;
   /** bento: exactly four title tiles in row order. */
   tiles?: BentoTile[];
+  /** Hard cut on the beat instead of the half-second push-in. */
+  cut?: boolean;
+  /** clip: the footage window's clip id. */
+  clip?: string;
+  /** clip: typed mono label; statement: mono footnote under the type. */
+  label?: string;
+  note?: string;
+  /** clip: window scale of its fitted size (default 1) and the scale it springs from (default 0.94 of it). */
+  scale?: number;
+  from?: number;
+  cuts?: ClipCut[];
 }
 
 export interface Tempo { bpm: number; phase_s: number; snap: "beat" | "half" }
@@ -98,6 +124,7 @@ export interface Storyboard {
   theme: { name: string; overrides: Overrides & Record<string, number | string> };
   tempo?: Tempo;
   crops?: Record<string, Crop>;
+  clips?: Record<string, Clip>;
   source: {
     kind: "image" | "html" | "url";
     /** image: files; html: file; url: url. Paths are relative to the take dir or absolute. */

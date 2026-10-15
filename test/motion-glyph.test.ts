@@ -184,3 +184,15 @@ test("launch-film close-ups and bento crops show whole words, fields and buttons
     assert.deepEqual(bento.tiles!.map(t=>t.title),["Plan the launch","Capture a task","Ship it",""]);
   } finally {rmSync(dir,{recursive:true,force:true});}
 });
+
+test("demo film storyboard: clips, cuts and statements validate; short label windows and stale frames are rejected",async()=>{
+  const {readFileSync}=await import("node:fs");
+  const raw=JSON.parse(readFileSync("resources/demo/film/storyboard.json","utf8"));
+  const sb=validateStoryboard(raw);
+  assert.equal(sb.scenes.filter(s=>s.pattern==="clip").length,4);
+  const fmt=raw.scenes.findIndex((s:{clip?:string})=>s.clip==="wide");
+  const short=structuredClone(raw); short.scenes[fmt].cuts[0].at=0.5;
+  assert.throws(()=>validateStoryboard(short),/reading-time floor/);
+  const stale=structuredClone(raw); stale.clips.raw.frames=[{dir:"sources/clips/raw-1",count:120,width:1920,height:1080}];
+  assert.throws(()=>validateStoryboard(stale),/one frame set per file/);
+});

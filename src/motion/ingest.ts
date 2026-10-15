@@ -1,6 +1,6 @@
 // Ingest: copy source images or capture HTML/URL screens under sources/ and resolve selector regions.
 import { execFileSync } from "node:child_process";
-import { copyFileSync, mkdirSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { basename, extname, isAbsolute, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { INGEST_CLOCK } from "./ingest-clock.ts";
@@ -108,6 +108,25 @@ function cutCrops(out: string, sb: Storyboard): void {
     const [x, y, w, h] = c.rect;
     execFileSync("ffmpeg", ["-nostdin", "-v", "error", "-y", "-i", join(out, basename(base.file)), "-vf", `crop=${w}:${h}:${x}:${y}`, join(out, `${id}.png`)], { timeout: 60000 });
     sb.screens[id] = { file: `sources/${id}.png`, width: w!, height: h! };
+  }
+}
+
+/** Cut each clip's [start, start + d) into 60 fps JPEG frames under sources/clips/, one set per file. The long
+ *  edge is capped at 1920 px: no format shows footage larger than its own frame. */
+export function ingestClips(dir: string, sb: Storyboard): void {
+  for (const [id, c] of Object.entries(sb.clips ?? {})) {
+    if (c.frames) continue;
+    c.frames = c.files.map((f, k) => {
+      const rel = `sources/clips/${id}-${k + 1}`, out = join(dir, rel);
+      rmSync(out, { recursive: true, force: true });
+      mkdirSync(out, { recursive: true });
+      execFileSync("ffmpeg", ["-nostdin", "-v", "error", "-threads", "2", "-filter_threads", "2", "-ss", String(c.start), "-i", isAbsolute(f) ? f : resolve(dir, f), "-t", String(c.d),
+        "-vf", `${c.crop?.[k] ? `crop=${c.crop[k]},` : ""}fps=60,scale='if(gte(iw,ih),min(1920,iw),-2)':'if(gte(iw,ih),-2,min(1920,ih))':flags=lanczos`, "-q:v", "2", join(out, "%04d.jpg")], { timeout: 600000 });
+      const count = readdirSync(out).length;
+      if (count < Math.round(c.d * 60) - 1) throw new Error(`clips.${id}: ${f} has ${count} frames from ${c.start} s, under the ${c.d} s clip`);
+      const [w, h] = execFileSync("ffprobe", ["-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height", "-of", "csv=p=0", isAbsolute(f) ? f : resolve(dir, f)], { encoding: "utf8" }).trim().split(",").map(Number);
+      return { dir: rel, count, ...imageSize(join(out, "0001.jpg")), aspect: w! / h! };
+    });
   }
 }
 
