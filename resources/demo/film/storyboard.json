@@ -13,7 +13,7 @@
     "raw": { "files": ["../takes/film-board/screen.webm"], "crop": ["2930:1648:0:0"], "start": 1.6, "d": 2 },
     "open": { "files": ["../takes/flush-landscape/out/headless-demo.mp4", "../takes/flush-portrait/out/headless-demo.mp4", "../takes/flush-square/out/headless-demo.mp4"], "crop": ["1088:870:164:0", "2160:2000:0:840", "1392:1132:384:404"], "start": 3.5, "d": 1.5 },
     "type": { "files": ["../takes/flush-landscape/out/headless-demo.mp4", "../takes/flush-portrait/out/headless-demo.mp4", "../takes/flush-square/out/headless-demo.mp4"], "crop": ["972:776:152:0", "2160:2000:0:840", "1392:1132:384:404"], "start": 6.5, "d": 3.5 },
-    "drag": { "files": ["../takes/flush-landscape-4k/out/headless-demo.mp4", "../takes/flush-portrait/out/headless-demo.mp4", "../takes/flush-square/out/headless-demo.mp4"], "crop": ["2290:1288:560:160", null, null], "start": 16, "d": 3.5 },
+    "drag": { "files": ["../takes/flush-landscape-4k/out/headless-demo.mp4", "../takes/drag-columns/drag-columns.mp4"], "crop": ["2290:1288:560:160", null], "start": 16, "d": 3.5 },
     "wide": { "files": ["../takes/flush-landscape/out/headless-demo.mp4"], "crop": ["1664:936:128:0"], "start": 4, "d": 1.5 },
     "tall": { "files": ["../takes/flush-portrait/out/headless-demo.mp4"], "start": 5.5, "d": 1.5 },
     "square": { "files": ["../takes/flush-square/out/headless-demo.mp4"], "start": 7, "d": 2 }

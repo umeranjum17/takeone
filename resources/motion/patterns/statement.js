@@ -14,7 +14,7 @@ PATTERNS.statement = (layer, s, ctx) => {
     group.append(sub); rise(sub.firstChild, 200);
   }
   if (s.note) {
-    const note = h(`<div style="font:${u * 0.026}px/1.4 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted)">${esc(s.note)}</div>`);
+    const note = h(`<div style="font:${u * 0.034}px/1.4 var(--mono);letter-spacing:.08em;text-transform:uppercase;text-wrap:balance;color:var(--muted)">${esc(s.note)}</div>`);
     group.append(note);
     const o = track(0, [[500, 1]], TYPE_SPRING);
     tick((ms) => (note.style.opacity = o(ms).toFixed(4)));
