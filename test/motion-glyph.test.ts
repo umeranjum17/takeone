@@ -202,7 +202,7 @@ test("demo film storyboard: clips, cuts and statements validate; short label win
   const dir=mkdtempSync(resolve(".motion-stale-test-"));
   try {
     const clip={files:["a.mp4"],start:3.5,d:1.5,crop:[null],frames:[{dir:"sources/clips/open-1",count:90,width:1920,height:1080,aspect:16/9}],framesSource:{files:["a.mp4"],start:3.5,d:1.5,crop:[null]}};
-    mkdirSync(resolve(dir,clip.frames[0].dir),{recursive:true});
+    mkdirSync(resolve(dir,clip.frames[0]!.dir),{recursive:true});
     assert.equal(clipStale(dir,clip),false);
     assert.equal(clipStale(dir,{...clip,start:4}),true);
     assert.equal(clipStale(dir,{...clip,framesSource:{...clip.framesSource!,files:["b.mp4"]}}),true);
