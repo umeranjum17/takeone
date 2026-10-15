@@ -18,6 +18,7 @@ import { cursorAss } from "./cursor.ts";
 import { firstFrameTimeMs, readEvents } from "../perceive/decode.ts";
 import { phoneTapShots } from "./phone.ts";
 import { edgeCuts, cutCount, holdPath, videoFrames } from "./framing.ts";
+import { SAFE_INSET, safeAreaReport } from "./safe-area.ts";
 import { typingBursts, editBeats, editTimeline, validateEdits, validateZooms } from "./edits.ts";
 import {
   bandEligible, bandFrames, bandLayout, bandText, beatClicks, captionAss, cardFilter, clickAss, measureAss, sourceViewport, stageFrames, stageGeometry, stageImageFilter,
@@ -223,6 +224,16 @@ export async function renderTake(dir: string, d?: CameraDefaults): Promise<{ out
   // With a band the camera frames the screen alone, into the fixed card.
   const stageCamera = band ? bandFrames(frames, band, d) : stageFrames(frames, meta.width, meta.height, stage, d);
   const view = band ? { ...d, out_w: stage.baseW, out_h: stage.baseH } : d;
+  // A take that carries its text boxes renders only when every shown box sits in the safe area.
+  const safe = safeAreaReport(dir, stageCamera, band ? { x: 0, y: 0 } : { x: stage.screenX, y: stage.screenY },
+    { w: d.out_w, h: d.out_h, fps: d.fps }, sourceAt);
+  if (safe) {
+    await writeFile(join(dir, "safe-area.json"), JSON.stringify(safe, null, 1));
+    const [first] = safe.failures;
+    if (first) throw new Error(`safe area: ${safe.failures.length} text box placements cross the ${SAFE_INSET * 100}% inset `
+      + `[${safe.safe.map(Math.round).join(",")}] of the ${d.out_w}x${d.out_h} output; first "${first.label}" at output frame ${first.frame} `
+      + `(${first.t_out}s, source ${first.t_src}s): output box [${first.output.join(",")}]; report ${join(dir, "safe-area.json")}`);
+  }
   const [cameraFrames, cameraW, cameraH] = band ? [frames, meta.width, meta.height] : [stageCamera, stage.w, stage.h];
   const shutter = shutterPlan(cameraFrames, cameraW, cameraH, view);
   await writeFile(join(dir, "motion-blur.json"), JSON.stringify(shutter.metrics, null, 2));

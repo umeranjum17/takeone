@@ -6,19 +6,19 @@ import { readFile, mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { resolve, join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { captureScene } from './headless-scene.mjs';
-import { choreography, FPS, LANDSCAPE, PORTRAIT } from './headless/drive.mjs';
+import { choreography, FPS, LAYOUTS } from './headless/drive.mjs';
 
-// --portrait gates the scene's 1080x1920 layout (a 2160x3840 source) instead of the board.
-const portrait = process.argv.includes('--portrait');
-const [W, H] = portrait ? [2160, 3840] : [3840, 2160];
-const root = resolve(process.argv.slice(2).find(arg => arg !== '--portrait') ?? 'tmp/headless-validation');
+// --aspect=portrait|square gates that layout (a 2160x3840 or 2160x2160 source) instead of the board.
+const aspect = process.argv.find(arg => arg.startsWith('--aspect='))?.slice(9) ?? 'landscape';
+const [W, H] = LAYOUTS[aspect].css.map(v => v * 2);
+const root = resolve(process.argv.slice(2).find(arg => !arg.startsWith('--aspect=')) ?? 'tmp/headless-validation');
 await mkdir(root, { recursive: true });
 const run = await mkdtemp(join(root, 'run-'));
 const a = join(run, 'a');
 const b = join(run, 'b');
-await captureScene(a, { portrait });
-await captureScene(b, { portrait });
-const expected = choreography(portrait ? PORTRAIT : LANDSCAPE).frames;
+await captureScene(a, { aspect });
+await captureScene(b, { aspect });
+const expected = choreography(LAYOUTS[aspect]).frames;
 const decode = dir => execFileSync('ffmpeg', ['-v','error','-i',join(dir,'screen.webm'),'-f','framemd5','-'], { encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 });
 const probe = dir => JSON.parse(execFileSync('ffprobe', ['-v','error','-select_streams','v:0','-count_frames',
   '-show_entries','stream=width,height,r_frame_rate,avg_frame_rate,nb_read_frames:frame=best_effort_timestamp_time',
@@ -61,13 +61,15 @@ assert.ok(new Set(md5A.split('\n').filter(line => !line.startsWith('#') && line.
 assert.equal(await readFile(join(a,'events.jsonl'),'utf8'),await readFile(join(b,'events.jsonl'),'utf8'),'input logs differ');
 assert.equal(await readFile(join(a,'frames.tsv'),'utf8'),await readFile(join(b,'frames.tsv'),'utf8'),'frame clocks differ');
 // This executes the existing CLI and render pipeline without changing it.
-execFileSync(process.execPath, ['bin/takeone.mjs','make',a,'--no-jev','--set','fps=60','--set','preset=ultrafast'], { stdio:'inherit', timeout: 1_200_000 });
+// The take carries its text boxes, so render fails on any box in the 5% band. A push-in on this
+// dense board always parks text there; max_upscale=0.5 keeps the 2x source at its rest framing.
+execFileSync(process.execPath, ['bin/takeone.mjs','make',a,'--no-jev','--set','fps=60','--set','preset=ultrafast','--set','max_upscale=0.5'], { stdio:'inherit', timeout: 1_200_000 });
 const beats = JSON.parse(await readFile(join(a,'analysis/beats.json'),'utf8'));
 for (const kind of ['click','drag','type']) assert.ok(beats.some(beat => beat.kind === kind), `make must plan a ${kind} beat`);
 const video = join(a,'out/headless-demo.mp4');
 const duration = Number(execFileSync('ffprobe',['-v','error','-show_entries','format=duration','-of','default=nw=1:nk=1',video],{encoding:'utf8'}).trim());
 const contact = join(run,'takeone-headless-scene-after.png');
-execFileSync('ffmpeg',['-v','error','-y','-i',video,'-vf',`fps=${16/duration},scale=${portrait ? '270:480' : '480:270'},tile=4x4`,'-frames:v','1',contact],{stdio:'inherit',timeout:120_000});
+execFileSync('ffmpeg',['-v','error','-y','-i',video,'-vf',`fps=${16/duration},scale=${W / 8}:${H / 8},tile=4x4`,'-frames:v','1',contact],{stdio:'inherit',timeout:120_000});
 const metrics = { width:W, height:H, fps:FPS, frames:expected, decoded_frames_identical:true,
   events_identical:true, framemd5_sha256:decodedHash(md5A), contact_sheet:contact, beat_kinds:[...new Set(beats.map(beat=>beat.kind))], take:a };
 await writeFile(join(run,'metrics.json'),JSON.stringify(metrics,null,2)+'\n');

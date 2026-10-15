@@ -9,12 +9,20 @@
 <meta charset="utf-8">
 <title>Tidewater board</title>
 <script>
-  // Only the headless producer opts into this fixed 1920x1080 presentation, or the
-  // unscaled 1080x1920 portrait layout below (?headless&portrait).
+  // Only the headless producer opts in (?headless, plus &layout=portrait|square below). It fits
+  // the layout's design size into the viewport inside a 5% safe inset (scripts/headless/drive.mjs
+  // fit), so no text sits in the outer band of any export shape.
   const takeoneQuery = new URLSearchParams(location.search);
-  window.takeoneScale = takeoneQuery.has('headless') && !takeoneQuery.has('portrait') ? .75 : 1;
-  if (takeoneQuery.has('headless')) document.documentElement.dataset.headless = 'true';
-  if (takeoneQuery.has('portrait')) document.documentElement.dataset.portrait = 'true';
+  const takeoneLayout = takeoneQuery.get('layout');
+  const takeoneDesign = { portrait: [1080, 1920], square: [1080, 1080] }[takeoneLayout] ?? [2560, 1440];
+  window.takeoneScale = 1; window.takeoneOrigin = [0, 0];
+  if (takeoneQuery.has('headless')) {
+    document.documentElement.dataset.headless = 'true';
+    if (takeoneLayout) document.documentElement.dataset.layout = takeoneLayout;
+    window.takeoneScale = .9 * innerWidth / takeoneDesign[0];
+    window.takeoneOrigin = [.05 * innerWidth, .05 * innerHeight];
+    document.documentElement.style.setProperty('--fit', `translate(${takeoneOrigin[0]}px, ${takeoneOrigin[1]}px) scale(${takeoneScale})`);
+  }
 </script>
 <style>
   :root {
@@ -24,7 +32,8 @@
   * { box-sizing: border-box; }
   html, body { margin: 0; width: 2560px; height: 1440px; overflow: hidden; background: var(--bg); color: var(--ink);
     font: 400 20px/1.45 "Adwaita Sans", "Noto Sans", sans-serif; -webkit-font-smoothing: antialiased; user-select: none; }
-  html[data-headless]:not([data-portrait]) body { zoom: .75; }
+  html[data-headless] { width: 100vw; height: 100vh; }
+  html[data-headless] body { position: absolute; transform-origin: 0 0; transform: var(--fit); overflow: visible; }
   html[data-headless] * { transition: none !important; caret-color: transparent; }
   html[data-headless] body, html[data-headless] input, html[data-headless] textarea {
     font-family: Arial, sans-serif;
@@ -80,27 +89,40 @@
   #toast.on { opacity: 1; transform: none; }
   /* Portrait: the same board at 1080x1920. Nav becomes a strip, the three lanes narrow side
      by side and the activity feed sits below them, so headers and the centred modal fit whole. */
-  html[data-portrait], html[data-portrait] body { width: 1080px; height: 1920px; }
-  html[data-portrait] header { width: 1080px; }
-  html[data-portrait] .search { left: 250px; width: 440px; }
-  html[data-portrait] #newTask { left: 720px; }
-  html[data-portrait] #more { left: 950px; }
-  html[data-portrait] nav { width: 1080px; height: 72px; padding: 12px 32px; display: flex; gap: 8px; border-right: 0; border-bottom: 1px solid var(--line); }
-  html[data-portrait] nav div { margin: 0; }
-  html[data-portrait] #col0 { left: 40px !important; }
-  html[data-portrait] #col1 { left: 384px !important; }
-  html[data-portrait] #col2 { left: 728px !important; }
-  html[data-portrait] .col { top: 192px; width: 312px; height: 836px; }
-  html[data-portrait] .lane { width: 312px; height: 780px; padding: 12px; }
-  html[data-portrait] .card { width: 288px; padding: 16px 18px; }
-  html[data-portrait] .card .t { font-size: 18px; white-space: nowrap; }
-  html[data-portrait] #activity { left: 40px; top: 1060px; width: 1000px; height: 820px; }
-  html[data-portrait] #modal { left: 160px; top: 650px; }
-  html[data-portrait] #create { left: 700px; top: 1190px; }
-  html[data-portrait] #cancel { left: 530px; top: 1190px; }
-  html[data-portrait] #menu { left: 204px; top: 1146px; }
-  html[data-portrait] #moreMenu { left: 700px; }
-  html[data-portrait] #toast { left: 340px; top: 1780px; }
+  html[data-headless] #scrim { inset: -10%; }
+  html[data-layout] body { width: 1080px; height: 1920px; }
+  html[data-layout] header { width: 1080px; }
+  html[data-layout] .search { left: 250px; width: 440px; }
+  html[data-layout] #newTask { left: 720px; }
+  html[data-layout] #more { left: 950px; }
+  html[data-layout] nav { width: 1080px; height: 72px; padding: 12px 32px; display: flex; gap: 8px; border-right: 0; border-bottom: 1px solid var(--line); }
+  html[data-layout] nav div { margin: 0; }
+  html[data-layout] #col0 { left: 40px !important; }
+  html[data-layout] #col1 { left: 384px !important; }
+  html[data-layout] #col2 { left: 728px !important; }
+  html[data-layout] .col { top: 192px; width: 312px; height: 836px; }
+  html[data-layout] .lane { width: 312px; height: 780px; padding: 12px; }
+  html[data-layout] .card { width: 288px; padding: 16px 18px; }
+  html[data-layout] .card .t { font-size: 18px; white-space: nowrap; }
+  html[data-layout] #activity { left: 40px; top: 1060px; width: 1000px; height: 820px; }
+  html[data-layout] #modal { left: 160px; top: 650px; }
+  html[data-layout] #create { left: 700px; top: 1190px; }
+  html[data-layout] #cancel { left: 530px; top: 1190px; }
+  html[data-layout] #menu { left: 204px; top: 1146px; }
+  html[data-layout] #moreMenu { left: 700px; }
+  html[data-layout] #toast { left: 340px; top: 1780px; }
+  /* Square: the portrait board at 1080x1080, with compact cards and a shorter activity feed below. */
+  html[data-layout=square] body { height: 1080px; }
+  html[data-layout=square] .col { top: 176px; height: 604px; }
+  html[data-layout=square] .lane { height: 548px; }
+  html[data-layout=square] .card { height: 96px; padding: 12px 16px; margin-bottom: 10px; }
+  html[data-layout=square] .card .m { margin-top: 6px; }
+  html[data-layout=square] #activity { top: 796px; height: 264px; }
+  html[data-layout=square] #modal { top: 230px; }
+  html[data-layout=square] #create { top: 770px; }
+  html[data-layout=square] #cancel { top: 770px; }
+  html[data-layout=square] #menu { top: 726px; }
+  html[data-layout=square] #toast { top: 990px; }
 </style>
 </head>
 <body>
@@ -192,12 +214,12 @@
     if (!drag) return;
     if (!drag.moved) {
       drag.moved = true;
-      drag.ph.style.cssText = "height:132px;margin-bottom:16px;border:2px dashed #b9d8d4;border-radius:14px";
+      drag.ph.style.cssText = `height:${drag.card.offsetHeight}px;margin-bottom:${getComputedStyle(drag.card).marginBottom};border:2px dashed #b9d8d4;border-radius:14px`;
       drag.card.after(drag.ph);
       drag.card.classList.add("dragging");
     }
-    drag.card.style.left = `${(e.clientX - drag.dx) / window.takeoneScale}px`;
-    drag.card.style.top = `${(e.clientY - drag.dy) / window.takeoneScale}px`;
+    drag.card.style.left = `${(e.clientX - drag.dx - takeoneOrigin[0]) / takeoneScale}px`;
+    drag.card.style.top = `${(e.clientY - drag.dy - takeoneOrigin[1]) / takeoneScale}px`;
     document.querySelectorAll(".lane").forEach((l) => { const r = l.getBoundingClientRect(); l.classList.toggle("over", e.clientX > r.left && e.clientX < r.right && e.clientY > r.top && e.clientY < r.bottom); });
   });
   document.addEventListener("mouseup", (e) => {

@@ -1,17 +1,25 @@
-// The board choreography in frame numbers. Landscape coordinates use the original
-// scene's 2560x1440 layout (scale .75 to CSS px); portrait ones are the 1080x1920
-// portrait layout's own CSS px. CDP receives CSS pixels and the take stream pixels.
+// The board choreography in frame numbers. Each layout's points are in its own design px
+// (landscape: the original scene's 2560x1440; portrait 1080x1920; square 1080x1080). The
+// headless scene fits that design into its CSS viewport inside a 5% safe inset (fit below),
+// so every text box sits inside the output safe area. CDP receives CSS px, the take stream px.
 export const FPS = 60;
-export const CSS_SCALE = .75;
+export const SAFE = .05;
 // The same actions on each layout: the controls they hit and the drag/scroll paths.
-export const LANDSCAPE = { scale: CSS_SCALE, start: [1500, 900], idle: [1200, 700], newTask: [2300, 44],
+export const LANDSCAPE = { design: [2560, 1440], css: [1920, 1080], start: [1500, 900], idle: [1200, 700], newTask: [2300, 44],
   notes: [1280, 650], prio: [1094, 799], high: [1094, 975], create: [1530, 908], grab: [560, 250],
   drop: [1110, 300], feed: [2250, 640], done: [1080, 414], more: [2475, 44], archive: [2350, 166],
   rest: [1300, 760], end: [1600, 1000] };
-export const PORTRAIT = { scale: 1, start: [640, 1300], idle: [500, 900], newTask: [820, 44],
+export const PORTRAIT = { design: [1080, 1920], css: [1080, 1920], start: [640, 1300], idle: [500, 900], newTask: [820, 44],
   notes: [540, 960], prio: [354, 1109], high: [354, 1285], create: [790, 1218], grab: [190, 320],
   drop: [530, 340], feed: [540, 1450], done: [530, 474], more: [995, 44], archive: [870, 166],
   rest: [560, 1000], end: [700, 1400] };
+export const SQUARE = { design: [1080, 1080], css: [1080, 1080], start: [640, 700], idle: [500, 500], newTask: [820, 44],
+  notes: [540, 540], prio: [354, 689], high: [354, 865], create: [790, 798], grab: [190, 290],
+  drop: [530, 310], feed: [540, 920], done: [530, 398], more: [995, 44], archive: [870, 166],
+  rest: [560, 600], end: [700, 800] };
+export const LAYOUTS = { landscape: LANDSCAPE, portrait: PORTRAIT, square: SQUARE };
+/** Design px -> CSS px: the scene's scale and safe-inset origin (scene.html applies the same). */
+export const fit = p => ({ s: (1 - 2 * SAFE) * p.css[0] / p.design[0], ox: SAFE * p.css[0], oy: SAFE * p.css[1] });
 export function choreography(p = LANDSCAPE) {
   const steps = new Map();
   let frame = 0, [x, y] = p.start;
@@ -53,15 +61,16 @@ export function choreography(p = LANDSCAPE) {
   click(...p.create); hold(2.4); move(...p.end, .8); hold(2);
   return { steps, frames: frame + 1 };
 }
-export function inputEvents(steps, frames, p = LANDSCAPE, rect = [0,0,3840,2160]) {
+export function inputEvents(steps, frames, p = LANDSCAPE) {
   let [x, y] = p.start;
+  const { s, ox, oy } = fit(p), rect = [0, 0, p.css[0] * 2, p.css[1] * 2];
   const events = [{ t: 0, k: 'win', cls: 'headless-demo', title: 'Tidewater board', rect }];
   for (let frame = 0; frame < frames; frame++) {
     const t = frame * 1000 / FPS;
     for (const a of steps.get(frame) ?? []) {
       if (a.k === 'move') { x = a.x; y = a.y; }
     }
-    events.push({ t, k: 'ptr', x: x * p.scale * 2, y: y * p.scale * 2 });
+    events.push({ t, k: 'ptr', x: (ox + x * s) * 2, y: (oy + y * s) * 2 });
     for (const a of steps.get(frame) ?? []) {
       if (a.k === 'button') events.push({ t, k: 'btn', b: 'left', down: a.down });
       if (a.k === 'wheel') events.push({ t, k: 'wheel', dx: 0, dy: -a.dy });
