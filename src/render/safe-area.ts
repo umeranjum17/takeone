@@ -15,7 +15,8 @@ export interface SafeAreaReport {
 
 /** Null when the take has no text boxes. `sourceAt` maps an output second to a video second. */
 export function safeAreaReport(dir: string, frames: CameraFrame[], origin: { x: number; y: number },
-  out: { w: number; h: number; fps: number }, sourceAt: (t: number) => number): SafeAreaReport | null {
+  out: { w: number; h: number; fps: number }, sourceAt: (t: number) => number,
+  overlays: { t: number; label: string; box: number[] }[] = []): SafeAreaReport | null {
   const file = join(dir, "text-boxes.json");
   if (!existsSync(file)) return null;
   const { samples } = JSON.parse(readFileSync(file, "utf8")) as { samples: { t: number; boxes: Box[] }[] };
@@ -38,5 +39,13 @@ export function safeAreaReport(dir: string, frames: CameraFrame[], origin: { x: 
       }
     }
   });
+  // Output-space text the render draws itself (titles, captions), at its widest travel.
+  for (const { t, label, box: r } of overlays) {
+    report.checked++;
+    if (r[0]! < x0 - 0.5 || r[1]! < y0 - 0.5 || r[2]! > x1 + 0.5 || r[3]! > y1 + 0.5) {
+      report.failures.push({ frame: Math.round(t * out.fps), t_out: +t.toFixed(3), t_src: +sourceAt(t).toFixed(3), label,
+        source: [], output: r.map(v => Math.round(v)) });
+    }
+  }
   return report;
 }

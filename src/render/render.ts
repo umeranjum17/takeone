@@ -21,7 +21,7 @@ import { edgeCuts, cutCount, holdPath, videoFrames } from "./framing.ts";
 import { SAFE_INSET, safeAreaReport } from "./safe-area.ts";
 import { typingBursts, editBeats, editTimeline, validateEdits, validateZooms } from "./edits.ts";
 import {
-  bandEligible, bandFrames, bandLayout, bandText, beatClicks, captionAss, cardFilter, clickAss, measureAss, sourceViewport, stageFrames, stageGeometry, stageImageFilter,
+  bandEligible, bandFrames, bandLayout, bandText, beatClicks, captionAss, captionLayouts, cardFilter, clickAss, measureAss, sourceViewport, stageFrames, stageGeometry, stageImageFilter,
   takeCaptions, type Caption, type CaptionInk,
 } from "./stage.ts";
 
@@ -226,7 +226,9 @@ export async function renderTake(dir: string, d?: CameraDefaults): Promise<{ out
   const view = band ? { ...d, out_w: stage.baseW, out_h: stage.baseH } : d;
   // A take that carries its text boxes renders only when every shown box sits in the safe area.
   const safe = safeAreaReport(dir, stageCamera, band ? { x: 0, y: 0 } : { x: stage.screenX, y: stage.screenY },
-    { w: d.out_w, h: d.out_h, fps: d.fps }, sourceAt);
+    { w: d.out_w, h: d.out_h, fps: d.fps }, sourceAt,
+    captionLayouts(captions, captionInk, text, phone && d.out_w > d.out_h, band, toasts).map(({ cx, cy, w, h, rise }, i) => (
+      { t: captions[i]!.t0, label: captions[i]!.text, box: [cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2 + rise] })));
   if (safe) {
     await writeFile(join(dir, "safe-area.json"), JSON.stringify(safe, null, 1));
     const [first] = safe.failures;
