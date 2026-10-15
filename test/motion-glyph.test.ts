@@ -193,8 +193,10 @@ test("demo film storyboard: clips, cuts and statements validate; short label win
   const fmt=raw.scenes.findIndex((s:{clip?:string})=>s.clip==="wide");
   const short=structuredClone(raw); short.scenes[fmt].cuts[0].at=0.5;
   assert.throws(()=>validateStoryboard(short),/reading-time floor/);
-  const stale=structuredClone(raw); stale.clips.raw.frames=[{dir:"sources/clips/raw-1",count:120,width:1920,height:1080}];
+  const stale=structuredClone(raw); stale.clips.raw.frames=[{dir:"sources/clips/raw-1",count:120,width:1920,height:1080,aspect:16/9},{dir:"sources/clips/raw-2",count:120,width:1920,height:1080,aspect:16/9}];
   assert.throws(()=>validateStoryboard(stale),/one frame set per file/);
+  const bare=structuredClone(raw); bare.clips.raw.frames=[{aspect:1.78}];
+  assert.throws(()=>validateStoryboard(bare),/one frame set per file/);
   assert.throws(()=>validateStoryboard({...raw,scenes:[{pattern:"statement",d:3}]}),/scenes\[0\]\.title.*non-empty title/);
   assert.throws(()=>validateStoryboard({...raw,scenes:[{pattern:"statement",d:3,title:"  ",subtitle:"sub"}]}),/non-empty title/);
   const dir=mkdtempSync(resolve(".motion-stale-test-"));

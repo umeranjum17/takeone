@@ -237,7 +237,7 @@ export function validateStoryboard(raw: unknown): Storyboard {
     if (!ID.test(k) || !isObj(c) || !Array.isArray(c["files"]) || !c["files"].length || c["files"].length > 8 || c["files"].some(f => typeof f !== "string" || !f)) throw new StoryboardError(`clips.${k}`, "expected {files: [video paths], start, d}");
     num(c["start"], `clips.${k}.start`, 0, 3600); num(c["d"], `clips.${k}.d`, 0.25, MAX_DURATION_S);
     if (c["crop"] !== undefined && (!Array.isArray(c["crop"]) || c["crop"].length !== c["files"].length || c["crop"].some(x => x !== null && !/^\d+:\d+:\d+:\d+$/.test(String(x))))) throw new StoryboardError(`clips.${k}.crop`, "expected one w:h:x:y crop (or null) per file");
-    if (c["frames"] !== undefined && (!Array.isArray(c["frames"]) || c["frames"].length !== c["files"].length || c["frames"].some((f) => !isObj(f) || typeof f["aspect"] !== "number"))) throw new StoryboardError(`clips.${k}.frames`, "expected one frame set per file; delete it to re-ingest");
+    if (c["frames"] !== undefined && (!Array.isArray(c["frames"]) || c["frames"].length !== c["files"].length || c["frames"].some((f) => !isObj(f) || typeof f["dir"] !== "string" || !f["dir"] || !["count", "width", "height", "aspect"].every((k) => typeof f[k] === "number" && Number.isFinite(f[k]) && (f[k] as number) > 0)))) throw new StoryboardError(`clips.${k}.frames`, "expected one frame set per file; delete it to re-ingest");
   }
 
   const regions = raw["regions"] ?? [];
