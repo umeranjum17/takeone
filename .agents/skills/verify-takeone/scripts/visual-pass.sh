@@ -122,7 +122,7 @@ dargs=(); [ -n "$ref" ] && dargs+=(--ref "$ref")
 if [ -n "$nodesign" ]; then say "SKIP design check (--no-design reference run)"
 else
 drc=0; "$here/visual-design.sh" "$out" "${dargs[@]}" || drc=$?
-case $drc in 0) say "PASS design check";; 3) say "FAIL design check: unsure, needs a human look"; fail=1;; *) say "FAIL design check (exit $drc)"; fail=1;; esac
+case $drc in 0) say "PASS design check";; 3) say "FAIL design check: unsure, needs a human look"; fail=1;; 4) say "FAIL design check: JUDGE UNAVAILABLE (no model answered; not a design verdict)"; fail=1;; *) say "FAIL design check (exit $drc)"; fail=1;; esac
 fi
 say "$([ $fail = 0 ] && echo PASS || echo FAIL) visual pass: see $out/index.md"
 exit $fail
