@@ -9,9 +9,12 @@
 <meta charset="utf-8">
 <title>Tidewater board</title>
 <script>
-  // Only the headless producer opts into this fixed 1920x1080 presentation.
-  window.takeoneScale = new URLSearchParams(location.search).has('headless') ? .75 : 1;
-  if (window.takeoneScale !== 1) document.documentElement.dataset.headless = 'true';
+  // Only the headless producer opts into this fixed 1920x1080 presentation, or the
+  // unscaled 1080x1920 portrait layout below (?headless&portrait).
+  const takeoneQuery = new URLSearchParams(location.search);
+  window.takeoneScale = takeoneQuery.has('headless') && !takeoneQuery.has('portrait') ? .75 : 1;
+  if (takeoneQuery.has('headless')) document.documentElement.dataset.headless = 'true';
+  if (takeoneQuery.has('portrait')) document.documentElement.dataset.portrait = 'true';
 </script>
 <style>
   :root {
@@ -21,7 +24,7 @@
   * { box-sizing: border-box; }
   html, body { margin: 0; width: 2560px; height: 1440px; overflow: hidden; background: var(--bg); color: var(--ink);
     font: 400 20px/1.45 "Adwaita Sans", "Noto Sans", sans-serif; -webkit-font-smoothing: antialiased; user-select: none; }
-  html[data-headless] body { zoom: .75; }
+  html[data-headless]:not([data-portrait]) body { zoom: .75; }
   html[data-headless] * { transition: none !important; caret-color: transparent; }
   html[data-headless] body, html[data-headless] input, html[data-headless] textarea {
     font-family: Arial, sans-serif;
@@ -75,6 +78,29 @@
   #cancel { left: 1270px; top: 880px; width: 150px; height: 56px; z-index: 31; display: none; }
   #toast { left: 1080px; top: 1320px; width: 400px; height: 64px; background: var(--ink); color: #fff; border-radius: 14px; display: flex; align-items: center; justify-content: center; opacity: 0; transition: opacity .3s, transform .3s; transform: translateY(12px); z-index: 60; }
   #toast.on { opacity: 1; transform: none; }
+  /* Portrait: the same board at 1080x1920. Nav becomes a strip, the three lanes narrow side
+     by side and the activity feed sits below them, so headers and the centred modal fit whole. */
+  html[data-portrait], html[data-portrait] body { width: 1080px; height: 1920px; }
+  html[data-portrait] header { width: 1080px; }
+  html[data-portrait] .search { left: 250px; width: 440px; }
+  html[data-portrait] #newTask { left: 720px; }
+  html[data-portrait] #more { left: 950px; }
+  html[data-portrait] nav { width: 1080px; height: 72px; padding: 12px 32px; display: flex; gap: 8px; border-right: 0; border-bottom: 1px solid var(--line); }
+  html[data-portrait] nav div { margin: 0; }
+  html[data-portrait] #col0 { left: 40px !important; }
+  html[data-portrait] #col1 { left: 384px !important; }
+  html[data-portrait] #col2 { left: 728px !important; }
+  html[data-portrait] .col { top: 192px; width: 312px; height: 836px; }
+  html[data-portrait] .lane { width: 312px; height: 780px; padding: 12px; }
+  html[data-portrait] .card { width: 288px; padding: 16px 18px; }
+  html[data-portrait] .card .t { font-size: 18px; white-space: nowrap; }
+  html[data-portrait] #activity { left: 40px; top: 1060px; width: 1000px; height: 820px; }
+  html[data-portrait] #modal { left: 160px; top: 650px; }
+  html[data-portrait] #create { left: 700px; top: 1190px; }
+  html[data-portrait] #cancel { left: 530px; top: 1190px; }
+  html[data-portrait] #menu { left: 204px; top: 1146px; }
+  html[data-portrait] #moreMenu { left: 700px; }
+  html[data-portrait] #toast { left: 340px; top: 1780px; }
 </style>
 </head>
 <body>
@@ -87,16 +113,16 @@
 <nav class="abs">
   <div class="on">Launch board</div><div>My tasks</div><div>Calendar</div><div>Docs</div><div>Team</div><div>Settings</div>
 </nav>
-<section class="abs col" style="left:320px"><h2>To do <span id="n0">3</span></h2><div class="lane" id="lane0">
+<section class="abs col" id="col0" style="left:320px"><h2>To do <span id="n0">3</span></h2><div class="lane" id="lane0">
   <div class="card"><div class="t">Write release notes</div><div class="m"><span class="tag">Docs</span>Due Fri</div></div>
   <div class="card"><div class="t">Record onboarding video</div><div class="m"><span class="tag">Media</span>Due Mon</div></div>
   <div class="card"><div class="t">Update pricing page</div><div class="m"><span class="tag">Web</span>Due Tue</div></div>
 </div></section>
-<section class="abs col" style="left:872px"><h2>In progress <span id="n1">2</span></h2><div class="lane" id="lane1">
+<section class="abs col" id="col1" style="left:872px"><h2>In progress <span id="n1">2</span></h2><div class="lane" id="lane1">
   <div class="card"><div class="t">Beta feedback survey</div><div class="m"><span class="tag">Research</span>Umer</div></div>
   <div class="card"><div class="t">Fix export timeout</div><div class="m"><span class="tag high">High</span>Umer</div></div>
 </div></section>
-<section class="abs col" style="left:1424px"><h2>Done <span id="n2">2</span></h2><div class="lane" id="lane2">
+<section class="abs col" id="col2" style="left:1424px"><h2>Done <span id="n2">2</span></h2><div class="lane" id="lane2">
   <div class="card done"><div class="t">Choose launch date</div><div class="m"><span class="tag">Plan</span>Umer</div></div>
   <div class="card done"><div class="t">Draft FAQ</div><div class="m"><span class="tag">Docs</span>Umer</div></div>
 </div></section>

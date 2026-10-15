@@ -6,10 +6,13 @@ import { resolve, join, dirname } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { launchBrowser } from './headless/browser.mjs';
 import { VERSION, BINARY_SHA256 } from './headless/shell.mjs';
-import { choreography, inputEvents, frameClock, FPS, CSS_SCALE } from './headless/drive.mjs';
+import { choreography, inputEvents, frameClock, FPS, LANDSCAPE, PORTRAIT } from './headless/drive.mjs';
 
-export async function captureScene(output, { cursorHidden = false } = {}) {
-  const { steps, frames } = choreography();
+export async function captureScene(output, { cursorHidden = false, portrait = false } = {}) {
+  // Portrait captures the scene's own 1080x1920 layout, so a 9:16 render needs no crop.
+  const layout = portrait ? PORTRAIT : LANDSCAPE;
+  const [cssW, cssH] = portrait ? [1080, 1920] : [1920, 1080];
+  const { steps, frames } = choreography(layout);
   // Refuse to overwrite existing data. Metadata is published only after encoding.
   const dir = resolve(output);
   await mkdir(dirname(dir), { recursive: true });
@@ -20,9 +23,10 @@ export async function captureScene(output, { cursorHidden = false } = {}) {
   try {
     browser = await launchBrowser();
     await browser.send('Page.enable');
-    await browser.send('Emulation.setDeviceMetricsOverride', { width: 1920, height: 1080, deviceScaleFactor: 2, mobile: false });
+    await browser.send('Emulation.setDeviceMetricsOverride', { width: cssW, height: cssH, deviceScaleFactor: 2, mobile: false });
     await browser.send('Page.addScriptToEvaluateOnNewDocument', { source: await readFile(new URL('./headless/clock.js', import.meta.url), 'utf8') });
     const url = new URL('./e2e/scene.html', import.meta.url); url.searchParams.set('headless', '1');
+    if (portrait) url.searchParams.set('portrait', '1');
     await browser.send('Page.navigate', { url: url.href });
     // Poll document readiness without advancing the virtual clock.
     for (let i = 0; ; i++) {
@@ -55,7 +59,7 @@ export async function captureScene(output, { cursorHidden = false } = {}) {
       const t = frame * 1000 / FPS;
       await browser.evaluate(`window.__takeoneTick(${t})`);
       for (const action of steps.get(frame) ?? []) {
-        const x = action.x * CSS_SCALE, y = action.y * CSS_SCALE;
+        const x = action.x * layout.scale, y = action.y * layout.scale;
         if (action.k === 'move' || action.k === 'button') {
           await browser.send('Input.dispatchMouseEvent', { type: action.k === 'move' ? 'mouseMoved' : action.down ? 'mousePressed' : 'mouseReleased',
             x, y, ...(action.k === 'button' ? { button: 'left', clickCount: 1 } : {}) });
@@ -75,16 +79,16 @@ export async function captureScene(output, { cursorHidden = false } = {}) {
     }
     encoder.stdin.end(); await encoding;
     if (cancelled) throw new Error('Headless capture interrupted');
-    const events = inputEvents(steps, frames);
+    const events = inputEvents(steps, frames, layout, [0, 0, cssW * 2, cssH * 2]);
     await writeFile(join(dir, 'events.jsonl'), events.map(event => JSON.stringify(event)).join('\n') + '\n');
     await writeFile(join(dir, 'frames.tsv'), frameClock(frames));
     await writeFile(join(dir, 'take.json'), JSON.stringify({
-      id: 'headless-demo', stream: { w: 3840, h: 2160 }, scale: 2, offset_ms: 0, fps: FPS,
+      id: 'headless-demo', stream: { w: cssW * 2, h: cssH * 2 }, scale: 2, offset_ms: 0, fps: FPS,
       started_at: '2026-01-01T00:00:00.000Z', stopped_at: new Date(Date.UTC(2026,0,1) + frames * 1000 / FPS).toISOString(),
       pointer: 'mapped', events: 'on', monitor: null, warnings: [],
       cursor_free: cursorHidden,
       clock: { offsetMs: 0, medianMs: 0, spreadMs: 0, frames },
-      source: { kind: 'headless-demo', css: { w: 1920, h: 1080 }, browser: VERSION, sha256: BINARY_SHA256 },
+      source: { kind: 'headless-demo', css: { w: cssW, h: cssH }, browser: VERSION, sha256: BINARY_SHA256 },
       title: 'From idea to launch',
     }, null, 2) + '\n');
     succeeded = true;
@@ -100,10 +104,10 @@ export async function captureScene(output, { cursorHidden = false } = {}) {
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   const [output, ...extra] = process.argv.slice(2);
-  const cursorHidden = extra.length === 1 && extra[0] === '--cursor=hidden';
-  if (!output || (extra.length && !cursorHidden)) {
-    console.error('usage: node scripts/headless-scene.mjs <new-output-dir> [--cursor=hidden]');
+  const cursorHidden = extra.includes('--cursor=hidden'), portrait = extra.includes('--portrait');
+  if (!output || extra.some(flag => !['--cursor=hidden', '--portrait'].includes(flag))) {
+    console.error('usage: node scripts/headless-scene.mjs <new-output-dir> [--cursor=hidden] [--portrait]');
     process.exitCode = 2;
   }
-  else try { console.log(await captureScene(output, { cursorHidden })); } catch (error) { console.error(error); process.exitCode = 1; }
+  else try { console.log(await captureScene(output, { cursorHidden, portrait })); } catch (error) { console.error(error); process.exitCode = 1; }
 }

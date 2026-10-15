@@ -14,6 +14,16 @@ node bin/takeone.mjs make tmp/board-demo --no-jev --set fps=60
 node bin/takeone.mjs render tmp/board-demo --set fps=60
 ```
 
+For a 9:16 film, `--portrait` captures the same choreography in the scene's own
+1080×1920 portrait layout (the nav becomes a strip, the three lanes narrow side by
+side, the activity feed sits below them and the dialog is centred), so a portrait
+render shows every header and the whole dialog without cropping a wider screen:
+
+```sh
+node scripts/headless-scene.mjs tmp/board-portrait --portrait
+node bin/takeone.mjs make tmp/board-portrait --no-jev --set fps=60
+```
+
 The output directory must be new; missing parent directories are created. The installer fetches
 the pinned Chrome for Testing headless shell, verifies the archive
 SHA-256, and stores it in the gitignored `.cache/headless-shell/` directory. Each
@@ -24,7 +34,8 @@ Ubuntu's required shared libraries are listed in the `headless-scene` CI job.
 
 The existing board and desktop driver use 2560×1440 layout coordinates. Headless
 presentation scales that layout by 0.75 into a 1920×1080 CSS viewport, rendered
-at device scale factor 2. The source is therefore exactly 3840×2160. The
+at device scale factor 2. The source is therefore exactly 3840×2160 (2160×3840 for `--portrait`, whose
+layout uses its own unscaled CSS pixels). The
 choreography creates two tasks, types notes, selects priority, drags a card,
 scrolls the activity feed, completes a task and archives completed cards.
 
@@ -56,7 +67,8 @@ take and closes its browser and encoder.
 Run the complete acceptance gate locally or in CI:
 
 ```sh
-node scripts/test-headless-scene.mjs
+node scripts/test-headless-scene.mjs              # board
+node scripts/test-headless-scene.mjs --portrait   # portrait layout
 ```
 
 It captures the full sequence twice, checks every decoded frame with `framemd5`,
