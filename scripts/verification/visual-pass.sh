@@ -101,7 +101,7 @@ done
   echo "Reference: ${ref:-none} ${mrefs[*]:-}"; echo
   echo "| cell | verdict | side-by-side sheets | defects |"; echo "|---|---|---|---|"; printf '%s\n' "${rows[@]}"; } > "$out/index.md"
 # Required last step (skipped with --no-design): the done-done design check judges every
-# cell still (exit 1 fail and exit 3 unsure both fail the pass). Stills take their mock
+# cell still (exit 1 fail, exit 3 genuine unsure and exit 4 judge-unavailable all fail the pass). Stills take their mock
 # from the reference pass's film (motion cells included); the --motion-ref contacts stay
 # side-sheet references only, never design mocks (a mock showing other content fails good
 # stills, see visual-design.sh).
@@ -109,7 +109,7 @@ dargs=(); [ -n "$ref" ] && dargs+=(--ref "$ref")
 if [ -n "$nodesign" ]; then say "SKIP design check (--no-design reference run)"
 else
 drc=0; "$here/visual-design.sh" "$out" "${dargs[@]}" || drc=$?
-case $drc in 0) say "PASS design check";; 3) say "FAIL design check: unsure, needs a human look"; fail=1;; *) say "FAIL design check (exit $drc)"; fail=1;; esac
+case $drc in 0) say "PASS design check";; 3) say "FAIL design check: unsure, needs a human look"; fail=1;; 4) say "FAIL design check: JUDGE UNAVAILABLE (no model answered; not a design verdict)"; fail=1;; *) say "FAIL design check (exit $drc)"; fail=1;; esac
 fi
 say "$([ $fail = 0 ] && echo PASS || echo FAIL) visual pass: see $out/index.md"
 exit $fail

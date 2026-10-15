@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # done-done design check: judge every cell still of a visual pass with done-done design.
 # A required step of the visual defect pass: visual-pass.sh runs this after its own checks.
-# Exit 0 when every screen passes, 1 when a screen fails, 3 when none fails but one is
-# unsure (a human look), 2 on usage or setup error. Both 1 and 3 fail the visual pass.
+# Exit 0 when every screen passes, 1 when a screen fails, 3 when none fails but one is a
+# genuine unsure (a human look), 2 on usage or setup error, 4 when the judge is UNAVAILABLE
+# (no model answered). 1, 3 and 4 all fail the visual pass; 4 is distinct from a verdict.
 #
-#   visual-design.sh <out-dir> [--ref <main-pass-dir>] [--motion-mock <contact.png>]... [--resume]
+#   visual-design.sh <out-dir> [--ref <main-pass-dir>] [--motion-mock <contact.png>]... [--prefix <dir>] [--resume]
 #
 # Screens are the held screens inside the cell stills: each still is cropped to the shown
 # rect its own check records (`<cell>.json` facts.shown), so the judge sees the screen, not
@@ -28,23 +29,40 @@
 #
 # An `unsure` whose reason shows the judge never answered (a transport failure such as
 # `did not answer`, `ETIMEDOUT`, or invalid JSON, never a genuine "not confident enough")
-# is retried, up to 3 attempts per screen; a screen unsure after that stays unsure and
-# fails the pass with a human-look note.
+# is retried per screen up to 3 attempts; a screen unsure after that is a transport failure,
+# not a verdict, and the whole run fails as JUDGE UNAVAILABLE (exit 4) with no design.json
+# verdict counted, so a dead judge can never silently pass as an unsure a human would chase.
 #
-# The judge runs on Command Code
-# DeepSeek v4.1 Flash through BYOKit as done-done configures it (route answerer:pi, model
-# commandcode/deepseek/deepseek-v4.1-flash, written to a scratch DONE_DONE_HOME inside <out-dir>
-# so no key is needed, none is printed, and the machine's ~/.done-done is untouched; the
-# machine's existing pi login is used as is).
+# done-done is not published to npm, so this installs the pinned commit into a private prefix
+# (never `npm install -g`, never the repo's package.json). The default prefix is
+# ~/.cache/takeone-visual-done-done (override with --prefix or DONE_DONE_PREFIX); a marker file
+# records the installed pin and a mismatch reinstalls. The judge runs on an APPROVED, LIVE model
+# (data/model-checks.md APPROVED; crew-dispatch.json fallback order): route answerer:opencode
+# drives the opencode CLI on PATH, model = the first of JUDGE_MODELS that answers a probe. The
+# author is set to a real agent (JUDGE_AUTHOR) distinct from the judge agent, so the judge block
+# reports a real author and independence stays 'agent'. Route/model are written to a scratch
+# DONE_DONE_HOME inside <out-dir> so no key is needed, none is printed, and the machine's global
+# tooling and ~/.done-done are untouched. The dead route answerer:pi + model
+# commandcode/deepseek/deepseek-v4.1-flash (Command Code out of credits) never answered; that is
+# the "no agent set" + 56 transport-unsure failure this replaced.
+#
+# Exit: 0 every screen passes, 1 a screen fails, 3 a screen is a genuine unsure (human look),
+# 4 JUDGE UNAVAILABLE (no model answered). 1, 3 and 4 all fail the visual pass.
 set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd); repo=$(cd "$here/../.." && pwd)
-MODEL=commandcode/deepseek/deepseek-v4.1-flash
-out=; ref=; resume=
+PIN=6b529b61135000d9fd610ca2c744287b0d1f87e2
+JUDGE_ROUTE=${JUDGE_ROUTE:-answerer:opencode}   # the opencode CLI judges; it speaks opencode-go/... natively
+JUDGE_AUTHOR=${JUDGE_AUTHOR:-pi}               # the producer label: a real agent, never the judge's own agent
+# APPROVED + LIVE models in priority order; the probe picks the first that answers.
+JUDGE_MODELS=(${JUDGE_MODELS:-opencode-go/step-5-preview-free opencode/step-5-preview-free opencode-go/mimo-v2.6-flash opencode-go/deepseek-v4.1-flash})
+MODEL=                            # the chosen live model, filled from JUDGE_MODELS by the probe below
+out=; ref=; resume=; prefix=${DONE_DONE_PREFIX:-$HOME/.cache/takeone-visual-done-done}
 mmocks=()
 while [ $# -gt 0 ]; do
   case $1 in
     --ref) ref=$(cd "$2" && pwd); shift 2;;
     --motion-mock) mmocks+=("$2"); shift 2;;
+    --prefix) prefix=$2; shift 2;;
     --resume) resume=1; shift;;
     -*) echo "visual-design: unknown option $1" >&2; exit 2;;
     *) out=$1; shift;;
@@ -66,12 +84,22 @@ for f in ${all[@]+"${all[@]}"}; do
 done
 [ "${#stills[@]}" -gt 0 ] || { say "visual-design: no cell stills in $out"; exit 2; }
 
-bin=$(command -v done-done) || { say "visual-design: installed done-done is required"; exit 2; }
-version=$("$bin" --version)
+# Private done-done install at the pinned commit.
+bin=$prefix/node_modules/.bin/done-done
+if [ ! -x "$bin" ] || [ "$(cat "$prefix/.done-done-pin" 2>/dev/null || true)" != "$PIN" ]; then
+  say "visual-design: installing done-done@$PIN into $prefix"
+  npm install --prefix "$prefix" --allow-git=all "github:umeranjum17/done-done-axi#$PIN" '@byokit/decide@0.8.0' >> "$log" 2>&1 || { say "visual-design: install failed"; exit 2; }
+  echo "$PIN" > "$prefix/.done-done-pin"
+fi
+[ -x "$bin" ] || { say "visual-design: $bin not executable after install"; exit 2; }
 
-# Scratch judge home: explicit route and model, no keys, machine config untouched.
+# Scratch judge home: explicit route, model and author, no keys, machine config untouched.
+# agent is a real producer label distinct from the judge agent, so the judge block reports a
+# real author and independence stays 'agent' (never allow_same). Rewritten per model by the probe.
 ddhome=$out/dd-home; mkdir -p "$ddhome"
-printf 'judge:\n  route: answerer:pi\n  model: %s\n' "$MODEL" > "$ddhome/config.yaml"
+write_dd_config() { # <model>: route + judge model + author, the only thing the probe varies
+  printf 'agent: %s\njudge:\n  route: %s\n  model: %s\n' "$JUDGE_AUTHOR" "$JUDGE_ROUTE" "$1" > "$ddhome/config.yaml"
+}
 
 declare -A mock_of
 screens=()
@@ -169,7 +197,33 @@ judge_cell() { # <cell> <cell-json> <screen...>: one done-done call, retrying tr
 cells=(); declare -A seen
 for img in "${screens[@]}"; do c=$(cell_of "$img"); [ -n "${seen[$c]:-}" ] || { cells+=("$c"); seen[$c]=1; }; done
 withmocks=0; for img in "${screens[@]}"; do [ -n "${mock_of["$img"]:-}" ] && withmocks=$((withmocks + 1)); done
-say "visual-design: done-done@$version design on ${#screens[@]} stills ($withmocks with mocks) in ${#cells[@]} cell calls, judge answerer:pi $MODEL"
+# Pick the first APPROVED, LIVE model that answers, so a momentarily capped one is not a hard dead
+# end. done-done returns a real verdict when the judge answers and a transport 'unsure' when it
+# does not (out of credits, rate-limited, unreachable). The probe judges one screen; done-done
+# caches by (route, model, input bytes), so the probed screen is reused, not re-billed, when the
+# run judges it on the chosen model.
+probe_screen=${screens[0]}; probe_mock=${mock_of[${screens[0]}]:-}
+probe_tmp=$out/design.probe.tmp
+judge_alive() { # truthy when <route/model in config.yaml> returns a real (non-transport-unsure) verdict
+  local p=("$probe_screen"); [ -n "$probe_mock" ] && p+=(--mock "$probe_screen=$probe_mock")
+  local rc=0; DONE_DONE_HOME=$ddhome "$bin" design --json --full "${p[@]}" > "$probe_tmp" 2>> "$log" || rc=$?
+  [ $rc -eq 0 ] || [ $rc -eq 1 ] || [ $rc -eq 3 ] || return 1
+  [ "$(node -e 'const fs=require("fs"),r=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));const s=(r.screens??[])[0]||{};const t=/did not answer|ETIMEDOUT|valid JSON|timed out|ECONN|EPIPE|exited [1-9]|spawnSync/i;process.stdout.write(s.verdict==="unsure"&&t.test(s.reason??"")?"unsure":"ok")' "$probe_tmp" 2>/dev/null || echo unsure)" = ok ]
+}
+for m in "${JUDGE_MODELS[@]}"; do
+  write_dd_config "$m"
+  if judge_alive; then MODEL=$m; break; fi
+  say "visual-design: judge model $m gave no answer, trying the next"
+done
+rm -f "$probe_tmp"
+if [ -z "$MODEL" ]; then
+  # Label design.json so the consumer reads a judge-unavailable, not a silent empty/design verdict.
+  node -e 'const fs=require("fs");fs.writeFileSync(process.argv[1],JSON.stringify({command:"design",result:"judge-unavailable",judge_available:false,judge:{route:process.argv[2],model:"none"},counts:{pass:0,fail:0,unsure:0},screens:[],reason:"JUDGE UNAVAILABLE: none of the approved live models answered a probe"},null,2)+"\n")' "$out/design.json" "$JUDGE_ROUTE"
+  say "JUDGE UNAVAILABLE: none of ${JUDGE_MODELS[*]} answered a probe; aborting before judging any screen (this is not a design verdict)"
+  exit 4
+fi
+write_dd_config "$MODEL"
+say "visual-design: done-done@$PIN design on ${#screens[@]} stills ($withmocks with mocks) in ${#cells[@]} cell calls, judge $JUDGE_ROUTE $MODEL (probe answered; author $JUDGE_AUTHOR)"
 
 have_fail=0; have_unsure=0
 for c in "${cells[@]}"; do
@@ -207,7 +261,7 @@ fs.writeFileSync(process.argv[1], JSON.stringify({ command: "design",
   judge: first.judge, counts, screens }, null, 2) + "\n");' \
   "$out/design.json" $(for c in "${cells[@]}"; do echo "$out/design.$c.json"; done)
 
-{ echo; echo "## Design check (done-done design @$version, judge answerer:pi $MODEL)"; echo
+{ echo; echo "## Design check (done-done design @$PIN, judge $JUDGE_ROUTE $MODEL, author $JUDGE_AUTHOR)"; echo
   echo "| screen | verdict | mock | defects |"; echo "|---|---|---|---|"
   node -e '
 const r = require(process.argv[1]);
@@ -215,8 +269,23 @@ for (const s of r.screens ?? []) {
   const b = s.path.split("/").pop(), m = (s.mock ?? "").split("/").pop();
   const d = (s.defects ?? []).map(x => `${x.kind}: ${x.where}`).join("<br>") || (s.reason ?? "");
   console.log(`| ${b} | ${s.verdict} | ${m} | ${d} |`);
-} console.log("", `Result: ${r.result} (exit codes: 0 pass, 1 fail, 3 unsure; both fail the visual pass). Full output: design.json, design.log.`);' "$out/design.json"; } >> "$out/index.md"
+} console.log("", `Result: ${r.result} (exit codes: 0 pass, 1 fail, 3 genuine unsure, 4 judge-unavailable; all but 0 fail the visual pass). Full output: design.json, design.log.`);' "$out/design.json"; } >> "$out/index.md"
 
+# Assert the judge answered: a screen whose reason shows the judge never answered (a transport
+# failure, not a genuine "not confident enough" unsure) survives the per-screen retry only when
+# the judge itself is unavailable. Fail the run as JUDGE UNAVAILABLE (exit 4, distinct from a
+# verdict), relabel design.json so downstream never reads it as a design verdict, and never pass.
+unanswered=$(node -e '
+  const fs=require("fs"); let n=0;
+  const t=/did not answer|ETIMEDOUT|valid JSON|timed out|ECONN|EPIPE|exited [1-9]|spawnSync/i;
+  for (const f of process.argv.slice(1)) { const r=JSON.parse(fs.readFileSync(f,"utf8"));
+    for (const s of r.screens??[]) if (s.verdict==="unsure" && t.test(s.reason??"")) n++; }
+  process.stdout.write(String(n));' $(for c in "${cells[@]}"; do echo "$out/design.$c.json"; done) 2>/dev/null || echo 0)
+if [ "$unanswered" != 0 ]; then
+  node -e 'const fs=require("fs"),f=process.argv[1],j=JSON.parse(fs.readFileSync(f,"utf8"));j.judge_available=false;j.result="judge-unavailable";fs.writeFileSync(f,JSON.stringify(j,null,2)+"\n")' "$out/design.json"
+  say "JUDGE UNAVAILABLE: $unanswered screen(s) got no model answer after retries; this is not a design verdict, so pass=>fail"
+  exit 4
+fi
 rc=0; [ "$have_fail" = 1 ] && rc=1; [ "$have_fail" = 0 ] && [ "$have_unsure" = 1 ] && rc=3
 case $rc in
   0) say "DESIGN-PASS design: every screen passed";;

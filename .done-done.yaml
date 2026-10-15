@@ -19,12 +19,12 @@ journeys:
   visual-reference:
     command: bash scripts/verification/visual-pass.sh "$DONE_DONE_EVIDENCE_ROOT/${RUN_ID}" --no-design
   visual:
-    spends: "design judgments using the approved answerer:pi DeepSeek model"
+    spends: "design judgments using the approved answerer:opencode judge route (live-model probe)"
     command: bash scripts/verification/visual-pass.sh "$DONE_DONE_EVIDENCE_ROOT/${RUN_ID}" --ref "${TAKEONE_VISUAL_REF:?set the approved reference pass directory}"
   visual-desktop:
     command: bash scripts/verification/visual-pass.sh "$DONE_DONE_EVIDENCE_ROOT/${RUN_ID}" --cells "desktop-dark desktop-light" --no-design
   visual-controls:
     command: bash scripts/verification/visual-controls.sh "${TAKEONE_VISUAL_REF:?set the good reference pass directory}" "$DONE_DONE_EVIDENCE_ROOT/${RUN_ID}" --work "${TAKEONE_VISUAL_WORK:?set that pass work directory}"
   visual-design:
-    spends: "design judgments using the approved answerer:pi DeepSeek model"
+    spends: "design judgments using the approved answerer:opencode judge route (live-model probe)"
     command: bash scripts/verification/visual-design.sh "${TAKEONE_VISUAL_PASS:?set the candidate pass directory}" --ref "${TAKEONE_VISUAL_REF:?set the approved reference pass directory}" && cp "$TAKEONE_VISUAL_PASS"/design*.json "$TAKEONE_VISUAL_PASS"/design.log "$DONE_DONE_EVIDENCE_ROOT/"

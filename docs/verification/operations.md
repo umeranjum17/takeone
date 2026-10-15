@@ -188,17 +188,20 @@ the reference pass must render every cell film in full. The `--motion-ref` conta
 never design mocks: a live probe showed a motion still judged next to a contact sheet of
 other content fails with a bogus `layout` defect (a future approved motion mock can use
 `visual-design.sh --motion-mock`, first for motion-dark, second for motion-light).
-A fail (exit 1) fails the pass; unsure (exit 3) fails it too and names the screen for a
+A fail (exit 1) fails the pass; genuine unsure (exit 3) fails it too and names the screen for a
 human look. An unsure whose reason shows the judge never answered (transport failure, not
-a verdict) is retried up to 3 attempts per screen. Each cell's verdicts append to
+a verdict) is retried up to 3 attempts per screen; a screen still unanswered after that fails
+the run as JUDGE UNAVAILABLE (exit 4) with no design.json verdicts counted, so a dead judge
+is never misreported as human-review unsure. Each cell's verdicts append to
 `pass.log` and `design.log` as they land (`design.<cell>.json` keeps them; `--resume`
 reuses those files after a kill), and the aggregate lands in `design.json` and `index.md`.
 
-Use the published installed `done-done` on PATH. The design primitive never
-installs private pins or changes global tool configuration. Its selected judge
-remains `answerer:pi`, model `commandcode/deepseek/deepseek-v4.1-flash`, configured
-in a scratch `DONE_DONE_HOME` inside the pass directory. The existing pi login
-must support that image-capable model; missing access is inconclusive, not PASS.
+The design step installs the pinned done-done into a private prefix (never global installs or
+repo dependencies) and judges on the approved live route `answerer:opencode`, model = the first
+of `JUDGE_MODELS` that answers a probe, with author `JUDGE_AUTHOR` distinct from the judge agent.
+Route, model and author are written to a scratch `DONE_DONE_HOME` inside the pass directory, so the
+machine's global tooling and `~/.done-done` are untouched. No approved live model answering means
+exit 4 JUDGE UNAVAILABLE with no verdicts counted: missing access is inconclusive, not PASS.
 
 It renders 10 offline cells, each in midnight (dark) and paper (light): desktop 1920×1080
 (`synth-take.ts`), phone 1080×1920 and 4:5 (`synth-portrait.ts`), large font
