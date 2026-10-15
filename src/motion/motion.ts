@@ -10,7 +10,7 @@ import { sceneCameras } from "./camera.ts";
 import { ingest, ingestClips, clipStale } from "./ingest.ts";
 import { samplePalette } from "./palette.ts";
 import { motionPage } from "./page.ts";
-import { ffmpegVersion, MOTION_CRF, renderFrames } from "./render.ts";
+import { ffmpegVersion, MOTION_CRF, renderFrames, withPage } from "./render.ts";
 import { pinnedShell } from "./shell.ts";
 import { filmDuration, validateStoryboard } from "./storyboard.ts";
 import { motionTokens } from "./theme.ts";
@@ -120,11 +120,12 @@ export async function renderMotion(dir: string, o: RenderOptions = {}): Promise<
   const { out_w: width, out_h: height, fps } = sb.output;
   const frames = Math.round(filmDuration(sb) * fps);
   mkdirSync(join(dir, "out"), { recursive: true });
+  for (const t of o.stills ?? []) if (!(t >= 0 && t * fps < frames)) throw new Error(`still ${t} s is outside the ${frames / fps} s film`);
+  await safeAreaGate(dir, tag, html, sb, o.stills ?? Array.from({ length: frames }, (_, i) => i / fps), shell);
   if (o.stills) {
     const stills: string[] = [];
     for (const t of o.stills) {
       const framesDir = join(dir, ".motion", "still"), png = join(dir, "out", `${sb.id}${tag}-${t}s.png`);
-      if (!(t >= 0 && t * fps < frames)) throw new Error(`still ${t} s is outside the ${frames / fps} s film`);
       await renderFrames({ html, width, height, fps, frames: 1, firstFrame: Math.round(t * fps), workers: 1, framesDir, shell });
       renameSync(join(framesDir, "000001.png"), png);
       stills.push(png);
@@ -149,4 +150,18 @@ export async function renderMotion(dir: string, o: RenderOptions = {}): Promise<
   };
   writeFileSync(join(dir, `render${tag}.json`), JSON.stringify(manifest, null, 2) + "\n");
   return { out, manifest };
+}
+
+interface SafeHit { t: number; pattern: string; text: string; box: number[] }
+
+/** Fail before any frame is drawn when a title, note, label or footage window crosses the frame's 5% inset at any
+ * of these film times; the full list goes to safe-area[-WxH].json. */
+async function safeAreaGate(dir: string, tag: string, html: string, sb: Storyboard, times: number[], shell: Awaited<ReturnType<typeof pinnedShell>>): Promise<void> {
+  const report = join(dir, `safe-area${tag}.json`);
+  const hits = await withPage<SafeHit[]>(html, sb.output.out_w, sb.output.out_h,
+    b => b.evaluate(`${JSON.stringify(times)}.flatMap((t) => __safe(t * 1000).map((hit) => ({ t, ...hit })))`), shell);
+  if (!hits.length) { rmSync(report, { force: true }); return; }
+  writeFileSync(report, JSON.stringify(hits, null, 2) + "\n");
+  const [x0, y0, x1, y1] = hits[0]!.box;
+  throw new Error(`safe area: ${hits.length} box(es) cross the 5% inset; first at ${hits[0]!.t.toFixed(3)} s, ${hits[0]!.pattern} "${hits[0]!.text}" at ${x0},${y0}-${x1},${y1} (all in ${report})`);
 }

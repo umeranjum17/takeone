@@ -11,20 +11,20 @@
   "planner": { "by": "user", "abstained": [] },
   "clips": {
     "raw": { "files": ["../takes/film-board/screen.webm"], "crop": ["2930:1648:0:0"], "start": 1.6, "d": 2 },
-    "open": { "files": ["../takes/flush-landscape/out/headless-demo.mp4", "../takes/flush-portrait/out/headless-demo.mp4", "../takes/flush-square/out/headless-demo.mp4"], "crop": ["1088:870:164:0", "2160:2000:0:840", "1392:1132:384:404"], "start": 3.5, "d": 1.5 },
-    "type": { "files": ["../takes/flush-landscape/out/headless-demo.mp4", "../takes/flush-portrait/out/headless-demo.mp4", "../takes/flush-square/out/headless-demo.mp4"], "crop": ["972:776:152:0", "2160:2000:0:840", "1392:1132:384:404"], "start": 6.5, "d": 3.5 },
-    "drag": { "files": ["../takes/flush-landscape-4k/out/headless-demo.mp4", "../takes/drag-columns/drag-columns.mp4"], "crop": ["2290:1288:560:160", null], "start": 16, "d": 3.5 },
-    "wide": { "files": ["../takes/flush-landscape/out/headless-demo.mp4"], "crop": ["1664:936:128:0"], "start": 4, "d": 1.5 },
-    "tall": { "files": ["../takes/flush-portrait/out/headless-demo.mp4"], "start": 5.5, "d": 1.5 },
-    "square": { "files": ["../takes/flush-square/out/headless-demo.mp4"], "start": 7, "d": 2 }
+    "open": { "files": ["../takes/sa2/landscape-4k/out/headless-demo.mp4", "../takes/sa2/portrait/out/headless-demo.mp4", "../takes/sa2/square/out/headless-demo.mp4"], "crop": ["1024:836:1408:568", "684:558:198:681", "684:558:198:261"], "start": 3.5, "d": 1.5 },
+    "type": { "files": ["../takes/sa2/landscape-4k/out/headless-demo.mp4", "../takes/sa2/portrait/out/headless-demo.mp4", "../takes/sa2/square/out/headless-demo.mp4"], "crop": ["1024:836:1408:568", "684:558:198:681", "684:558:198:261"], "start": 6.4, "d": 3.5 },
+    "drag": { "files": ["../takes/sa2/landscape-4k/out/headless-demo.mp4", "../takes/sa2/portrait/out/headless-demo.mp4", "../takes/sa2/square/out/headless-demo.mp4"], "crop": ["2240:1260:592:250", "920:780:80:256", "900:560:90:200"], "start": 15.9, "d": 3.5 },
+    "wide": { "files": ["../takes/sa2/landscape-4k/out/headless-demo.mp4"], "crop": ["2240:1260:592:250"], "start": 19.05, "d": 1.5 },
+    "tall": { "files": ["../takes/sa2/portrait/out/headless-demo.mp4"], "crop": ["594:1056:86:236"], "start": 19.05, "d": 1.5 },
+    "square": { "files": ["../takes/sa2/square/out/headless-demo.mp4"], "start": 19.05, "d": 2 }
   },
   "scenes": [
     { "pattern": "statement", "d": 3, "cut": true, "title": "Raw screen recordings look flat." },
     { "pattern": "clip", "d": 3.5, "cut": true, "clip": "raw", "from": 0.96, "label": "Raw capture",
       "cuts": [{ "at": 2, "clip": "open", "scale": 1, "label": "TakeOne" }] },
-    { "pattern": "clip", "d": 3.5, "cut": true, "clip": "type", "label": "Zooms in where you type" },
+    { "pattern": "clip", "d": 3.5, "cut": true, "clip": "type", "label": "Every keystroke, on screen" },
     { "pattern": "clip", "d": 3.5, "cut": true, "clip": "drag", "label": "Drags stay in frame" },
-    { "pattern": "clip", "d": 5, "cut": true, "clip": "wide", "scale": 1.2, "label": "16:9",
+    { "pattern": "clip", "d": 5, "cut": true, "clip": "wide", "label": "16:9",
       "cuts": [{ "at": 1.5, "clip": "tall", "scale": 1, "label": "9:16" }, { "at": 3, "clip": "square", "scale": 1, "label": "Every format." }] },
     { "pattern": "statement", "d": 4, "cut": true, "title": "$0.00049", "subtitle": "per minute of video",
       "note": "Measured: takeone make, $0.000323 for 39.5 s" },

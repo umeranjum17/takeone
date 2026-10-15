@@ -23,7 +23,7 @@ const TEXT_BOXES = `(() => {
   return JSON.stringify(out);
 })()`;
 
-export async function captureScene(output, { cursorHidden = false, aspect = 'landscape' } = {}) {
+export async function captureScene(output, { cursorHidden = false, aspect = 'landscape', title = true } = {}) {
   // Each aspect captures its own layout at its own viewport, so a same-aspect render needs no crop.
   const layout = LAYOUTS[aspect];
   if (!layout) throw new Error(`unknown aspect ${aspect}; use ${Object.keys(LAYOUTS).join(', ')}`);
@@ -111,7 +111,7 @@ export async function captureScene(output, { cursorHidden = false, aspect = 'lan
       cursor_free: cursorHidden,
       clock: { offsetMs: 0, medianMs: 0, spreadMs: 0, frames },
       source: { kind: 'headless-demo', css: { w: cssW, h: cssH }, browser: VERSION, sha256: BINARY_SHA256 },
-      title: 'From idea to launch',
+      ...(title ? { title: 'From idea to launch' } : {}),
     }, null, 2) + '\n');
     succeeded = true;
     return { dir, frames };
@@ -127,10 +127,11 @@ export async function captureScene(output, { cursorHidden = false, aspect = 'lan
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   const [output, ...extra] = process.argv.slice(2);
   const cursorHidden = extra.includes('--cursor=hidden');
+  const title = !extra.includes('--no-title');
   const aspect = extra.find(flag => flag.startsWith('--aspect='))?.slice(9) ?? 'landscape';
-  if (!output || !LAYOUTS[aspect] || extra.some(flag => flag !== '--cursor=hidden' && !flag.startsWith('--aspect='))) {
-    console.error('usage: node scripts/headless-scene.mjs <new-output-dir> [--cursor=hidden] [--aspect=landscape|portrait|square]');
+  if (!output || !LAYOUTS[aspect] || extra.some(flag => !['--cursor=hidden', '--no-title'].includes(flag) && !flag.startsWith('--aspect='))) {
+    console.error('usage: node scripts/headless-scene.mjs <new-output-dir> [--cursor=hidden] [--no-title] [--aspect=landscape|portrait|square]');
     process.exitCode = 2;
   }
-  else try { console.log(await captureScene(output, { cursorHidden, aspect })); } catch (error) { console.error(error); process.exitCode = 1; }
+  else try { console.log(await captureScene(output, { cursorHidden, aspect, title })); } catch (error) { console.error(error); process.exitCode = 1; }
 }

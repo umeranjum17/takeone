@@ -25,6 +25,14 @@ node scripts/headless-scene.mjs tmp/board-portrait --aspect=portrait
 node bin/takeone.mjs make tmp/board-portrait --no-jev --set fps=60 --aspect portrait
 ```
 
+`--no-title` leaves the board's title out of `take.json`. A 16:9 render of a titled take keeps
+a band under a smaller, top-anchored screen for the title. The untitled take fills the frame, so
+use it for footage that another film frames and labels itself, as the demo film's sources are:
+
+```sh
+node scripts/headless-scene.mjs tmp/board-film --aspect=landscape --no-title
+```
+
 ### Safe area
 
 Every layout is fitted into its viewport inside a 5% inset on each side, and the take

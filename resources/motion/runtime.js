@@ -154,5 +154,19 @@ window.installSeek = (settle = 2) => {
     });
     return max;
   };
+  // Safe-area gate: every shown [data-safe] box (titles, notes, labels, footage windows) that crosses the frame's
+  // 5% inset at page time ms. Boxes are measured in their scene layer, so the push-in between beats is not judged.
+  window.__safe = (ms) => {
+    apply(ms);
+    const W = innerWidth, H = innerHeight, out = [];
+    for (const el of $$("[data-safe]")) {
+      const r = el.getBoundingClientRect(), layer = el.closest(".layer"), o = layer.getBoundingClientRect();
+      if (!r.width || !r.height || getComputedStyle(el).visibility === "hidden") continue;
+      const box = [r.left - o.left, r.top - o.top, r.right - o.left, r.bottom - o.top];
+      if (box[0] < W * 0.05 - 0.5 || box[1] < H * 0.05 - 0.5 || box[2] > W * 0.95 + 0.5 || box[3] > H * 0.95 + 0.5)
+        out.push({ pattern: layer.dataset.pattern, text: el.dataset.safe || el.textContent.trim().slice(0, 40), box: box.map(Math.round) });
+    }
+    return out;
+  };
   return anims.length;
 };

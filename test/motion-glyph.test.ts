@@ -212,3 +212,22 @@ test("demo film storyboard: clips, cuts and statements validate; short label win
     assert.throws(()=>pageData(dir,gone,{}),/clips\.open: .*missing; re-run ingest/);
   } finally {rmSync(dir,{recursive:true,force:true});}
 });
+
+test("demo film journey: stills render inside the 5% safe area; a window that crosses it fails before drawing",{timeout:240_000},async()=>{
+  const {existsSync,readFileSync,writeFileSync}=await import("node:fs");
+  const {renderMotion}=await import("../src/motion/motion.ts");
+  const film=JSON.parse(readFileSync("resources/demo/film/storyboard.json","utf8"));
+  const dir=mkdtempSync(resolve(".motion-safe-test-"));
+  try {
+    execFileSync("ffmpeg",["-nostdin","-v","error","-loop","1","-i",resolve("resources/demo/tidewater-board.png"),"-t","3.5","-r","60","-vf","scale=960:-2","-pix_fmt","yuv420p",resolve(dir,"board.mp4")]);
+    const write=(from?:number)=>writeFileSync(resolve(dir,"storyboard.json"),JSON.stringify({...film,clips:{board:{files:["board.mp4"],start:0,d:3}},
+      scenes:[{pattern:"statement",d:3,cut:true,title:"Raw screen recordings look flat."},{pattern:"clip",d:3,cut:true,clip:"board",label:"Raw capture",...(from?{from}:{})}]}));
+    write();
+    const ok=await renderMotion(dir,{size:[1080,1920],stills:[1.5,3.05,5]});
+    assert.equal(ok.stills.length,3);
+    assert.equal(existsSync(resolve(dir,"safe-area-1080x1920.json")),false);
+    write(1.3); // springs in from 130%: wider than the portrait frame
+    await assert.rejects(renderMotion(dir,{size:[1080,1920],stills:[3.05]}),/safe area: .*clip "footage window"/);
+    assert.ok(JSON.parse(readFileSync(resolve(dir,"safe-area-1080x1920.json"),"utf8")).length);
+  } finally {rmSync(dir,{recursive:true,force:true});}
+});
