@@ -28,10 +28,13 @@ function sealedStore(env: NodeJS.ProcessEnv, o: KeyOptions): Keystore {
   return fileStore({ path: join(configRoot(o), "takeone", "secrets.json"), passphrase });
 }
 
-/** Keyring first; a failed keyring operation selects the sealed file when configured. */
+/** Keyring first; a failed keyring operation selects the sealed file when configured.
+  * TAKEONE_NO_KEYRING skips the OS keyring entirely, so an isolated run (throwaway
+  * HOME, CI) cannot reach the host session bus even when its env vars are inherited. */
 export function persistentKeys(o: KeyOptions = {}): Keystore {
   if (o.store) return o.store;
   const env = o.env ?? process.env;
+  if (env.TAKEONE_NO_KEYRING) return sealedStore(env, o);
   try {
     const keyring = keyringStore({ service: "takeone", env: {
       ...(env.DBUS_SESSION_BUS_ADDRESS ? { DBUS_SESSION_BUS_ADDRESS: env.DBUS_SESSION_BUS_ADDRESS } : {}),
@@ -104,16 +107,28 @@ export async function loadApiKey(o: KeyOptions = {}): Promise<string | null> {
   return store.get(JEV_SECRET);
 }
 
-/** Safe presence probe: neither migrates nor prints the credential. */
+/** Safe presence probe: neither migrates nor prints the credential. The detail names
+  * the source (env override, OS keyring, sealed file), never the secret itself. */
 export async function keyStatus(o: KeyOptions = {}): Promise<{ available: boolean; detail: string }> {
+  const env = o.env ?? process.env;
   try {
-    const env = o.env ?? process.env;
-    const store = env.TYPESAFE_API_KEY
-      ? overrideStore({ [JEV_SECRET]: env.TYPESAFE_API_KEY }) : persistentKeys(o);
-    const available = !!await store.get(JEV_SECRET);
-    return { available, detail: available ? "Jev key available through BYOKit" : "no Jev key; run takeone key set (stdin)" };
-  } catch {
-    return { available: false, detail: "Jev store unavailable; enable the OS keyring or supply TAKEONE_SECRETS_PASSPHRASE_FD for the BYOKit sealed store" };
+    if (env.TYPESAFE_API_KEY) {
+      const available = !!await overrideStore({ [JEV_SECRET]: env.TYPESAFE_API_KEY }).get(JEV_SECRET);
+      return { available, detail: available ? "Jev key available via env override TYPESAFE_API_KEY" : "no Jev key; run takeone key set (stdin)" };
+    }
+    const available = !!await persistentKeys(o).get(JEV_SECRET);
+    if (!available) return { available, detail: "no Jev key; run takeone key set (stdin)" };
+    if (env.TAKEONE_NO_KEYRING) {
+      return { available, detail: `Jev key available via sealed file ${join(configRoot(o), "takeone", "secrets.json")}` };
+    }
+    const bus = env.DBUS_SESSION_BUS_ADDRESS ?? (env.XDG_RUNTIME_DIR ? `unix:path=${env.XDG_RUNTIME_DIR}/bus` : null);
+    const source = env.TAKEONE_SECRETS_PASSPHRASE_FD
+      ? "OS keyring or sealed file"
+      : `OS keyring (service takeone${bus ? ` via ${bus}` : ""})`;
+    return { available, detail: `Jev key available via ${source}` };
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    return { available: false, detail: `Jev store unavailable: ${reason}` };
   }
 }
 

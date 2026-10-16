@@ -74,6 +74,8 @@ node scripts/synth-take.ts tmp/synth-demo && node bin/takeone.mjs make "$PWD/tmp
 Your video is at `tmp/synth-demo/out/synth-demo.mp4`. The demo recording is generated, so you need no screen recorder or API key, and planning runs offline.
 To record your own screen, a phone or the iOS Simulator, follow the [guide](docs/guide.md#quickstart).
 
+Isolated installs (CI, throwaway test HOMEs) can set `TAKEONE_NO_KEYRING=1` so takeone never reads the OS keyring and cannot see the host's stored key even when `XDG_RUNTIME_DIR` or `DBUS_SESSION_BUS_ADDRESS` are inherited; keys then come only from `TYPESAFE_API_KEY` or a `TAKEONE_SECRETS_PASSPHRASE_FD` sealed file.
+
 ## Features
 
 - **Records your real workflow.** The Linux desktop (Wayland and Hyprland), an Android phone or emulator, or the iOS Simulator on a Mac.
