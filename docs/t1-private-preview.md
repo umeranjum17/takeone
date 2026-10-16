@@ -26,6 +26,6 @@ in, MP4 out.
 
 ## How a tester gets it
 
-Private handoff of the runtime archive: extract, `npm ci`, then
-`node bin/takeone.mjs --help` (needs Node >= 22 and ffmpeg). Ask the maintainer;
-it is never published, tagged, or attached to this repo.
+The e451778 runtime archive went out by private handoff only; it was never
+published. Current builds install from this repo's releases instead — see the
+[README](../README.md#quick-start) or the [guide](guide.md#download--install).
