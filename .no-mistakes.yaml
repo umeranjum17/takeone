@@ -2,16 +2,21 @@
 # test.instructions is trusted-default-branch-only; this branch cannot self-enable it.
 test:
   instructions: |
-    Run the repo's checks through done-done project config: `done-done run checks`
-    for the static suite and `done-done run offline-render` for the real-product
-    proof (synthetic take, local-only planning, real render and decoded pixels).
-    Follow docs/verification/README.md and operations.md: retain the baseline
-    visual-reference, then run visual (all ten dark/light, form/font/motion cells
-    and required design judgments) and visual-controls against that reference.
-    visual-desktop is exploratory only, never full acceptance. Preserve the
-    feature recipes for aspect/format, edits, capture and vector cursor; hardware
-    and paid paths require explicit authority. Name done-done and the journey in
-    each new proof recipe.
+    Test only what the change touches, plus one user journey; CI's `ci` and
+    `headless-scene` checks run the full suite, so do not rerun `npm test`,
+    `done-done run checks` or scripts/test-headless-scene.mjs here.
+    1. Changed parts: `npm run typecheck`, then `npm run build && node --test`
+       on only the test/*.test.ts and dist/test/*.test.js files that exercise
+       the changed src/ or scripts/ modules (none for a docs-only change).
+       Follow docs/verification/README.md and operations.md: run the feature
+       recipe for each changed feature (aspect/format, edits, capture, vector
+       cursor, motion); only when the change alters rendered pixels, retain the
+       baseline visual-reference, then run visual (all ten dark/light,
+       form/font/motion cells and required design judgments) and
+       visual-controls against it. visual-desktop is exploratory only. Hardware and paid paths require explicit authority.
+    2. One user journey: `done-done run offline-render` (synthetic take,
+       local-only planning, real render and decoded pixels). Name done-done and
+       the journey in each new proof recipe.
     Read CONSTRAINTS.md and run node scripts/floor-guard.mjs --base origin/main;
     exit 1 blocks the change and exit 2 is inconclusive, never a pass.
     Use existing integration/e2e journeys and the supported public CLI, isolated
