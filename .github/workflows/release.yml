@@ -1,0 +1,40 @@
+name: release
+on:
+  push:
+    branches: [main]
+concurrency:
+  group: release
+permissions:
+  contents: write
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - id: version
+        name: Skip when this version is already tagged
+        run: |
+          v="v$(node -p 'require("./package.json").version')"
+          echo "tag=$v" >> "$GITHUB_OUTPUT"
+          if git ls-remote --exit-code --tags origin "refs/tags/$v" >/dev/null; then
+            echo "new=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "new=true" >> "$GITHUB_OUTPUT"
+          fi
+      - if: steps.version.outputs.new == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - if: steps.version.outputs.new == 'true'
+        run: npm ci
+      # The asset name stays fixed so releases/latest/download/takeone.tgz always installs the newest build.
+      - if: steps.version.outputs.new == 'true'
+        name: Pack and publish the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          npm pack && mv takeone-*.tgz takeone.tgz
+          gh release create "$TAG" takeone.tgz --target "$GITHUB_SHA" --title "takeone $TAG" --notes-file docs/release-notes.md

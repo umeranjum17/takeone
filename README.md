@@ -50,6 +50,19 @@ Verification and evidence: [done-done journeys and feature recipes](docs/verific
 
 ## Quick start
 
+### Install
+
+On Linux, with [Node.js](https://nodejs.org/) 22.19 or newer and [ffmpeg](https://ffmpeg.org/) on your PATH:
+
+```sh
+npm install -g https://github.com/umeranjum17/takeone/releases/latest/download/takeone.tgz
+takeone doctor
+```
+
+`takeone doctor` is the first check: it reports what this machine can record and render.
+
+### From source
+
 On Linux, you need [Node.js](https://nodejs.org/) 22.19 or newer, [ffmpeg](https://ffmpeg.org/) on your PATH, and the Liberation Sans or DejaVu Sans font (most distributions ship one).
 
 ```sh
