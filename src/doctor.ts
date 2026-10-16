@@ -143,6 +143,21 @@ export async function runDoctor(): Promise<DoctorCheck[]> {
           ok: true,
           detail: `protocol ${caps.protocol}, ${caps.session.kind}, ${caps.capture.mechanism}, encode ${caps.encode.codecs.join("/")} ${caps.encode.hardware ? "hw" : "sw"}`,
         });
+        // macOS engines preflight Screen Recording without prompting (Linux
+        // caps carry no grant field, so the row only appears where it exists).
+        if (caps.capture.grant !== undefined) {
+          const main = caps.capture.displays?.find((d) => d.main) ?? caps.capture.displays?.[0];
+          checks.push({
+            check: "screen-recording",
+            ok: caps.capture.grant === "granted",
+            detail:
+              caps.capture.grant === "granted"
+                ? main !== undefined
+                  ? `granted; main display ${main.width}x${main.height}@${main.scale}x`
+                  : "granted; no active display"
+                : caps.capture.unavailable_reason?.remedy ?? "grant Screen Recording in System Settings",
+          });
+        }
       } finally {
         await client.stop();
       }

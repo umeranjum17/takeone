@@ -80,7 +80,7 @@ Isolated installs (CI, throwaway test HOMEs) can set `TAKEONE_NO_KEYRING=1` so t
 
 ## Features
 
-- **Records your real workflow.** The Linux desktop (Wayland and Hyprland), an Android phone or emulator, or the iOS Simulator on a Mac.
+- **Records your real workflow.** The Linux desktop (Wayland and Hyprland), the macOS desktop (preview), an Android phone or emulator, or the iOS Simulator on a Mac.
 - **Plans the camera after you record.** From your clicks, typing and what changed on screen.
 - **Keeps the action readable.** Click rings, a drawn vector cursor and keycaps for shortcuts like `Ctrl+S`.
 - **Looks finished out of the box.** A rounded screen card on a stage, in six themes from dark `midnight` to cream `paper`.
