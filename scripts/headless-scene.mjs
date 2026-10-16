@@ -23,7 +23,7 @@ const TEXT_BOXES = `(() => {
   return JSON.stringify(out);
 })()`;
 
-export async function captureScene(output, { cursorHidden = false, aspect = 'landscape', title = true } = {}) {
+export async function captureScene(output, { cursorHidden = false, aspect = 'landscape', title = true, scale = 2 } = {}) {
   // Each aspect captures its own layout at its own viewport, so a same-aspect render needs no crop.
   const layout = LAYOUTS[aspect];
   if (!layout) throw new Error(`unknown aspect ${aspect}; use ${Object.keys(LAYOUTS).join(', ')}`);
@@ -40,7 +40,7 @@ export async function captureScene(output, { cursorHidden = false, aspect = 'lan
   try {
     browser = await launchBrowser();
     await browser.send('Page.enable');
-    await browser.send('Emulation.setDeviceMetricsOverride', { width: cssW, height: cssH, deviceScaleFactor: 2, mobile: false });
+    await browser.send('Emulation.setDeviceMetricsOverride', { width: cssW, height: cssH, deviceScaleFactor: scale, mobile: false });
     await browser.send('Page.addScriptToEvaluateOnNewDocument', { source: await readFile(new URL('./headless/clock.js', import.meta.url), 'utf8') });
     const url = new URL('./e2e/scene.html', import.meta.url); url.searchParams.set('headless', '1');
     if (aspect !== 'landscape') url.searchParams.set('layout', aspect);
@@ -99,13 +99,13 @@ export async function captureScene(output, { cursorHidden = false, aspect = 'lan
     }
     encoder.stdin.end(); await encoding;
     if (cancelled) throw new Error('Headless capture interrupted');
-    const events = inputEvents(steps, frames, layout);
+    const events = inputEvents(steps, frames, layout, scale);
     await writeFile(join(dir, 'events.jsonl'), events.map(event => JSON.stringify(event)).join('\n') + '\n');
     await writeFile(join(dir, 'frames.tsv'), frameClock(frames));
     await writeFile(join(dir, 'text-boxes.json'), JSON.stringify({ space: 'stream px', clock: 'video s',
       samples: boxes.map(({ t, json }) => ({ t, boxes: JSON.parse(json) })) }) + '\n');
     await writeFile(join(dir, 'take.json'), JSON.stringify({
-      id: 'headless-demo', stream: { w: cssW * 2, h: cssH * 2 }, scale: 2, offset_ms: 0, fps: FPS,
+      id: 'headless-demo', stream: { w: cssW * scale, h: cssH * scale }, scale, offset_ms: 0, fps: FPS,
       started_at: '2026-01-01T00:00:00.000Z', stopped_at: new Date(Date.UTC(2026,0,1) + frames * 1000 / FPS).toISOString(),
       pointer: 'mapped', events: 'on', monitor: null, warnings: [],
       cursor_free: cursorHidden,
@@ -129,9 +129,10 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
   const cursorHidden = extra.includes('--cursor=hidden');
   const title = !extra.includes('--no-title');
   const aspect = extra.find(flag => flag.startsWith('--aspect='))?.slice(9) ?? 'landscape';
-  if (!output || !LAYOUTS[aspect] || extra.some(flag => !['--cursor=hidden', '--no-title'].includes(flag) && !flag.startsWith('--aspect='))) {
-    console.error('usage: node scripts/headless-scene.mjs <new-output-dir> [--cursor=hidden] [--no-title] [--aspect=landscape|portrait|square]');
+  const scale = Number(extra.find(flag => flag.startsWith('--scale='))?.slice(8) ?? 2);
+  if (!output || !LAYOUTS[aspect] || ![1, 2, 3, 4].includes(scale) || extra.some(flag => !['--cursor=hidden', '--no-title'].includes(flag) && !/^--(aspect|scale)=/.test(flag))) {
+    console.error('usage: node scripts/headless-scene.mjs <new-output-dir> [--cursor=hidden] [--no-title] [--aspect=landscape|portrait|square] [--scale=1|2|3|4]');
     process.exitCode = 2;
   }
-  else try { console.log(await captureScene(output, { cursorHidden, aspect, title })); } catch (error) { console.error(error); process.exitCode = 1; }
+  else try { console.log(await captureScene(output, { cursorHidden, aspect, title, scale })); } catch (error) { console.error(error); process.exitCode = 1; }
 }
