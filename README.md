@@ -55,7 +55,7 @@ Verification and evidence: [done-done journeys and feature recipes](docs/verific
 On Linux, with [Node.js](https://nodejs.org/) 22.19 or newer and [ffmpeg](https://ffmpeg.org/) on your PATH:
 
 ```sh
-npm install -g https://github.com/umeranjum17/takeone/releases/latest/download/takeone.tgz
+npm install -g --allow-remote=all https://github.com/umeranjum17/takeone/releases/latest/download/takeone.tgz
 takeone doctor
 ```
 
