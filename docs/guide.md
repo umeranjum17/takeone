@@ -13,7 +13,7 @@ Install, the full quickstart, planning and rendering, and development notes. Bac
 Install the latest packaged build from the [releases page](https://github.com/umeranjum17/takeone/releases):
 
 ```sh
-npm install -g https://github.com/umeranjum17/takeone/releases/latest/download/takeone.tgz
+npm install -g --allow-remote=all https://github.com/umeranjum17/takeone/releases/latest/download/takeone.tgz
 takeone doctor
 ```
 

@@ -42,7 +42,7 @@ jobs:
             Install:
 
             ```
-            npm install -g https://github.com/umeranjum17/takeone/releases/latest/download/takeone.tgz
+            npm install -g --allow-remote=all https://github.com/umeranjum17/takeone/releases/latest/download/takeone.tgz
             takeone doctor
             ```
         run: |
