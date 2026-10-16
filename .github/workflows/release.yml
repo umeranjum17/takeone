@@ -13,11 +13,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - id: version
-        name: Skip when this version is already tagged
+        name: Skip when this version is already published
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           v="v$(node -p 'require("./package.json").version')"
           echo "tag=$v" >> "$GITHUB_OUTPUT"
-          if git ls-remote --exit-code --tags origin "refs/tags/$v" >/dev/null; then
+          has=$(gh release view "$v" --json assets -q 'any(.assets[]; .name == "takeone.tgz")' 2>/dev/null || echo false)
+          if [ "$has" = "true" ]; then
             echo "new=false" >> "$GITHUB_OUTPUT"
           else
             echo "new=true" >> "$GITHUB_OUTPUT"
