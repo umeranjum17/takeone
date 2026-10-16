@@ -114,3 +114,4 @@ node scripts/test-headless-scene.mjs --part=compare <take> <take> <take>  # iden
 Locally, determinism is checked between fresh runs on the same host; in CI,
 across three runners. Moving the browser pin, fonts or rendering flags requires
 rerunning that gate.
+
