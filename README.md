@@ -46,6 +46,8 @@ takeone plans the shots afterwards from what actually happened on screen, then r
      <img src="docs/assets/readme/step-render-light.webp" width="640" alt="A 1:1 detail of the rendered frame: a click ring on the Priority field of the New task dialog" />
    </picture>
 
+Verification and evidence: [done-done journeys and feature recipes](docs/verification/README.md).
+
 ## Quick start
 
 On Linux, you need [Node.js](https://nodejs.org/) 22.19 or newer, [ffmpeg](https://ffmpeg.org/) on your PATH, and the Liberation Sans or DejaVu Sans font (most distributions ship one).

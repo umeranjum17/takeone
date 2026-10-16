@@ -1,8 +1,8 @@
 #!/usr/bin/env node
-// verify-takeone visual defect check for one rendered take (make/render or motion). Settled holds of
+// done-done visual defect check for one rendered take (make/render or motion). Settled holds of
 // the decoded film (and transition midpoints) are compared with the take's own source pixels, mapped
 // by its sidecars (camera.json, camera.cmd, stage.png, beats/decisions, storyboard). Exit 1 names each
-// defect with its frame time and a crop; exit 2 is a usage or input error. See ../SKILL.md.
+// defect with its frame time and a crop; exit 2 is a usage or input error. See README.md.
 //
 //   node visual-check.ts <take-dir> --name <cell> --out <dir> [--theme <name>] [--film <mp4>] [--ref <mp4|png>]...
 //     [--at <s,s,...>] [--debug]   (--at checks those times as holds; --debug also writes the predicted picture)
@@ -10,11 +10,11 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
-import { resolveTheme } from "../../../../src/themes.ts";
-import { sourceViewport, stageGeometry } from "../../../../src/render/stage.ts";
-import { edgeCuts, cutCount } from "../../../../src/render/framing.ts";
-import { cameraViewport } from "../../../../src/motion/camera.ts";
-import { heroSize } from "../../../../src/motion/geometry.ts";
+import { resolveTheme } from "../../src/themes.ts";
+import { sourceViewport, stageGeometry } from "../../src/render/stage.ts";
+import { edgeCuts, cutCount } from "../../src/render/framing.ts";
+import { cameraViewport } from "../../src/motion/camera.ts";
+import { heroSize } from "../../src/motion/geometry.ts";
 
 // Limits, measured on main 868ff39 (SKILL.md "Visual defect pass" gives the measurement behind each).
 export const LIMIT = {
@@ -58,7 +58,7 @@ mkdirSync(out, { recursive: true });
 const json = (f: string) => JSON.parse(readFileSync(join(take, f), "utf8"));
 const meta = json("take.json");
 const film = resolve(o.film ?? [join(take, "out", `${meta.id}.mp4`), join(take, "out", "motion.mp4")].find(existsSync) ?? join(take, "out", `${meta.id}.mp4`));
-const ff = (args: string[], max = 1 << 28) => execFileSync("ffmpeg", ["-nostdin", "-v", "error", "-threads", "2", "-filter_threads", "2", ...args], { maxBuffer: max });
+const ff = (args: string[], max = 1 << 28) => execFileSync("ffmpeg", ["-nostdin", "-v", "error", "-threads", "2", "-filter_threads", "2", "-filter_complex_threads", "2", ...args], { maxBuffer: max });
 const probe = JSON.parse(execFileSync("ffprobe", ["-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height,r_frame_rate:format=duration", "-of", "json", film], { encoding: "utf8" }));
 const [ow, oh] = [probe.streams[0].width as number, probe.streams[0].height as number];
 const [num, den = "1"] = String(probe.streams[0].r_frame_rate).split("/"), fps = Number(num) / Number(den), dur = Number(probe.format.duration);
@@ -352,7 +352,7 @@ function check(s: Sample) {
   if (o.debug) { // the picture the sidecars predict, next to the film's own still
     const X = new Uint8Array(ow * oh);
     for (let Y = 0; Y < oh; Y++) for (let x = 0; x < ow; x++) { const e = expect(x, Y); X[Y * ow + x] = Number.isFinite(e) ? Math.max(0, Math.min(255, Math.round(e))) : 0; }
-    execFileSync("ffmpeg", ["-v", "error", "-y", "-f", "rawvideo", "-pix_fmt", "gray", "-s", `${ow}x${oh}`, "-i", "-", "-frames:v", "1", "-update", "1", join(out, `${name}-t${s.t.toFixed(2)}-expected.png`)], { input: X });
+    execFileSync("ffmpeg", ["-v", "error", "-y", "-threads", "2", "-filter_threads", "2", "-filter_complex_threads", "2", "-f", "rawvideo", "-pix_fmt", "gray", "-s", `${ow}x${oh}`, "-i", "-", "-frames:v", "1", "-update", "1", join(out, `${name}-t${s.t.toFixed(2)}-expected.png`)], { input: X });
   }
   const agrees = (X: number, Y: number) => { const e = expect(X, Y); return Number.isFinite(e) && Math.abs(ob.p[Y * ow + X]! - e) <= LIMIT.same; };
   // Stage colour for takes without stage.png (motion): the luma most of the frame border shows.
@@ -465,7 +465,7 @@ function check(s: Sample) {
 }
 
 // --- run, evidence --------------------------------------------------------------------------
-const font = resolve(import.meta.dirname, "../../../../resources/fonts/Inter-SemiBold.ttf");
+const font = resolve(import.meta.dirname, "../../resources/fonts/Inter-SemiBold.ttf");
 const label = (text: string) => `drawtext=fontfile='${font}':text='${text.replace(/[':\\]/g, " ")}':x=12:y=10:fontsize=20:fontcolor=white:box=1:boxcolor=black@0.6:boxborderw=8`;
 const stamp = (t: number) => t.toFixed(2).padStart(6, "0");
 const log: string[] = [], results: unknown[] = [];

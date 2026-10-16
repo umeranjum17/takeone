@@ -2,8 +2,16 @@
 # test.instructions is trusted-default-branch-only; this branch cannot self-enable it.
 test:
   instructions: |
-    Read .agents/skills/verify-takeone/SKILL.md (verify-takeone) and its relevant
-    feature recipe before validation. Name verify-takeone in each new proof recipe.
+    Run the repo's checks through done-done project config: `done-done run checks`
+    for the static suite and `done-done run offline-render` for the real-product
+    proof (synthetic take, local-only planning, real render and decoded pixels).
+    Follow docs/verification/README.md and operations.md: retain the baseline
+    visual-reference, then run visual (all ten dark/light, form/font/motion cells
+    and required design judgments) and visual-controls against that reference.
+    visual-desktop is exploratory only, never full acceptance. Preserve the
+    feature recipes for aspect/format, edits, capture and vector cursor; hardware
+    and paid paths require explicit authority. Name done-done and the journey in
+    each new proof recipe.
     Read CONSTRAINTS.md and run node scripts/floor-guard.mjs --base origin/main;
     exit 1 blocks the change and exit 2 is inconclusive, never a pass.
     Use existing integration/e2e journeys and the supported public CLI, isolated

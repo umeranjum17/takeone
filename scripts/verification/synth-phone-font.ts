@@ -5,12 +5,12 @@
 // Settings > Font size = largest (font_scale 1.3). Captured at 360x800 CSS px, dsf 3
 // (1080x2400) by the pinned headless shell, then encoded as a 10 s take with one tap.
 //
-//   node .agents/skills/verify-takeone/scripts/synth-phone-font.ts <take-dir> [font-scale=1.3]
+//   node scripts/verification/synth-phone-font.ts <take-dir> [font-scale=1.3]
 import { execFileSync } from "node:child_process";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, join, resolve } from "node:path";
-import { ingest } from "../../../../src/motion/ingest.ts";
-import type { Storyboard } from "../../../../src/motion/types.ts";
+import { ingest } from "../../src/motion/ingest.ts";
+import type { Storyboard } from "../../src/motion/types.ts";
 
 const [dirArg, scaleArg = "1.3"] = process.argv.slice(2);
 const scale = Number(scaleArg);
@@ -18,7 +18,7 @@ if (!dirArg || !(scale >= 1 && scale <= 2)) {
   console.error("usage: synth-phone-font.ts <take-dir> [font-scale 1..2, default 1.3]");
   process.exit(2);
 }
-const dir = resolve(dirArg), repo = resolve(import.meta.dirname, "../../../..");
+const dir = resolve(dirArg), repo = resolve(import.meta.dirname, "../..");
 mkdirSync(join(dir, "page"), { recursive: true });
 
 // Same transform as scripts/e2e/android/build.sh, then text zoom on every px font size.
@@ -37,7 +37,7 @@ const sb = { source: { kind: "html", file: "page/phone.html", viewport: [360, 80
   states: { board: [], sheet: ["click #newTask"] } }, screens: {}, regions: [], crops: {} } as unknown as Storyboard;
 await ingest(dir, sb);
 const W = 1080, H = 2400, tapAt = 4000;
-execFileSync("ffmpeg", ["-nostdin", "-y", "-v", "error",
+execFileSync("ffmpeg", ["-nostdin", "-y", "-v", "error", "-threads", "2", "-filter_threads", "2", "-filter_complex_threads", "2",
   "-loop", "1", "-t", "4", "-i", join(dir, "sources/board.png"), "-loop", "1", "-t", "6", "-i", join(dir, "sources/sheet.png"),
   "-filter_complex", `[0:v][1:v]concat=n=2:v=1,fps=30,scale=${W}:${H},format=yuv420p`,
   "-c:v", "libx264", "-threads", "2", "-preset", "veryfast", "-f", "mp4", join(dir, "screen.webm")], { stdio: "inherit" });

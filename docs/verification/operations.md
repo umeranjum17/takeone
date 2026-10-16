@@ -1,9 +1,4 @@
----
-name: verify-takeone
-description: "Verify takeone — the local CLI that turns a screen capture into a polished demo MP4 (`make`, `render`, `motion`, `record`, `doctor`) — by driving its real commands and checking the real output files. Use whenever a takeone change needs proof, anything looks broken, or before claiming a render/pipeline feature works."
----
-
-# Verify takeone
+# Verification operations through done-done
 
 takeone is a short-lived local CLI (no server, no daemon). Verification means: build the checkout once, run the real `bin/takeone.mjs` commands the way the README teaches, and check the real artifacts they write (`out/<id>.mp4`, `camera.json`, `render.log`, `analysis/*`). A green exit code alone is not proof; the MP4 and its sidecar files are.
 
@@ -20,7 +15,7 @@ npm run build      # rebuild after pulling; dist/ must be newer than src/
 node bin/takeone.mjs --help   # readiness: exits 0 and prints the usage block
 ```
 
-For the required Node version, see [Download / Install](../../../docs/guide.md#download--install); check the installed version with `node --version`. Prerequisites: `ffmpeg` and `ffprobe` on PATH. Optional: `tesseract` (only for `--screen-text` OCR), Hyprland/Wayland (only for desktop recording). Planning and rendering an existing take need none of the capture prerequisites.
+For the required Node version, see [Download / Install](../guide.md#download--install); check the installed version with `node --version`. Prerequisites: `ffmpeg` and `ffprobe` on PATH. Optional: `tesseract` (only for `--screen-text` OCR), Hyprland/Wayland (only for desktop recording). Planning and rendering an existing take need none of the capture prerequisites.
 
 In fleet/shared-machine contexts, every encode (`make`, `render`, `motion`, `scripts/synth-take.ts`) is heavy work: hold the assigned heavy render lock for the whole proof budget (normally this host's `<firstmate-home>/state/takeone-heavy.lock`). A reserved release slot requires explicit coordinator assignment; do not pick another lock opportunistically. Limit the stock CLI to eight allowed CPUs with `taskset -c <eight-allowed-CPU-IDs>` when needed; inspect current affinity first, never patch the renderer to get a slot.
 
@@ -44,7 +39,7 @@ Isolation rules for every drive:
 - Point takes at scratch: `export TAKEONE_DIR="$PWD/tmp/verify-takes"` (default is the user's real `~/Videos/takeone`; never write there, and treat `takeone` bare-list output as the user's private data — do not read or share it).
 - For record/stop drives also `export TAKEONE_STATE_DIR="$PWD/tmp/verify-state"` (default `~/.local/state/takeone`).
 - Pass take directories as absolute paths so `make`/`render` never resolve through the real takes root.
-- Never run `record` against a personal/shared desktop session; recording is for dedicated empty workspaces or test fixtures (see features/record-a-take.md). Never run `stop` unless this run owns the recording (it SIGINTs the pid in the state dir).
+- Never run `record` against a personal/shared desktop session; recording is for dedicated empty workspaces or test fixtures (see docs/verification/record-a-take.md). Never run `stop` unless this run owns the recording (it SIGINTs the pid in the state dir).
 
 The canonical offline journey (works on any machine, zero capture, zero network, zero tokens):
 
@@ -55,11 +50,11 @@ node bin/takeone.mjs make "$TAKEONE_DIR/synth-demo" --no-jev   # local-only plan
 test -s "$TAKEONE_DIR/synth-demo/out/synth-demo.mp4"     # the proof artifact
 ```
 
-`make` rewrites `analysis/*`, `camera.json`, `camera.cmd` and `out/<id>.mp4` inside the take. `render <take-dir>` re-renders from the saved analysis without calling the planner (it prints the MP4 path on stdout). See `features/` for every mapped journey, real flags and per-feature gotchas.
+`make` rewrites `analysis/*`, `camera.json`, `camera.cmd` and `out/<id>.mp4` inside the take. `render <take-dir>` re-renders from the saved analysis without calling the planner (it prints the MP4 path on stdout). See `docs/verification/` for every mapped journey, real flags and per-feature gotchas.
 
-### verify-takeone: preserved saved-take rerender
+### done-done: preserved saved-take rerender
 
-When capture or planning is not authorized, use `features/rerender-look-tweaks.md`
+When capture or planning is not authorized, use `docs/verification/rerender-look-tweaks.md`
 with an explicitly approved saved demo take. Inventory/hash every copied input,
 verify the approved source hash, and copy only into task-local scratch. Preserve
 `screen.webm`, `take.json`, `analysis/beats.json`, original `analysis/decisions.jsonl`
@@ -71,13 +66,13 @@ semantic whole-element annotations. Verify durable input hashes again afterward.
 
 ## Evidence
 
-Name `verify-takeone` in each new proof recipe. Follow [CONSTRAINTS.md](../../../CONSTRAINTS.md)
+Name `done-done` and the project journey in each new proof recipe. Follow [CONSTRAINTS.md](../../CONSTRAINTS.md)
 for the Floor command, exit meanings and test-diet exception.
-`.no-mistakes.yaml` links this skill through
+`.no-mistakes.yaml` links the project journeys through
 published `test.instructions`, trusted-default-branch-only: pre-merge agent
 consumption is unproven until a stock validator actually receives that runbook.
 
-Proof artifacts live in a named folder inside the checkout, `tmp/evidence/verify-takeone-<YYYYMMDD-HHMMSS>/`, and must survive cleanup; a user-visible change adds the dark/light, phone/desktop and per-interaction motion passes of "Review evidence (fleet standard)" below. This ignored folder keeps evidence outside the committed code branch. Per proof capture:
+Proof artifacts live in a named folder inside the checkout, `tmp/evidence/done-done-<YYYYMMDD-HHMMSS>/`, and must survive cleanup; a user-visible change adds the dark/light, phone/desktop and per-interaction motion passes of "Review evidence (fleet standard)" below. This ignored folder keeps evidence outside the committed code branch. Per proof capture:
 
 - The command lines run and their exit codes.
 - The real output files the command produced: copy the rendered `out/<id>.mp4` into the evidence folder, plus a still extracted from it —
@@ -91,7 +86,7 @@ Standards: exercise the real user path (published CLI flags only — no internal
 ## Review evidence (fleet standard)
 
 Every user-visible change ships proof for all four kinds below in the same run's
-`tmp/evidence/verify-takeone-<YYYYMMDD-HHMMSS>/` folder. takeone is a CLI with no
+`tmp/evidence/done-done-<YYYYMMDD-HHMMSS>/` folder. takeone is a CLI with no
 window and no stylesheet of its own, so a "screen" here is a rendered frame, a
 "theme" is the look token set handed to `make`/`render`/`motion`, and a "form
 factor" is the export geometry. Each pass names the command that produces it.
@@ -114,7 +109,7 @@ floor; add another name from the relevant class when the change touches that tok
 one-drive equivalent. Copy the take per theme — `render` overwrites `out/<id>.mp4`
 in place. For a motion change run `takeone motion ... --theme midnight` and
 `--theme paper` as two fresh films; only the rerender of a saved motion take
-rejects `--theme`/`--set` (`features/motion-films.md`).
+rejects `--theme`/`--set` (`docs/verification/motion-films.md`).
 
 ### Form factor: phone and desktop
 
@@ -165,21 +160,21 @@ Every user-visible change runs this pass on the branch, with main's pass as the 
 A defect fails the check: the pass exits 1, names the defect, its frame time and a crop.
 
 ```sh
-TAKEONE_GATE=<memory gate, optional> .agents/skills/verify-takeone/scripts/visual-pass.sh \
+TAKEONE_GATE=<memory gate, optional> scripts/verification/visual-pass.sh \
   tmp/evidence/visual-main --no-design                    # on main first: the reference (no design step: its stills have no reference film to take mocks from)
-.agents/skills/verify-takeone/scripts/visual-pass.sh tmp/evidence/visual-branch \
+scripts/verification/visual-pass.sh tmp/evidence/visual-branch \
   --ref tmp/evidence/visual-main \
   --motion-ref <approved-motion-dark-contact.png> --motion-ref <approved-motion-light-contact.png>   # on the branch
-.agents/skills/verify-takeone/scripts/visual-controls.sh tmp/evidence/visual-main tmp/evidence/visual-controls
+scripts/verification/visual-controls.sh tmp/evidence/visual-main tmp/evidence/visual-controls
 ```
 
-The pass rebuilds `dist/` first when any `src/` file is newer: every render runs from
+The pass always rebuilds `dist/` first: every render runs from
 `dist/`, so a stale build renders old product code with new checker expectations and
 stale sidecars fail good films (measured on main: a pre-112 cover-fit `camera.json`
 against the contain-fit phone frame reads as status-bar and stage bands plus mismatch).
 `visual-controls.sh` proves real defects still fail, including a blank strip drawn inside
 the phone screen (`strip-in-phone`).
-The pass ends with a required done-done design step (`scripts/visual-design.sh`, run
+The pass ends with a required done-done design step (`scripts/verification/visual-design.sh`, run
 automatically unless `--no-design`): it judges the held screen inside every cell still
 with `done-done design`, one judge call per cell (a few screens each, not one call for the
 whole pass, so a killed session loses at most one cell). Each `<cell>-t<time>.png` is
@@ -193,35 +188,24 @@ the reference pass must render every cell film in full. The `--motion-ref` conta
 never design mocks: a live probe showed a motion still judged next to a contact sheet of
 other content fails with a bogus `layout` defect (a future approved motion mock can use
 `visual-design.sh --motion-mock`, first for motion-dark, second for motion-light).
-A fail (exit 1) fails the pass; unsure (exit 3) fails it too and names the screen for a
+A fail (exit 1) fails the pass; genuine unsure (exit 3) fails it too and names the screen for a
 human look. An unsure whose reason shows the judge never answered (transport failure, not
-a verdict) is retried up to 3 attempts per screen. Each cell's verdicts append to
+a verdict) is retried up to 3 attempts per screen; a screen still unanswered after that fails
+the run as JUDGE UNAVAILABLE (exit 4) with no design.json verdicts counted, so a dead judge
+is never misreported as human-review unsure. Each cell's verdicts append to
 `pass.log` and `design.log` as they land (`design.<cell>.json` keeps them; `--resume`
 reuses those files after a kill), and the aggregate lands in `design.json` and `index.md`.
 
-done-done is not on npm: the script installs the pinned commit
-`6b529b61135000d9fd610ca2c744287b0d1f87e2` into a private prefix (default
-`~/.cache/takeone-visual-done-done`, override with `--prefix`/`DONE_DONE_PREFIX`) with
-exactly `npm install --prefix <prefix> --allow-git=all
-github:umeranjum17/done-done-axi#6b529b61135000d9fd610ca2c744287b0d1f87e2
-@byokit/decide@0.8.0` — never `npm install -g`, never the repo's `package.json`. The
-judge runs on an APPROVED, LIVE model (`data/model-checks.md` APPROVED; `crew-dispatch.json`
-fallback order) through route `answerer:opencode` (the `opencode` CLI on PATH speaks the
-`opencode-go/...` catalog natively); a probe judges one screen per candidate and the first that
-answers is used, in order `opencode-go/step-5-preview-free`, `opencode/step-5-preview-free`,
-`opencode-go/mimo-v2.6-flash`, `opencode-go/deepseek-v4.1-flash`. Route, model and a real
-`agent` author (distinct from the judge agent, so independence stays `agent`) are written to a
-scratch `DONE_DONE_HOME` inside the pass dir, so no key is printed or committed and the machine's
-global tooling and `~/.done-done` are untouched. A screen whose reason shows the judge never
-answered ("did not answer", `ETIMEDOUT`, invalid JSON) is a transport failure, not a verdict: after
-the 3-attempt retry the run fails as JUDGE UNAVAILABLE (exit 4, `design.json` relabelled
-`result: judge-unavailable`), so a dead judge can never silently pass. The old route
-`answerer:pi` + model `commandcode/deepseek/deepseek-v4.1-flash` (Command Code out of credits)
-never answered and produced 56 transport unsures.
+The design step installs the pinned done-done into a private prefix (never global installs or
+repo dependencies) and judges on the approved live route `answerer:opencode`, model = the first
+of `JUDGE_MODELS` that answers a probe, with author `JUDGE_AUTHOR` distinct from the judge agent.
+Route, model and author are written to a scratch `DONE_DONE_HOME` inside the pass directory, so the
+machine's global tooling and `~/.done-done` are untouched. No approved live model answering means
+exit 4 JUDGE UNAVAILABLE with no verdicts counted: missing access is inconclusive, not PASS.
 
 It renders 10 offline cells, each in midnight (dark) and paper (light): desktop 1920×1080
 (`synth-take.ts`), phone 1080×1920 and 4:5 (`synth-portrait.ts`), large font
-(`scripts/synth-phone-font.ts`: the Android fixture's board at font_scale 1.3, the largest
+(`scripts/verification/synth-phone-font.ts`: the Android fixture's board at font_scale 1.3, the largest
 common Android setting, 1080×1920), and `motion --device phone` of that board. It then checks
 the settled holds (plus transition midpoints for strips) against each take's own source, mapped
 by its sidecars (`camera.json`, `camera.cmd`, `stage.png`, beats/decisions, storyboard). Output is
@@ -233,7 +217,7 @@ takes (cuts, speed) are rejected, not checked. A real device run at the largest 
 `xcrun simctl ui <udid> content_size accessibility-extra-extra-extra-large`, under the device
 lock and memory gate, then `make --no-jev` and `visual-check.ts <take> --name <cell> --out <dir>`.
 
-Limits (`LIMIT` in `scripts/visual-check.ts`), measured on main 868ff39:
+Limits (`LIMIT` in `scripts/verification/visual-check.ts`), measured on main 868ff39:
 
 | check | limit | why |
 |---|---|---|
@@ -257,8 +241,8 @@ The CLI leaves no processes running (each invocation is foreground and exits). C
 rm -rf "$PWD/tmp/verify-takes" "$PWD/tmp/verify-state"   # scratch takes/state this run made (never anything under ~/Videos/takeone)
 ```
 
-Never delete: `tmp/evidence/` (proof evidence survives cleanup — verify after cleanup with `ls tmp/evidence/verify-takeone-*/`), committed evidence under `docs/evidence/` and `docs/quality-evidence/` (goldens), any take in the real takes root, or the portal token/state of a recording this run did not start. If this run started a recording it owns, end it with `takeone stop` before removing its scratch state dir.
+Never delete: `tmp/evidence/` (proof evidence survives cleanup — verify after cleanup with `ls tmp/evidence/done-done-*/`), committed evidence under `docs/evidence/` and `docs/quality-evidence/` (goldens), any take in the real takes root, or the portal token/state of a recording this run did not start. If this run started a recording it owns, end it with `takeone stop` before removing its scratch state dir.
 
 ## Keeping the map honest
 
-Feature changes should update `features/` in the same change. For ongoing maintenance of this skill, follow the installed `maintain-verification-skill` skill rather than adding automation here.
+Feature changes should update `docs/verification/` in the same change. Maintain these recipes and the done-done journeys together.
