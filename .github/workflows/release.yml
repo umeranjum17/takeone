@@ -37,4 +37,5 @@ jobs:
           TAG: ${{ steps.version.outputs.tag }}
         run: |
           npm pack && mv takeone-*.tgz takeone.tgz
-          gh release create "$TAG" takeone.tgz --target "$GITHUB_SHA" --title "takeone $TAG" --notes-file docs/release-notes.md
+          gh release create "$TAG" takeone.tgz --target "$GITHUB_SHA" --title "takeone $TAG" --notes-file docs/release-notes.md ||
+            gh release upload "$TAG" takeone.tgz --clobber
