@@ -1,0 +1,24 @@
+First tester build of takeone: record a screen take, then let takeone plan the camera and render a framed, paced MP4 on your own machine.
+
+## Install
+
+Needs Node.js 22.19 or newer and ffmpeg on PATH.
+
+```sh
+npm install -g https://github.com/umeranjum17/takeone/releases/latest/download/takeone.tgz
+takeone doctor
+```
+
+## New
+
+- `takeone record`, `takeone make` and `takeone render`: record a take, plan its shots and render the video.
+- Phone takes from Android (`--android`) and the iOS Simulator (`--ios-sim`).
+- `takeone motion`: short silent films from screenshots or web pages.
+
+## Known issues
+
+- Desktop recording works on Linux only (Wayland with Hyprland). macOS desktop capture is not supported yet.
+- iOS recording works with the iOS Simulator only, not a real iPhone.
+- Videos are silent: there is no audio track.
+
+Guide: https://github.com/umeranjum17/takeone/blob/main/docs/guide.md

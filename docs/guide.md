@@ -10,7 +10,14 @@ Install, the full quickstart, planning and rendering, and development notes. Bac
 
 ## Download / Install
 
-No packaged release exists yet — there is nothing to download. Watch the [releases page](https://github.com/umeranjum17/takeone/releases) (latest: https://github.com/umeranjum17/takeone/releases/latest) for future packaged builds. Until then, install from source:
+Install the latest packaged build from the [releases page](https://github.com/umeranjum17/takeone/releases):
+
+```sh
+npm install -g https://github.com/umeranjum17/takeone/releases/latest/download/takeone.tgz
+takeone doctor
+```
+
+Installing straight from git (`npm install -g github:umeranjum17/takeone`) does not work: npm 10 and 11 break the build of a git package during a global install, and npm 12 blocks git packages by default. To work on takeone itself, install from source:
 
 Requires Node.js 22.19+ and `ffmpeg` on PATH. Optional: `tesseract` for `--screen-text` OCR. Recording the desktop additionally needs Linux on Wayland with Hyprland (see [Recording](recording.md)); recording a phone needs `adb` on PATH and an attached device with USB debugging; recording the iOS Simulator needs macOS with Xcode (`xcrun simctl`), `ffprobe` on PATH, and a booted simulator; planning and rendering an existing recording take do not require those capture prerequisites. Motion setup requirements are documented in [Motion renders](motion.md).
 

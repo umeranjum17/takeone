@@ -1,0 +1,57 @@
+name: release
+on:
+  push:
+    branches: [main]
+concurrency:
+  group: release
+permissions:
+  contents: write
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - id: version
+        name: Skip when this version is already published
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          v="v$(node -p 'require("./package.json").version')"
+          echo "tag=$v" >> "$GITHUB_OUTPUT"
+          has=$(gh release view "$v" --json assets -q 'any(.assets[]; .name == "takeone.tgz")' 2>/dev/null || echo false)
+          if [ "$has" = "true" ]; then
+            echo "new=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "new=true" >> "$GITHUB_OUTPUT"
+          fi
+      - if: steps.version.outputs.new == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - if: steps.version.outputs.new == 'true'
+        run: npm ci
+      # The asset name stays fixed so releases/latest/download/takeone.tgz always installs the newest build.
+      - if: steps.version.outputs.new == 'true'
+        name: Pack and publish the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+          INSTALL_NOTES: |
+            Install:
+
+            ```
+            npm install -g https://github.com/umeranjum17/takeone/releases/latest/download/takeone.tgz
+            takeone doctor
+            ```
+        run: |
+          npm pack && mv takeone-*.tgz takeone.tgz
+          notes="docs/release-notes/$TAG.md"
+          if [ -f "$notes" ]; then
+            gh release create "$TAG" takeone.tgz --target "$GITHUB_SHA" --title "takeone $TAG" --notes-file "$notes" ||
+              gh release upload "$TAG" takeone.tgz --clobber
+          else
+            gh api "repos/$GITHUB_REPOSITORY/releases" -f "tag_name=$TAG" -f "target_commitish=$GITHUB_SHA" -f "name=takeone $TAG" -f "body=$INSTALL_NOTES" -F generate_release_notes=true >/dev/null || true
+            gh release upload "$TAG" takeone.tgz --clobber
+          fi

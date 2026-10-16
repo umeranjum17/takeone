@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { join } from "node:path";
 import { homedir } from "node:os";
-import { existsSync, readFileSync, unlinkSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync, unlinkSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 import { setKeyFromStdin } from "./secrets.ts";
@@ -295,7 +295,24 @@ export async function main(argv: string[]): Promise<number> {
   }
 }
 
-if (process.argv[1] && (import.meta.url === pathToFileURL(process.argv[1]).href || process.argv[1].endsWith("/bin/takeone.mjs"))) {
+/** True when this module is the program that was run. `npm install -g`
+ * launches the bin through a symlink (prefix/bin/takeone), so the as-invoked
+ * argv[1] never matches anything: resolve it through realpath first, then
+ * accept either this module's own URL (direct dist run) or the package bin
+ * path that imports this module (bin and symlinked entry points). */
+function isMainModule(): boolean {
+  const invoked = process.argv[1];
+  if (!invoked) return false;
+  try {
+    const real = realpathSync(invoked);
+    if (import.meta.url === pathToFileURL(real).href) return true;
+    return real.endsWith("/bin/takeone.mjs");
+  } catch {
+    return invoked.endsWith("/bin/takeone.mjs");
+  }
+}
+
+if (isMainModule()) {
   main(process.argv.slice(2)).then(
     (code) => { process.exitCode = code; },
     (e) => { console.error(e instanceof Error ? e.message : e); process.exitCode = 1; },

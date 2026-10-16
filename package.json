@@ -10,6 +10,12 @@
   "bin": {
     "takeone": "./bin/takeone.mjs"
   },
+  "files": [
+    "bin",
+    "dist",
+    "resources",
+    "scripts/synth-take.ts"
+  ],
   "scripts": {
     "build": "tsc --project tsconfig.json",
     "prepare": "npm run build",
