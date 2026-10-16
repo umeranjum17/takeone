@@ -18,6 +18,11 @@ function configRoot(o: KeyOptions): string {
   return o.configDir ?? env.XDG_CONFIG_HOME ?? join(env.HOME ?? homedir(), ".config");
 }
 
+/** Only an explicit enabled value skips the keyring: wrappers and CI unset flags with 0, false or "". */
+function noKeyring(env: NodeJS.ProcessEnv): boolean {
+  return /^(1|true|yes)$/i.test(env.TAKEONE_NO_KEYRING ?? "");
+}
+
 function sealedStore(env: NodeJS.ProcessEnv, o: KeyOptions): Keystore {
   const fd = env.TAKEONE_SECRETS_PASSPHRASE_FD;
   if (!fd || !/^\d+$/.test(fd) || Number(fd) < 3 || !Number.isSafeInteger(Number(fd))) {
@@ -34,7 +39,7 @@ function sealedStore(env: NodeJS.ProcessEnv, o: KeyOptions): Keystore {
 export function persistentKeys(o: KeyOptions = {}): Keystore {
   if (o.store) return o.store;
   const env = o.env ?? process.env;
-  if (env.TAKEONE_NO_KEYRING) return sealedStore(env, o);
+  if (noKeyring(env)) return sealedStore(env, o);
   try {
     const keyring = keyringStore({ service: "takeone", env: {
       ...(env.DBUS_SESSION_BUS_ADDRESS ? { DBUS_SESSION_BUS_ADDRESS: env.DBUS_SESSION_BUS_ADDRESS } : {}),
@@ -118,7 +123,7 @@ export async function keyStatus(o: KeyOptions = {}): Promise<{ available: boolea
     }
     const available = !!await persistentKeys(o).get(JEV_SECRET);
     if (!available) return { available, detail: "no Jev key; run takeone key set (stdin)" };
-    if (env.TAKEONE_NO_KEYRING) {
+    if (noKeyring(env)) {
       return { available, detail: `Jev key available via sealed file ${join(configRoot(o), "takeone", "secrets.json")}` };
     }
     const bus = env.DBUS_SESSION_BUS_ADDRESS ?? (env.XDG_RUNTIME_DIR ? `unix:path=${env.XDG_RUNTIME_DIR}/bus` : null);

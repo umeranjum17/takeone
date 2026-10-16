@@ -16,6 +16,7 @@ registerHooks({
             set: async () => { throw new KeystoreError('failed', 'fake unavailable Secret Service'); },
             delete: async () => { throw new KeystoreError('failed', 'fake unavailable Secret Service'); },
           };
+          if (process.env.TAKEONE_TEST_KEYRING_KEY) return overrideStore({ jev: process.env.TAKEONE_TEST_KEYRING_KEY });
           return overrideStore({});
         }
       ` };
