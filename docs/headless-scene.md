@@ -52,7 +52,7 @@ SHA-256, and stores it in the gitignored `.cache/headless-shell/` directory. Eac
 capture verifies the executable's SHA-256 and version. There are no new npm
 dependencies. The pin, checksums and download URL are owned by
 [`scripts/headless/shell.mjs`](../scripts/headless/shell.mjs).
-Ubuntu's required shared libraries are listed in the `headless-scene` CI job.
+Ubuntu's required shared libraries are listed in the `headless-scene-part` CI job.
 
 The existing board and desktop driver use 2560×1440 layout coordinates. Headless
 presentation fits that layout (0.675) inside the safe inset of a 1920×1080 CSS
@@ -100,6 +100,17 @@ It captures the full sequence twice, checks every decoded frame with `framemd5`,
 compares event logs and frame clocks, probes dimensions, 60 Hz timestamps and
 frame count, then runs `make --no-jev` (rest framing, so its safe-area gate applies) and requires click,
 drag and typing beats. WebM timestamps have millisecond precision: the gate
-allows only the rounding of a 60 Hz sample to that timebase. A JSON report, decoded frame hashes and a 4×4 contact sheet of the render are retained under `tmp/headless-validation/` and uploaded by CI.
-Determinism is checked between fresh runs on the same host. Moving the browser
-pin, fonts or rendering flags requires rerunning that gate.
+allows only the rounding of a 60 Hz sample to that timebase. A JSON report, decoded frame hashes (`a/frames.framemd5`) and a 4×4 contact sheet of the render are retained under `tmp/headless-validation/` and uploaded by CI.
+
+CI splits the same gate into three parallel parts on separate runners and one
+`headless-scene` check that compares them:
+
+```sh
+node scripts/test-headless-scene.mjs --part=capture   # capture-a and capture-b: one take and its checks
+node scripts/test-headless-scene.mjs --part=render    # one take, its checks, then make and the contact sheet
+node scripts/test-headless-scene.mjs --part=compare <take> <take> <take>  # identical frames, events and clocks
+```
+
+Locally, determinism is checked between fresh runs on the same host; in CI,
+across three runners. Moving the browser pin, fonts or rendering flags requires
+rerunning that gate.

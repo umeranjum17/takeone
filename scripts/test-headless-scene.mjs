@@ -1,5 +1,8 @@
 #!/usr/bin/env node
 // Executable acceptance gate: full takes, decoded pixels, clocks and real make.
+// With no --part it runs the whole gate on this host. CI runs it as parallel parts:
+// --part=capture (one take and its checks), --part=render (one take, its checks and make),
+// then --part=compare <take>... (every part's decoded frames, input logs and clocks match).
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { readFile, mkdir, mkdtemp, writeFile } from 'node:fs/promises';
@@ -9,21 +12,23 @@ import { captureScene } from './headless-scene.mjs';
 import { choreography, FPS, LAYOUTS } from './headless/drive.mjs';
 
 // --aspect=portrait|square gates that layout (a 2160x3840 or 2160x2160 source) instead of the board.
-const aspect = process.argv.find(arg => arg.startsWith('--aspect='))?.slice(9) ?? 'landscape';
+const flag = name => process.argv.find(arg => arg.startsWith(`--${name}=`))?.slice(name.length + 3);
+const aspect = flag('aspect') ?? 'landscape';
+const part = flag('part');
+const paths = process.argv.slice(2).filter(arg => !arg.startsWith('--'));
+if (!LAYOUTS[aspect] || ![undefined, 'capture', 'render', 'compare'].includes(part)) {
+  console.error('usage: node scripts/test-headless-scene.mjs [root] [--aspect=landscape|portrait|square] [--part=capture|render]\n       node scripts/test-headless-scene.mjs --part=compare <take> <take>...');
+  process.exit(2);
+}
 const [W, H] = LAYOUTS[aspect].css.map(v => v * 2);
-const root = resolve(process.argv.slice(2).find(arg => !arg.startsWith('--aspect=')) ?? 'tmp/headless-validation');
-await mkdir(root, { recursive: true });
-const run = await mkdtemp(join(root, 'run-'));
-const a = join(run, 'a');
-const b = join(run, 'b');
-await captureScene(a, { aspect });
-await captureScene(b, { aspect });
 const expected = choreography(LAYOUTS[aspect]).frames;
 const decode = dir => execFileSync('ffmpeg', ['-v','error','-i',join(dir,'screen.webm'),'-f','framemd5','-'], { encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 });
 const probe = dir => JSON.parse(execFileSync('ffprobe', ['-v','error','-select_streams','v:0','-count_frames',
   '-show_entries','stream=width,height,r_frame_rate,avg_frame_rate,nb_read_frames:frame=best_effort_timestamp_time',
   '-of','json',join(dir,'screen.webm')], { encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 }));
-for (const dir of [a,b]) {
+const decodedHash = text => createHash('sha256').update(text).digest('hex');
+// One take's stream, clocks and input log; its decoded frame hashes land next to it for compare.
+async function checkTake(dir) {
   const info = probe(dir), stream = info.streams[0];
   assert.equal(stream.width,W); assert.equal(stream.height,H);
   assert.equal(stream.r_frame_rate,'60/1'); assert.equal(stream.avg_frame_rate,'60/1');
@@ -54,25 +59,54 @@ for (const dir of [a,b]) {
   assert.ok(wheelEvents.length > 0);
   assert.ok(wheelEvents.some(e => e.dy < 0), 'downward feed movement must serialize as negative wheel delta');
   assert.ok(wheelEvents.some(e => e.dy > 0), 'upward feed movement must serialize as positive wheel delta');
+  const md5 = decode(dir);
+  await writeFile(join(dir,'frames.framemd5'),md5);
+  return decodedHash(md5);
 }
-const md5A = decode(a), md5B = decode(b);
-const decodedHash = text => createHash('sha256').update(text).digest('hex');
-assert.equal(decodedHash(md5A),decodedHash(md5B),'decoded frames differ across captures');
-assert.ok(new Set(md5A.split('\n').filter(line => !line.startsWith('#') && line.trim()).map(line => line.split(',').at(-1).trim())).size > 300, 'scene must contain real visual interactions');
-assert.equal(await readFile(join(a,'events.jsonl'),'utf8'),await readFile(join(b,'events.jsonl'),'utf8'),'input logs differ');
-assert.equal(await readFile(join(a,'frames.tsv'),'utf8'),await readFile(join(b,'frames.tsv'),'utf8'),'frame clocks differ');
-// This executes the existing CLI and render pipeline without changing it.
-// The take carries its text boxes, so render fails on any box in the 5% band. A push-in on this
-// dense board always parks text there; max_upscale=0.5 keeps the 2x source at its rest framing.
-execFileSync(process.execPath, ['bin/takeone.mjs','make',a,'--no-jev','--set','fps=60','--set','preset=ultrafast','--set','max_upscale=0.5'], { stdio:'inherit', timeout: 1_200_000 });
-const beats = JSON.parse(await readFile(join(a,'analysis/beats.json'),'utf8'));
-for (const kind of ['click','drag','type']) assert.ok(beats.some(beat => beat.kind === kind), `make must plan a ${kind} beat`);
-const video = join(a,'out/headless-demo.mp4');
-const duration = Number(execFileSync('ffprobe',['-v','error','-show_entries','format=duration','-of','default=nw=1:nk=1',video],{encoding:'utf8'}).trim());
-const contact = join(run,'takeone-headless-scene-after.png');
-execFileSync('ffmpeg',['-v','error','-y','-i',video,'-vf',`fps=${16/duration},scale=${W / 8}:${H / 8},tile=4x4`,'-frames:v','1',contact],{stdio:'inherit',timeout:120_000});
-const metrics = { width:W, height:H, fps:FPS, frames:expected, decoded_frames_identical:true,
-  events_identical:true, framemd5_sha256:decodedHash(md5A), contact_sheet:contact, beat_kinds:[...new Set(beats.map(beat=>beat.kind))], take:a };
-await writeFile(join(run,'metrics.json'),JSON.stringify(metrics,null,2)+'\n');
-await writeFile(join(run,'frames.framemd5'),md5A);
-console.log(JSON.stringify({ ...metrics, evidence:run },null,2));
+// Takes captured apart (two here, or one per CI part on separate runners) must match exactly.
+async function compare([a, ...others]) {
+  assert.ok(others.length > 0, 'compare needs at least two takes');
+  const md5A = await readFile(join(a,'frames.framemd5'),'utf8');
+  assert.ok(new Set(md5A.split('\n').filter(line => !line.startsWith('#') && line.trim()).map(line => line.split(',').at(-1).trim())).size > 300, 'scene must contain real visual interactions');
+  for (const b of others) {
+    const md5B = await readFile(join(b,'frames.framemd5'),'utf8');
+    assert.equal(decodedHash(md5A),decodedHash(md5B),'decoded frames differ across captures');
+    assert.equal(await readFile(join(a,'events.jsonl'),'utf8'),await readFile(join(b,'events.jsonl'),'utf8'),'input logs differ');
+    assert.equal(await readFile(join(a,'frames.tsv'),'utf8'),await readFile(join(b,'frames.tsv'),'utf8'),'frame clocks differ');
+  }
+  return decodedHash(md5A);
+}
+async function render(a, run) {
+  // This executes the existing CLI and render pipeline without changing it.
+  // The take carries its text boxes, so render fails on any box in the 5% band. A push-in on this
+  // dense board always parks text there; max_upscale=0.5 keeps the 2x source at its rest framing.
+  execFileSync(process.execPath, ['bin/takeone.mjs','make',a,'--no-jev','--set','fps=60','--set','preset=ultrafast','--set','max_upscale=0.5'], { stdio:'inherit', timeout: 1_200_000 });
+  const beats = JSON.parse(await readFile(join(a,'analysis/beats.json'),'utf8'));
+  for (const kind of ['click','drag','type']) assert.ok(beats.some(beat => beat.kind === kind), `make must plan a ${kind} beat`);
+  const video = join(a,'out/headless-demo.mp4');
+  const duration = Number(execFileSync('ffprobe',['-v','error','-show_entries','format=duration','-of','default=nw=1:nk=1',video],{encoding:'utf8'}).trim());
+  const contact = join(run,'takeone-headless-scene-after.png');
+  execFileSync('ffmpeg',['-v','error','-y','-i',video,'-vf',`fps=${16/duration},scale=${W / 8}:${H / 8},tile=4x4`,'-frames:v','1',contact],{stdio:'inherit',timeout:120_000});
+  return { contact_sheet:contact, beat_kinds:[...new Set(beats.map(beat=>beat.kind))] };
+}
+
+if (part === 'compare') {
+  console.log(JSON.stringify({ decoded_frames_identical:true, events_identical:true, framemd5_sha256:await compare(paths), takes:paths },null,2));
+} else {
+  const root = resolve(paths[0] ?? 'tmp/headless-validation');
+  await mkdir(root, { recursive: true });
+  const run = await mkdtemp(join(root, 'run-'));
+  const a = join(run, 'a');
+  const b = join(run, 'b');
+  await captureScene(a, { aspect });
+  let metrics = { width:W, height:H, fps:FPS, frames:expected, framemd5_sha256:await checkTake(a) };
+  if (!part) {
+    await captureScene(b, { aspect });
+    await checkTake(b);
+    metrics = { ...metrics, decoded_frames_identical:true, events_identical:true, framemd5_sha256:await compare([a, b]) };
+  }
+  if (part !== 'capture') metrics = { ...metrics, ...await render(a, run) };
+  metrics.take = a;
+  await writeFile(join(run,'metrics.json'),JSON.stringify(metrics,null,2)+'\n');
+  console.log(JSON.stringify({ ...metrics, evidence:run },null,2));
+}
