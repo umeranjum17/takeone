@@ -45,6 +45,23 @@ window.h = (html) => { const t = document.createElement("template"); t.innerHTML
 window.esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 // Per-frame tick helper: f(localMs) runs only while the scene clock is inside [0, d] (clamped outside).
 window.tick = (fn) => { const base = window.BASE; TICKS.push((ms) => fn(ms - base)); };
+// Closed-form damped spring step (0 -> 1): zeta 1 is critical (type, no overshoot); zeta < 1 overshoots a hair (UI).
+window.springStep = (tau, omega, zeta) => {
+  if (tau <= 0) return 0;
+  if (zeta >= 1) return 1 - (1 + omega * tau) * Math.exp(-omega * tau);
+  const wd = omega * Math.sqrt(1 - zeta * zeta);
+  return 1 - Math.exp(-zeta * omega * tau) * (Math.cos(wd * tau) + (zeta * omega / wd) * Math.sin(wd * tau));
+};
+window.UI_SPRING = { omega: 14, zeta: 0.8 };
+window.TYPE_SPRING = { omega: 14, zeta: 1 };
+// Spring track: x(ms) = x0 + sum of (v_i - v_{i-1}) * S(ms - t_i). One spring is added per target change [t_i ms, v_i]
+// and none restarts, so motion stays continuous and any frame is a pure function of time.
+window.track = (x0, targets, { omega, zeta } = UI_SPRING) => (ms) => {
+  let x = x0, prev = x0;
+  for (const [t, v] of targets) { x += (v - prev) * springStep((ms - t) / 1000, omega, zeta); prev = v; }
+  return x;
+};
+window.PENDING = []; // decode promises a tick queues (clip frames); each seek waits for them before it settles
 
 // Kerned glyph layout (L8-e). Never per-letter inline-block spans: set the run as one kerned text node, measure
 // every glyph's x with Range rects, then place absolutely positioned glyph spans at those x offsets.
@@ -114,8 +131,9 @@ window.installSeek = (settle = 2) => {
     for (const t of TICKS) t(ms);
   };
   window.__apply = apply;
-  window.__seek = (ms) => {
+  window.__seek = async (ms) => {
     apply(ms);
+    await Promise.all(PENDING.splice(0));
     document.documentElement.style.backgroundColor = (flip = !flip) ? "#010101" : "#000";
     let n = settle;
     return new Promise((r) => { const f = () => (n-- > 0 ? requestAnimationFrame(f) : r()); f(); });
@@ -135,6 +153,20 @@ window.installSeek = (settle = 2) => {
       max = Math.max(max, Math.hypot(a.left - b.left, a.top - b.top), Math.hypot(a.right - b.right, a.bottom - b.bottom));
     });
     return max;
+  };
+  // Safe-area gate: every shown [data-safe] box (titles, notes, labels, footage windows) that crosses the frame's
+  // 5% inset at page time ms. Boxes are measured in their scene layer, so the push-in between beats is not judged.
+  window.__safe = (ms) => {
+    apply(ms);
+    const W = innerWidth, H = innerHeight, out = [];
+    for (const el of $$("[data-safe]")) {
+      const r = el.getBoundingClientRect(), layer = el.closest(".layer"), o = layer.getBoundingClientRect();
+      if (!r.width || !r.height || getComputedStyle(el).visibility === "hidden") continue;
+      const box = [r.left - o.left, r.top - o.top, r.right - o.left, r.bottom - o.top];
+      if (box[0] < W * 0.05 - 0.5 || box[1] < H * 0.05 - 0.5 || box[2] > W * 0.95 + 0.5 || box[3] > H * 0.95 + 0.5)
+        out.push({ pattern: layer.dataset.pattern, text: el.dataset.safe || el.textContent.trim().slice(0, 40), box: box.map(Math.round) });
+    }
+    return out;
   };
   return anims.length;
 };

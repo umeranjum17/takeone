@@ -61,16 +61,16 @@ export function choreography(p = LANDSCAPE) {
   click(...p.create); hold(2.4); move(...p.end, .8); hold(2);
   return { steps, frames: frame + 1 };
 }
-export function inputEvents(steps, frames, p = LANDSCAPE) {
+export function inputEvents(steps, frames, p = LANDSCAPE, k = 2) {
   let [x, y] = p.start;
-  const { s, ox, oy } = fit(p), rect = [0, 0, p.css[0] * 2, p.css[1] * 2];
+  const { s, ox, oy } = fit(p), rect = [0, 0, p.css[0] * k, p.css[1] * k];
   const events = [{ t: 0, k: 'win', cls: 'headless-demo', title: 'Tidewater board', rect }];
   for (let frame = 0; frame < frames; frame++) {
     const t = frame * 1000 / FPS;
     for (const a of steps.get(frame) ?? []) {
       if (a.k === 'move') { x = a.x; y = a.y; }
     }
-    events.push({ t, k: 'ptr', x: (ox + x * s) * 2, y: (oy + y * s) * 2 });
+    events.push({ t, k: 'ptr', x: (ox + x * s) * k, y: (oy + y * s) * k });
     for (const a of steps.get(frame) ?? []) {
       if (a.k === 'button') events.push({ t, k: 'btn', b: 'left', down: a.down });
       if (a.k === 'wheel') events.push({ t, k: 'wheel', dx: 0, dy: -a.dy });

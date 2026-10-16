@@ -34,7 +34,8 @@ export function readingFloor(text: string): number {
 
 /** Scene reading copy; the glyph gate also checks emitted literals in their actual font roles. */
 export function sceneTexts(s: Scene): string[] {
-  if (s.pattern === "hero-reveal" || s.pattern === "kinetic-type") return [s.title, s.subtitle].filter((t): t is string => !!t);
+  if (s.pattern === "hero-reveal" || s.pattern === "kinetic-type" || s.pattern === "statement") return [s.title, s.subtitle].filter((t): t is string => !!t);
+  if (s.pattern === "clip") return clipLabels(s).slice(-1).map(l => l.label);
   if (s.pattern === "bento") return (s.tiles ?? []).map(t => t.title);
   if (s.pattern === "end-card") return [s.logo, s.cta, s.url].filter((t): t is string => !!t);
   if (s.pattern === "fragment") {
@@ -48,9 +49,16 @@ export function sceneTexts(s: Scene): string[] {
   return (s.stops ?? []).map(x => x.caption ?? "").filter(Boolean);
 }
 
+/** clip labels in play order: the scene label, then each cut's; each types on at 30 ms a character from its cut. */
+function clipLabels(s: Scene): { at: number; label: string; reveal: number }[] {
+  return [{ at: 0, label: s.label }, ...(s.cuts ?? []).map(c => ({ at: c.at, label: c.label }))]
+    .filter((l): l is { at: number; label: string } => !!l.label).map(l => ({ ...l, reveal: l.at + .03 * l.label.length }));
+}
+
 function sceneRevealDuration(s: Scene): number {
   let reveal = 0;
-  if (s.pattern === "hero-reveal" || s.pattern === "kinetic-type") {
+  if (s.pattern === "clip") reveal = clipLabels(s).at(-1)?.reveal ?? 0;
+  if (s.pattern === "hero-reveal" || s.pattern === "kinetic-type" || s.pattern === "statement") {
     const words = (s.title ?? "").trim().split(/\s+/).filter(Boolean).length;
     reveal = Math.max(words ? .4 + .06 * (words - 1) : 0, s.subtitle ? .6 : 0);
   } else if (s.pattern === "bento") {
@@ -68,6 +76,7 @@ function sceneRevealDuration(s: Scene): number {
 /** Every text a scene shows with the time its reveal ends: each needs its reading floor after that. */
 function sceneHolds(s: Scene): { text: string; reveal: number }[] {
   const holds = s.pattern === "zoom-tour" ? [] : [{ text: sceneTexts(s).join(" "), reveal: sceneRevealDuration(s) }];
+  if (s.pattern === "statement" && s.note) holds.push({ text: s.note, reveal: .8 }); // footnote fades up from 0.5 s
   const chromed = s.pattern === "hero-reveal" || s.pattern === "zoom-tour" || (s.pattern === "kinetic-type" && !!s.device && s.device !== "none");
   if (chromed) {
     const device = s.device ?? "browser";
@@ -106,7 +115,28 @@ function scene(raw: unknown, path: string): Scene {
   s.d = num(raw["d"], `${path}.d`, 0.25, MAX_DURATION_S);
   if (raw["at"] !== undefined) s.at = num(raw["at"], `${path}.at`, 0, MAX_DURATION_S);
   for (const k of ["title", "subtitle", "cta", "url", "logo", "text", "kind", "state"] as const) if (raw[k] !== undefined) s[k] = str(raw[k], `${path}.${k}`, k === "text" ? 400 : 120);
-  if (raw["invert"] !== undefined && typeof raw["invert"] !== "boolean") throw new StoryboardError(`${path}.invert`, "expected true or false");
+  for (const k of ["invert", "cut"] as const) if (raw[k] !== undefined && typeof raw[k] !== "boolean") throw new StoryboardError(`${path}.${k}`, "expected true or false");
+  for (const k of ["label", "note"] as const) if (raw[k] !== undefined) s[k] = str(raw[k], `${path}.${k}`, k === "label" ? 60 : 120);
+  for (const k of ["scale", "from"] as const) if (raw[k] !== undefined) s[k] = num(raw[k], `${path}.${k}`, 0.1, 1.5);
+  if (s.pattern === "statement" && (typeof s.title !== "string" || !s.title.trim())) throw new StoryboardError(`${path}.title`, "statement needs a non-empty title");
+  if (s.pattern === "clip") {
+    if (!ID.test(String(raw["clip"]))) throw new StoryboardError(`${path}.clip`, "expected a clip id");
+    const cuts = raw["cuts"] ?? [];
+    if (!Array.isArray(cuts) || cuts.length > 8) throw new StoryboardError(`${path}.cuts`, "expected up to 8 cuts");
+    let prev = 0;
+    s.cuts = cuts.map((c, j) => {
+      const p = `${path}.cuts[${j}]`;
+      if (!isObj(c)) throw new StoryboardError(p, "expected {at, clip?, label?, scale?}");
+      const at = num(c["at"], `${p}.at`, prev + 0.25, s.d);
+      prev = at;
+      if (c["clip"] !== undefined && !ID.test(String(c["clip"]))) throw new StoryboardError(`${p}.clip`, "expected a clip id");
+      return { at, ...(c["clip"] === undefined ? {} : { clip: String(c["clip"]) }), ...(c["label"] === undefined ? {} : { label: str(c["label"], `${p}.label`, 60) }),
+        ...(c["scale"] === undefined ? {} : { scale: num(c["scale"], `${p}.scale`, 0.1, 1.5) }) };
+    });
+    // Every label but the last is replaced by the next: its own window must clear its reading floor.
+    const labels = clipLabels(s);
+    labels.slice(0, -1).forEach((l, j) => { if (labels[j + 1]!.at - l.reveal < readingFloor(l.label) - 1e-9) throw new StoryboardError(`${path}.cuts`, `label ${JSON.stringify(l.label)} is replaced before its reading-time floor`); });
+  }
   if (raw["tiles"] !== undefined) {
     if (s.pattern !== "bento" || !Array.isArray(raw["tiles"]) || raw["tiles"].length !== 4) throw new StoryboardError(`${path}.tiles`, "bento needs exactly four {title} tiles");
     s.tiles = raw["tiles"].map((t, j) => {
@@ -201,6 +231,15 @@ export function validateStoryboard(raw: unknown): Storyboard {
     if (sc && (x! < 0 || y! < 0 || x! + w! > sc.width || y! + h! > sc.height)) throw new StoryboardError(`crops.${k}.rect`, `lies outside screen ${c["screen"]} (${sc.width}x${sc.height})`);
   }
 
+  const clips = raw["clips"] ?? {};
+  if (!isObj(clips)) throw new StoryboardError("clips", "expected an object");
+  for (const [k, c] of Object.entries(clips)) {
+    if (!ID.test(k) || !isObj(c) || !Array.isArray(c["files"]) || !c["files"].length || c["files"].length > 8 || c["files"].some(f => typeof f !== "string" || !f)) throw new StoryboardError(`clips.${k}`, "expected {files: [video paths], start, d}");
+    num(c["start"], `clips.${k}.start`, 0, 3600); num(c["d"], `clips.${k}.d`, 0.25, MAX_DURATION_S);
+    if (c["crop"] !== undefined && (!Array.isArray(c["crop"]) || c["crop"].length !== c["files"].length || c["crop"].some(x => x !== null && !/^\d+:\d+:\d+:\d+$/.test(String(x))))) throw new StoryboardError(`clips.${k}.crop`, "expected one w:h:x:y crop (or null) per file");
+    if (c["frames"] !== undefined && (!Array.isArray(c["frames"]) || c["frames"].length !== c["files"].length || c["frames"].some((f) => !isObj(f) || typeof f["dir"] !== "string" || !f["dir"] || !["count", "width", "height", "aspect"].every((k) => typeof f[k] === "number" && Number.isFinite(f[k]) && (f[k] as number) > 0)))) throw new StoryboardError(`clips.${k}.frames`, "expected one frame set per file; delete it to re-ingest");
+  }
+
   const regions = raw["regions"] ?? [];
   if (!Array.isArray(regions)) throw new StoryboardError("regions", "expected an array");
   const regionIds = new Set<string>();
@@ -247,6 +286,7 @@ export function validateStoryboard(raw: unknown): Storyboard {
     ...(raw["tempo"] === undefined ? {} : { tempo: raw["tempo"] as Storyboard["tempo"] }),
     source: source as Storyboard["source"],
     ...(Object.keys(crops).length ? { crops: crops as Storyboard["crops"] } : {}),
+    ...(Object.keys(clips).length ? { clips: clips as Storyboard["clips"] } : {}),
     screens: screens as unknown as Storyboard["screens"],
     regions: regions as Storyboard["regions"],
     layout,
@@ -274,6 +314,15 @@ export function validateStoryboard(raw: unknown): Storyboard {
     for (const t of s.tiles ?? []) if (t.screen && Object.keys(screens).length && !Object.hasOwn(screens, t.screen)) throw new StoryboardError(`scenes[${i}].tiles`, "unknown screen");
     if (s.screen && Object.keys(screens).length && !Object.hasOwn(screens, s.screen)) throw new StoryboardError(`scenes[${i}].screen`, "unknown screen");
     if (s.at! < 0) throw new StoryboardError(`scenes[${i}].at`, "negative scene starts are not supported");
+    if (s.pattern === "clip") { // every footage segment must play to its end: a short clip would freeze
+      const plays = [{ at: 0, clip: s.clip! }, ...(s.cuts ?? []).filter(c => c.clip).map(c => ({ at: c.at, clip: c.clip! }))]
+        .map((x, j, all) => ({ clip: x.clip, d: (all[j + 1]?.at ?? s.d) - x.at }));
+      for (const p of plays) {
+        const c = (clips as Record<string, { d: number }>)[p.clip];
+        if (!c) throw new StoryboardError(`scenes[${i}].clip`, `unknown clip ${p.clip}`);
+        if (c.d + 1e-9 < p.d) throw new StoryboardError(`scenes[${i}].clip`, `clip ${p.clip} is ${c.d} s, shorter than the ${p.d.toFixed(2)} s it plays`);
+      }
+    }
     for (const stop of s.stops ?? []) if (!regionIds.has(stop.region)) throw new StoryboardError(`scenes[${i}].stops`, "unknown region");
     const owner = s.screen ?? Object.keys(screens)[0] ?? Object.keys((source["states"] ?? {}) as object)[0] ?? "S1";
     for (const id of [s.focus, ...(s.stops ?? []).map(stop => stop.region)].filter(Boolean)) {

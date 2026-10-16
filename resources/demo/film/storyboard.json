@@ -1,0 +1,33 @@
+{
+  "version": 1,
+  "id": "takeone-demo-film",
+  "output": { "out_w": 1920, "out_h": 1080, "fps": 60, "workers": 4 },
+  "theme": { "name": "mono", "overrides": {} },
+  "tempo": { "bpm": 120, "phase_s": 0, "snap": "beat" },
+  "source": { "kind": "image", "files": [] },
+  "screens": {},
+  "regions": [],
+  "layout": { "kind": "single" },
+  "planner": { "by": "user", "abstained": [] },
+  "clips": {
+    "raw": { "files": ["../takes/film-board/screen.webm"], "crop": ["1650:928:459:160"], "start": 1.6, "d": 2 },
+    "open": { "files": ["../takes/sa2/landscape-4k/out/headless-demo.mp4", "../takes/sa2/portrait-4k/out/headless-demo.mp4", "../takes/sa2/square-4k/out/headless-demo.mp4"], "crop": ["1024:836:1408:568", "1368:1116:396:1362", "2432:1984:704:928"], "start": 3.5, "d": 1.5 },
+    "type": { "files": ["../takes/sa2/landscape-4k/out/headless-demo.mp4", "../takes/sa2/portrait-4k/out/headless-demo.mp4", "../takes/sa2/square-4k/out/headless-demo.mp4"], "crop": ["1024:836:1408:568", "1368:1116:396:1362", "2432:1984:704:928"], "start": 6.4, "d": 3.5 },
+    "drag": { "files": ["../takes/sa2/landscape-4k/out/headless-demo.mp4", "../takes/sa2/portrait-4k/out/headless-demo.mp4", "../takes/sa2/square-4k/out/headless-demo.mp4"], "crop": ["2240:992:592:230", "1260:1260:150:490", "3308:1658:264:708"], "start": 15.9, "d": 3.5 },
+    "wide": { "files": ["../takes/sa2/landscape-4k/out/headless-demo.mp4"], "crop": ["1480:832:600:232"], "start": 19.05, "d": 1.5 },
+    "tall": { "files": ["../takes/sa3/portrait-3x/out/headless-demo.mp4"], "crop": ["924:1642:1158:762"], "start": 19.05, "d": 1.5 },
+    "square": { "files": ["../takes/sa3/portrait-3x/out/headless-demo.mp4"], "crop": ["1872:1872:219:740"], "start": 19.05, "d": 2 }
+  },
+  "scenes": [
+    { "pattern": "statement", "d": 3, "cut": true, "title": "Raw screen recordings look flat." },
+    { "pattern": "clip", "d": 3.5, "cut": true, "clip": "raw", "from": 0.96, "label": "Raw capture",
+      "cuts": [{ "at": 2, "clip": "open", "scale": 1, "label": "TakeOne" }] },
+    { "pattern": "clip", "d": 3.5, "cut": true, "clip": "type", "label": "Every keystroke, on screen" },
+    { "pattern": "clip", "d": 3.5, "cut": true, "clip": "drag", "label": "Drags stay in frame" },
+    { "pattern": "clip", "d": 5, "cut": true, "clip": "wide", "label": "16:9",
+      "cuts": [{ "at": 1.5, "clip": "tall", "scale": 1, "label": "9:16" }, { "at": 3, "clip": "square", "scale": 1, "label": "Every format." }] },
+    { "pattern": "statement", "d": 4, "cut": true, "title": "$0.00049", "subtitle": "per minute of video",
+      "note": "Measured: takeone make, $0.000323 for 39.5 s" },
+    { "pattern": "statement", "d": 3.5, "cut": true, "title": "TakeOne", "subtitle": "Record once. Direct it after.", "note": "github.com/umeranjum17/takeone" }
+  ]
+}

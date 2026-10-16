@@ -25,6 +25,14 @@ node scripts/headless-scene.mjs tmp/board-portrait --aspect=portrait
 node bin/takeone.mjs make tmp/board-portrait --no-jev --set fps=60 --aspect portrait
 ```
 
+`--no-title` leaves the board's title out of `take.json`. A 16:9 render of a titled take keeps
+a band under a smaller, top-anchored screen for the title. The untitled take fills the frame, so
+use it for footage that another film frames and labels itself, as the demo film's sources are:
+
+```sh
+node scripts/headless-scene.mjs tmp/board-film --aspect=landscape --no-title
+```
+
 ### Safe area
 
 Every layout is fitted into its viewport inside a 5% inset on each side, and the take
@@ -49,7 +57,10 @@ Ubuntu's required shared libraries are listed in the `headless-scene` CI job.
 The existing board and desktop driver use 2560×1440 layout coordinates. Headless
 presentation fits that layout (0.675) inside the safe inset of a 1920×1080 CSS
 viewport, rendered at device scale factor 2. The source is therefore exactly
-3840×2160 (2160×3840 portrait, 2160×2160 square, whose layouts are fitted at 0.9). The
+3840×2160 (2160×3840 portrait, 2160×2160 square, whose layouts are fitted at 0.9).
+`--scale=3` (1 to 4) captures at that device scale factor instead, for footage that a
+film crops to one lane: render it with `--set out_w=3240 --set out_h=5760` (portrait) so
+the crop is not upscaled. The
 choreography creates two tasks, types notes, selects priority, drags a card,
 scrolls the activity feed, completes a task and archives completed cards.
 

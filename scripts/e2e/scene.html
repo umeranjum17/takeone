@@ -175,6 +175,10 @@
     d.innerHTML = `<b>${people[i % people.length]}</b> ${verbs[i % 5]} “${things[i % 6]}”<i>${i + 2} min ago</i>`;
     feed.appendChild(d);
   }
+  // The feed shows whole rows only, so its panel edge never cuts an event mid-line in any layout.
+  const row = feed.firstElementChild.offsetHeight, pad = 16; // top + bottom padding (border-box)
+  feed.style.bottom = "auto";
+  feed.style.height = `${pad + Math.floor((feed.parentElement.clientHeight - feed.offsetTop - pad) / row) * row}px`;
   const counts = () => [0, 1, 2].forEach((i) => ($(`n${i}`).textContent = $(`lane${i}`).children.length));
   const show = (on) => ["scrim", "modal", "create", "cancel"].forEach((id) => ($(id).style.display = on ? (id === "create" || id === "cancel" ? "flex" : "block") : "none"));
   const toast = (text) => { $("toast").textContent = text; $("toast").classList.add("on"); setTimeout(() => $("toast").classList.remove("on"), 2200); };

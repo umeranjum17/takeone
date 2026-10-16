@@ -1,13 +1,13 @@
 // Ingest: copy source images or capture HTML/URL screens under sources/ and resolve selector regions.
 import { execFileSync } from "node:child_process";
-import { copyFileSync, mkdirSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { basename, extname, isAbsolute, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { INGEST_CLOCK } from "./ingest-clock.ts";
 import { launch, navigate } from "./cdp.ts";
 import { screenSnap, type Snap } from "./camera.ts";
 import { pinnedShell } from "./shell.ts";
-import type { Rect, StateOp, Storyboard } from "./types.ts";
+import type { Clip, Rect, StateOp, Storyboard } from "./types.ts";
 
 export function validateStateNames(names: Iterable<string>): void {
   const seen = new Set<string>();
@@ -108,6 +108,36 @@ function cutCrops(out: string, sb: Storyboard): void {
     const [x, y, w, h] = c.rect;
     execFileSync("ffmpeg", ["-nostdin", "-v", "error", "-y", "-i", join(out, basename(base.file)), "-vf", `crop=${w}:${h}:${x}:${y}`, join(out, `${id}.png`)], { timeout: 60000 });
     sb.screens[id] = { file: `sources/${id}.png`, width: w!, height: h! };
+  }
+}
+
+/** True when a clip has no usable frames: never ingested, cut from other source params, or frames gone from disk. */
+export function clipStale(dir: string, c: Clip): boolean {
+  if (!c.frames || c.frames.length !== c.files.length) return true;
+  const s = c.framesSource;
+  if (!s || s.start !== c.start || s.d !== c.d) return true;
+  if (JSON.stringify(s.files) !== JSON.stringify(c.files)) return true;
+  if (JSON.stringify(s.crop ?? null) !== JSON.stringify(c.crop ?? null)) return true;
+  return c.frames.some(f => !existsSync(join(dir, f.dir)));
+}
+
+/** Cut each clip's [start, start + d) into 60 fps JPEG frames under sources/clips/, one set per file. The long
+ *  edge is capped at 1920 px: no format shows footage larger than its own frame. */
+export function ingestClips(dir: string, sb: Storyboard): void {
+  for (const [id, c] of Object.entries(sb.clips ?? {})) {
+    if (!clipStale(dir, c)) continue;
+    c.frames = c.files.map((f, k) => {
+      const rel = `sources/clips/${id}-${k + 1}`, out = join(dir, rel);
+      rmSync(out, { recursive: true, force: true });
+      mkdirSync(out, { recursive: true });
+      execFileSync("ffmpeg", ["-nostdin", "-v", "error", "-threads", "2", "-filter_threads", "2", "-ss", String(c.start), "-i", isAbsolute(f) ? f : resolve(dir, f), "-t", String(c.d),
+        "-vf", `${c.crop?.[k] ? `crop=${c.crop[k]},` : ""}fps=60,scale='if(gte(iw,ih),min(1920,iw),-2)':'if(gte(iw,ih),-2,min(1920,ih))':flags=lanczos`, "-q:v", "2", join(out, "%04d.jpg")], { timeout: 600000 });
+      const count = readdirSync(out).length;
+      if (count < Math.round(c.d * 60) - 1) throw new Error(`clips.${id}: ${f} has ${count} frames from ${c.start} s, under the ${c.d} s clip`);
+      const [w, h] = execFileSync("ffprobe", ["-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height", "-of", "csv=p=0", isAbsolute(f) ? f : resolve(dir, f)], { encoding: "utf8" }).trim().split(",").map(Number);
+      return { dir: rel, count, ...imageSize(join(out, "0001.jpg")), aspect: w! / h! };
+    });
+    c.framesSource = { files: [...c.files], start: c.start, d: c.d, ...(c.crop === undefined ? {} : { crop: [...c.crop] }) };
   }
 }
 
