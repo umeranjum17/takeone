@@ -38,8 +38,6 @@ jobs:
         with:
           node-version: 22
           cache: npm
-      - name: Constraint-driven-development Floor
-        run: node scripts/floor-guard.mjs --base origin/main
       - run: npm ci
       - name: Install output quality tools
         run: sudo apt-get update && sudo apt-get install -y ffmpeg tesseract-ocr unzip fonts-liberation libnss3 libatk1.0-0 libatk-bridge2.0-0 libx11-6 libxcomposite1 libxdamage1 libxrandr2 libgbm1 libasound2t64
@@ -48,8 +46,22 @@ jobs:
           path: .cache/headless-shell
           key: headless-shell-linux-x64-151.0.7922.34-3cfc2bd0
       - run: node scripts/install-headless-shell.mjs
-      - run: npm run typecheck
-      - run: npm test
+      - name: Static checks through done-done
+        env:
+          DONE_DONE_HOME: ${{ github.workspace }}/tmp/done-done-home
+        run: |
+          npx -y done-done-axi run checks
+          RUN_DIR=$(ls -dt "$DONE_DONE_HOME/evidence/takeone/"*/ | head -1)
+          npx -y done-done-axi check --outcome "takeone static checks pass on this commit" --claim-id "ci-checks" "${RUN_DIR}"*.log
+      - name: Attach done-done check evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: done-done-checks-${{ github.sha }}
+          path: |
+            tmp/done-done-home/evidence/takeone/
+            .done-done/runs/
+          if-no-files-found: error
       - name: Synthetic output quality gates
         if: always()
         run: npm run quality

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# verify-takeone design check: judge every cell still of a visual pass with done-done design.
+# done-done design check: judge every cell still of a visual pass with done-done design.
 # A required step of the visual defect pass: visual-pass.sh runs this after its own checks.
 # Exit 0 when every screen passes, 1 when a screen fails, 3 when none fails but one is a
 # genuine unsure (a human look), 2 on usage or setup error, 4 when the judge is UNAVAILABLE
@@ -49,7 +49,7 @@
 # Exit: 0 every screen passes, 1 a screen fails, 3 a screen is a genuine unsure (human look),
 # 4 JUDGE UNAVAILABLE (no model answered). 1, 3 and 4 all fail the visual pass.
 set -euo pipefail
-here=$(cd "$(dirname "$0")" && pwd); repo=$(cd "$here/../../../.." && pwd)
+here=$(cd "$(dirname "$0")" && pwd); repo=$(cd "$here/../.." && pwd)
 PIN=6b529b61135000d9fd610ca2c744287b0d1f87e2
 JUDGE_ROUTE=${JUDGE_ROUTE:-answerer:opencode}   # the opencode CLI judges; it speaks opencode-go/... natively
 JUDGE_AUTHOR=${JUDGE_AUTHOR:-pi}               # the producer label: a real agent, never the judge's own agent

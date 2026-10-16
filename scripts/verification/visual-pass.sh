@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# verify-takeone visual defect pass: render the canonical offline takes from this checkout and check
-# every cell with visual-check.ts. Exit 1 when any cell shows a defect. See ../SKILL.md.
+# done-done visual defect pass: render the canonical offline takes from this checkout and check
+# every cell with visual-check.ts. Exit 1 when any cell shows a defect. See README.md.
 #
 #   visual-pass.sh <out-dir> [--ref <main-pass-dir>] [--motion-ref <contact.png>]... [--cells "<cell> ..."] [--work <dir>] [--check-only] [--no-design]
 #
@@ -16,7 +16,7 @@
 # <cell>.json, pass.log and index.md, all flat. Set TAKEONE_GATE to a command prefix (a memory gate)
 # for every render and check; make always runs --no-jev in an isolated TAKEONE_DIR/TAKEONE_STATE_DIR.
 set -euo pipefail
-here=$(cd "$(dirname "$0")" && pwd); repo=$(cd "$here/../../../.." && pwd)
+here=$(cd "$(dirname "$0")" && pwd); repo=$(cd "$here/../.." && pwd)
 out=; ref=; work=; only=; nodesign=; cells="desktop-dark desktop-light portrait-dark portrait-light 45-dark 45-light font-dark font-light motion-dark motion-light"
 mrefs=()
 while [ $# -gt 0 ]; do
@@ -33,7 +33,7 @@ while [ $# -gt 0 ]; do
 done
 [ -n "$out" ] || { sed -n '5p' "$0" >&2; exit 2; }
 mkdir -p "$out"; out=$(cd "$out" && pwd)
-work=${work:-${TMPDIR:-/tmp}/takeone-visual-$(basename "$out")}
+work=${work:-$out/work}
 export TAKEONE_DIR="$work/takes" TAKEONE_STATE_DIR="$work/state"
 mkdir -p "$TAKEONE_DIR" "$TAKEONE_STATE_DIR"
 read -r -a gate <<< "${TAKEONE_GATE:-}"
@@ -43,20 +43,12 @@ log=$out/pass.log; : > "$log"
 say() { echo "$*" | tee -a "$log"; }
 say "visual pass $(git rev-parse --short HEAD) $(date -u +%FT%TZ) cells: $cells"
 
-# Every render below runs from dist/: a build older than src/ renders old product code
-# with new checker expectations, so stale sidecars fail good films (measured: a pre-112
-# cover-fit camera.json against the contain-fit phone frame reads as a status-bar band
-# and stage bands plus mismatch on clean main). Rebuild first when stale.
-[ -d "$repo/node_modules" ] || { echo "visual-pass: no node_modules in $repo; run npm install first" >&2; exit 2; }
-if [ ! -f "$repo/dist/motion/camera.js" ] || [ -n "$(cd "$repo" && find src -name '*.ts' -newer dist/motion/camera.js -print -quit)" ]; then
-  say "visual pass: rebuilding dist (sources newer than the build)"
-  run npm --prefix "$repo" run build >>"$log" 2>&1 || { say "FAIL visual pass: npm run build failed, see $log"; exit 2; }
-fi
+run npm --prefix "$repo" run build >>"$log" 2>&1 || { say "FAIL visual pass: npm run build failed, see $log"; exit 2; }
 
 # One planned base per fixture (make --no-jev: no model calls), then one copy per cell.
 base() { # <name> <generator...>
   local d=$TAKEONE_DIR/base-$1; shift
-  [ -s "$d/take.json" ] && [ -d "$d/analysis" ] && return
+  [ -n "$only" ] && [ -s "$d/take.json" ] && [ -d "$d/analysis" ] && return
   rm -rf "$d"; run node "$@" "$d" >/dev/null
   run node bin/takeone.mjs make "$d" --no-jev > "$d.make.log" 2>&1 || { cat "$d.make.log" >&2; return 1; }
 }
@@ -69,12 +61,15 @@ cell() { # <cell> <base> [render args...]: prints the cell's take dir
 }
 want() { case " $cells " in *" $1 "*) return 0;; esac; return 1; }
 
-pids=(); names=()
-check() { # <cell> <take-dir> <theme> [refs...]: runs in the background, one log per cell
-  local c=$1 d=$2 th=$3; shift 3
+fail=0; rows=()
+check() {
+  local c=$1 d=$2 th=$3 rc=0 v; shift 3
   local film; film=$(ls "$d"/out/*.mp4 | head -1); cp "$film" "$out/$c.mp4"
-  run node "$here/visual-check.ts" "$d" --name "$c" --out "$out" --theme "$th" --film "$out/$c.mp4" "$@" > "$work/$c.check.log" 2>&1 &
-  pids+=($!); names+=("$c")
+  run node "$here/visual-check.ts" "$d" --name "$c" --out "$out" --theme "$th" --film "$out/$c.mp4" "$@" > "$work/$c.check.log" 2>&1 || rc=$?
+  cat "$work/$c.check.log" >> "$log"
+  case $rc in 0) v=PASS;; 1) v=FAIL; fail=1;; *) v=ERROR; fail=1;; esac
+  say "$v $c (exit $rc)"
+  rows+=("| $c | $v | $(cd "$out" && ls "$c"-t*-side.png 2>/dev/null | tr '\n' ' ') | $(grep -c '^FAIL .* t=' "$work/$c.check.log" || true) |")
 }
 mref() { [ -n "$ref" ] && [ -s "$ref/$1.mp4" ] && echo "--ref $ref/$1.mp4" || true; }
 
@@ -102,19 +97,11 @@ for c in $cells; do
   check "$c" "$d" "$th" $(mref "$c")
 done
 
-fail=0; rows=()
-for i in "${!pids[@]}"; do
-  c=${names[$i]}; rc=0; wait "${pids[$i]}" || rc=$?
-  cat "$work/$c.check.log" >> "$log"
-  case $rc in 0) v=PASS;; 1) v=FAIL; fail=1;; *) v=ERROR; fail=1;; esac
-  say "$v $c (exit $rc)"
-  rows+=("| $c | $v | $(cd "$out" && ls "$c"-t*-side.png 2>/dev/null | tr '\n' ' ') | $(grep -c '^FAIL .* t=' "$work/$c.check.log" || true) |")
-done
 { echo "# Visual defect pass $(git rev-parse --short HEAD)"; echo
   echo "Reference: ${ref:-none} ${mrefs[*]:-}"; echo
   echo "| cell | verdict | side-by-side sheets | defects |"; echo "|---|---|---|---|"; printf '%s\n' "${rows[@]}"; } > "$out/index.md"
 # Required last step (skipped with --no-design): the done-done design check judges every
-# cell still (exit 1 fail and exit 3 unsure both fail the pass). Stills take their mock
+# cell still (exit 1 fail, exit 3 genuine unsure and exit 4 judge-unavailable all fail the pass). Stills take their mock
 # from the reference pass's film (motion cells included); the --motion-ref contacts stay
 # side-sheet references only, never design mocks (a mock showing other content fails good
 # stills, see visual-design.sh).

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Negative controls for the visual defect pass: break a copy of a good pass's film with ffmpeg and
 # check it against that cell's own sidecars. Every control must exit 1 and name its defect; the good
-# films are the pass itself (its pass.log). See ../SKILL.md.
+# films are the pass itself (its pass.log). See README.md.
 #
 #   visual-controls.sh <good-pass-dir> <out-dir> [--work <that pass's work dir>] [--letterbox-take <dir>]
 #
@@ -12,7 +12,7 @@ set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
 [ $# -ge 2 ] || { sed -n '6p' "$0" >&2; exit 2; }
 pass=$(cd "$1" && pwd); out=$2; shift 2
-work=${TMPDIR:-/tmp}/takeone-visual-$(basename "$pass")
+work=$pass/work
 [ "${1:-}" = --work ] && { work=$2; shift 2; }
 letterbox=
 [ "${1:-}" = --letterbox-take ] && { letterbox=$2; shift 2; }
@@ -46,7 +46,7 @@ read -r ex ey ew eh <<< "$(fact desktop-dark element.rect b2/z1)"
 read -r cx cy cw ch <<< "$(fact desktop-dark shown)"
 read -r px py pw ph <<< "$(fact portrait-dark shown)"
 read -r mx my mw mh <<< "$(fact motion-dark shown)"
-font=$(cd "$here/../../../.." && pwd)/resources/fonts/Inter-SemiBold.ttf
+font=$(cd "$here/../.." && pwd)/resources/fonts/Inter-SemiBold.ttf
 
 control stretch desktop-dark midnight stretch "scale=iw*1.04:ih,crop=1920:1080"
 control stretch-phone font-dark midnight stretch "scale=iw*1.04:ih,crop=1080:1920"

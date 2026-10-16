@@ -65,7 +65,7 @@ decode to different frames after the first in-flight repaint. By default the
 cursor is baked into the source, matching existing recordings. Pass
 `--cursor=hidden` to paint no cursor and mark the take `cursor_free: true`, so the
 renderer draws its own vector cursor from the pointer track instead
-(see `../.agents/skills/verify-takeone/features/vector-cursor.md`). PNG frames are
+(see `verification/vector-cursor.md`). PNG frames are
 streamed to ffmpeg with backpressure, and encoded as lossless VP9 in yuv420p at
 constant 60 fps.
 
