@@ -19,7 +19,6 @@
   "scripts": {
     "build": "tsc --project tsconfig.json",
     "prepare": "npm run build",
-    "prepack": "npm run build",
     "test": "npm run build && node --test test/*.test.ts dist/test/*.test.js",
     "typecheck": "tsc --project tsconfig.check.json",
     "quality": "node scripts/quality.ts"
