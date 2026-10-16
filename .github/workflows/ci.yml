@@ -173,4 +173,8 @@ jobs:
           path: tmp/headless-parts
       - if: steps.gate.outputs.compare == 'true'
         name: Compare decoded frames, input logs and clocks across the parts
-        run: node scripts/test-headless-scene.mjs --part=compare tmp/headless-parts/*/a
+        # upload-artifact roots each part at tmp/headless-validation/, so takes sit in run-*/a.
+        run: |
+          takes=(tmp/headless-parts/*/run-*/a)
+          [ "${#takes[@]}" = 3 ] || { echo "::error::expected 3 part takes, found: ${takes[*]}"; exit 1; }
+          node scripts/test-headless-scene.mjs --part=compare "${takes[@]}"
