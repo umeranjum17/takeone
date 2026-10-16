@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { join } from "node:path";
 import { homedir } from "node:os";
-import { existsSync, readFileSync, unlinkSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync, unlinkSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 import { setKeyFromStdin } from "./secrets.ts";
@@ -295,7 +295,20 @@ export async function main(argv: string[]): Promise<number> {
   }
 }
 
-if (process.argv[1] && (import.meta.url === pathToFileURL(process.argv[1]).href || process.argv[1].endsWith("/bin/takeone.mjs"))) {
+/** True when this module is the program that was run. `npm install -g`
+ * launches the bin through a symlink (prefix/bin/takeone), so the as-invoked
+ * argv[1] never equals this module's URL; compare through realpath first. */
+function isMainModule(): boolean {
+  if (!process.argv[1]) return false;
+  try {
+    if (import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) return true;
+  } catch {
+    // argv[1] names no file on disk; only the suffix check can still match
+  }
+  return process.argv[1].endsWith("/bin/takeone.mjs");
+}
+
+if (isMainModule()) {
   main(process.argv.slice(2)).then(
     (code) => { process.exitCode = code; },
     (e) => { console.error(e instanceof Error ? e.message : e); process.exitCode = 1; },
