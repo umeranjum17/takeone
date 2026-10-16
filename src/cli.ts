@@ -297,15 +297,19 @@ export async function main(argv: string[]): Promise<number> {
 
 /** True when this module is the program that was run. `npm install -g`
  * launches the bin through a symlink (prefix/bin/takeone), so the as-invoked
- * argv[1] never equals this module's URL; compare through realpath first. */
+ * argv[1] never matches anything: resolve it through realpath first, then
+ * accept either this module's own URL (direct dist run) or the package bin
+ * path that imports this module (bin and symlinked entry points). */
 function isMainModule(): boolean {
-  if (!process.argv[1]) return false;
+  const invoked = process.argv[1];
+  if (!invoked) return false;
   try {
-    if (import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) return true;
+    const real = realpathSync(invoked);
+    if (import.meta.url === pathToFileURL(real).href) return true;
+    return real.endsWith("/bin/takeone.mjs");
   } catch {
-    // argv[1] names no file on disk; only the suffix check can still match
+    return invoked.endsWith("/bin/takeone.mjs");
   }
-  return process.argv[1].endsWith("/bin/takeone.mjs");
 }
 
 if (isMainModule()) {
