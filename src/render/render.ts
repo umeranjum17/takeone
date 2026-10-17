@@ -369,7 +369,7 @@ export async function renderTake(dir: string, d?: CameraDefaults): Promise<{ out
 
   await writeFile(commandFile, graph(0));
 
-  const threads = String(Math.min(8, availableParallelism()));
+  const threads = renderThreads();
   const ffmpegMajor = Number(execFileSync("ffmpeg", ["-version"], { encoding: "utf8" })
     .match(/ffmpeg version (?:n)?(\d+)/)?.[1] ?? 0);
   // ffmpeg 7 introduced file-valued options; older releases use the script flag.
@@ -380,6 +380,8 @@ export async function renderTake(dir: string, d?: CameraDefaults): Promise<{ out
     "-framerate", String(d.fps), "-i", stageFile,
     "-framerate", String(d.fps), "-i", holesFile,
     // Slice threads keep the stage filters from starving the encoder.
+    // The encoder joins the cap only when TAKEONE_RENDER_THREADS sets one; unset keeps ffmpeg's own default.
+    ...(process.env.TAKEONE_RENDER_THREADS === undefined ? [] : ["-threads", threads]),
     "-filter_threads", threads, "-filter_complex_threads", threads,
     graphOption, graphFile,
     ...(clock ? ["-t", String(duration)] : []), ...frames,
@@ -416,6 +418,16 @@ export async function renderTake(dir: string, d?: CameraDefaults): Promise<{ out
   await writeFile(join(dir, "render.log"), [`render segments start at frames ${starts.join(", ")}`, ...logs].join("\n"));
   await Promise.all([list, ...parts, ...parts.map((_, k) => join(dir, `camera-part${k}.cmd`))].map(file => rm(file, { force: true })));
   return { out: output, seconds: duration };
+}
+
+/** ffmpeg thread count for every render and export: TAKEONE_RENDER_THREADS when set, else at most eight or the available cores. */
+export function renderThreads(): string {
+  const fixed = process.env.TAKEONE_RENDER_THREADS;
+  if (fixed !== undefined) {
+    if (!/^[1-9]\d*$/.test(fixed)) throw new Error(`TAKEONE_RENDER_THREADS must be a positive integer, got "${fixed}"`);
+    return fixed;
+  }
+  return String(Math.min(8, availableParallelism()));
 }
 
 /** Parallel render segments: TAKEONE_RENDER_SEGMENTS when set, else one per four
