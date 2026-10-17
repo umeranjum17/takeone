@@ -961,7 +961,7 @@ test("a crop with no zoom headroom and no clean edge settles instead of hanging"
 
 // A variable-rate screen recording ends at its last change, but the take's clock runs on past it:
 // the text guard must sample the last frame there, not warn that the source would not decode.
-test("text guard samples the last frame of a recording that ends before the take", { timeout: 60_000, skip: needsFfmpeg }, async () => {
+test("text guard samples the last frame of a recording that ends before the take", { timeout: 60_000 }, async () => {
   const dir = await mkdtemp(join(process.cwd(), "takeone:guard-tail-"));
   const warnings: string[] = [];
   const warn = console.warn;
