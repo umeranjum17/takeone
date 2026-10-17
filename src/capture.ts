@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 import { keyStatus, type KeyOptions } from "./secrets.ts";
 import { makeTake, PreflightRefusal, TakeInputError } from "./make.ts";
 import { resolveCamera } from "./cli.ts";
+import { packageVersion as recorderVersion } from "./version.ts";
 
 export interface CaptureError {
   code: string;
@@ -24,19 +25,6 @@ function emit(line: unknown): void {
 
 function invalidArguments(message: string, hint: string): never {
   captureFail({ code: "invalid-arguments", message, hint });
-}
-
-/** package.json version, resolved from the installed layout (dist/../package.json). */
-function recorderVersion(): string {
-  try {
-    const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as {
-      version?: unknown;
-    };
-    if (typeof pkg.version === "string" && pkg.version) return pkg.version;
-  } catch {
-    // installed without a readable package.json; beat on without a version
-  }
-  return "0.0.0";
 }
 
 interface MakeArgs {

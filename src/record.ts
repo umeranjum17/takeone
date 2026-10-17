@@ -14,8 +14,10 @@ import { startTaps, type TapHandle } from "./taps.js";
 import { consumeToken } from "./token.js";
 import { processStartTicks } from "./takes.js";
 import type { TakeMeta } from "./types.js";
+import { packageVersion } from "./version.js";
 
-export const VERSION = "0.1.0";
+/** package.json version recorded in take.json. */
+export const VERSION: string = packageVersion();
 
 export interface RecordOptions {
   fps?: number;
