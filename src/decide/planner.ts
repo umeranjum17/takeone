@@ -88,7 +88,7 @@ export interface ResolvedPlanner {
   config: DecideConfig;
   defaulted: boolean;
   label: string;
-  member: string;
+  member: string | null;
   /** apiKey credential, when auth is apiKey and a key is stored. */
   key: string | null;
   /** True when auth is account and its sign-in is present. */
@@ -117,13 +117,14 @@ export interface ResolvePlannerOptions extends KeyOptions {
  * prints or returns a credential. */
 export async function resolvePlanner(o: ResolvePlannerOptions = {}): Promise<ResolvedPlanner> {
   const { config, defaulted } = loadPlannerConfig(o);
-  const member = plannerMember(o);
   const c = config as { backend: string; auth: string };
+  let member: string | null = null;
   let key: string | null = null;
   let accountPresent = false;
   if (o.apiKeyOverride === null) {
     // explicitly disabled: no store reads at all.
   } else if (c.auth === "account") {
+    member = plannerMember(o);
     accountPresent = await goAccountPresent(member);
   } else if (o.apiKeyOverride !== undefined) {
     key = o.apiKeyOverride;
@@ -378,6 +379,7 @@ export async function askBeat(
   const c = planner.config as { backend: string };
   let host: import("@byokit/decide").ConfigHost;
   if ((planner.config as { auth: string }).auth === "account") {
+    if (planner.member === null) throw new Error("account planner resolved without a member");
     host = {
       accounts: { "opencode-go": await loadGoAccount(planner.member) },
       ...(o.fetchImpl ? { fetch: o.fetchImpl } : {}),
