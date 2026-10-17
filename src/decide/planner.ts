@@ -411,18 +411,17 @@ export async function askBeat(
   const limited = limitReason(answers);
   if (limited) throw new PlannerUnavailable(planner.label, limited);
   if (!answers || typeof answers !== "object") return { decisionSource: "failed" };
-  if (!Object.values(answers).some((a) => !a.abstained)) return { decisionSource: "failed" };
   const usage = validUsageTokens(answers);
   if (usage === null) return { decisionSource: "failed" };
-  if (o.usable && !o.usable(answers)) return { decisionSource: "failed" };
-  const cached = Object.values(answers).every((a) => a.source === "cache");
-  if (cached) return { decisionSource: "cache", answers };
-  return {
-    decisionSource: "api",
-    answers,
+  const tokens = {
     ...(usage.input !== undefined ? { inputTokens: usage.input } : {}),
     ...(usage.output !== undefined ? { outputTokens: usage.output } : {}),
   };
+  if (!Object.values(answers).some((a) => !a.abstained)) return { decisionSource: "failed", ...tokens };
+  if (o.usable && !o.usable(answers)) return { decisionSource: "failed", ...tokens };
+  const cached = Object.values(answers).every((a) => a.source === "cache");
+  if (cached) return { decisionSource: "cache", answers };
+  return { decisionSource: "api", answers, ...tokens };
 }
 
 /** Run tasks with bounded concurrency; results keep input order. */
