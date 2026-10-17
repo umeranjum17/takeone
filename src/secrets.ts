@@ -120,13 +120,10 @@ export async function loadApiKey(o: KeyOptions = {}): Promise<string | null> {
   return store.get(JEV_SECRET);
 }
 
-/** Load one backend's apiKey credential from the persistent store. The legacy
- * TYPESAFE file migrates into the jev slot; the environment is never read. */
-export async function loadPlannerKey(slot: string, o: KeyOptions = {}): Promise<string | null> {
-  const env = o.env ?? process.env;
-  const store = persistentKeys(o);
-  if (slot === "jev") await migrate(store, join(env.HOME ?? homedir(), ".config", "takeone", "env"), slot);
-  return store.get(slot);
+/** Read one backend's apiKey credential from the persistent store. Never
+ * migrates the legacy TYPESAFE file; the environment is never read. */
+export async function readPlannerKey(slot: string, o: KeyOptions = {}): Promise<string | null> {
+  return persistentKeys(o).get(slot);
 }
 
 /** Safe presence probe: neither migrates nor prints the credential. The detail names

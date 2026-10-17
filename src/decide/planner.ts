@@ -6,11 +6,9 @@
 // automatically: limits, auth errors and timeouts stop with
 // PlannerUnavailable instead of silently falling back.
 //
-// Answer validation stays takeone's own mapping (mapAnswers): the kit floor is
-// set to 0 on our questions so a merely unsure answer still widens through the
-// existing uncertainty rules instead of dropping the whole beat. Kit-level
+// Answer validation stays takeone's own mapping (mapAnswers). Kit-level
 // abstention (malformed answers) and transport failures fall back per beat, as
-// before. Kit floors engage with per-field fallback in a later slice.
+// before.
 
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { userInfo } from "node:os";
@@ -27,7 +25,7 @@ import {
 } from "@byokit/decide";
 import { writeFileAtomic } from "@byokit/secrets";
 import type { PlannerAnswers } from "../types.ts";
-import { takeoneConfigDir, loadPlannerKey, type KeyOptions } from "../secrets.ts";
+import { takeoneConfigDir, readPlannerKey, type KeyOptions } from "../secrets.ts";
 
 export const CONCURRENCY = 8;
 /** Whole-call budget per beat (attempts plus bounded 429 waits). */
@@ -130,7 +128,7 @@ export async function resolvePlanner(o: ResolvePlannerOptions = {}): Promise<Res
   } else if (o.apiKeyOverride !== undefined) {
     key = o.apiKeyOverride;
   } else {
-    key = await loadPlannerKey(c.backend, o);
+    key = await readPlannerKey(c.backend, o);
   }
   return {
     config,
@@ -164,8 +162,8 @@ export async function goAccountPresent(member: string): Promise<boolean> {
   }
 }
 /** Safe presence probe for doctor and CLI banners: never prints, never
- * returns the credential itself; the default jev slot migrates the legacy
- * env file into the store on this read. */
+ * returns the credential itself, and never migrates or removes the legacy
+ * env file. */
 export async function plannerStatus(o: ResolvePlannerOptions = {}): Promise<{
   available: boolean;
   detail: string;
