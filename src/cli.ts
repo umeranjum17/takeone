@@ -350,8 +350,8 @@ async function runKeySet(rest: string[]): Promise<number> {
     return 2;
   }
   try {
-    await savePlannerConfig(config);
     await setKeyFromStdin(process.stdin, backend);
+    await savePlannerConfig(config);
     console.log(`planner key stored through BYOKit (${describePlanner(config)}); make still uses the Jev key or fallback rules until the planner is wired`);
     return 0;
   } catch (e) {

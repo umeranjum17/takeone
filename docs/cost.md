@@ -13,7 +13,7 @@ list price:
 | Provider | Model (example) | Input price | Typical/min | Ceiling/min | Verified |
 |---|---|---|---|---|---|
 | Jev | `jev-latest` (default) | $0.042 / Mtok input | ~15,800 tok ≈ $0.00066 | 40,000 tok ≈ $0.0017 | input price from the code const (unverified: no output price published; accounting counts input only) |
-| OpenCode Go plan | `opencode-go/muse-spark-1.3-contributor` | $0 marginal (subscription) | ~15,800 tok ≈ $0.00 | 40,000 tok ≈ $0.00 | billing route is subscription (`OPENCODE_GO_ROUTES`) |
+| OpenCode Go plan | `opencode-go/muse-spark-1.3-contributor` | $0 marginal (subscription) | ~15,800 tok ≈ $0.00 | 40,000 tok ≈ $0.00 | billing route is the OpenCode Go subscription (`auth: account`) |
 | OpenCode Go plan | `opencode-go/deepseek-v4.1-flash` | $0 marginal (subscription) | ~15,800 tok ≈ $0.00 | 40,000 tok ≈ $0.00 | same subscription route |
 | OpenCode Go plan | `opencode-go/glm-5.3` (GLM) | $0 marginal (subscription) | ~15,800 tok ≈ $0.00 | 40,000 tok ≈ $0.00 | same subscription route |
 | OpenAI API | `gpt-6.1-sol` | $2 / Mtok input, $10 / Mtok output | ~15,800 tok ≈ $0.032 in | 40,000 tok ≈ $0.08 in | **unverified**: example price from the `@byokit/decide` README (2026-09-30); re-check the provider pricing page |

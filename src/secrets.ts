@@ -133,6 +133,8 @@ function legacyKey(o: KeyOptions): string | null {
 /** Read one backend's apiKey credential from the persistent store. The Jev slot
  * also reads the legacy TYPESAFE file without migrating or changing it. */
 export async function readPlannerKey(slot: string, o: KeyOptions = {}): Promise<string | null> {
+  const env = o.env ?? process.env;
+  if (slot === JEV_SECRET && env.TYPESAFE_API_KEY) return env.TYPESAFE_API_KEY;
   const stored = await persistentKeys(o).get(slot);
   if (stored !== null || slot !== JEV_SECRET) return stored;
   return legacyKey(o);

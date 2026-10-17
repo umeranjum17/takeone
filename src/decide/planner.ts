@@ -292,7 +292,7 @@ export class PlannerUnavailable extends Error {
   constructor(provider: string, reason: string) {
     super(
       `AI planner: ${provider} ${reason} (answers saved). ` +
-        `Choose: wait and rerun (resumes from saved answers), run with --no-ai for fallback rules, ` +
+        `Choose: wait and rerun (resumes from saved answers), ` +
         `or switch provider yourself with takeone key set --backend <name> --model <model>.`,
     );
     this.name = "PlannerUnavailable";

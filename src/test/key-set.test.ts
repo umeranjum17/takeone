@@ -84,6 +84,20 @@ test("key set --via openrouter records the route", () => {
   }
 });
 
+test("a failed key set leaves the previous provider choice unchanged", () => {
+  const h = home();
+  try {
+    const ok = run(["key", "set", "--backend", "jev", "--model", "jev-latest"], h, "sk-test-key\n");
+    assert.equal(ok.status, 0, ok.stderr);
+    const before = plannerJson(h.home);
+    const r = run(["key", "set", "--backend", "openai", "--model", "gpt-6.1-sol"], h, "");
+    assert.equal(r.status, 1, r.stdout);
+    assert.deepEqual(plannerJson(h.home), before);
+  } finally {
+    h.cleanup();
+  }
+});
+
 test("key set without flags keeps the old Jev-only behaviour", () => {
   const h = home();
   try {

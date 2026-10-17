@@ -1,4 +1,4 @@
-// OCR of zone text (on by default with a planner; --no-screen-text opts out):
+// OCR of zone text (opt-in with --screen-text):
 // confidence >= 60, capped per zone, redacted. I/O wrapper; the redaction
 // itself is pure (redact.ts).
 
