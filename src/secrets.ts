@@ -86,6 +86,10 @@ export function persistentKeys(o: KeyOptions = {}): Keystore {
   return sealedStore(env, o);
 }
 
+function legacyPath(env: NodeJS.ProcessEnv): string {
+  return join(env.HOME ?? homedir(), ".config", "takeone", "env");
+}
+
 function legacyValue(line: string): string | null {
   const s = line.trim();
   if (!s || s.startsWith("#")) return null;
@@ -116,14 +120,22 @@ export async function loadApiKey(o: KeyOptions = {}): Promise<string | null> {
   const env = o.env ?? process.env;
   if (env.TYPESAFE_API_KEY) return overrideStore({ [JEV_SECRET]: env.TYPESAFE_API_KEY }).get(JEV_SECRET);
   const store = persistentKeys(o);
-  await migrate(store, join(env.HOME ?? homedir(), ".config", "takeone", "env"), JEV_SECRET);
+  await migrate(store, legacyPath(env), JEV_SECRET);
   return store.get(JEV_SECRET);
 }
 
-/** Read one backend's apiKey credential from the persistent store. Never
- * migrates the legacy TYPESAFE file; the environment is never read. */
+function legacyKey(o: KeyOptions): string | null {
+  const path = legacyPath(o.env ?? process.env);
+  if (!existsSync(path)) return null;
+  return readFileSync(path, "utf8").split("\n").map(legacyValue).find((value) => value !== null) ?? null;
+}
+
+/** Read one backend's apiKey credential from the persistent store. The Jev slot
+ * also reads the legacy TYPESAFE file without migrating or changing it. */
 export async function readPlannerKey(slot: string, o: KeyOptions = {}): Promise<string | null> {
-  return persistentKeys(o).get(slot);
+  const stored = await persistentKeys(o).get(slot);
+  if (stored !== null || slot !== JEV_SECRET) return stored;
+  return legacyKey(o);
 }
 
 /** Safe presence probe: neither migrates nor prints the credential. The detail names
@@ -152,7 +164,7 @@ export async function keyStatus(o: KeyOptions = {}): Promise<{ available: boolea
 }
 
 /** Read a key from piped stdin only; argv is intentionally never echoed. */
-export async function setPlannerKeyFromStdin(input: AsyncIterable<Uint8Array | string>, slot: string, o: KeyOptions = {}): Promise<void> {
+export async function setKeyFromStdin(input: AsyncIterable<Uint8Array | string>, slot: string = JEV_SECRET, o: KeyOptions = {}): Promise<void> {
   let key = "";
   for await (const chunk of input) {
     key += typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf8");
@@ -162,19 +174,5 @@ export async function setPlannerKeyFromStdin(input: AsyncIterable<Uint8Array | s
   if (!key || /[\r\n\0]/.test(key)) throw new Error("stdin must contain one nonempty key line");
   const store = persistentKeys(o);
   await store.set(slot, key);
-  if (await store.get(slot) !== key) throw new Error("could not verify the stored planner key");
-}
-
-/** Read a key from piped stdin only; argv is intentionally never echoed. */
-export async function setKeyFromStdin(input: AsyncIterable<Uint8Array | string>, o: KeyOptions = {}): Promise<void> {
-  let key = "";
-  for await (const chunk of input) {
-    key += typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf8");
-    if (Buffer.byteLength(key) > 16_384) throw new Error("key input too large");
-  }
-  key = key.trim();
-  if (!key || /[\r\n\0]/.test(key)) throw new Error("stdin must contain one nonempty key line");
-  const store = persistentKeys(o);
-  await store.set(JEV_SECRET, key);
-  if (await store.get(JEV_SECRET) !== key) throw new Error("could not verify the stored Jev key");
+  if (await store.get(slot) !== key) throw new Error("could not verify the stored key");
 }
