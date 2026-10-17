@@ -17,7 +17,7 @@ import { idleSqueezes, purposefulEnd, setptsExpr, warp, warpBeats } from "./pace
 import { cursorAss } from "./cursor.ts";
 import { firstFrameTimeMs, readEvents } from "../perceive/decode.ts";
 import { phoneTapShots } from "./phone.ts";
-import { edgeCuts, cutCount, holdPath, videoFrames } from "./framing.ts";
+import { edgeCuts, cutCount, holdPath, lastFrameSecond, videoFrames } from "./framing.ts";
 import { SAFE_INSET, safeAreaReport } from "./safe-area.ts";
 import { typingBursts, editBeats, editTimeline, validateEdits, validateZooms } from "./edits.ts";
 import {
@@ -100,8 +100,10 @@ export function sourceEdgeCuts(dir: string, meta: TakeMeta, at: (t: number) => n
   // A frame is W*H bytes against ~5x that per mask, so these stay cached for the solve.
   const decoded = new Map<string, Uint8Array>();
   let warnedDecodes = false;
+  // A variable-rate recording writes no frame after its last change: sample its last frame instead.
+  const lastSecond = lastFrameSecond(file);
   const frameAt = (time: number): Uint8Array | undefined => {
-    const second = Math.max(0, at(time)).toFixed(3);
+    const second = Math.max(0, Math.min(at(time), lastSecond - 0.001)).toFixed(3);
     let frame = decoded.get(second);
     if (frame) return frame;
     try {

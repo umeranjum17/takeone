@@ -7,7 +7,7 @@ import { DEFAULTS } from "../src/camera/defaults.ts";
 import { solveCamera, solveCameraDetailed, clippedFractions, wholeCrop, frame, toFrame } from "../src/camera/solver.ts";
 import type { Beat, CameraFrame, Decision, Zone } from "../src/camera/types.ts";
 import type { Action } from "../src/types.ts";
-import { renderTake } from "../src/render/render.ts";
+import { renderTake, sourceEdgeCuts } from "../src/render/render.ts";
 import { idleSqueezes, warp, warpBeats } from "../src/render/pace.ts";
 import { sourceViewport, stageGeometry, stageFrames, minStageMargin } from "../src/render/stage.ts";
 import { edgeCuts, cutCount } from "../src/render/framing.ts";
@@ -957,4 +957,25 @@ test("a crop with no zoom headroom and no clean edge settles instead of hanging"
   const { top, state } = JSON.parse(child.stdout);
   assert.equal(top, 1);
   assert.equal(state.z, 1);
+});
+
+// A variable-rate screen recording ends at its last change, but the take's clock runs on past it:
+// the text guard must sample the last frame there, not warn that the source would not decode.
+test("text guard samples the last frame of a recording that ends before the take", { timeout: 60_000, skip: needsFfmpeg }, async () => {
+  const dir = await mkdtemp(join(process.cwd(), "takeone:guard-tail-"));
+  const warnings: string[] = [];
+  const warn = console.warn;
+  try {
+    execFileSync("ffmpeg", ["-v", "error", "-f", "lavfi", "-i", "color=c=gray:s=320x180:r=10:d=3",
+      "-c:v", "mpeg4", "-q:v", "2", "-f", "matroska", "-y", join(dir, "screen.webm")]);
+    const meta = { id: "guard-tail", width: 320, height: 180 } as Parameters<typeof sourceEdgeCuts>[1];
+    console.warn = (message: string) => { warnings.push(message); };
+    const cuts = sourceEdgeCuts(dir, meta, (t) => t + 2.5);
+    assert.ok(cuts, "the recording exists, so the guard runs");
+    assert.equal(typeof cuts({ x: 0, y: 0, w: 320, h: 180 }, 1, 2), "number");
+    assert.deepEqual(warnings, [], "a time past the last frame must not switch the guard off");
+  } finally {
+    console.warn = warn;
+    await rm(dir, { recursive: true, force: true });
+  }
 });
