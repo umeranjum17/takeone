@@ -345,8 +345,8 @@ async function runKeySet(rest: string[]): Promise<number> {
     return 2;
   }
   try {
-    await setPlannerKeyFromStdin(process.stdin, backend);
     await savePlannerConfig(config);
+    await setPlannerKeyFromStdin(process.stdin, backend);
     console.log(`planner key stored through BYOKit (${describePlanner(config)})`);
     return 0;
   } catch {

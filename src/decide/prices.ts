@@ -26,9 +26,11 @@ export const PROVIDER_PRICES: Record<string, ProviderPrice> = {
 };
 
 /** Input-only cost estimate for planned/reported tokens, matching the
- * long-standing input-only accounting (output pricing is unverified). */
-export function estimateUsd(backend: string, inputTokens: number): number {
+ * long-standing input-only accounting (output pricing is unverified).
+ * Undefined when the backend or its input price is unknown: no estimate is
+ * never a fabricated $0. */
+export function estimateUsd(backend: string, inputTokens: number): number | undefined {
   const price = PROVIDER_PRICES[backend]?.inputPerMtok;
-  if (typeof price !== "number" || !Number.isFinite(price)) return 0;
+  if (typeof price !== "number" || !Number.isFinite(price)) return undefined;
   return (inputTokens * price) / 1e6;
 }
