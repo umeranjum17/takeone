@@ -1,6 +1,6 @@
 import { execFileSync, spawn } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { availableParallelism } from "node:os";
 import { fileURLToPath } from "node:url";
 import { resolveTheme } from "../themes.ts";
@@ -33,9 +33,9 @@ export function encodingOptions(d: CameraDefaults): string[] {
 }
 
 /** Run ffmpeg, resolve with its stderr, and include its final 20 stderr lines on failure. */
-function runFfmpeg(args: string[]): Promise<string> {
+function runFfmpeg(args: string[], signal?: AbortSignal): Promise<string> {
   return new Promise((resolve, reject) => {
-    const process = spawn("ffmpeg", ["-nostdin", ...args], { stdio: ["ignore", "ignore", "pipe"] });
+    const process = spawn("ffmpeg", ["-nostdin", ...args], { stdio: ["ignore", "ignore", "pipe"], signal });
     let stderr = "";
     process.stderr.setEncoding("utf8").on("data", (chunk: string) => {
       stderr = (stderr + chunk).slice(-100_000);
@@ -257,7 +257,6 @@ export async function renderTake(dir: string, d?: CameraDefaults): Promise<{ out
   const [cameraFrames, cameraW, cameraH] = band ? [frames, meta.width, meta.height] : [stageCamera, stage.w, stage.h];
   const shutter = shutterPlan(cameraFrames, cameraW, cameraH, view);
   await writeFile(join(dir, "motion-blur.json"), JSON.stringify(shutter.metrics, null, 2));
-  const camera = motionBlurGraph(cameraFrames, shutter, cameraW, cameraH, view);
 
   // A cursor-free take gets a drawn vector cursor from its recorded pointer
   // track, projected through the camera and rasterised at output resolution.
@@ -319,14 +318,19 @@ export async function renderTake(dir: string, d?: CameraDefaults): Promise<{ out
   const fade = Math.min(d.fade_s, duration / 4);
   const background = `0x${d.background_to.slice(1)}`;
   // Planar YUV composition; blur patches briefly use RGB. Stills are decoded once.
-  const still = `loop=-1:1:0,trim=end=${duration}`;
   // An .ass with no Dialogue lines renders nothing, so skip its overlay:
   // stock ffmpeg builds without libass (e.g. Homebrew) have no ass filter.
   const pixelFormat = d.quality === "master" ? "yuv444p" : "yuv420p";
   const clicksOverlay = hasDialogue(clicksAss) ? `,ass=${filterPath(clicksFile)}:fontsdir=${filterPath(FONTS_DIR)}` : "";
   const captionsOverlay = hasDialogue(captionsAss) ? `,ass=${filterPath(captionsFile)}:fontsdir=${filterPath(FONTS_DIR)}` : "";
-  const filter = [
-    `[0:v]${clock?.filter ?? `setpts='${setptsExpr(squeezes, d.idle_speed)}'`},fps=${d.fps}${clicksOverlay},scale=in_color_matrix=auto:out_color_matrix=bt601,format=${pixelFormat}[region0]`,
+  const graph = (start: number) => {
+    const camera = motionBlurGraph(cameraFrames, shutter, cameraW, cameraH, view, start);
+    // A segment skips composing the frames before its own; the camera's resampler
+    // repeats the first one back to zero, so its sample indices stay the same.
+    const from = start ? `,trim=start=${((start - 0.5) / d.fps).toFixed(9)}` : "";
+    const still = `loop=-1:1:0,trim=end=${duration}${from.replace(",trim=", ":")}`;
+    return [
+    `[0:v]${clock?.filter ?? `setpts='${setptsExpr(squeezes, d.idle_speed)}'`},fps=${d.fps}${from}${clicksOverlay},scale=in_color_matrix=auto:out_color_matrix=bt601,format=${pixelFormat}[region0]`,
     ...(blurs.length ? [blurGraph(blurs, pixelFormat)] : []),
     ...(spotlights.length ? [
       `[region${blurs.length}]null[spotlightInput]`,
@@ -357,33 +361,87 @@ export async function renderTake(dir: string, d?: CameraDefaults): Promise<{ out
       // while every other fade frame scored <= 0.184.
       + (fade > 0 ? `,fade=t=in:st=0:d=${fade}:color=${background},fade=t=out:st=${duration - fade}:d=${fade}:color=${background}`
         + `,noise=c0s=10:c0f=u:c0_seed=7` : "")
-      + `,scale=in_color_matrix=bt601:out_color_matrix=bt709:out_range=tv,format=${pixelFormat},setparams=range=limited:color_primaries=bt709:color_trc=bt709:colorspace=bt709`,
-  ].join(";");
+      + `,scale=in_color_matrix=bt601:out_color_matrix=bt709:out_range=tv,format=${pixelFormat},setparams=range=limited:color_primaries=bt709:color_trc=bt709:colorspace=bt709`
+      + (start ? ",setpts=PTS-STARTPTS" : ""),
+  ].join(";"); };
 
-  await writeFile(commandFile, filter);
+  await writeFile(commandFile, graph(0));
 
   const threads = String(Math.min(8, availableParallelism()));
   const ffmpegMajor = Number(execFileSync("ffmpeg", ["-version"], { encoding: "utf8" })
     .match(/ffmpeg version (?:n)?(\d+)/)?.[1] ?? 0);
   // ffmpeg 7 introduced file-valued options; older releases use the script flag.
   const graphOption = ffmpegMajor >= 7 ? "-/filter_complex" : "-filter_complex_script";
-
-  // Keep camera.cmd on failure for straightforward diagnosis and re-rendering.
-  const renderLog = await runFfmpeg([
+  const pass = (graphFile: string, frames: string[], out: string, signal?: AbortSignal) => runFfmpeg([
     "-y", "-ss", String(trimStart), "-to", String(trimEnd),
     "-i", join(dir, "screen.webm"),
     "-framerate", String(d.fps), "-i", stageFile,
     "-framerate", String(d.fps), "-i", holesFile,
     // Slice threads keep the stage filters from starving the encoder.
     "-filter_threads", threads, "-filter_complex_threads", threads,
-    graphOption, commandFile,
-    ...(clock ? ["-t", String(duration)] : []),
+    graphOption, graphFile,
+    ...(clock ? ["-t", String(duration)] : []), ...frames,
     "-r", String(d.fps), "-an", ...encodingOptions(d),
     "-color_primaries", "bt709", "-color_trc", "bt709", "-colorspace", "bt709", "-color_range", "tv",
-    "-movflags", "+faststart", output,
-  ]);
-  await writeFile(join(dir, "render.log"), renderLog);
+    "-movflags", "+faststart", out,
+  ], signal);
+
+  // Keep camera.cmd on failure for straightforward diagnosis and re-rendering.
+  const starts = segmentStarts(shutter.counts, renderSegments(shutter.counts.length, d.fps));
+  if (starts.length === 1) {
+    await writeFile(join(dir, "render.log"), await pass(commandFile, [], output));
+    return { out: output, seconds: duration };
+  }
+  // One ffmpeg filter graph runs on one thread apart from slice work, and the
+  // per-sample v360 remap rebuilds dominate it. Time segments render in parallel
+  // and join by stream copy. Every filter after the warp is clocked by time and
+  // the grain pattern is static, so each segment's frames match the single pass.
+  const parts = starts.map((_, k) => join(dir, `render-part${k}.mp4`));
+  // One failed segment must not leave its siblings encoding for hours: aborting
+  // kills every remaining ffmpeg, and the concat join honours the same signal.
+  const cancel = new AbortController();
+  const logs = await Promise.all(starts.map(async (start, k) => {
+    const graphFile = join(dir, `camera-part${k}.cmd`);
+    await writeFile(graphFile, graph(start));
+    const end = starts[k + 1];
+    return pass(graphFile, end === undefined ? [] : ["-frames:v", String(end - start)], parts[k]!, cancel.signal);
+  })).catch(err => { cancel.abort(); throw err; });
+  const list = join(dir, "render-parts.txt");
+  // Exact durations: the parts' own mp4 durations are rounded and would shift every later frame.
+  await writeFile(list, parts.map((part, k) => `file '${part.replace(/'/g, "'\\''")}'\n`
+    + `duration ${(((starts[k + 1] ?? shutter.counts.length) - starts[k]!) / d.fps).toFixed(6)}\n`).join(""));
+  logs.push(await runFfmpeg(["-y", "-v", "error", "-f", "concat", "-safe", "0", "-i", list, "-c", "copy", "-movflags", "+faststart", output], cancel.signal));
+  await writeFile(join(dir, "render.log"), [`render segments start at frames ${starts.join(", ")}`, ...logs].join("\n"));
+  await Promise.all([list, ...parts, ...parts.map((_, k) => join(dir, `camera-part${k}.cmd`))].map(file => rm(file, { force: true })));
   return { out: output, seconds: duration };
+}
+
+/** Parallel render segments: TAKEONE_RENDER_SEGMENTS when set, else one per four
+ * cores (a single render keeps about four busy) and per 5 GiB of available
+ * memory, at most four, averaging at least two seconds each. */
+let memorySegments: number | undefined;
+function renderSegments(frames: number, fps: number): number {
+  const fixed = process.env.TAKEONE_RENDER_SEGMENTS;
+  if (fixed !== undefined && !/^[1-9]\d*$/.test(fixed)) throw new Error(`TAKEONE_RENDER_SEGMENTS must be a positive integer, got "${fixed}"`);
+  // ponytail: flat 5 GiB per segment (a 9:16 single pass peaked near it); scale by stage size if it holds back smaller films.
+  memorySegments ??= Math.floor(process.availableMemory() / 2 ** 30 / 5);
+  const wanted = fixed ? Number(fixed) : Math.min(4, Math.floor(availableParallelism() / 4), memorySegments);
+  return Math.max(1, Math.min(wanted, Math.floor(frames / (2 * fps))));
+}
+
+/** First output frame of each segment, splitting the warp work evenly. A
+ * blurred frame costs one warp and about two remap rebuilds per sample; a
+ * still frame costs about one warp. */
+function segmentStarts(counts: number[], segments: number): number[] {
+  const costs = counts.map(count => count > 1 ? 6 * count : 1);
+  const total = costs.reduce((sum, cost) => sum + cost, 0);
+  const starts = [0];
+  let sum = 0;
+  costs.forEach((cost, i) => {
+    if (i > starts.at(-1)! && sum >= total * starts.length / segments && starts.length < segments) starts.push(i);
+    sum += cost;
+  });
+  return starts;
 }
 
 /** True when rendered .ass text carries at least one Dialogue event. */

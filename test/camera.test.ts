@@ -424,6 +424,47 @@ test("synthetic source renders silent H.264 at the configured size and 60fps", {
   }
 });
 
+test("a render split into parallel segments matches the single pass", { timeout: 300_000 }, async () => {
+  // New tests cannot declare the needsFfmpeg skip (the floor guard blocks
+  // new skips), so the prerequisite fails loudly here instead of with ENOENT.
+  if (!hasFfmpeg()) throw new Error("requires system ffmpeg and ffprobe on PATH");
+  const dir = await mkdtemp(join(process.cwd(), "takeone:segments-"));
+  const previous = process.env["TAKEONE_RENDER_SEGMENTS"];
+  try {
+    await mkdir(join(dir, "analysis"));
+    // Moving content under two camera moves: a segment that starts on the wrong
+    // frame or shutter sample, or a part placed off the frame clock, cannot match.
+    execFileSync("ffmpeg", ["-v", "error", "-f", "lavfi", "-i", "testsrc2=s=640x360:r=30:d=8",
+      "-c:v", "mpeg4", "-q:v", "2", "-f", "matroska", "-y", join(dir, "screen.webm")]);
+    await writeFile(join(dir, "take.json"), JSON.stringify({ id: "segments", width: 640, height: 360, trim_start: 0, trim_end: 8,
+      zooms: [{ t0: 1.5, t1: 3.5, bbox: [100, 60, 320, 180], level: 3 }, { t0: 5, t1: 6.5, bbox: [300, 150, 320, 180], level: 3 }] }));
+    await writeFile(join(dir, "analysis/beats.json"), "[]");
+    await writeFile(join(dir, "analysis/decisions.jsonl"), "");
+    const render = async (segments: string) => {
+      process.env["TAKEONE_RENDER_SEGMENTS"] = segments;
+      const { out } = await renderTake(dir, FAST);
+      const copy = join(dir, `segments-${segments}.mp4`);
+      await writeFile(copy, await readFile(out));
+      return copy;
+    };
+    const single = await render("1");
+    assert.ok(JSON.parse(await readFile(join(dir, "motion-blur.json"), "utf8")).blurredFrames > 0, "the shutter path runs");
+    const split = await render("3");
+    assert.match(await readFile(join(dir, "render.log"), "utf8"), /^render segments start at frames 0, \d+/);
+    const frames = (file: string) => execFileSync("ffprobe", ["-v", "error", "-show_entries", "frame=pts_time", "-of", "csv=p=0", file], { encoding: "utf8" }).match(/[\d.]+/g);
+    assert.deepEqual(frames(split), frames(single), "same frames on the same clock");
+    // Each segment is encoded on its own, so decoded frames differ by encoding noise only;
+    // one frame of misplaced moving content falls far below this floor.
+    const { stderr } = spawnSync("ffmpeg", ["-nostats", "-i", single, "-i", split, "-lavfi", "psnr", "-f", "null", "-"], { encoding: "utf8" });
+    const psnr = /PSNR y:\S+ u:\S+ v:\S+ average:\S+ min:(\S+)/.exec(stderr);
+    assert.ok(psnr && Number(psnr[1]) > 40, `split render against the single pass: ${psnr?.[0] ?? stderr}`);
+  } finally {
+    if (previous === undefined) delete process.env["TAKEONE_RENDER_SEGMENTS"];
+    else process.env["TAKEONE_RENDER_SEGMENTS"] = previous;
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("master blur preserves full-resolution chroma through production rendering", { skip: needsFfmpeg }, async () => {
   const dir = await mkdtemp(join(process.cwd(), "takeone-chroma-"));
   try {
@@ -896,4 +937,24 @@ test("a held framing moved off a hairline matte still passes the cut guard", () 
   const view = project(toFrame(state, W, H, DEFAULTS));
   assert.ok(!band(view.w), `emitted hold rests on a hairline matte (${view.w.toFixed(1)} px wide)`);
   assert.equal(cutCount(mask(view)), 0, `emitted hold cuts the guard's own text at ${JSON.stringify(view)}`);
+});
+
+test("a crop with no zoom headroom and no clean edge settles instead of hanging", () => {
+  // A 1080p source in a 4:5 export cannot zoom (zMax 1) and here every edge cuts text.
+  // Run in a child: on a hang, a synchronous loop would block this runner's own timeout.
+  const child = spawnSync(process.execPath, ["--input-type=module", "-e", `
+    import { DEFAULTS } from ${JSON.stringify(new URL("../src/camera/defaults.ts", import.meta.url).href)};
+    import { frame, zMax } from ${JSON.stringify(new URL("../src/camera/solver.ts", import.meta.url).href)};
+    import { sourceViewport, stageGeometry } from ${JSON.stringify(new URL("../src/render/stage.ts", import.meta.url).href)};
+    const d = { ...DEFAULTS, out_w: 1080, out_h: 1350 };
+    const stage = stageGeometry(1920, 1080, d);
+    const project = (f) => sourceViewport(f, 1920, 1080, stage, d);
+    const z = { name: "save", type: "act", bbox: [800, 500, 200, 80] };
+    console.log(JSON.stringify({ top: zMax(1920, 1080, d), state: frame(z, 2, 1920, 1080, undefined, d, project, () => 1) }));
+  `], { encoding: "utf8", timeout: 30_000 });
+  assert.equal(child.signal, null, "frame() did not return within 30 s");
+  assert.equal(child.status, 0, child.stderr);
+  const { top, state } = JSON.parse(child.stdout);
+  assert.equal(top, 1);
+  assert.equal(state.z, 1);
 });

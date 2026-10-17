@@ -58,8 +58,11 @@ function prefilterSigma(frames: CameraFrame[], d: CameraDefaults): number[] {
  * v360 samples the native stage directly into export pixels with Lanczos.
  * RGB16 preserves fractional colour/edge precision until the final conversion.
  * Its normalized coordinates use (input size - 1) and output pixel centres.
+ * A render segment that starts at `from` seconds folds every earlier command into
+ * the initial settings: each v360 command rebuilds its whole remap, so replaying a
+ * prefix at the segment's first frame would cost one rebuild per skipped command.
  */
-export function cameraFilter(frames: CameraFrame[], width: number, height: number, d: CameraDefaults): string {
+export function cameraFilter(frames: CameraFrame[], width: number, height: number, d: CameraDefaults, from = 0): string {
   const degrees = (range: number) => 2 * Math.atan(range) * 180 / Math.PI;
   const first = frames[0];
   if (!first || width < 2 || height < 2) throw new Error("invalid camera surface");
@@ -78,9 +81,9 @@ export function cameraFilter(frames: CameraFrame[], width: number, height: numbe
       h_offset: h_offset * inX, v_offset: v_offset * inY };
   };
   const input = fixed ? `ih_fov=${degrees(inX).toFixed(10)}:iv_fov=${degrees(inY).toFixed(10)}` : "ih_fov=90:iv_fov=90";
-  const initial = parameters(first);
   let previous = first;
-  let applied = Object.fromEntries(Object.entries(initial).map(([key, value]) => [key, value.toFixed(10)]));
+  let applied = Object.fromEntries(Object.entries(parameters(first)).map(([key, value]) => [key, value.toFixed(10)]));
+  let initial = applied;
   const commands: string[] = [];
   for (const f of frames.slice(1)) {
     // Ignore only sub-millipixel spring tails; no whole-pixel camera quantization.
@@ -94,25 +97,30 @@ export function cameraFilter(frames: CameraFrame[], width: number, height: numbe
       .map(([key, value]) => `v360 ${key} ${value}`).join(",");
     if (!updates) continue;
     // Put updates between frame timestamps so decimal rounding cannot delay a move by one frame.
-    commands.push(`${Math.max(0, f.t - 0.5 / d.fps).toFixed(9)} ${updates}`);
+    const at = Math.max(0, f.t - 0.5 / d.fps);
+    if (at < from) initial = next;
+    else commands.push(`${at.toFixed(9)} ${updates}`);
     previous = f;
     applied = next;
   }
   const controlCommands = [...commands];
   const sigmas = prefilterSigma(frames, d);
   let appliedSigma = 0;
+  let initialSigma = 0;
   sigmas.forEach((sigma, i) => {
     if (sigma === appliedSigma) return;
     // Same mid-interval timing as the v360 updates. gblur still filters the
     // whole surface at sigma 0, so switch it off there instead: same pixels.
     // sigmaV=0 keeps the blur horizontal, as it was when gblur started at
     // sigma 0 (it latches sigmaV from the initial sigma).
-    controlCommands.push(`${Math.max(0, frames[i]!.t - 0.5 / d.fps).toFixed(9)} gblur@prefilter enable ${sigma ? 1 : 0}`);
+    const at = Math.max(0, frames[i]!.t - 0.5 / d.fps);
+    if (at < from) initialSigma = sigma;
+    else controlCommands.push(`${at.toFixed(9)} gblur@prefilter enable ${sigma ? 1 : 0}`);
     appliedSigma = sigma;
   });
-  const blur = sigmas.some((s) => s !== 0) ? `gblur@prefilter=sigma=${PREFILTER_SIGMA}:sigmaV=0:enable=0,` : "";
+  const blur = sigmas.some((s) => s !== 0) ? `gblur@prefilter=sigma=${PREFILTER_SIGMA}:sigmaV=0:enable=${initialSigma ? 1 : 0},` : "";
   const control = controlCommands.length ? `sendcmd=commands='${controlCommands.join(";")};',` : "";
-  const settings = Object.entries(initial).map(([key, value]) => `${key}=${value.toFixed(10)}`).join(":");
+  const settings = Object.entries(initial).map(([key, value]) => `${key}=${value}`).join(":");
   // Lanczos normalizes its kernel coefficients, preserving flat card colours.
   return `format=gbrp16le,${control}${blur}v360=input=flat:output=flat:w=${d.out_w}:h=${d.out_h}:${input}:${settings}`
     + `:interp=${d.quality === "draft" ? "linear" : "lanczos"},setsar=1`;
