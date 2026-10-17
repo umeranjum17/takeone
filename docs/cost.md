@@ -1,4 +1,40 @@
-# Cost per minute of video (measured)
+# Cost per minute of video (measured + per-provider table)
+
+## Per-provider cost (slice 1)
+
+Token counts are the same request shape for every provider: about **15–16k
+input tokens per minute of video, typical**, hard-bounded by the preflight in
+`src/make.ts` at 40,000 estimated tokens per take minute
+(`DEFAULT_TOKENS_PER_MIN`). The per-minute tokens come from today's measured
+Jev take below, plus screen words on by default at up to ~90 tokens a beat and
+key moment asked on every beat. Cost per provider is tokens × that provider's
+list price:
+
+| Provider | Model (example) | Input price | Typical/min | Ceiling/min | Verified |
+|---|---|---|---|---|---|
+| Jev | `jev-latest` (default) | $0.042 / Mtok input | ~15,800 tok ≈ $0.00066 | 40,000 tok ≈ $0.0017 | input price from the code const (unverified: no output price published; accounting counts input only) |
+| OpenCode Go plan | `opencode-go/muse-spark-1.3-contributor` | $0 marginal (subscription) | ~15,800 tok ≈ $0.00 | 40,000 tok ≈ $0.00 | billing route is subscription (`OPENCODE_GO_ROUTES`) |
+| OpenCode Go plan | `opencode-go/deepseek-v4.1-flash` | $0 marginal (subscription) | ~15,800 tok ≈ $0.00 | 40,000 tok ≈ $0.00 | same subscription route |
+| OpenCode Go plan | `opencode-go/glm-5.3` (GLM) | $0 marginal (subscription) | ~15,800 tok ≈ $0.00 | 40,000 tok ≈ $0.00 | same subscription route |
+| OpenAI API | `gpt-6.1-sol` | $2 / Mtok input, $10 / Mtok output | ~15,800 tok ≈ $0.032 in | 40,000 tok ≈ $0.08 in | **unverified**: example price from the `@byokit/decide` README (2026-09-30); re-check the provider pricing page |
+| Local | on-device model | $0 (own hardware) | ~15,800 tok ≈ $0.00 | 40,000 tok ≈ $0.00 | no per-token billing |
+
+Notes:
+
+- "Typical" uses the measured take below plus the screen-words addition; it is
+  re-measured with a live run in each slice's proof and corrected here when
+  the measurement disagrees.
+- The 1.34× estimate-to-billed gap below was measured on Jev only; other
+  API-billed providers report their own usage and the estimate is input
+  tokens until their output pricing is confirmed.
+- A GLM API key outside the Go plan has no confirmed listing at the time of
+  writing, so it is not priced above; the Go-plan GLM row is the supported
+  GLM route.
+- Responses are cached per request hash, so replanning an unchanged take costs
+  nothing on every provider.
+- With the planner off the cost is exactly zero tokens on every provider.
+
+## Measured take (Jev)
 
 About **14–15k Jev input tokens, roughly $0.0006, per minute of video**, hard-bounded by the preflight in `src/make.ts`: it refuses any take whose reserved total — planned request tokens plus a 1,200-token re-ask reserve per Jev job after the first — exceeds 40,000 estimated tokens per take minute (`DEFAULT_TOKENS_PER_MIN`), about $0.0017/min at the $0.042/Mtok estimate and about $0.0023/min worst billed given the measured ~1.34× estimate-to-billed gap.
 

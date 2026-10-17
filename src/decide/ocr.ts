@@ -1,4 +1,4 @@
-// OCR of zone text (--screen-text opt-in): tesseract --psm 6, words with
+// OCR of zone text (on by default with a planner; --no-screen-text opts out):
 // confidence >= 60, capped per zone, redacted. I/O wrapper; the redaction
 // itself is pure (redact.ts).
 

@@ -9,11 +9,22 @@ export const PRICE_PER_MTOK = 0.042;
 export const REQUEST_TOKEN_CAP = 1200;
 export const CHARS_PER_TOKEN = 3.5;
 
+/** Kit floor on planner questions. Zero: takeone's own mapping (mapAnswers) is
+ * the single validator, so a merely unsure answer still widens through the
+ * uncertainty rules instead of dropping the whole beat. Malformed answers
+ * still abstain at any floor. (The old path reads raw responses, so the floor
+ * changes nothing until the typed-answers switch.) */
+export const QUESTION_FLOOR = 0;
+
 export class RequestTooLarge extends Error {}
 
 export interface RequestCtx {
   /** optional demo topic from --about */
   about?: string;
+  /** what the demo is for, from --goal (alias --about); replaces about */
+  goal?: string;
+  /** style hint, from --style; carried for the film call, unused by beats */
+  style?: string;
   /** description of the shot the viewer is looking at when the beat starts */
   currentShot: string;
   /** the next beat, for what_happened lookahead */
@@ -24,6 +35,8 @@ export interface JevRequest {
   model: string;
   state: {
     demo_topic?: string;
+    goal?: string;
+    style?: string;
     current_shot: string;
     beat: { length: string; what_happened: string; next_beat: string };
     zones: Record<string, { shows: string; size: string; where: string; activity: string; text?: string }>;
@@ -119,18 +132,21 @@ export function buildQuestions(state: JevRequest["state"], askKeyMoment: boolean
   const q: Record<string, Question> = {
     focus_start: {
       kind: "choice",
+      floor: QUESTION_FLOOR,
       options: zoneNames,
       instructions:
         "At the START of `beat`, which zone should the viewer be looking at to see the action the user takes? Pick the zone where the user's action happens.",
     },
     focus_end: {
       kind: "choice",
+      floor: QUESTION_FLOOR,
       options: zoneNames,
       instructions:
         "At the END of `beat`, which zone should the viewer be looking at to understand the result of the action? Pick the zone that shows what changed because of the action; pick the same zone as the action if nothing else changed.",
     },
     tightness: {
       kind: "score",
+      floor: QUESTION_FLOOR,
       instructions:
         "How closely should the camera frame the zone the viewer should look at, so a viewer on a laptop screen can follow this beat?",
       levels: [
@@ -142,6 +158,7 @@ export function buildQuestions(state: JevRequest["state"], askKeyMoment: boolean
     },
     new_subject: {
       kind: "yesno",
+      floor: QUESTION_FLOOR,
       question:
         "The viewer's attention must move to a different part of the screen than `current_shot` shows during this beat.",
       yes: "What matters in this beat is outside or much smaller than the current shot",
@@ -151,6 +168,7 @@ export function buildQuestions(state: JevRequest["state"], askKeyMoment: boolean
   if (askKeyMoment) {
     q["key_moment"] = {
       kind: "score",
+      floor: QUESTION_FLOOR,
       instructions: "How important is this beat to the story of `demo_topic`?",
       levels: [
         "Routine: navigation or setup a viewer can skim",
@@ -193,6 +211,8 @@ export function buildState(beat: Beat, ctx: RequestCtx): JevRequest["state"] {
   }
   return {
     ...(ctx.about ? { demo_topic: ctx.about } : {}),
+    ...(ctx.goal ? { goal: ctx.goal } : {}),
+    ...(ctx.style ? { style: ctx.style } : {}),
     current_shot: ctx.currentShot,
     beat: {
       length: `${((beat.t1 - beat.t0) / 1000).toFixed(1)} seconds`,

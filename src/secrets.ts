@@ -1,4 +1,7 @@
-/** Jev credentials: persistence and encryption belong to BYOKit. */
+/** Planner credentials: persistence and encryption belong to BYOKit.
+ * ApiKey slots (one per backend) live in the OS keyring or the BYOKit sealed
+ * file; the legacy Jev environment override below is kept for the old path
+ * and goes away with it. */
 import { readFileSync, existsSync, unlinkSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -16,6 +19,11 @@ export interface KeyOptions {
 function configRoot(o: KeyOptions): string {
   const env = o.env ?? process.env;
   return o.configDir ?? env.XDG_CONFIG_HOME ?? join(env.HOME ?? homedir(), ".config");
+}
+
+/** takeone's own config dir: planner.json lives next to secrets.json. */
+export function takeoneConfigDir(o: KeyOptions = {}): string {
+  return join(configRoot(o), "takeone");
 }
 
 /** Only an explicit enabled value skips the keyring: wrappers and CI unset flags with 0, false or "". */
@@ -86,16 +94,16 @@ function legacyValue(line: string): string | null {
 }
 
 /** Verify persistence before removing every old key line; preserve unrelated settings. */
-async function migrate(store: Keystore, path: string): Promise<void> {
+async function migrate(store: Keystore, path: string, slot: string): Promise<void> {
   if (!existsSync(path)) return;
   const source = readFileSync(path, "utf8");
   const lines = source.split("\n");
   const key = lines.map(legacyValue).find((value) => value !== null);
   if (!key) return;
-  const stored = await store.get(JEV_SECRET);
+  const stored = await store.get(slot);
   if (stored !== null && stored !== key) return;
-  if (stored === null) await store.set(JEV_SECRET, key);
-  if (await store.get(JEV_SECRET) !== key) throw new Error("Jev key migration could not verify the secret store");
+  if (stored === null) await store.set(slot, key);
+  if (await store.get(slot) !== key) throw new Error("planner key migration could not verify the secret store");
   // Do not replace a file edited while the keyring operation was in progress.
   if (readFileSync(path, "utf8") !== source) throw new Error("legacy key file changed during migration; retry");
   const remaining = lines.filter((line) => legacyValue(line) === null).join("\n");
@@ -108,8 +116,17 @@ export async function loadApiKey(o: KeyOptions = {}): Promise<string | null> {
   const env = o.env ?? process.env;
   if (env.TYPESAFE_API_KEY) return overrideStore({ [JEV_SECRET]: env.TYPESAFE_API_KEY }).get(JEV_SECRET);
   const store = persistentKeys(o);
-  await migrate(store, join(env.HOME ?? homedir(), ".config", "takeone", "env"));
+  await migrate(store, join(env.HOME ?? homedir(), ".config", "takeone", "env"), JEV_SECRET);
   return store.get(JEV_SECRET);
+}
+
+/** Load one backend's apiKey credential from the persistent store. The legacy
+ * TYPESAFE file migrates into the jev slot; the environment is never read. */
+export async function loadPlannerKey(slot: string, o: KeyOptions = {}): Promise<string | null> {
+  const env = o.env ?? process.env;
+  const store = persistentKeys(o);
+  if (slot === "jev") await migrate(store, join(env.HOME ?? homedir(), ".config", "takeone", "env"), slot);
+  return store.get(slot);
 }
 
 /** Safe presence probe: neither migrates nor prints the credential. The detail names
@@ -135,6 +152,42 @@ export async function keyStatus(o: KeyOptions = {}): Promise<{ available: boolea
     const reason = error instanceof Error ? error.message : String(error);
     return { available: false, detail: `Jev store unavailable: ${reason}` };
   }
+}
+
+/** Safe presence probe for one apiKey slot: neither migrates nor prints the
+ * credential. The detail names the source (OS keyring, sealed file), never
+ * the secret itself. */
+export async function plannerKeyStatus(slot: string, o: KeyOptions = {}): Promise<{ available: boolean; detail: string }> {
+  const env = o.env ?? process.env;
+  try {
+    const available = !!(await persistentKeys(o).get(slot));
+    if (!available) return { available, detail: `no ${slot} key; run takeone key set --backend ${slot} (stdin)` };
+    if (noKeyring(env)) {
+      return { available, detail: `planner key available via sealed file ${join(configRoot(o), "takeone", "secrets.json")}` };
+    }
+    const bus = env.DBUS_SESSION_BUS_ADDRESS ?? (env.XDG_RUNTIME_DIR ? `unix:path=${env.XDG_RUNTIME_DIR}/bus` : null);
+    const source = env.TAKEONE_SECRETS_PASSPHRASE_FD
+      ? "OS keyring or sealed file"
+      : `OS keyring (service takeone${bus ? ` via ${bus}` : ""})`;
+    return { available, detail: `planner key available via ${source}` };
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    return { available: false, detail: `planner store unavailable: ${reason}` };
+  }
+}
+
+/** Read a key from piped stdin only; argv is intentionally never echoed. */
+export async function setPlannerKeyFromStdin(input: AsyncIterable<Uint8Array | string>, slot: string, o: KeyOptions = {}): Promise<void> {
+  let key = "";
+  for await (const chunk of input) {
+    key += typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf8");
+    if (Buffer.byteLength(key) > 16_384) throw new Error("key input too large");
+  }
+  key = key.trim();
+  if (!key || /[\r\n\0]/.test(key)) throw new Error("stdin must contain one nonempty key line");
+  const store = persistentKeys(o);
+  await store.set(slot, key);
+  if (await store.get(slot) !== key) throw new Error("could not verify the stored planner key");
 }
 
 /** Read a key from piped stdin only; argv is intentionally never echoed. */
