@@ -17,6 +17,8 @@ npm install -g --allow-remote=all https://github.com/umeranjum17/takeone/release
 takeone doctor
 ```
 
+The same command works on macOS and Linux. npm 12 refuses the tarball URL without `--allow-remote=all`; npm 11 prints `npm warn Unknown cli config "--allow-remote"` for it, and npm may also print an `install-scripts` warning that mentions `prepare: npm run build`. Both warnings are harmless: the release tarball already contains `dist/`, and the install still completes.
+
 Installing straight from git (`npm install -g github:umeranjum17/takeone`) does not work: npm 10 and 11 break the build of a git package during a global install, and npm 12 blocks git packages by default. To work on takeone itself, install from source:
 
 Requires Node.js 22.19+ and `ffmpeg` on PATH. Optional: `tesseract` for `--screen-text` OCR. Recording the desktop additionally needs Linux on Wayland with Hyprland (see [Recording](recording.md)); recording a phone needs `adb` on PATH and an attached device with USB debugging; recording the iOS Simulator needs macOS with Xcode (`xcrun simctl`), `ffprobe` on PATH, and a booted simulator; planning and rendering an existing recording take do not require those capture prerequisites. Motion setup requirements are documented in [Motion renders](motion.md).
@@ -35,9 +37,11 @@ Run `node bin/takeone.mjs` from the checkout, or `takeone` if the package is lin
 
 ### 1. Render a demo without recording anything
 
-`scripts/synth-take.ts` generates a complete take: a scripted 44 s 1920×1080 UI demo (dashboard → search → list scroll → detail → slider drag → export toast) drawn entirely with ffmpeg filters, plus matching `take.json`, `frames.tsv`, and `events.jsonl`.
+`scripts/synth-take.ts` generates a complete take: a scripted 44 s 1920×1080 UI demo (dashboard → search → list scroll → detail → slider drag → export toast) drawn entirely with ffmpeg filters, plus matching `take.json`, `frames.tsv`, and `events.jsonl`. The npm package ships the script only inside its install folder, so run these commands from a git checkout:
 
 ```sh
+git clone https://github.com/umeranjum17/takeone && cd takeone
+npm install
 node scripts/synth-take.ts /tmp/takes/synth-demo
 node bin/takeone.mjs make /tmp/takes/synth-demo --no-jev
 ```
@@ -80,6 +84,8 @@ takeone                       # list takes, newest first
 takeone make <id> --about "Creating a task and moving it across a project board"
 ```
 
+`takeone record` needs a person to click Share in the compositor's screen-share dialog, so it cannot run unattended. If no one is at the desktop, use the [headless demo scene](headless-scene.md) instead (from a git checkout): it produces a take without opening a display, portal or input device.
+
 ### 3b. Record a phone instead (Android, hand-driven on the device)
 
 ```sh
@@ -103,7 +109,24 @@ takeone make <id> --set out_w=1920 --set out_h=1080
 For a reproducible real recording, the offline Tidewater Android fixture reuses
 `scripts/e2e/scene.html`. It needs an Android SDK with API/build-tools 35, a JDK,
 and a dedicated 1080×2400 emulator at density 420. It has no accounts or network
-permission. Install it only on a test emulator:
+permission. Install it only on a test emulator. The fixture scripts are not in the
+npm package, so run these steps from a git checkout:
+
+```sh
+git clone https://github.com/umeranjum17/takeone && cd takeone
+npm install
+```
+
+Create the test emulator once with the SDK's `sdkmanager` and `avdmanager`. The
+`pixel_6` profile gives the 1080×2400 screen at density 420 that `record.ts` requires:
+
+```sh
+sdkmanager "system-images;android-35;google_apis;x86_64" "platforms;android-35" "build-tools;35.0.0"
+avdmanager create avd -n takeone-tidewater -k "system-images;android-35;google_apis;x86_64" -d pixel_6
+emulator -avd takeone-tidewater
+```
+
+`record.ts` throws unless `adb -s emulator-PORT shell wm size` reads `1080x2400` and `adb -s emulator-PORT shell wm density` reports 420.
 
 ```sh
 scripts/e2e/android/build.sh
@@ -136,13 +159,27 @@ It is not an Android app recording or product demo.
 
 ### 3c. Record the iOS Simulator instead (macOS, Xcode with the Simulator)
 
+If you have no booted Simulator yet, create and boot one with `xcrun simctl`:
+
+```sh
+xcrun simctl list devicetypes      # pick a device type identifier
+xcrun simctl list runtimes         # pick an iOS runtime identifier
+xcrun simctl create takeone-demo com.apple.CoreSimulator.SimDeviceType.iPhone-17 com.apple.CoreSimulator.SimRuntime.iOS-26-3
+xcrun simctl boot <UUID>           # UUID of the new device from: xcrun simctl list devices
+xcrun simctl bootstatus <UUID> -b  # waits until the device is up
+xcrun simctl list devices booted   # the booted device's UUID is the --ios-udid value
+```
+
 ```sh
 takeone record --ios-sim   # needs a booted simulator; macOS only
 takeone record --ios-sim --ios-udid <UUID>   # isolate capture to this booted device
 # ...drive the app in the Simulator by hand...
 takeone stop
 takeone make <id> --about "Onboarding and first export in the app"
+takeone render ~/Videos/takeone/<id> --aspect landscape   # wide 1920×1080 film; make writes portrait for a phone take
 ```
+
+To drive a demo app instead of your own, the [iOS fixture recipe](../scripts/e2e/ios/README.md) builds, installs and launches the Tidewater app on a Simulator you created.
 
 Video-only: no `events.jsonl` is written, so the camera plans from screen changes alone. Localized changes form `change` beats with result zones; animation frames group into one subject, and unchanged footage stays idle. Observed result holds retain their duration through shared pacing. These beats use the shared Jev attention policy, camera path and renderer, with the same beat and token caps. A changed subject is recentered after it appears, without inventing touch events.
 
@@ -181,13 +218,15 @@ With a [configured Jev key](#jev-key), Jev receives zone descriptions and an opt
 
 For an existing planned recording take, render reads `screen.webm`, `take.json` (at least `width` and `height` in source pixels), `analysis/beats.json` as a beat array, and `analysis/decisions.jsonl` as one decision per line. Each beat needs a matching decision whose A (and optional B) names refer to that beat's zones. For an existing recording take, `events.jsonl` may be omitted only when `take.json` has `"events": "none"`; an empty event file is also valid. Motion takes use the [motion rerender contract](motion.md) instead.
 
+For a headless scene take, pass `--set max_upscale=0.5` to `make` and `render`. Without it, the default render stops with exit 1 at the safe-area check, naming the first text box that crosses the 5% inset. The film is written to `out/<id>.mp4`, where `<id>` is the take's `id` in `take.json`, not the directory name; the scene sets `id` to `headless-demo`, so its film is `out/headless-demo.mp4`.
+
 `--set key=value` overrides camera settings defined in `src/camera/defaults.ts`; rerendering does not call the planner. Render writes `camera.json`, `camera.cmd`, `render.log` (including libass font selection), and a silent H.264 MP4 at `out/<id>.mp4` inside the take directory (default 1920×1080 at 60 fps; see [Output aspect and format](edit-controls.md) for orientation defaults and `--aspect`/`--resolution`/`--format` options). Render splits the film into up to four time segments, one per four CPU cores and per 5 GiB of available memory, averaging at least 2 s each, renders them in parallel and joins them without re-encoding; the frames match a single pass. `TAKEONE_RENDER_SEGMENTS=<n>` sets the count, and `1` renders in one pass. `--set quality=draft|standard|master` selects CRF 23 (draft) or 12 (standard and master); `--set preset=...` independently controls encoder speed. Output uses limited-range bt709 colour conversion and tags. See [native-pixel sharpness qualification](sharpness.md) for the camera sampler, output measurements and capture limitations. Standard and master use animation encoder tuning; master encodes yuv444p and requires a player supporting H.264 High 4:4:4 Predictive. Draft and standard use compatible yuv420p. Zoom defaults to `max_upscale=1.0`; use `--set max_upscale=1.5` only to opt into enlarging source pixels. Optional manual `zooms` in `take.json` (`t0`/`t1` spans with a source-pixel `bbox` and a 0–3 `level`) are validated at render: malformed entries, boxes outside the source, spans shorter than a 0.5 s hold, or overlapping intervals fail with the field and index, and a zoom whose requested depth exceeds the upscale ceiling prints the requested and achieved depths. Whole-screen shots of non-16:9 sources are centred on the stage background rather than cropped; zooming can crop the screen. If `take.json` omits `id`, the directory name is used; if it omits `trim_end`, the export ends one `outro_s` after the final action, settled cut, or detected result on the output clock, so a result that lands after the beat's last action still holds the whole stage for the whole outro; that end includes the terminal fade and is bounded by the recording length (`duration`), which `make` records. Resting pointers do not extend it, and an explicit `trim_end` is exported as given, clamped to the recording — including an end that lands exactly on the video's own end or past it; which trims count as explicit is decided by [`make`](#plan-and-render). Exports hold the whole stage for `establish_s` (default 1.6 s) before moving, ease back to the whole stage before the final `outro_s` (default 1.6 s), and fade. Opening and closing holds are not idle-squeezed. Short clips stay wide. Set `outro_s=0` to keep the camera on its last shot and drop the closing hold and padding; the export still ends on that last purposeful activity instead of the recorder's trailing inactivity. A take with no title is rendered untitled; its captions keep their recorded times.
 
 `--set motion_blur=0..1` controls camera blur (default 1). Fast pans and zooms use a centred 180° shutter at full strength, with enough camera samples to keep neighbouring samples within 2 output pixels. Slow moves and holds stay sharp; captions remain sharp throughout. Source images are held fixed during each exposure, so changing UI does not smear between frames. `motion_blur=0` disables sampling. Render writes the sampling count, peak spacing and estimated warp work to `motion-blur.json`.
 
 ## End-to-end take with a staged scene
 
-To produce a scripted board take without a desktop, use the [headless demo-scene guide](headless-scene.md).
+To produce a scripted board take without a desktop, use the [headless demo-scene guide](headless-scene.md). It needs a git checkout, because its scripts (`scripts/headless-scene.mjs`, `scripts/install-headless-shell.mjs`) are not in the npm package; see [From source](../README.md#from-source).
 
 `scripts/e2e` records a harmless real take without touching your own apps. It stages and drives the board shown in the [README](../README.md):
 
