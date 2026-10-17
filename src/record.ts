@@ -3,6 +3,7 @@
  */
 
 import { mkdir, writeFile, rm } from "node:fs/promises";
+import { createRequire } from "node:module";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { resolveEngine, type SourceRequest } from "@desklink/host";
@@ -15,7 +16,8 @@ import { consumeToken } from "./token.js";
 import { processStartTicks } from "./takes.js";
 import type { TakeMeta } from "./types.js";
 
-export const VERSION = "0.1.0";
+/** package.json version: src/record.ts and dist/record.js both sit one level below the root. */
+export const VERSION: string = createRequire(import.meta.url)("../package.json").version;
 
 export interface RecordOptions {
   fps?: number;
