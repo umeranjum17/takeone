@@ -206,13 +206,16 @@ export async function plannerStatus(o: ResolvePlannerOptions = {}): Promise<{
 /**
  * File-backed DecideCache over analysis/planner-cache.jsonl. Lines hold the
  * decide cache key plus the answers (usage and raw response); request bodies
- * are never stored. Cache errors never fail a decision.
+ * are never stored. Cache errors never fail a decision: write failures are
+ * reported through warn (stderr by default) and the decision proceeds.
  */
 export class PlannerFileCache implements DecideCache {
   readonly path: string;
+  private readonly warn: (line: string) => void;
   private map = new Map<string, Record<string, Answer>>();
-  constructor(path: string) {
+  constructor(path: string, warn: (line: string) => void = (s) => console.error(s)) {
     this.path = path;
+    this.warn = warn;
     if (existsSync(path)) {
       let dirty = false;
       for (const line of readFileSync(path, "utf8").split("\n")) {
@@ -233,7 +236,9 @@ export class PlannerFileCache implements DecideCache {
       if (dirty) {
         try {
           writeFileSync(path, [...this.map.entries()].map(([key, answers]) => JSON.stringify({ key, answers, t: new Date().toISOString() })).join("\n") + (this.map.size ? "\n" : ""));
-        } catch {}
+        } catch (e) {
+          this.warn(`planner cache: could not rewrite ${path} (${e instanceof Error ? e.message : String(e)}); stale lines kept`);
+        }
       }
     }
   }
@@ -247,7 +252,9 @@ export class PlannerFileCache implements DecideCache {
     try {
       mkdirSync(dirname(this.path), { recursive: true });
       appendFileSync(this.path, JSON.stringify({ key, answers: value, t: new Date().toISOString() }) + "\n");
-    } catch {}
+    } catch (e) {
+      this.warn(`planner cache: could not write ${this.path} (${e instanceof Error ? e.message : String(e)}); beat proceeds uncached`);
+    }
   }
 }
 
