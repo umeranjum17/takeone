@@ -52,12 +52,14 @@ Verification and evidence: [done-done journeys and feature recipes](docs/verific
 
 ### Install
 
-On Linux, with [Node.js](https://nodejs.org/) 22.19 or newer and [ffmpeg](https://ffmpeg.org/) on your PATH:
+On Linux or macOS, with [Node.js](https://nodejs.org/) 22.19 or newer and [ffmpeg](https://ffmpeg.org/) on your PATH:
 
 ```sh
 npm install -g --allow-remote=all https://github.com/umeranjum17/takeone/releases/latest/download/takeone.tgz
 takeone doctor
 ```
+
+npm 12 refuses the tarball URL without `--allow-remote=all`. npm 11 may print `npm warn Unknown cli config "--allow-remote"` for the same flag; that warning is harmless and the install still succeeds.
 
 `takeone doctor` is the first check: it reports what this machine can record and render.
 
@@ -97,7 +99,7 @@ Isolated installs (CI, throwaway test HOMEs) can set `TAKEONE_NO_KEYRING=1` so t
 - [Overlays](docs/overlays.md): spotlight and blur regions, shortcut keycaps
 - [Motion films](docs/motion.md): films from screenshots, HTML or a URL
 - [Cost](docs/cost.md): measured planner cost per minute and its hard caps
-- [Demo scene](docs/headless-scene.md): reproduce the board demo shown above
+- [Demo scene](docs/headless-scene.md): reproduce the board demo shown above (needs a [git checkout](#from-source): its scripts are not in the npm package)
 
 ## Development
 
