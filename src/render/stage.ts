@@ -128,8 +128,10 @@ export function stageFrames(frames: CameraFrame[], width: number, height: number
     // The margin fades out continuously as the camera pushes in, so the projected view never
     // jumps frame to frame. A framing whose margin lands under minStageMargin is moved before
     // it becomes a hold (see the solver), rather than clamped here into a pop.
-    const w = Math.min(st.w, f.w * (1 + 2 * d.stage_margin * keep));
-    const h = Math.min(st.h, w / aspect);
+    // Keep the export aspect where the stage clamps: its even-rounded sides are not exactly 16:9,
+    // and an off-aspect window costs the camera's v360 a third remap rebuild per move step.
+    const h = Math.min(st.h, Math.min(st.w, f.w * (1 + 2 * d.stage_margin * keep)) / aspect);
+    const w = h * aspect;
     return {
       t: f.t,
       x: clamp(cx - w / 2, 0, st.w - w),

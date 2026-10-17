@@ -46,12 +46,39 @@ export function frameExpr(values: number[], tolerance = 0.001): string {
  * graph (gblur disabled, bit-exact to main). Fixed-aspect windows use
  * ih_fov/iv_fov plus d_fov, pixel-equivalent within float32 rounding. */
 const PREFILTER_SIGMA = 0.7;
-function prefilterSigma(frames: CameraFrame[], d: CameraDefaults): number[] {
+export function prefilterSigma(frames: CameraFrame[], d: CameraDefaults): number[] {
   return frames.map((f, i) => {
     if (!i) return 0;
     const moving = Math.max(Math.abs(f.x - frames[i - 1]!.x), Math.abs(f.w - frames[i - 1]!.w)) > 0.01;
     return moving && f.w / d.out_w > 1 ? PREFILTER_SIGMA : 0;
   });
+}
+
+type Timeline<T> = { initial: T; commands: string[] };
+
+// Updates land between frame timestamps so decimal rounding cannot delay a move by one frame.
+function timed<T>(timeline: Timeline<T>, frameTime: number, fps: number, from: number, value: T, command: (at: string) => string): void {
+  const at = Math.max(0, frameTime - 0.5 / fps);
+  if (at < from) timeline.initial = value;
+  else timeline.commands.push(command(at.toFixed(9)));
+}
+
+/** The prefilter blur for one sigma per frame, timed like the camera's v360 updates. */
+export function prefilterFilter(frames: CameraFrame[], sigmas: number[], fps: number, from = 0, label = "prefilter"): string {
+  let applied = 0;
+  const timeline: Timeline<number> = { initial: 0, commands: [] };
+  sigmas.forEach((sigma, i) => {
+    if (sigma === applied) return;
+    // gblur still filters the whole surface at sigma 0, so switch it off there
+    // instead: same pixels. sigmaV=0 keeps the blur horizontal, as it was when
+    // gblur started at sigma 0 (it latches sigmaV from the initial sigma).
+    timed(timeline, frames[i]!.t, fps, from, sigma, at => `${at} gblur@${label} enable ${sigma ? 1 : 0}`);
+    applied = sigma;
+  });
+  if (!sigmas.some((s) => s !== 0)) return "";
+  const { initial, commands } = timeline;
+  return (commands.length ? `sendcmd=commands='${commands.join(";")};',` : "")
+    + `gblur@${label}=sigma=${PREFILTER_SIGMA}:sigmaV=0:enable=${initial ? 1 : 0},`;
 }
 
 /** A flat-to-flat transform is an affine crop: no rotation or lens distortion.
@@ -83,8 +110,7 @@ export function cameraFilter(frames: CameraFrame[], width: number, height: numbe
   const input = fixed ? `ih_fov=${degrees(inX).toFixed(10)}:iv_fov=${degrees(inY).toFixed(10)}` : "ih_fov=90:iv_fov=90";
   let previous = first;
   let applied = Object.fromEntries(Object.entries(parameters(first)).map(([key, value]) => [key, value.toFixed(10)]));
-  let initial = applied;
-  const commands: string[] = [];
+  const timeline: Timeline<Record<string, string>> = { initial: applied, commands: [] };
   for (const f of frames.slice(1)) {
     // Ignore only sub-millipixel spring tails; no whole-pixel camera quantization.
     const error = Math.max(Math.abs(f.x - previous.x),
@@ -96,32 +122,14 @@ export function cameraFilter(frames: CameraFrame[], width: number, height: numbe
     const updates = Object.entries(next).filter(([key, value]) => value !== applied[key])
       .map(([key, value]) => `v360 ${key} ${value}`).join(",");
     if (!updates) continue;
-    // Put updates between frame timestamps so decimal rounding cannot delay a move by one frame.
-    const at = Math.max(0, f.t - 0.5 / d.fps);
-    if (at < from) initial = next;
-    else commands.push(`${at.toFixed(9)} ${updates}`);
+    timed(timeline, f.t, d.fps, from, next, at => `${at} ${updates}`);
     previous = f;
     applied = next;
   }
-  const controlCommands = [...commands];
-  const sigmas = prefilterSigma(frames, d);
-  let appliedSigma = 0;
-  let initialSigma = 0;
-  sigmas.forEach((sigma, i) => {
-    if (sigma === appliedSigma) return;
-    // Same mid-interval timing as the v360 updates. gblur still filters the
-    // whole surface at sigma 0, so switch it off there instead: same pixels.
-    // sigmaV=0 keeps the blur horizontal, as it was when gblur started at
-    // sigma 0 (it latches sigmaV from the initial sigma).
-    const at = Math.max(0, frames[i]!.t - 0.5 / d.fps);
-    if (at < from) initialSigma = sigma;
-    else controlCommands.push(`${at.toFixed(9)} gblur@prefilter enable ${sigma ? 1 : 0}`);
-    appliedSigma = sigma;
-  });
-  const blur = sigmas.some((s) => s !== 0) ? `gblur@prefilter=sigma=${PREFILTER_SIGMA}:sigmaV=0:enable=${initialSigma ? 1 : 0},` : "";
-  const control = controlCommands.length ? `sendcmd=commands='${controlCommands.join(";")};',` : "";
+  const { initial, commands } = timeline;
+  const control = commands.length ? `sendcmd=commands='${commands.join(";")};',` : "";
   const settings = Object.entries(initial).map(([key, value]) => `${key}=${value}`).join(":");
   // Lanczos normalizes its kernel coefficients, preserving flat card colours.
-  return `format=gbrp16le,${control}${blur}v360=input=flat:output=flat:w=${d.out_w}:h=${d.out_h}:${input}:${settings}`
+  return `format=gbrp16le,${control}v360=input=flat:output=flat:w=${d.out_w}:h=${d.out_h}:${input}:${settings}`
     + `:interp=${d.quality === "draft" ? "linear" : "lanczos"},setsar=1`;
 }

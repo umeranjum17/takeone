@@ -465,6 +465,97 @@ test("a render split into parallel segments matches the single pass", { timeout:
   }
 });
 
+// Every v360 command rebuilds the camera warp's whole remap table, and a fast move sends one per
+// shutter sample. The even-rounded stage of a 4:3 take is not exactly 16:9, so its wide window must
+// keep the export aspect (one d_fov per zoom step, not h_fov plus v_fov).
+test("a blurred wide zoom rebuilds the warp only for camera parameters that change", { timeout: 120_000 }, async () => {
+  if (!hasFfmpeg()) throw new Error("requires system ffmpeg and ffprobe on PATH");
+  const dir = await mkdtemp(join(process.cwd(), "takeone:rebuilds-"));
+  try {
+    await mkdir(join(dir, "analysis"));
+    execFileSync("ffmpeg", ["-v", "error", "-f", "lavfi", "-i", "testsrc2=s=640x480:r=30:d=4",
+      "-c:v", "mpeg4", "-q:v", "2", "-f", "matroska", "-y", join(dir, "screen.webm")]);
+    await writeFile(join(dir, "take.json"), JSON.stringify({ id: "rebuilds", width: 640, height: 480, trim_start: 0, trim_end: 4,
+      zooms: [{ t0: 1.5, t1: 3, bbox: [100, 100, 320, 180], level: 3 }] }));
+    await writeFile(join(dir, "analysis/beats.json"), "[]");
+    await writeFile(join(dir, "analysis/decisions.jsonl"), "");
+    await renderTake(dir, FAST);
+    assert.ok(JSON.parse(await readFile(join(dir, "motion-blur.json"), "utf8")).blurredFrames > 0, "the shutter path runs");
+    const graph = await readFile(join(dir, "camera.cmd"), "utf8");
+    const steps = [...graph.matchAll(/sendcmd=commands='([^']*)'/g)]
+      .flatMap(([, commands]) => commands!.split(";").filter(entry => entry.includes(" v360 ")))
+      .map(entry => {
+        const space = entry.indexOf(" ");
+        const updates = entry.slice(space + 1).split(",").map(update => {
+          const [, key, value] = update.split(" ");
+          return { key: key!, value: value! };
+        });
+        return { time: Number(entry.slice(0, space)), updates };
+      });
+    const keys = steps.flatMap(step => step.updates.map(update => update.key));
+    assert.ok(keys.includes("d_fov") && steps.filter(step => step.updates.some(update => update.key === "d_fov")).length > 1,
+      "the camera zooms in several steps");
+    assert.ok(!keys.includes("h_fov") && !keys.includes("v_fov"), "a wide window zooms with one d_fov command per step");
+    const last = new Map<string, string>();
+    for (const step of steps) {
+      const seen = new Set<string>();
+      for (const { key, value } of step.updates) {
+        assert.ok(!seen.has(key), `one rebuild per parameter per step at ${step.time}s`);
+        seen.add(key);
+        assert.notEqual(last.get(key), value, `${key} is rebuilt only when it changes (${step.time}s)`);
+        last.set(key, value);
+      }
+    }
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("a blurred zoom blends only the moving exposures, leaving holds as sharp as an unblurred render", { timeout: 240_000 }, async () => {
+  if (!hasFfmpeg()) throw new Error("requires system ffmpeg and ffprobe on PATH");
+  const dir = await mkdtemp(join(process.cwd(), "takeone:blend-"));
+  try {
+    await mkdir(join(dir, "analysis"));
+    execFileSync("ffmpeg", ["-v", "error", "-f", "lavfi", "-i", "testsrc2=s=640x480:r=30:d=4",
+      "-c:v", "mpeg4", "-q:v", "2", "-f", "matroska", "-y", join(dir, "screen.webm")]);
+    await writeFile(join(dir, "take.json"), JSON.stringify({ id: "blend", width: 640, height: 480, trim_start: 0, trim_end: 4,
+      zooms: [{ t0: 1.5, t1: 3, bbox: [100, 100, 320, 180], level: 3 }] }));
+    await writeFile(join(dir, "analysis/beats.json"), "[]");
+    await writeFile(join(dir, "analysis/decisions.jsonl"), "");
+    const render = async (motion_blur: number) => {
+      const { out } = await renderTake(dir, { ...FAST, motion_blur });
+      const copy = join(dir, `blend-${motion_blur}.mp4`);
+      await writeFile(copy, await readFile(out));
+      return copy;
+    };
+    const blurred = await render(1);
+    assert.ok(JSON.parse(await readFile(join(dir, "motion-blur.json"), "utf8")).blurredFrames > 0, "the shutter path runs");
+    const sharp = await render(0);
+    const luma = (file: string) => execFileSync("ffmpeg", ["-v", "error", "-i", file, "-f", "rawvideo", "-pix_fmt", "gray", "-"],
+      { maxBuffer: 1 << 26 });
+    const a = luma(blurred), b = luma(sharp);
+    const bytes = 320 * 180;
+    assert.equal(a.length, b.length, "same frame count");
+    const meanDiff = (from: number, to: number) => {
+      const diffs: number[] = [];
+      for (let f = 0; f * bytes < a.length; f++) {
+        const t = f / DEFAULTS.fps;
+        if (t < from || t >= to) continue;
+        let sum = 0;
+        for (let p = f * bytes; p < (f + 1) * bytes; p++) sum += Math.abs(a[p]! - b[p]!);
+        diffs.push(sum / bytes);
+      }
+      return diffs.reduce((x, y) => x + y, 0) / diffs.length;
+    };
+    const hold = meanDiff(0, 0.7);
+    const move = meanDiff(0.9, 1.2);
+    assert.ok(hold < 0.1, `a hold before the zoom matches the sharp render (mean ${hold})`);
+    assert.ok(move > 0.5, `the zoom is blurred against the sharp render (mean ${move}, hold ${hold})`);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("master blur preserves full-resolution chroma through production rendering", { skip: needsFfmpeg }, async () => {
   const dir = await mkdtemp(join(process.cwd(), "takeone-chroma-"));
   try {
