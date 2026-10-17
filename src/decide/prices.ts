@@ -1,8 +1,8 @@
 // Per-backend input/output token prices behind the planner's usage accounting.
 // This is cost data, not provider behaviour: no code path branches on it, and
-// the human-readable source with workings is docs/cost.md. Prices older than 30
-// days are marked unverified until re-checked; unverified output prices never
-// enter the billed estimate (input tokens only, as before).
+// the human-readable source with workings is docs/cost.md. Each entry's
+// `verified` flag is set by hand; unverified output prices never enter the
+// estimate (input tokens only, as before).
 
 export interface ProviderPrice {
   /** USD per million input tokens; null when unknown or subscription-billed. */
