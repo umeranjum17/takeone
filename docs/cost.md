@@ -30,6 +30,9 @@ Notes:
 - A GLM API key outside the Go plan has no confirmed listing at the time of
   writing, so it is not priced above; the Go-plan GLM row is the supported
   GLM route.
+- An Anthropic API key (`takeone key set --backend anthropic`) is accepted, but
+  its price has no confirmed listing at the time of writing, so the cost shows
+  as unknown rather than a number.
 - Responses are cached per request hash, so replanning an unchanged take costs
   nothing on every provider.
 - With the planner off the cost is exactly zero tokens on every provider.
