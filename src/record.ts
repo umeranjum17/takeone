@@ -2,7 +2,6 @@
  * `takeone record` orchestration: capture + taps + stop handling + take.json.
  */
 
-import { readFileSync } from "node:fs";
 import { mkdir, writeFile, rm } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
@@ -15,19 +14,10 @@ import { startTaps, type TapHandle } from "./taps.js";
 import { consumeToken } from "./token.js";
 import { processStartTicks } from "./takes.js";
 import type { TakeMeta } from "./types.js";
+import { packageVersion } from "./version.js";
 
-/** package.json version: src/record.ts and dist/record.js both sit one level below the root. */
-export const VERSION: string = (() => {
-  try {
-    const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as {
-      version?: unknown;
-    };
-    if (typeof pkg.version === "string" && pkg.version) return pkg.version;
-  } catch {
-    // installed without a readable package.json; beat on without a version
-  }
-  return "0.0.0";
-})();
+/** package.json version recorded in take.json. */
+export const VERSION: string = packageVersion();
 
 export interface RecordOptions {
   fps?: number;
