@@ -100,22 +100,26 @@ function readBox(frames: CameraFrame[], width: number, height: number): { x: num
  * once per source frame, ahead of the shutter resampling, then warp. A
  * crop-to-fill export samples a small window of a tall card, and every motion
  * blur sample used to convert the whole card. */
-function warpGraph(frames: CameraFrame[], width: number, height: number, d: CameraDefaults): { input: string; warp: string } {
+function warpGraph(frames: CameraFrame[], width: number, height: number, d: CameraDefaults, from: number): { input: string; warp: string } {
   const box = readBox(frames, width, height);
-  if (!box) return { input: "format=gbrp16le,", warp: cameraFilter(frames, width, height, d) };
+  // A segment drops every frame before its own first one ahead of the warp.
+  const skip = from > 0 ? `select='gte(t,${from.toFixed(9)})',` : "";
+  if (!box) return { input: "format=gbrp16le,", warp: skip + cameraFilter(frames, width, height, d, from) };
   return {
     input: `crop=${box.w}:${box.h}:${box.x}:${box.y},format=gbrp16le,`,
-    warp: cameraFilter(frames.map(f => ({ ...f, x: f.x - box.x, y: f.y - box.y })), box.w, box.h, d),
+    warp: skip + cameraFilter(frames.map(f => ({ ...f, x: f.x - box.x, y: f.y - box.y })), box.w, box.h, d, from),
   };
 }
 
 /** Duplicate source images by reference, discard unneeded samples before the
  * warp, and average only each exposure's samples. One chronological stream
  * avoids buffering whole shots across parallel velocity branches.
+ * `start` is the first output frame of a render segment: samples before it are
+ * dropped before the warp, so the expressions after the drop offset their index.
  */
-export function motionBlurGraph(frames: CameraFrame[], plan: ReturnType<typeof shutterPlan>, width: number, height: number, d: CameraDefaults): string {
+export function motionBlurGraph(frames: CameraFrame[], plan: ReturnType<typeof shutterPlan>, width: number, height: number, d: CameraDefaults, start = 0): string {
   if (!plan.metrics.blurredFrames) {
-    const { input, warp } = warpGraph(frames, width, height, d);
+    const { input, warp } = warpGraph(frames, width, height, d, start && (start - 0.5) / d.fps);
     return `[c4]${input}${warp}[camera]`;
   }
   const counts = plan.counts;
@@ -138,14 +142,18 @@ export function motionBlurGraph(frames: CameraFrame[], plan: ReturnType<typeof s
       ends.push(j === count - 1 ? 1 : 0);
     }
   }
+  const rate = d.fps * plan.samples;
   const countExpr = frameExpr(counts).replaceAll("in-1", `floor(n/${plan.samples})`);
-  const endExpr = `eq(round(${frameExpr(ends).replaceAll("in-1", "n")}),1)`;
-  const { input, warp } = warpGraph(sampled.map((f, i) => ({ ...f, t: i / (d.fps * plan.samples) })), width, height,
-    { ...d, fps: d.fps * plan.samples });
+  const first = counts.slice(0, start).reduce((sum, count) => sum + count, 0);
+  // By index, not time: a disabled tmix passes its oldest queued sample's timestamp.
+  const endExpr = `eq(round(${frameExpr(ends).replaceAll("in-1", first ? `(n+${first})` : "n")}),1)`;
+  const { input, warp } = warpGraph(sampled.map((f, i) => ({ ...f, t: i / rate })), width, height,
+    { ...d, fps: rate }, start && (first - 0.5) / rate);
   // Pad before resampling: older fps filters can discard the last image at EOF.
-  return `[c4]${input}tpad=stop_mode=clone:stop=1,fps=${d.fps * plan.samples}:round=up:start_time=0,`
+  // tmix needs no samples from before a segment: earlier slots carry zero weight.
+  return `[c4]${input}tpad=stop_mode=clone:stop=1,fps=${rate}:round=up:start_time=0,`
     + `trim=end_frame=${frames.length * plan.samples},select='lt(mod(n,${plan.samples}),round(${countExpr}))',`
-    + `setpts=N/(${d.fps * plan.samples}*TB),${warp},`
+    + `setpts=N/(${rate}*TB),${warp},`
     + `sendcmd=c='${commands.join(";")}',tmix@shutter=frames=${plan.samples + 1}:enable='${endExpr}',`
-    + `select='${endExpr}',settb=AVTB,setpts=N/(${d.fps}*TB)[camera]`;
+    + `select='${endExpr}',settb=AVTB,setpts=(N+${start})/(${d.fps}*TB)[camera]`;
 }
