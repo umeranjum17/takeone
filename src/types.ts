@@ -138,6 +138,11 @@ export interface JevAnswers {
   key_moment?: { score?: number; probabilities?: number[]; confidence?: number };
 }
 
+/** Planner answers for one beat, in the shape the decision mapping reads. Any
+ * configured BYOKit decide backend produces them; the mapping never knows
+ * which provider answered. Same wire shape as JevAnswers today. */
+export type PlannerAnswers = JevAnswers;
+
 /** Framing tightness levels, whole screen (0) to tight (3). */
 export type Tightness = 0 | 1 | 2 | 3;
 
@@ -176,6 +181,16 @@ export interface TakeMeta extends TakeEdits {
   /** Record wrote this trim itself; any later trim is the caller's. */
   auto_trim?: true;
   jev?: { input_tokens: number; usd: number; failed: number };
+  /** How the film was planned: AI decider or local fallback rules. */
+  planner?: {
+    mode: "ai" | "fallback";
+    backend: string;
+    model: string;
+    input_tokens: number;
+    output_tokens: number;
+    usd: number;
+    failed: number;
+  };
 }
 
 export function bboxArea(b: BBox): number {

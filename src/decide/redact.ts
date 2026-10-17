@@ -1,4 +1,4 @@
-// Only individual alphabetic words may leave the machine with --screen-text.
+// Only individual alphabetic words may leave the machine as screen text.
 export function redactWord(word: string): string {
   return /^[A-Za-z]{2,15}$/.test(word) ? word : "[redacted]";
 }
