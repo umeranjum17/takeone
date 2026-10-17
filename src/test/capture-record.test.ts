@@ -61,7 +61,7 @@ interface Spawned {
 }
 
 function spawnRecord(args: string[], extraEnv: NodeJS.ProcessEnv): Spawned {
-  const preload = extraEnv.MUXR_DESKLINK_ENGINE === undefined ? [] : ["--import", `${extraEnv.MUXR_DESKLINK_ENGINE}.mjs`];
+  const preload = extraEnv.DESKLINK_ENGINE === undefined ? [] : ["--import", `${extraEnv.DESKLINK_ENGINE}.mjs`];
   const child = spawn(process.execPath, [...preload, cli, ...args], {
     env: { ...process.env, ...extraEnv },
     stdio: ["ignore", "pipe", "pipe"],
@@ -174,7 +174,7 @@ test("capture record emits consent-pending/recording/done and stops on SIGINT", 
   const wrapper = await writeFakeWrapper(state);
   const rec = spawnRecord(
     ["capture", "record", "--source", "screen", "--root", root, "--state-dir", state, "--events", "none"],
-    { MUXR_DESKLINK_ENGINE: wrapper, HYPRLAND_INSTANCE_SIGNATURE: "unreachable", XDG_RUNTIME_DIR: base },
+    { DESKLINK_ENGINE: wrapper, HYPRLAND_INSTANCE_SIGNATURE: "unreachable", XDG_RUNTIME_DIR: base },
   );
   try {
     const first = await waitFor(rec.lines, () => true, "first line");
@@ -218,7 +218,7 @@ test("capture record --max-seconds stops the take by itself", { timeout: 60_000 
     // The limit includes setup. Leave negotiation headroom on loaded runners
     // and deliberately delay video beyond the old two-second assumption.
     ["capture", "record", "--source", "screen", "--root", root, "--state-dir", state, "--events", "none", "--max-seconds", "10"],
-    { MUXR_DESKLINK_ENGINE: wrapper, HYPRLAND_INSTANCE_SIGNATURE: "unreachable", XDG_RUNTIME_DIR: base, FAKE_DELAY_FRAMES_MS: "2500" },
+    { DESKLINK_ENGINE: wrapper, HYPRLAND_INSTANCE_SIGNATURE: "unreachable", XDG_RUNTIME_DIR: base, FAKE_DELAY_FRAMES_MS: "2500" },
   );
   try {
     await expectSuccess(rec);
@@ -243,14 +243,14 @@ test("capture stop prints {\"stopping\":true} and ends the take", { timeout: 60_
   const wrapper = await writeFakeWrapper(state);
   const rec = spawnRecord(
     ["capture", "record", "--source", "screen", "--root", root, "--state-dir", state, "--events", "none"],
-    { MUXR_DESKLINK_ENGINE: wrapper, HYPRLAND_INSTANCE_SIGNATURE: "unreachable", XDG_RUNTIME_DIR: base },
+    { DESKLINK_ENGINE: wrapper, HYPRLAND_INSTANCE_SIGNATURE: "unreachable", XDG_RUNTIME_DIR: base },
   );
   try {
     await waitFor(rec.lines, (l) => l.includes('"recording"'), "recording");
     const stop = spawnSync(process.execPath, [cli, "capture", "stop", "--state-dir", state], {
       encoding: "utf8",
       timeout: 10_000,
-      env: { ...process.env, MUXR_DESKLINK_ENGINE: wrapper },
+      env: { ...process.env, DESKLINK_ENGINE: wrapper },
     });
     assert.equal(stop.status, 0, stop.stderr);
     assert.deepEqual(JSON.parse(stop.stdout), { stopping: true });
@@ -275,7 +275,7 @@ test("capture record --source x11:<display> reaches the engine", { timeout: 60_0
   const wrapper = await writeFakeWrapper(state);
   const rec = spawnRecord(
     ["capture", "record", "--source", "x11::99", "--root", root, "--state-dir", state, "--events", "none"],
-    { MUXR_DESKLINK_ENGINE: wrapper, HYPRLAND_INSTANCE_SIGNATURE: "unreachable", XDG_RUNTIME_DIR: base },
+    { DESKLINK_ENGINE: wrapper, HYPRLAND_INSTANCE_SIGNATURE: "unreachable", XDG_RUNTIME_DIR: base },
   );
   try {
     await stopWhenRecording(rec);
@@ -296,7 +296,7 @@ test("--events none never opens evdev or Hyprland", { timeout: 60_000 }, async (
   await mkdir(state, { recursive: true });
   const wrapper = await writeFakeWrapper(state);
   const env = {
-    MUXR_DESKLINK_ENGINE: wrapper,
+    DESKLINK_ENGINE: wrapper,
     HYPRLAND_INSTANCE_SIGNATURE: "unreachable",
     XDG_RUNTIME_DIR: base,
   };

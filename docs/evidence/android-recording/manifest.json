@@ -1,5 +1,5 @@
 {
-  "acceptance": "t1-pm-7 real Android app recording and polished portrait and landscape renders",
+  "acceptance": "Real Android app recording and polished portrait and landscape renders",
   "recording": {
     "device": "Android emulator emulator-5672, API 35, 1080x2400, density 420",
     "app": "design.takeone.tidewater, offline Tidewater test fixture; no accounts, network access, or personal apps",

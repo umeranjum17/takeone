@@ -3,7 +3,7 @@ import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { readStoryboard, writePage } from "../src/motion/motion.ts";
 import { renderFrames } from "../src/motion/render.ts";
-const root = resolve("tmp/evidence/t1-l8");
+const root = resolve("tmp/evidence/motion");
 const kinds = ["button", "input", "chip", "toast", "feed-row", "counter", "line-chart", "bar-chart", "spinner", "browser-chrome", "phone-chrome"];
 const sb = readStoryboard(resolve("tmp/motion-proof/zoom-tour"));
 for (const theme of ["editorial", "midnight"]) {

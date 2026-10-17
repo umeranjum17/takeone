@@ -3,7 +3,7 @@
 set -euo pipefail
 root=$(pwd -P)
 dir="$root/tmp/uiboxes-proof"
-evidence="$root/tmp/evidence/t1-uiboxes"
+evidence="$root/tmp/evidence/uiboxes"
 mkdir -p "$dir" "$evidence"
 browser_profile=$(mktemp -d "$dir/browser-profile-XXXXXX")
 browser_session="takeone-uiboxes-record-$(date +%s)"

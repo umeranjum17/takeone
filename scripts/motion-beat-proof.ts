@@ -30,5 +30,5 @@ for (const time of [3, 6]) {
   measurements.push({ time, changedAt, errorFrames, differences, pass: errorFrames <= 1 });
   assert.ok(errorFrames <= 1, "raster cut is off the beat grid");
 }
-writeFileSync(resolve("tmp/evidence/t1-l8/takeone-motion-beat.json"), JSON.stringify(measurements, null, 2));
+writeFileSync(resolve("tmp/evidence/motion/takeone-motion-beat.json"), JSON.stringify(measurements, null, 2));
 console.log(measurements);

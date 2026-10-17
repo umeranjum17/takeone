@@ -104,7 +104,7 @@ Committed fixture pixels contain only the demo board.
 
 Development evidence lives in `tmp/sharpness`: `source.png`, `calibration.json`,
 `ablation.json`, `ablation-final.json`, the calibration recordings. Final product evidence is flat under
-`tmp/evidence/t1-sharp`, named `takeone-sharpness-*`: native and 400% crops,
+`tmp/evidence/sharpness`, named `takeone-sharpness-*`: native and 400% crops,
 contrast-stretched flat patches, failing soft/grainy clips and reports, and
 10-second before/after MP4s. The actual MP4 crops score 0.448 before and approximately 1.0 after against their native
 reference (the held shot is at an integer source position, unlike the fractional
