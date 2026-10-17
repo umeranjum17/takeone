@@ -161,8 +161,9 @@ export async function goAccountPresent(member: string): Promise<boolean> {
     return false;
   }
 }
-/** Safe presence probe for doctor and CLI banners: never migrates, never
- * prints, never returns the credential itself. */
+/** Safe presence probe for doctor and CLI banners: never prints, never
+ * returns the credential itself; the default jev slot migrates the legacy
+ * env file into the store on this read. */
 export async function plannerStatus(o: ResolvePlannerOptions = {}): Promise<{
   available: boolean;
   detail: string;
