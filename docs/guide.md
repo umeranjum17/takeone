@@ -130,6 +130,13 @@ emulator -avd takeone-tidewater
 
 `record.ts` throws unless `adb -s emulator-PORT shell wm size` reads `1080x2400` and `adb -s emulator-PORT shell wm density` reports 420.
 
+On a fresh device, Android shows a "Viewing full screen" sheet over the app until "Got it" is tapped, and it blocks the taps. Before the app's first launch, run this once (`record.ts` runs it too and stops if it does not read back `confirmed`; takeone never changes device settings itself):
+
+```sh
+adb -s emulator-PORT shell settings put secure immersive_mode_confirmations confirmed
+adb -s emulator-PORT shell settings get secure immersive_mode_confirmations   # prints confirmed
+```
+
 ```sh
 scripts/e2e/android/build.sh
 adb -s emulator-PORT root
@@ -144,6 +151,8 @@ cp "$take_path/out/$take_id.mp4" tmp/android-renders/portrait.mp4
 takeone make "$take_path" --no-jev --set idle_speed=1 --set out_w=1920 --set out_h=1080
 cp "$take_path/out/$take_id.mp4" tmp/android-renders/wide.mp4
 ```
+
+The film compresses idle time, so it is usually shorter than the take it came from (the Tidewater take runs about 20 s and its film about 15 s).
 
 Committed real-device evidence for this flow is in
 [`docs/evidence/android-recording/`](evidence/android-recording/), with capture provenance,
