@@ -99,8 +99,9 @@ export interface ResolvedPlanner {
   active: boolean;
 }
 
-/** Person id for the shared BYOKit machine store: the OS user. Documented in
- * docs/guide.md so a Go plan login can be matched to it. */
+/** Person id for the shared BYOKit machine store: the sanitized OS username
+ * (letters, digits, ".", "_" or "-"). A Go plan login is matched only when
+ * stored under that machine store's people/<member>/auth.json. */
 export function plannerMember(o: { username?: string } = {}): string {
   const name = o.username ?? userInfo().username;
   const clean = name.replace(/[^A-Za-z0-9._-]/g, "-").replace(/^[.-]+/, "");
