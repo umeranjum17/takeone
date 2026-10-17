@@ -18,11 +18,38 @@ export interface DoctorCheck {
   detail: string;
 }
 
+/**
+ * Which capture route needs each check. "all" marks a check every route needs:
+ * only those gate the exit code. The other values name the one route (or optional
+ * feature) that uses the row, so a false row on another route does not fail the install.
+ */
+const NEEDED_BY: Record<string, string> = {
+  ffmpeg: "all",
+  "state-dir": "all",
+  "takes-root": "all",
+  engine: "linux-desktop",
+  "engine-protocol": "linux-desktop",
+  hyprland: "linux-desktop",
+  evdev: "linux-desktop",
+  xcrun: "ios-simulator",
+  "motion-shell": "motion",
+  "jev-key": "planner",
+};
+
+export function neededBy(check: string): string {
+  return NEEDED_BY[check] ?? "all";
+}
+
+/** Exit 1 only when a check every capture route needs fails. */
+export function doctorExitCode(checks: DoctorCheck[]): number {
+  return checks.some((c) => !c.ok && neededBy(c.check) === "all") ? 1 : 0;
+}
+
 export function formatDoctor(checks: DoctorCheck[]): string {
   return toonTable(
     "doctor",
-    ["check", "ok", "detail"],
-    checks.map((c) => [c.check, c.ok, c.detail]),
+    ["check", "ok", "needed_by", "detail"],
+    checks.map((c) => [c.check, c.ok, neededBy(c.check), c.detail]),
   );
 }
 

@@ -562,10 +562,10 @@ async function stop(): Promise<void> {
 }
 
 async function doctor(): Promise<number> {
-  const { runDoctor, formatDoctor } = await import("./doctor.js");
+  const { runDoctor, formatDoctor, doctorExitCode } = await import("./doctor.js");
   const checks = await runDoctor();
   console.log(formatDoctor(checks));
-  return checks.every((c) => c.ok) ? 0 : 1;
+  return doctorExitCode(checks);
 }
 
 async function runRecorderCommand(command: string, args: string[]): Promise<number> {
