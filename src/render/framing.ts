@@ -23,14 +23,28 @@ const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v
 const ease = (u: number) => u * u * u * (u * (6 * u - 15) + 10);
 const inked = (g: Uint8Array, i: number, W: number) => Math.abs(g[i]! - g[i - 1]!) > INK_STEP || Math.abs(g[i]! - g[i - W]!) > INK_STEP;
 
-export const videoFrames = (video: string, W: number, H: number, sourceAt: (t: number) => number): FrameAt => (t) => {
-  // The output can run a few frames past the source's last frame: step back until one decodes.
-  for (let back = 0; back <= 0.5; back += 0.1) {
-    const raw = execFileSync("ffmpeg", ["-nostdin", "-v", "error", "-threads", "2", "-ss", Math.max(0, sourceAt(t) - back).toFixed(3),
-      "-i", video, "-frames:v", "1", "-vf", "format=gray", "-f", "rawvideo", "-"], { maxBuffer: W * H + 1024 });
-    if (raw.length === W * H) return raw;
+const lastFrames = new Map<string, number>();
+/** Source second of the video's last frame. A screen recording holds its last frame, but it
+ * writes no frame after its last change, so a seek past this second decodes nothing: every
+ * sampler clamps to it instead. Cached per file: one packet listing, no decode. */
+export function lastFrameSecond(video: string): number {
+  let last = lastFrames.get(video);
+  if (last === undefined) {
+    const pts = execFileSync("ffprobe", ["-v", "error", "-select_streams", "v:0", "-show_entries", "packet=pts_time",
+      "-of", "csv=p=0", video], { encoding: "utf8", maxBuffer: 1 << 26 });
+    last = Math.max(0, ...pts.split("\n").map(Number).filter(Number.isFinite));
+    lastFrames.set(video, last);
   }
-  throw new Error(`camera_path=hold: no source frame near ${t.toFixed(2)} s`);
+  return last;
+}
+
+/** Grey source frame at source second `sourceAt(t)`, clamped to the video's last frame. */
+export const videoFrames = (video: string, W: number, H: number, sourceAt: (t: number) => number): FrameAt => (t) => {
+  const second = Math.max(0, Math.min(sourceAt(t), lastFrameSecond(video) - 0.001)).toFixed(3);
+  const raw = execFileSync("ffmpeg", ["-nostdin", "-v", "error", "-threads", "2", "-ss", second,
+    "-i", video, "-frames:v", "1", "-vf", "format=gray", "-f", "rawvideo", "-"], { maxBuffer: W * H + 1024 });
+  if (raw.length !== W * H) throw new Error(`camera_path=hold: no source frame near ${t.toFixed(2)} s`);
+  return raw;
 };
 
 /**
