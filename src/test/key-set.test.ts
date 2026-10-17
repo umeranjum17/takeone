@@ -1,7 +1,7 @@
 /** `takeone key set` provider choice: flags, validation and planner.json, via the built CLI. */
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { closeSync, mkdtempSync, openSync, readFileSync, rmSync, writeFileSync, existsSync } from "node:fs";
+import { closeSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmSync, writeFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -76,7 +76,7 @@ test("key set records the provider choice and stores the key", () => {
 test("key set --via openrouter records the route", () => {
   const h = home();
   try {
-    const r = run(["key", "set", "--via", "openrouter"], h, "sk-test-key\n");
+    const r = run(["key", "set", "--backend", "jev", "--via", "openrouter"], h, "sk-test-key\n");
     assert.equal(r.status, 0, r.stderr);
     assert.deepEqual(plannerJson(h.home), { backend: "jev", auth: "apiKey", via: "openrouter" });
   } finally {
@@ -91,6 +91,35 @@ test("key set without flags keeps the old Jev-only behaviour", () => {
     assert.equal(r.status, 0, r.stderr);
     assert.match(r.stdout, /Jev key stored/);
     assert.equal(plannerJson(h.home), null, "flagless key set writes no planner.json");
+  } finally {
+    h.cleanup();
+  }
+});
+
+test("key set refuses --model or --via without an explicit --backend", () => {
+  const h = home();
+  try {
+    for (const args of [["key", "set", "--model", "gpt-6.1-sol"], ["key", "set", "--via", "openrouter"]]) {
+      const r = run(args, h, "sk-test-key\n");
+      assert.equal(r.status, 2, `${args.join(" ")}: ${r.status} ${r.stderr}`);
+      assert.match(r.stderr, /need --backend/);
+      assert.equal(plannerJson(h.home), null, `${args.join(" ")} wrote planner.json`);
+    }
+  } finally {
+    h.cleanup();
+  }
+});
+
+test("doctor leaves a legacy TYPESAFE env file in place", () => {
+  const h = home();
+  try {
+    const legacyDir = join(h.home, ".config", "takeone");
+    mkdirSync(legacyDir, { recursive: true });
+    const legacy = join(legacyDir, "env");
+    writeFileSync(legacy, "TYPESAFE_API_KEY=sk-legacy-key\n");
+    const r = run(["doctor"], h);
+    assert.match(r.stdout, /ai-planner/);
+    assert.equal(readFileSync(legacy, "utf8"), "TYPESAFE_API_KEY=sk-legacy-key\n");
   } finally {
     h.cleanup();
   }

@@ -306,7 +306,7 @@ export async function main(argv: string[]): Promise<number> {
  * BYOKit decide config (planner.json). */
 async function runKeySet(rest: string[]): Promise<number> {
   let sub: string | undefined;
-  let backend = "jev";
+  let backend: string | undefined;
   let model: string | undefined;
   let via: string | undefined;
   for (let i = 0; i < rest.length; i++) {
@@ -333,6 +333,11 @@ async function runKeySet(rest: string[]): Promise<number> {
     console.error("usage: takeone key set [--backend <name>] [--model <model>] [--via typesafe|openrouter] < stdin (no key arguments)");
     return 2;
   }
+  if (backend === undefined && (model !== undefined || via !== undefined)) {
+    console.error("takeone key set: --model and --via need --backend");
+    return 2;
+  }
+  backend ??= "jev";
   let config;
   try {
     config = parseConfig({ backend, auth: "apiKey", ...(model === undefined ? {} : { model }), ...(via === undefined ? {} : { via }) });

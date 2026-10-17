@@ -1,7 +1,7 @@
 // Per-backend input/output token prices behind the planner's usage accounting.
 // This is cost data, not provider behaviour: no code path branches on it, and
-// the human-readable source with workings is docs/cost.md. Prices Kelso 30 days
-// old are marked unverified until re-checked; unverified output prices never
+// the human-readable source with workings is docs/cost.md. Prices older than 30
+// days are marked unverified until re-checked; unverified output prices never
 // enter the billed estimate (input tokens only, as before).
 
 export interface ProviderPrice {
