@@ -155,16 +155,23 @@ export function motionBlurGraph(frames: CameraFrame[], plan: ReturnType<typeof s
   // By index, not time: a disabled tmix passes its oldest queued sample's timestamp.
   const sampleExpr = (values: number[]) => `eq(round(${frameExpr(values).replaceAll("in-1", first ? `(n+${first})` : "n")}),1)`;
   const endExpr = sampleExpr(ends);
-  // Every sample of an exposure shows the same source image, so its prefilter is the exposure's.
+  // An exposure whose samples share one sigma blurs its single source image once.
+  // A mixed exposure keeps each sample's own sigma, blurred on the sampled stream.
   const sampleSigmas = prefilterSigma(sampled, d);
-  const sigmas: number[] = [];
+  const sourceSigmas: number[] = [];
+  const mixedSigmas: number[] = [];
   let offset = 0;
   for (const count of counts) {
-    sigmas.push(Math.max(...sampleSigmas.slice(offset, offset + count)));
+    const own = sampleSigmas.slice(offset, offset + count);
+    const shared = own.every(s => s === own[0]);
+    sourceSigmas.push(shared ? own[0]! : 0);
+    mixedSigmas.push(...(shared ? own.map(() => 0) : own));
     offset += count;
   }
-  const { input, warp } = warpGraph(sampled.map((f, i) => ({ ...f, t: i / rate })), width, height,
-    { ...d, fps: rate }, start && (first - 0.5) / rate, prefilterFilter(frames, sigmas, d.fps, from));
+  const sampledFrames = sampled.map((f, i) => ({ ...f, t: i / rate }));
+  const sampledBlur = prefilterFilter(sampledFrames, mixedSigmas, rate, start && (first - 0.5) / rate, "sample");
+  const { input, warp } = warpGraph(sampledFrames, width, height,
+    { ...d, fps: rate }, start && (first - 0.5) / rate, prefilterFilter(frames, sourceSigmas, d.fps, from));
   // tmix mixes all its slots for every frame it is enabled on, so it runs on the
   // blurred exposures only. A one-sample exposure is its own sample: blend passes
   // that branch through while disabled, and copies the mixed branch (normal at
@@ -174,7 +181,7 @@ export function motionBlurGraph(frames: CameraFrame[], plan: ReturnType<typeof s
   // tmix needs no samples from before a segment: earlier slots carry zero weight.
   return `[c4]${input}tpad=stop_mode=clone:stop=1,fps=${rate}:round=up:start_time=0,`
     + `trim=end_frame=${frames.length * plan.samples},select='lt(mod(n,${plan.samples}),round(${countExpr}))',`
-    + `setpts=N/(${rate}*TB),${warp},split[shutterAll][shutterOne];`
+    + `setpts=N/(${rate}*TB),${sampledBlur}${warp},split[shutterAll][shutterOne];`
     + `[shutterAll]sendcmd=c='${commands.join(";")}',`
     + `tmix@shutter=frames=${plan.samples + 1}:enable='${sampleExpr(blurEnds)}',`
     + `select='${endExpr}',setpts=N/(${d.fps}*TB)[shutterMixed];`

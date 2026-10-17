@@ -63,11 +63,8 @@ function timed<T>(timeline: Timeline<T>, frameTime: number, fps: number, from: n
   else timeline.commands.push(command(at.toFixed(9)));
 }
 
-/** The prefilter blur for one sigma per frame, timed like the camera's v360 updates.
- * It runs once per source image, ahead of the shutter's sample duplication: every
- * sample of an exposure shows the same source image and shares its sigma, so
- * blurring each duplicated sample again only repeated the same work. */
-export function prefilterFilter(frames: CameraFrame[], sigmas: number[], fps: number, from = 0): string {
+/** The prefilter blur for one sigma per frame, timed like the camera's v360 updates. */
+export function prefilterFilter(frames: CameraFrame[], sigmas: number[], fps: number, from = 0, label = "prefilter"): string {
   let applied = 0;
   const timeline: Timeline<number> = { initial: 0, commands: [] };
   sigmas.forEach((sigma, i) => {
@@ -75,13 +72,13 @@ export function prefilterFilter(frames: CameraFrame[], sigmas: number[], fps: nu
     // gblur still filters the whole surface at sigma 0, so switch it off there
     // instead: same pixels. sigmaV=0 keeps the blur horizontal, as it was when
     // gblur started at sigma 0 (it latches sigmaV from the initial sigma).
-    timed(timeline, frames[i]!.t, fps, from, sigma, at => `${at} gblur@prefilter enable ${sigma ? 1 : 0}`);
+    timed(timeline, frames[i]!.t, fps, from, sigma, at => `${at} gblur@${label} enable ${sigma ? 1 : 0}`);
     applied = sigma;
   });
   if (!sigmas.some((s) => s !== 0)) return "";
   const { initial, commands } = timeline;
   return (commands.length ? `sendcmd=commands='${commands.join(";")};',` : "")
-    + `gblur@prefilter=sigma=${PREFILTER_SIGMA}:sigmaV=0:enable=${initial ? 1 : 0},`;
+    + `gblur@${label}=sigma=${PREFILTER_SIGMA}:sigmaV=0:enable=${initial ? 1 : 0},`;
 }
 
 /** A flat-to-flat transform is an affine crop: no rotation or lens distortion.
