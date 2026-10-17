@@ -27,7 +27,7 @@ export function takeoneConfigDir(o: KeyOptions = {}): string {
 }
 
 /** Only an explicit enabled value skips the keyring: wrappers and CI unset flags with 0, false or "". */
-function noKeyring(env: NodeJS.ProcessEnv): boolean {
+export function noKeyring(env: NodeJS.ProcessEnv): boolean {
   return /^(1|true|yes)$/i.test(env.TAKEONE_NO_KEYRING ?? "");
 }
 
@@ -136,31 +136,6 @@ export async function readPlannerKey(slot: string, o: KeyOptions = {}): Promise<
   const stored = await persistentKeys(o).get(slot);
   if (stored !== null || slot !== JEV_SECRET) return stored;
   return legacyKey(o);
-}
-
-/** Safe presence probe: neither migrates nor prints the credential. The detail names
-  * the source (env override, OS keyring, sealed file), never the secret itself. */
-export async function keyStatus(o: KeyOptions = {}): Promise<{ available: boolean; detail: string }> {
-  const env = o.env ?? process.env;
-  try {
-    if (env.TYPESAFE_API_KEY) {
-      const available = !!await overrideStore({ [JEV_SECRET]: env.TYPESAFE_API_KEY }).get(JEV_SECRET);
-      return { available, detail: available ? "Jev key available via env override TYPESAFE_API_KEY" : "no Jev key; run takeone key set (stdin)" };
-    }
-    const available = !!await persistentKeys(o).get(JEV_SECRET);
-    if (!available) return { available, detail: "no Jev key; run takeone key set (stdin)" };
-    if (noKeyring(env)) {
-      return { available, detail: `Jev key available via sealed file ${join(configRoot(o), "takeone", "secrets.json")}` };
-    }
-    const bus = env.DBUS_SESSION_BUS_ADDRESS ?? (env.XDG_RUNTIME_DIR ? `unix:path=${env.XDG_RUNTIME_DIR}/bus` : null);
-    const source = env.TAKEONE_SECRETS_PASSPHRASE_FD
-      ? "OS keyring or sealed file"
-      : `OS keyring (service takeone${bus ? ` via ${bus}` : ""})`;
-    return { available, detail: `Jev key available via ${source}` };
-  } catch (error) {
-    const reason = error instanceof Error ? error.message : String(error);
-    return { available: false, detail: `Jev store unavailable: ${reason}` };
-  }
 }
 
 /** Read a key from piped stdin only; argv is intentionally never echoed. */

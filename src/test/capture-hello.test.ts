@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -34,7 +34,7 @@ function run(args: string[], extraEnv: NodeJS.ProcessEnv = {}) {
 test("capture hello prints the protocol v1 shape and exits 0", async () => {
   const home = await mkdtemp(join(tmpdir(), "takeone-cap-"));
   try {
-    const r = run(["capture", "hello"], { TYPESAFE_API_KEY: "test-key", HOME: home });
+    const r = run(["capture", "hello"], { TAKEONE_TEST_KEYRING_KEY: "test-key", HOME: home });
     assert.equal(r.status, 0, r.stderr);
     assert.deepEqual(JSON.parse(r.stdout), {
       protocol: 1,
@@ -44,6 +44,19 @@ test("capture hello prints the protocol v1 shape and exits 0", async () => {
       events: ["own", "none"],
       planner: { available: true, needsKey: true },
     });
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test("capture hello sees a legacy TYPESAFE env file key, as doctor does", async () => {
+  const home = await mkdtemp(join(tmpdir(), "takeone-cap-"));
+  try {
+    await mkdir(join(home, ".config", "takeone"), { recursive: true });
+    await writeFile(join(home, ".config", "takeone", "env"), "TYPESAFE_API_KEY=test-key\n");
+    const r = run(["capture", "hello"], { HOME: home });
+    assert.equal(r.status, 0, r.stderr);
+    assert.deepEqual(JSON.parse(r.stdout).planner, { available: true, needsKey: true });
   } finally {
     await rm(home, { recursive: true, force: true });
   }
