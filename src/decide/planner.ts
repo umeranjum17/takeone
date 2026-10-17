@@ -26,7 +26,7 @@ import {
 } from "@byokit/decide";
 import { writeFileAtomic } from "@byokit/secrets";
 import type { PlannerAnswers } from "../types.ts";
-import { takeoneConfigDir, readPlannerKey, type KeyOptions } from "../secrets.ts";
+import { takeoneConfigDir, readPlannerKey, noKeyring, type KeyOptions } from "../secrets.ts";
 
 export const CONCURRENCY = 8;
 /** Whole-call budget per beat (attempts plus bounded 429 waits). */
@@ -126,7 +126,7 @@ export async function resolvePlanner(o: ResolvePlannerOptions = {}): Promise<Res
     // explicitly disabled: no store reads at all.
   } else if (c.auth === "account") {
     member = plannerMember(o);
-    accountPresent = await goAccountPresent(member);
+    accountPresent = await goAccountPresent(member, o.env);
   } else if (o.apiKeyOverride !== undefined) {
     key = o.apiKeyOverride;
   } else {
@@ -145,7 +145,8 @@ export async function resolvePlanner(o: ResolvePlannerOptions = {}): Promise<Res
 
 /** Member-bound OpenCode Go plan account from the shared BYOKit machine
  * store. The key never leaves BYOKit: decide reads it per call. */
-export async function loadGoAccount(member: string): Promise<import("@byokit/decide").OpenCodeGoAccount> {
+export async function loadGoAccount(member: string, env: NodeJS.ProcessEnv = process.env): Promise<import("@byokit/decide").OpenCodeGoAccount> {
+  if (noKeyring(env)) throw new Error("OpenCode Go sign-in lives in the OS keyring; TAKEONE_NO_KEYRING is set");
   const { Accounts, machineStore } = await import("@byokit/accounts");
   const { osKeyringSeal } = await import("@byokit/secrets");
   const accounts = new Accounts({ store: (m: string) => machineStore(m, osKeyringSeal({ service: "byokit" })) });
@@ -154,9 +155,9 @@ export async function loadGoAccount(member: string): Promise<import("@byokit/dec
 
 /** Presence of the member's Go plan login. Reads the stored key into memory
  * only to check it exists; never prints or returns it, never touches network. */
-export async function goAccountPresent(member: string): Promise<boolean> {
+export async function goAccountPresent(member: string, env: NodeJS.ProcessEnv = process.env): Promise<boolean> {
   try {
-    const account = await loadGoAccount(member);
+    const account = await loadGoAccount(member, env);
     const key = await account.access(new AbortController().signal);
     return typeof key === "string" && key.length > 0;
   } catch {
