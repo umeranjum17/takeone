@@ -33,9 +33,9 @@ export function encodingOptions(d: CameraDefaults): string[] {
 }
 
 /** Run ffmpeg, resolve with its stderr, and include its final 20 stderr lines on failure. */
-function runFfmpeg(args: string[]): Promise<string> {
+function runFfmpeg(args: string[], signal?: AbortSignal): Promise<string> {
   return new Promise((resolve, reject) => {
-    const process = spawn("ffmpeg", ["-nostdin", ...args], { stdio: ["ignore", "ignore", "pipe"] });
+    const process = spawn("ffmpeg", ["-nostdin", ...args], { stdio: ["ignore", "ignore", "pipe"], signal });
     let stderr = "";
     process.stderr.setEncoding("utf8").on("data", (chunk: string) => {
       stderr = (stderr + chunk).slice(-100_000);
@@ -372,7 +372,7 @@ export async function renderTake(dir: string, d?: CameraDefaults): Promise<{ out
     .match(/ffmpeg version (?:n)?(\d+)/)?.[1] ?? 0);
   // ffmpeg 7 introduced file-valued options; older releases use the script flag.
   const graphOption = ffmpegMajor >= 7 ? "-/filter_complex" : "-filter_complex_script";
-  const pass = (graphFile: string, frames: string[], out: string) => runFfmpeg([
+  const pass = (graphFile: string, frames: string[], out: string, signal?: AbortSignal) => runFfmpeg([
     "-y", "-ss", String(trimStart), "-to", String(trimEnd),
     "-i", join(dir, "screen.webm"),
     "-framerate", String(d.fps), "-i", stageFile,
@@ -384,7 +384,7 @@ export async function renderTake(dir: string, d?: CameraDefaults): Promise<{ out
     "-r", String(d.fps), "-an", ...encodingOptions(d),
     "-color_primaries", "bt709", "-color_trc", "bt709", "-colorspace", "bt709", "-color_range", "tv",
     "-movflags", "+faststart", out,
-  ]);
+  ], signal);
 
   // Keep camera.cmd on failure for straightforward diagnosis and re-rendering.
   const starts = segmentStarts(shutter.counts, renderSegments(shutter.counts.length, d.fps));
@@ -397,17 +397,20 @@ export async function renderTake(dir: string, d?: CameraDefaults): Promise<{ out
   // and join by stream copy. Every filter after the warp is clocked by time and
   // the grain pattern is static, so each segment's frames match the single pass.
   const parts = starts.map((_, k) => join(dir, `render-part${k}.mp4`));
+  // One failed segment must not leave its siblings encoding for hours: aborting
+  // kills every remaining ffmpeg, and the concat join honours the same signal.
+  const cancel = new AbortController();
   const logs = await Promise.all(starts.map(async (start, k) => {
     const graphFile = join(dir, `camera-part${k}.cmd`);
     await writeFile(graphFile, graph(start));
     const end = starts[k + 1];
-    return pass(graphFile, end === undefined ? [] : ["-frames:v", String(end - start)], parts[k]!);
-  }));
+    return pass(graphFile, end === undefined ? [] : ["-frames:v", String(end - start)], parts[k]!, cancel.signal);
+  })).catch(err => { cancel.abort(); throw err; });
   const list = join(dir, "render-parts.txt");
   // Exact durations: the parts' own mp4 durations are rounded and would shift every later frame.
   await writeFile(list, parts.map((part, k) => `file '${part.replace(/'/g, "'\\''")}'\n`
     + `duration ${(((starts[k + 1] ?? shutter.counts.length) - starts[k]!) / d.fps).toFixed(6)}\n`).join(""));
-  logs.push(await runFfmpeg(["-y", "-v", "error", "-f", "concat", "-safe", "0", "-i", list, "-c", "copy", "-movflags", "+faststart", output]));
+  logs.push(await runFfmpeg(["-y", "-v", "error", "-f", "concat", "-safe", "0", "-i", list, "-c", "copy", "-movflags", "+faststart", output], cancel.signal));
   await writeFile(join(dir, "render.log"), [`render segments start at frames ${starts.join(", ")}`, ...logs].join("\n"));
   await Promise.all([list, ...parts, ...parts.map((_, k) => join(dir, `camera-part${k}.cmd`))].map(file => rm(file, { force: true })));
   return { out: output, seconds: duration };
