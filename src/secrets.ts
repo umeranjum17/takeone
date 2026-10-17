@@ -154,28 +154,6 @@ export async function keyStatus(o: KeyOptions = {}): Promise<{ available: boolea
   }
 }
 
-/** Safe presence probe for one apiKey slot: neither migrates nor prints the
- * credential. The detail names the source (OS keyring, sealed file), never
- * the secret itself. */
-export async function plannerKeyStatus(slot: string, o: KeyOptions = {}): Promise<{ available: boolean; detail: string }> {
-  const env = o.env ?? process.env;
-  try {
-    const available = !!(await persistentKeys(o).get(slot));
-    if (!available) return { available, detail: `no ${slot} key; run takeone key set --backend ${slot} (stdin)` };
-    if (noKeyring(env)) {
-      return { available, detail: `planner key available via sealed file ${join(configRoot(o), "takeone", "secrets.json")}` };
-    }
-    const bus = env.DBUS_SESSION_BUS_ADDRESS ?? (env.XDG_RUNTIME_DIR ? `unix:path=${env.XDG_RUNTIME_DIR}/bus` : null);
-    const source = env.TAKEONE_SECRETS_PASSPHRASE_FD
-      ? "OS keyring or sealed file"
-      : `OS keyring (service takeone${bus ? ` via ${bus}` : ""})`;
-    return { available, detail: `planner key available via ${source}` };
-  } catch (error) {
-    const reason = error instanceof Error ? error.message : String(error);
-    return { available: false, detail: `planner store unavailable: ${reason}` };
-  }
-}
-
 /** Read a key from piped stdin only; argv is intentionally never echoed. */
 export async function setPlannerKeyFromStdin(input: AsyncIterable<Uint8Array | string>, slot: string, o: KeyOptions = {}): Promise<void> {
   let key = "";
