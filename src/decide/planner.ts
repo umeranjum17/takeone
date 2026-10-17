@@ -51,8 +51,9 @@ export function plannerConfigPath(o: KeyOptions = {}): string {
 }
 
 /** Stored BYOKit decide config, or the Jev default when the user picked
- * nothing. Throws ConfigError on an invalid file (fix or delete it): the kit
- * accepts account auth this host cannot serve, so only opencode-go may use it. */
+ * nothing. Throws ConfigError or UnsupportedAccountError on an invalid file
+ * (fix or delete it): the kit accepts account auth this host cannot serve,
+ * so only opencode-go may use it. */
 export function loadPlannerConfig(o: KeyOptions = {}): { config: DecideConfig; defaulted: boolean } {
   const path = plannerConfigPath(o);
   if (!existsSync(path)) return { config: { ...DEFAULT_PLANNER_CONFIG }, defaulted: true };

@@ -150,11 +150,12 @@ function usage(code: number): never {
 takeone render <take-dir> [--theme ${themes}] [--set key=value] [--aspect landscape|portrait|square|4:5] [--resolution 4k] [--format mp4|gif|webm|prores4444]
 takeone render <motion-dir> [--aspect landscape|portrait|square|4:5] [--stills <seconds,...>]
 ${MOTION_USAGE}
-takeone key set < stdin
+takeone key set [--backend <name>] [--model <model>] [--via typesafe|openrouter] < stdin
 takeone [list|record|stop|doctor]
 
   make plans beats and camera decisions, then renders an MP4.
   render creates a camera path and MP4 from a planned take.
+  key set --backend <name> stores that provider's key and records the planner choice.
 
   --no-jev        decide every beat with the local heuristic; zero network calls
   --about         optional demo topic; adds the key_moment question
