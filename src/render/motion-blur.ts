@@ -157,8 +157,12 @@ export function motionBlurGraph(frames: CameraFrame[], plan: ReturnType<typeof s
   const endExpr = sampleExpr(ends);
   // Every sample of an exposure shows the same source image, so its prefilter is the exposure's.
   const sampleSigmas = prefilterSigma(sampled, d);
-  let next = 0;
-  const sigmas = counts.map(count => Math.max(...sampleSigmas.slice(next, next += count)));
+  let offset = 0;
+  const sigmas = counts.map(count => {
+    const sigma = Math.max(...sampleSigmas.slice(offset, offset + count));
+    offset += count;
+    return sigma;
+  });
   const { input, warp } = warpGraph(sampled.map((f, i) => ({ ...f, t: i / rate })), width, height,
     { ...d, fps: rate }, start && (first - 0.5) / rate, prefilterFilter(frames, sigmas, d.fps, from));
   // tmix mixes all its slots for every frame it is enabled on, so it runs on the

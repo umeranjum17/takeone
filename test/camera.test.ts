@@ -483,10 +483,30 @@ test("a blurred wide zoom rebuilds the warp only for camera parameters that chan
     await renderTake(dir, FAST);
     assert.ok(JSON.parse(await readFile(join(dir, "motion-blur.json"), "utf8")).blurredFrames > 0, "the shutter path runs");
     const graph = await readFile(join(dir, "camera.cmd"), "utf8");
-    assert.doesNotMatch(graph, /v360 [hv]_fov/, "a wide window zooms with one d_fov command per step");
-    assert.match(graph, /v360 d_fov/, "the camera zooms");
-    const prefilter = graph.indexOf("gblur@prefilter="), duplicate = graph.indexOf("tpad=");
-    assert.ok(prefilter > 0 && prefilter < duplicate, "the prefilter blurs each source image once, before the shutter repeats it");
+    const steps = [...graph.matchAll(/sendcmd=commands='([^']*)'/g)]
+      .flatMap(([, commands]) => commands!.split(";").filter(entry => entry.includes(" v360 ")))
+      .map(entry => {
+        const space = entry.indexOf(" ");
+        const updates = entry.slice(space + 1).split(",").map(update => {
+          const [, key, value] = update.split(" ");
+          return { key: key!, value: value! };
+        });
+        return { time: Number(entry.slice(0, space)), updates };
+      });
+    const keys = steps.flatMap(step => step.updates.map(update => update.key));
+    assert.ok(keys.includes("d_fov") && steps.filter(step => step.updates.some(update => update.key === "d_fov")).length > 1,
+      "the camera zooms in several steps");
+    assert.ok(!keys.includes("h_fov") && !keys.includes("v_fov"), "a wide window zooms with one d_fov command per step");
+    const last = new Map<string, string>();
+    for (const step of steps) {
+      const seen = new Set<string>();
+      for (const { key, value } of step.updates) {
+        assert.ok(!seen.has(key), `one rebuild per parameter per step at ${step.time}s`);
+        seen.add(key);
+        assert.notEqual(last.get(key), value, `${key} is rebuilt only when it changes (${step.time}s)`);
+        last.set(key, value);
+      }
+    }
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

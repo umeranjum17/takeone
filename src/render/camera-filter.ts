@@ -54,26 +54,32 @@ export function prefilterSigma(frames: CameraFrame[], d: CameraDefaults): number
   });
 }
 
+type Timeline<T> = { initial: T; commands: string[] };
+
+// Updates land between frame timestamps so decimal rounding cannot delay a move by one frame.
+function timed<T>(timeline: Timeline<T>, frameTime: number, fps: number, from: number, value: T, command: (at: string) => string): void {
+  const at = Math.max(0, frameTime - 0.5 / fps);
+  if (at < from) timeline.initial = value;
+  else timeline.commands.push(command(at.toFixed(9)));
+}
+
 /** The prefilter blur for one sigma per frame, timed like the camera's v360 updates.
  * It runs once per source image, ahead of the shutter's sample duplication: every
  * sample of an exposure shows the same source image and shares its sigma, so
  * blurring each duplicated sample again only repeated the same work. */
 export function prefilterFilter(frames: CameraFrame[], sigmas: number[], fps: number, from = 0): string {
   let applied = 0;
-  let initial = 0;
-  const commands: string[] = [];
+  const timeline: Timeline<number> = { initial: 0, commands: [] };
   sigmas.forEach((sigma, i) => {
     if (sigma === applied) return;
-    // Same mid-interval timing as the v360 updates. gblur still filters the
-    // whole surface at sigma 0, so switch it off there instead: same pixels.
-    // sigmaV=0 keeps the blur horizontal, as it was when gblur started at
-    // sigma 0 (it latches sigmaV from the initial sigma).
-    const at = Math.max(0, frames[i]!.t - 0.5 / fps);
-    if (at < from) initial = sigma;
-    else commands.push(`${at.toFixed(9)} gblur@prefilter enable ${sigma ? 1 : 0}`);
+    // gblur still filters the whole surface at sigma 0, so switch it off there
+    // instead: same pixels. sigmaV=0 keeps the blur horizontal, as it was when
+    // gblur started at sigma 0 (it latches sigmaV from the initial sigma).
+    timed(timeline, frames[i]!.t, fps, from, sigma, at => `${at} gblur@prefilter enable ${sigma ? 1 : 0}`);
     applied = sigma;
   });
   if (!sigmas.some((s) => s !== 0)) return "";
+  const { initial, commands } = timeline;
   return (commands.length ? `sendcmd=commands='${commands.join(";")};',` : "")
     + `gblur@prefilter=sigma=${PREFILTER_SIGMA}:sigmaV=0:enable=${initial ? 1 : 0},`;
 }
@@ -107,8 +113,7 @@ export function cameraFilter(frames: CameraFrame[], width: number, height: numbe
   const input = fixed ? `ih_fov=${degrees(inX).toFixed(10)}:iv_fov=${degrees(inY).toFixed(10)}` : "ih_fov=90:iv_fov=90";
   let previous = first;
   let applied = Object.fromEntries(Object.entries(parameters(first)).map(([key, value]) => [key, value.toFixed(10)]));
-  let initial = applied;
-  const commands: string[] = [];
+  const timeline: Timeline<Record<string, string>> = { initial: applied, commands: [] };
   for (const f of frames.slice(1)) {
     // Ignore only sub-millipixel spring tails; no whole-pixel camera quantization.
     const error = Math.max(Math.abs(f.x - previous.x),
@@ -120,13 +125,11 @@ export function cameraFilter(frames: CameraFrame[], width: number, height: numbe
     const updates = Object.entries(next).filter(([key, value]) => value !== applied[key])
       .map(([key, value]) => `v360 ${key} ${value}`).join(",");
     if (!updates) continue;
-    // Put updates between frame timestamps so decimal rounding cannot delay a move by one frame.
-    const at = Math.max(0, f.t - 0.5 / d.fps);
-    if (at < from) initial = next;
-    else commands.push(`${at.toFixed(9)} ${updates}`);
+    timed(timeline, f.t, d.fps, from, next, at => `${at} ${updates}`);
     previous = f;
     applied = next;
   }
+  const { initial, commands } = timeline;
   const control = commands.length ? `sendcmd=commands='${commands.join(";")};',` : "";
   const settings = Object.entries(initial).map(([key, value]) => `${key}=${value}`).join(":");
   // Lanczos normalizes its kernel coefficients, preserving flat card colours.
