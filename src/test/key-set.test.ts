@@ -110,7 +110,7 @@ test("key set refuses --model or --via without an explicit --backend", () => {
   }
 });
 
-test("doctor leaves a legacy TYPESAFE env file in place", () => {
+test("doctor reports a legacy TYPESAFE env key as present and leaves the file in place", () => {
   const h = home();
   try {
     const legacyDir = join(h.home, ".config", "takeone");
@@ -118,7 +118,7 @@ test("doctor leaves a legacy TYPESAFE env file in place", () => {
     const legacy = join(legacyDir, "env");
     writeFileSync(legacy, "TYPESAFE_API_KEY=sk-legacy-key\n");
     const r = run(["doctor"], h);
-    assert.match(r.stdout, /ai-planner/);
+    assert.match(r.stdout, /^\s*ai-planner,true,/m);
     assert.equal(readFileSync(legacy, "utf8"), "TYPESAFE_API_KEY=sk-legacy-key\n");
   } finally {
     h.cleanup();

@@ -4,7 +4,7 @@ import { homedir } from "node:os";
 import { existsSync, readFileSync, realpathSync, unlinkSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
-import { setKeyFromStdin, setPlannerKeyFromStdin } from "./secrets.ts";
+import { setKeyFromStdin } from "./secrets.ts";
 import { parseConfig } from "@byokit/decide";
 import { savePlannerConfig, describePlanner } from "./decide/planner.ts";
 import { runCapture } from "./capture.ts";
@@ -351,7 +351,7 @@ async function runKeySet(rest: string[]): Promise<number> {
   }
   try {
     await savePlannerConfig(config);
-    await setPlannerKeyFromStdin(process.stdin, backend);
+    await setKeyFromStdin(process.stdin, backend);
     console.log(`planner key stored through BYOKit (${describePlanner(config)}); make still uses the Jev key or fallback rules until the planner is wired`);
     return 0;
   } catch (e) {
