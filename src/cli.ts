@@ -7,7 +7,7 @@ import { pathToFileURL } from "node:url";
 import { setKeyFromStdin } from "./secrets.ts";
 import { runCapture } from "./capture.ts";
 import { makeTake, PreflightRefusal, TakeInputError } from "./make.ts";
-import { renderTake } from "./render/render.ts";
+import { renderTake, renderThreads } from "./render/render.ts";
 import { THEMES, resolveTheme } from "./themes.ts";
 import { isMotionTake, MOTION_USAGE, runMotion } from "./motion/cli.ts";
 import { renderMotion } from "./motion/motion.ts";
@@ -244,12 +244,13 @@ export async function main(argv: string[]): Promise<number> {
       else {
         const suffix = format === "prores4444" ? "mov" : format;
         const output = rendered.replace(/\.mp4$/, `.${suffix}`);
+        const threads = renderThreads();
         if (format === "gif") {
-          execFileSync("ffmpeg", ["-nostdin", "-y", "-threads", "8", "-i", rendered, "-filter_threads", "8", "-threads", "8", "-vf", "fps=15,scale='min(1080,iw)':'min(1080,ih)':force_original_aspect_ratio=decrease:flags=lanczos,split[s0][s1];[s0]palettegen[p];[s1][p]paletteuse", output], { stdio: ["ignore", "ignore", "inherit"] });
+          execFileSync("ffmpeg", ["-nostdin", "-y", "-threads", threads, "-i", rendered, "-filter_threads", threads, "-threads", threads, "-vf", "fps=15,scale='min(1080,iw)':'min(1080,ih)':force_original_aspect_ratio=decrease:flags=lanczos,split[s0][s1];[s0]palettegen[p];[s1][p]paletteuse", output], { stdio: ["ignore", "ignore", "inherit"] });
         } else if (format === "webm") {
-          execFileSync("ffmpeg", ["-nostdin", "-y", "-threads", "8", "-i", rendered, "-threads", "8", "-c:v", "libvpx-vp9", "-b:v", "0", "-crf", "32", "-color_primaries", "bt709", "-color_trc", "bt709", "-colorspace", "bt709", "-color_range", "tv", output], { stdio: ["ignore", "ignore", "inherit"] });
+          execFileSync("ffmpeg", ["-nostdin", "-y", "-threads", threads, "-i", rendered, "-threads", threads, "-c:v", "libvpx-vp9", "-b:v", "0", "-crf", "32", "-color_primaries", "bt709", "-color_trc", "bt709", "-colorspace", "bt709", "-color_range", "tv", output], { stdio: ["ignore", "ignore", "inherit"] });
         } else {
-          execFileSync("ffmpeg", ["-nostdin", "-y", "-threads", "8", "-i", rendered, "-threads", "8", "-c:v", "prores_ks", "-profile:v", "4", "-pix_fmt", "yuva444p10le", output], { stdio: ["ignore", "ignore", "inherit"] });
+          execFileSync("ffmpeg", ["-nostdin", "-y", "-threads", threads, "-i", rendered, "-threads", threads, "-c:v", "prores_ks", "-profile:v", "4", "-pix_fmt", "yuva444p10le", output], { stdio: ["ignore", "ignore", "inherit"] });
         }
         console.log(output);
       }
