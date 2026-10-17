@@ -180,9 +180,10 @@ export function buildQuestions(state: JevRequest["state"], askKeyMoment: boolean
   return q;
 }
 
-/** Mirror of @byokit/decide@0.6.0's internal wire(): Question -> planner JSON.
+/** Mirror of @byokit/decide@0.9.2's internal wire(): Question -> planner JSON.
  *  buildRequest bodies must stay byte-identical to what decide's jev backend
- *  sends; test/jev.test.ts asserts that equality against a fake transport. */
+ *  sends; nothing in this repo asserts that equality, so re-check it by hand
+ *  whenever buildQuestions/toWire or the kit version changes. */
 function toWire(questions: Record<string, Question>): Record<string, unknown> {
   return Object.fromEntries(
     Object.entries(questions).map(([k, q]) => {
@@ -225,7 +226,7 @@ export function buildState(beat: Beat, ctx: RequestCtx): JevRequest["state"] {
 
 /** Build the exact request body for one beat (compact JSON), capped at 1,200 estimated tokens.
  *  `state`/`questions` are also returned for decide(): the body must stay
- *  byte-identical to what decide's jev backend sends for them. */
+ *  byte-identical to what decide's jev backend (0.9.2) sends for them. */
 export function buildRequest(
   beat: Beat,
   ctx: RequestCtx,
