@@ -415,13 +415,14 @@ export async function renderTake(dir: string, d?: CameraDefaults): Promise<{ out
 
 /** Parallel render segments: TAKEONE_RENDER_SEGMENTS when set, else one per four
  * cores (a single render keeps about four busy) and per 5 GiB of available
- * memory, at most four, and none shorter than two seconds. */
+ * memory, at most four, averaging at least two seconds each. */
+let memorySegments: number | undefined;
 function renderSegments(frames: number, fps: number): number {
   const fixed = process.env.TAKEONE_RENDER_SEGMENTS;
   if (fixed !== undefined && !/^[1-9]\d*$/.test(fixed)) throw new Error(`TAKEONE_RENDER_SEGMENTS must be a positive integer, got "${fixed}"`);
   // ponytail: flat 5 GiB per segment (a 9:16 single pass peaked near it); scale by stage size if it holds back smaller films.
-  const memory = Math.floor(process.availableMemory() / 2 ** 30 / 5);
-  const wanted = fixed ? Number(fixed) : Math.min(4, Math.floor(availableParallelism() / 4), memory);
+  memorySegments ??= Math.floor(process.availableMemory() / 2 ** 30 / 5);
+  const wanted = fixed ? Number(fixed) : Math.min(4, Math.floor(availableParallelism() / 4), memorySegments);
   return Math.max(1, Math.min(wanted, Math.floor(frames / (2 * fps))));
 }
 

@@ -424,7 +424,7 @@ test("synthetic source renders silent H.264 at the configured size and 60fps", {
   }
 });
 
-test("a render split into parallel segments matches the single pass", { timeout: 300_000 }, async () => {
+test("a render split into parallel segments matches the single pass", { timeout: 300_000, skip: needsFfmpeg }, async () => {
   const dir = await mkdtemp(join(process.cwd(), "takeone:segments-"));
   const previous = process.env["TAKEONE_RENDER_SEGMENTS"];
   try {
