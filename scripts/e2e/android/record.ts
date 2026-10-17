@@ -21,6 +21,10 @@ const input = block?.match(/add device \d+: (\S+)/)?.[1];
 const maxX = Number(block?.match(/ABS_MT_POSITION_X[^\n]*max (\d+)/)?.[1]);
 const maxY = Number(block?.match(/ABS_MT_POSITION_Y[^\n]*max (\d+)/)?.[1]);
 if (!input || !maxX || !maxY) throw new Error("no emulator primary touch screen");
+// A fresh device shows a "Viewing full screen" sheet over the app until "Got it" is tapped; it eats taps.
+// Set the setting before the first launch and refuse to record unless it reads back as confirmed.
+adb("shell", "settings", "put", "secure", "immersive_mode_confirmations", "confirmed");
+if (adb("shell", "settings", "get", "secure", "immersive_mode_confirmations").trim() !== "confirmed") throw new Error("immersive_mode_confirmations did not read back as confirmed");
 adb("shell", "am", "force-stop", "design.takeone.tidewater");
 adb("shell", "am", "start", "-n", "design.takeone.tidewater/.TidewaterActivity");
 // Slow emulator boots must not become a blank opening in the recorded demo.
