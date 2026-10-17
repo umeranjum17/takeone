@@ -85,7 +85,7 @@ Isolated installs (CI, throwaway test HOMEs) can set `TAKEONE_NO_KEYRING=1` so t
 - **Titles and captions.** In 16:9 videos they sit in a band below the screen, never over your app ([how](docs/look.md)).
 - **Paces itself.** Idle stretches play faster, typing can too, and spotlight and blur boxes follow the content.
 - **Private and cheap.** Works fully offline with `--no-jev`. The optional Jev AI planner gets short descriptions of what changed and cost about $0.0006 per minute of video in a [measured take](docs/cost.md).
-- **Exports what you need.** MP4 by default, plus GIF, WebM and ProRes 4444, landscape, portrait or square.
+- **Exports what you need.** MP4 by default, plus GIF, WebM and ProRes 4444, in landscape, portrait, square or 4:5.
 - **Motion films from screens.** `takeone motion` turns screenshots, HTML or a URL into a short film.
 
 ## Learn more
