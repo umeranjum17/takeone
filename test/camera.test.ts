@@ -465,6 +465,33 @@ test("a render split into parallel segments matches the single pass", { timeout:
   }
 });
 
+// Every v360 command rebuilds the camera warp's whole remap table, and a fast move sends one per
+// shutter sample. The even-rounded stage of a 4:3 take is not exactly 16:9, so its wide window must
+// keep the export aspect (one d_fov per zoom step, not h_fov plus v_fov), and the prefilter must blur
+// each source image once, ahead of the samples that repeat it.
+test("a blurred wide zoom rebuilds the warp only for camera parameters that change", { timeout: 120_000 }, async () => {
+  if (!hasFfmpeg()) throw new Error("requires system ffmpeg and ffprobe on PATH");
+  const dir = await mkdtemp(join(process.cwd(), "takeone:rebuilds-"));
+  try {
+    await mkdir(join(dir, "analysis"));
+    execFileSync("ffmpeg", ["-v", "error", "-f", "lavfi", "-i", "testsrc2=s=800x600:r=30:d=4",
+      "-c:v", "mpeg4", "-q:v", "2", "-f", "matroska", "-y", join(dir, "screen.webm")]);
+    await writeFile(join(dir, "take.json"), JSON.stringify({ id: "rebuilds", width: 800, height: 600, trim_start: 0, trim_end: 4,
+      zooms: [{ t0: 1.5, t1: 3, bbox: [100, 100, 320, 180], level: 3 }] }));
+    await writeFile(join(dir, "analysis/beats.json"), "[]");
+    await writeFile(join(dir, "analysis/decisions.jsonl"), "");
+    await renderTake(dir, FAST);
+    assert.ok(JSON.parse(await readFile(join(dir, "motion-blur.json"), "utf8")).blurredFrames > 0, "the shutter path runs");
+    const graph = await readFile(join(dir, "camera.cmd"), "utf8");
+    assert.match(graph, /v360 d_fov/, "the camera zooms");
+    assert.doesNotMatch(graph, /v360 [hv]_fov/, "a wide window zooms with one d_fov command per step");
+    const prefilter = graph.indexOf("gblur@prefilter="), duplicate = graph.indexOf("tpad=");
+    assert.ok(prefilter > 0 && prefilter < duplicate, "the prefilter blurs each source image once, before the shutter repeats it");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("master blur preserves full-resolution chroma through production rendering", { skip: needsFfmpeg }, async () => {
   const dir = await mkdtemp(join(process.cwd(), "takeone-chroma-"));
   try {
