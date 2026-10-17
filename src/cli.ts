@@ -182,8 +182,8 @@ export async function main(argv: string[]): Promise<number> {
       await setKeyFromStdin(process.stdin);
       console.log("Jev key stored through BYOKit");
       return 0;
-    } catch {
-      console.error("could not store Jev key; check stdin, the OS keyring or TAKEONE_SECRETS_PASSPHRASE_FD for the BYOKit sealed store");
+    } catch (e) {
+      console.error(`could not store Jev key; check stdin, the OS keyring or TAKEONE_SECRETS_PASSPHRASE_FD for the BYOKit sealed store (${e instanceof Error ? e.message : e})`);
       return 1;
     }
   }
@@ -349,8 +349,8 @@ async function runKeySet(rest: string[]): Promise<number> {
     await setPlannerKeyFromStdin(process.stdin, backend);
     console.log(`planner key stored through BYOKit (${describePlanner(config)})`);
     return 0;
-  } catch {
-    console.error("could not store planner key; check stdin, the OS keyring or TAKEONE_SECRETS_PASSPHRASE_FD for the BYOKit sealed store");
+  } catch (e) {
+    console.error(`could not store planner key; check stdin, the OS keyring or TAKEONE_SECRETS_PASSPHRASE_FD for the BYOKit sealed store (${e instanceof Error ? e.message : e})`);
     return 1;
   }
 }
