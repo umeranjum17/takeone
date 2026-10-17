@@ -24,7 +24,7 @@ On a shared machine, every encode (`make`, `render`, `motion`, `scripts/synth-ta
 One check before driving, or whenever anything looks off:
 
 ```sh
-export TAKEONE_DIR="$PWD/tmp/verify-takes" TAKEONE_STATE_DIR="$PWD/tmp/verify-state"   # first: doctor creates the configured roots if missing
+export TAKEONE_DIR="$PWD/tmp/verify-takes" TAKEONE_STATE_DIR="$PWD/tmp/verify-state" TAKEONE_NO_KEYRING=1 XDG_CONFIG_HOME="$PWD/tmp/verify-config"   # first: doctor creates the configured roots if missing
 node bin/takeone.mjs doctor
 ```
 
@@ -38,6 +38,7 @@ Isolation rules for every drive:
 
 - Point takes at scratch: `export TAKEONE_DIR="$PWD/tmp/verify-takes"` (default is the user's real `~/Videos/takeone`; never write there, and treat `takeone` bare-list output as the user's private data — do not read or share it).
 - For record/stop drives also `export TAKEONE_STATE_DIR="$PWD/tmp/verify-state"` (default `~/.local/state/takeone`).
+- Keep the planner key store at scratch: `export TAKEONE_NO_KEYRING=1 XDG_CONFIG_HOME="$PWD/tmp/verify-config"`. Without both, `make` and `doctor` read the user's real OS keyring and `~/.config/takeone`, and a planned `make` spends real tokens on the user's key.
 - Pass take directories as absolute paths so `make`/`render` never resolve through the real takes root.
 - Never run `record` against a personal/shared desktop session; recording is for dedicated empty workspaces or test fixtures (see docs/verification/record-a-take.md). Never run `stop` unless this run owns the recording (it SIGINTs the pid in the state dir).
 
