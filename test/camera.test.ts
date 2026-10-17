@@ -424,7 +424,10 @@ test("synthetic source renders silent H.264 at the configured size and 60fps", {
   }
 });
 
-test("a render split into parallel segments matches the single pass", { timeout: 300_000, skip: needsFfmpeg }, async () => {
+test("a render split into parallel segments matches the single pass", { timeout: 300_000 }, async () => {
+  // New tests cannot declare the needsFfmpeg skip (the floor guard blocks
+  // new skips), so the prerequisite fails loudly here instead of with ENOENT.
+  if (!hasFfmpeg()) throw new Error("requires system ffmpeg and ffprobe on PATH");
   const dir = await mkdtemp(join(process.cwd(), "takeone:segments-"));
   const previous = process.env["TAKEONE_RENDER_SEGMENTS"];
   try {
