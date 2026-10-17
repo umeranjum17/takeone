@@ -28,5 +28,5 @@ Proving end state: exit codes are 0; `out/synth-demo.mp4` exists and is a real v
 
 - `synth-take.ts` needs one of its bundled font candidates present (Liberation/DejaVu/Adwaita on Linux) — it fails loudly otherwise; that is a real environment gap, not a bug to patch around.
 - The take id is always `synth-demo` (from `take.json`), regardless of the directory name; the render lands in `out/synth-demo.mp4`.
-- Both the synth draw and the encode are heavy ffmpeg work — hold the shared heavy lock in fleet contexts.
+- Both the synth draw and the encode are heavy ffmpeg work — run heavy jobs one at a time on a shared machine.
 - Re-running `make` overwrites `analysis/`, `camera.json`, `camera.cmd` and `out/synth-demo.mp4` in place; copy the take first if you need the previous render for a before/after.

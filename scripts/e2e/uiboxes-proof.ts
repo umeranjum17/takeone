@@ -11,7 +11,7 @@ import { clippedFractions } from "../../src/camera/solver.ts";
 import type { CameraFrame } from "../../src/camera/types.ts";
 import type { BBox, FrameRegions } from "../../src/types.ts";
 
-const evidence = resolve("tmp/evidence/t1-uiboxes");
+const evidence = resolve("tmp/evidence/uiboxes");
 const dir = resolve("tmp/uiboxes-proof");
 const ffmpeg = (args: string[]) => execFileSync("ffmpeg", ["-nostdin", "-v", "error", "-y", ...args], { stdio: "inherit" });
 const clicks: number[][] = JSON.parse(readFileSync(join(dir, "proof-clicks.json"), "utf8"));

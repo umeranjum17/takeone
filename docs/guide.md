@@ -121,9 +121,9 @@ cp "$take_path/out/$take_id.mp4" tmp/android-renders/wide.mp4
 ```
 
 Committed real-device evidence for this flow is in
-[`docs/evidence/t1-pm-7/`](evidence/t1-pm-7/), with capture provenance,
+[`docs/evidence/android-recording/`](evidence/android-recording/), with capture provenance,
 render commands, dimensions and SHA-256 hashes in its
-[`manifest.json`](evidence/t1-pm-7/manifest.json). It includes the raw
+[`manifest.json`](evidence/android-recording/manifest.json). It includes the raw
 Tidewater recording, portrait and wide renders, a contact sheet
 for each render, and a side-by-side comparison of the first ten seconds.
 The recording was made on a dedicated API 35 emulator using the offline

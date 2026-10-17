@@ -77,4 +77,4 @@ longer there than the pure type_speed render.
 - Motion takes (feature 5) reject `--theme`/`--set`: they rerender from their `storyboard.json` only; edit that file instead.
 - `--set quality=master` encodes yuv444p and needs a High 4:4:4-capable player; `draft`/`standard` stay compatible yuv420p. Use standard defaults for evidence captures.
 - Zoom never upscales past `max_upscale` (default 1.0); a rerender that "looks less zoomed" at higher output size is honoring that, not regressing.
-- The encode is heavy ffmpeg work — hold the shared heavy lock in fleet contexts.
+- The encode is heavy ffmpeg work — run heavy jobs one at a time on a shared machine.

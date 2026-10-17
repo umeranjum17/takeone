@@ -6,7 +6,7 @@ import { blurPlan } from "../src/motion/blur.ts";
 import { writePage } from "../src/motion/motion.ts";
 import { renderFrames } from "../src/motion/render.ts";
 import { validateStoryboard } from "../src/motion/storyboard.ts";
-const dir=resolve("tmp/motion-blur-proof"),root=resolve("tmp/evidence/t1-l8");mkdirSync(dir,{recursive:true});mkdirSync(root,{recursive:true});
+const dir=resolve("tmp/motion-blur-proof"),root=resolve("tmp/evidence/motion");mkdirSync(dir,{recursive:true});mkdirSync(root,{recursive:true});
 const sb=validateStoryboard({version:1,id:"blur",source:{kind:"image"},screens:{S1:{file:resolve("resources/demo/tidewater-board.png"),width:2560,height:1440}},theme:{name:"editorial"},output:{workers:8,preset:"fast"},scenes:[{pattern:"hero-reveal",d:6,screen:"S1",title:"Keep work moving",device:"browser"}]});
 const {html}=writePage(dir,sb);
 const extra=`const original=window.setup;window.setup=async()=>{await original();const chip=FRAGMENTS.chip({text:'High priority'});chip.dataset.moves='';chip.style.cssText+=';position:absolute;left:680px;top:240px;z-index:100';$('#stage').append(chip);TICKS.push(ms=>{const p=Math.max(0,Math.min(1,(ms-2500)/100));chip.style.transform='translateX('+(420*p)+'px)';});};`;

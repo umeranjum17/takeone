@@ -5,7 +5,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { compare, widestRun } from "./quality.ts";
 import { motionEdgePosition } from "./motion-edge.ts";
 import { join, resolve } from "node:path";
-const root=resolve("tmp/evidence/t1-l8");
+const root=resolve("tmp/evidence/motion");
 const reports: Record<string,unknown>={};
 const failures:string[]=[];
 const regressions:Record<string,unknown>={};

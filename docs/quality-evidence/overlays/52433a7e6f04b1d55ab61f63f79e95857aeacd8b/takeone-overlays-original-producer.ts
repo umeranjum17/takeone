@@ -5,7 +5,7 @@ import {renderTake} from '../src/render/render.ts';
 import {renderTake as beforeRender} from './before-src/render/render.ts';
 import {DEFAULTS} from '../src/camera/defaults.ts';
 import {keycapAss,keycapMaskAss,keycapBackdropGraph} from '../src/render/overlays.ts';
-const evidence=resolve('tmp/evidence/t1-pm-12');await mkdir(evidence,{recursive:true});
+const evidence=resolve('tmp/evidence/overlays');await mkdir(evidence,{recursive:true});
 const log=await readFile('tmp/overlay-take/events.txt','utf8');
 const encoded=log.match(/^result: (.*)$/m)![1]!;
 const events=JSON.parse(JSON.parse(encoded));

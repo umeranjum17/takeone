@@ -17,7 +17,7 @@ node bin/takeone.mjs --help   # readiness: exits 0 and prints the usage block
 
 For the required Node version, see [Download / Install](../guide.md#download--install); check the installed version with `node --version`. Prerequisites: `ffmpeg` and `ffprobe` on PATH. Optional: `tesseract` (only for `--screen-text` OCR), Hyprland/Wayland (only for desktop recording). Planning and rendering an existing take need none of the capture prerequisites.
 
-In fleet/shared-machine contexts, every encode (`make`, `render`, `motion`, `scripts/synth-take.ts`) is heavy work: hold the assigned heavy render lock for the whole proof budget (normally this host's `<firstmate-home>/state/takeone-heavy.lock`). A reserved release slot requires explicit coordinator assignment; do not pick another lock opportunistically. Limit the stock CLI to eight allowed CPUs with `taskset -c <eight-allowed-CPU-IDs>` when needed; inspect current affinity first, never patch the renderer to get a slot.
+On a shared machine, every encode (`make`, `render`, `motion`, `scripts/synth-take.ts`) is heavy work: agree on one heavy-render lock for the machine and hold it for the whole proof budget instead of picking a per-command lock. Limit the stock CLI to your allowed CPUs with `taskset -c <allowed-CPU-IDs>` when needed; inspect current affinity first, never patch the renderer to get a slot.
 
 ## Doctor
 
@@ -72,7 +72,7 @@ for the Floor command, exit meanings and test-diet exception.
 published `test.instructions`, trusted-default-branch-only: pre-merge agent
 consumption is unproven until a stock validator actually receives that runbook.
 
-Proof artifacts live in a named folder inside the checkout, `tmp/evidence/done-done-<YYYYMMDD-HHMMSS>/`, and must survive cleanup; a user-visible change adds the dark/light, phone/desktop and per-interaction motion passes of "Review evidence (fleet standard)" below. This ignored folder keeps evidence outside the committed code branch. Per proof capture:
+Proof artifacts live in a named folder inside the checkout, `tmp/evidence/done-done-<YYYYMMDD-HHMMSS>/`, and must survive cleanup; a user-visible change adds the dark/light, phone/desktop and per-interaction motion passes of the review-evidence checklist below. This ignored folder keeps evidence outside the committed code branch. Per proof capture:
 
 - The command lines run and their exit codes.
 - The real output files the command produced: copy the rendered `out/<id>.mp4` into the evidence folder, plus a still extracted from it —
@@ -83,7 +83,7 @@ Proof artifacts live in a named folder inside the checkout, `tmp/evidence/done-d
 
 Standards: exercise the real user path (published CLI flags only — no internal setters, no test-only endpoints, no importing `dist/` internals as a library); capture the action and the resulting state, not just the final screen; verify side effects are files inside the take directory. `--no-jev` is a true offline mode (zero network calls); with a stored key `make` performs real paid calls — verification drives use `--no-jev` unless the point of the proof is the planner itself. A successful encode proves the pipeline and framing decisions ran; it does not qualify camera quality — visual quality claims need human review of the actual media. Label rendered defects `UNQUALIFIED`; missing prerequisites and incomplete validator/product proof must be reported as failure or inconclusive, never as release qualification.
 
-## Review evidence (fleet standard)
+## Review evidence
 
 Every user-visible change ships proof for all four kinds below in the same run's
 `tmp/evidence/done-done-<YYYYMMDD-HHMMSS>/` folder. takeone is a CLI with no

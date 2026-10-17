@@ -13,7 +13,7 @@ import { allTimelines } from "../src/motion/layout.ts";
 import { motionTokens } from "../src/motion/theme.ts";
 import { cameraMetrics } from "./quality.ts";
 
-const root=resolve("tmp/evidence/t1-l8"),work=resolve("tmp/motion-proof");mkdirSync(root,{recursive:true});mkdirSync(work,{recursive:true});
+const root=resolve("tmp/evidence/motion"),work=resolve("tmp/motion-proof");mkdirSync(root,{recursive:true});mkdirSync(work,{recursive:true});
 const states={S1:[],S2:[["click","#newTask"],["type","#title","Draft launch announcement"],["click","#prio"],["click","#menu > :nth-child(3)"]],S3:[["click","#create"],["wait",300]],S4:[["drag","#lane0 > .card:first-child","#lane1",{capture_at:.6}]],S5:[["drop"]],S6:[["click","#more"],["click","#moreMenu > :nth-child(2)"],["wait",900]]};
 const raw={version:1,id:"proof",source:{kind:"html",file:resolve("scripts/e2e/scene.html"),viewport:[2560,1440],states},theme:{name:"editorial"},output:{workers:8,preset:"fast",motion_blur:1},scenes:[{pattern:"hero-reveal",d:6,title:"Make it move",screen:"S1"}],regions:[]};
 const sb=validateStoryboard(raw);

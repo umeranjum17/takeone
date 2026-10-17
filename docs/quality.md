@@ -166,11 +166,3 @@ and the framing checker fails the drag rather than treating cursor or partial
 region coverage as proof of whole-object visibility. The handoff to
 the following action retains that context, including when a shot is omitted
 by the camera's movement budget.
-
-The t1-pm-4 candidate evidence package is in
-[`quality-evidence/t1-pm-4`](quality-evidence/t1-pm-4/README.md). It preserves
-historical Acme sheets, main and renderer-bound camera paths, real Tidewater
-renders and drag strips, per-beat results, and source/output hashes. Those
-results are bound to their recorded renderer commits and do not establish
-acceptance for the rebased candidate. See that package's README for the
-authoritative current-candidate status and validation handoff.

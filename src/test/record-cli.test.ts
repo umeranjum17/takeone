@@ -53,7 +53,7 @@ test("record writes a complete take (pid file, events, take.json) and stops on S
   await chmod(wrapper, 0o755);
 
   const child = spawn(process.execPath, [join(here, "../cli.js"), "record", "--root", root, "--state-dir", stateDir], {
-    env: { ...process.env, MUXR_DESKLINK_ENGINE: wrapper, HYPRLAND_INSTANCE_SIGNATURE: "unreachable", XDG_RUNTIME_DIR: base },
+    env: { ...process.env, DESKLINK_ENGINE: wrapper, HYPRLAND_INSTANCE_SIGNATURE: "unreachable", XDG_RUNTIME_DIR: base },
     stdio: ["ignore", "pipe", "pipe"],
   });
   const stderr: string[] = [];
@@ -97,7 +97,7 @@ test("record writes a complete take (pid file, events, take.json) and stops on S
   assert.equal(pidJson.take, takeDir);
   assert.ok(/^\d+$/.test(pidJson.start_ticks));
   const rival = spawn(process.execPath, [join(here, "../cli.js"), "record", "--root", root, "--state-dir", stateDir], {
-    env: { ...process.env, MUXR_DESKLINK_ENGINE: wrapper }, stdio: ["ignore", "pipe", "pipe"],
+    env: { ...process.env, DESKLINK_ENGINE: wrapper }, stdio: ["ignore", "pipe", "pipe"],
   });
   let rivalError = "";
   rival.stderr.on("data", (chunk: Buffer) => { rivalError += chunk.toString(); });
@@ -170,7 +170,7 @@ test("record writes a complete take (pid file, events, take.json) and stops on S
 
   await writeFile(pidFile, JSON.stringify({ pid: 2147470000, take: takeDir }));
   const stale = spawn(process.execPath, [join(here, "../cli.js"), "record", "--root", root, "--state-dir", stateDir], {
-    env: { ...process.env, MUXR_DESKLINK_ENGINE: wrapper }, stdio: ["ignore", "pipe", "pipe"],
+    env: { ...process.env, DESKLINK_ENGINE: wrapper }, stdio: ["ignore", "pipe", "pipe"],
   });
   let staleError = "";
   stale.stderr.on("data", (chunk: Buffer) => { staleError += chunk.toString(); });
@@ -196,7 +196,7 @@ test("stop at PID publication leaves neither input events nor an incomplete take
   await writeFile(wrapper, `#!/bin/sh\nexec "${process.execPath}" "${join(here, "fake-engine.js")}" serve\n`);
   await chmod(wrapper, 0o755);
   const child = spawn(process.execPath, [join(here, "../cli.js"), "record", "--root", root, "--state-dir", stateDir], {
-    env: { ...process.env, MUXR_DESKLINK_ENGINE: wrapper, FAKE_HANG_OPEN: "1" }, stdio: ["ignore", "pipe", "pipe"],
+    env: { ...process.env, DESKLINK_ENGINE: wrapper, FAKE_HANG_OPEN: "1" }, stdio: ["ignore", "pipe", "pipe"],
   });
   let stderr = "";
   child.stderr.on("data", (chunk: Buffer) => { stderr += chunk.toString(); });
@@ -237,7 +237,7 @@ test("a metadata failure preserves captured video", { timeout: 30_000 }, async (
   await writeFile(wrapper, `#!/bin/sh\nexec "${process.execPath}" "${join(here, "fake-engine.js")}" serve\n`);
   await chmod(wrapper, 0o755);
   const child = spawn(process.execPath, [join(here, "../cli.js"), "record", "--root", root, "--state-dir", stateDir], {
-    env: { ...process.env, MUXR_DESKLINK_ENGINE: wrapper, HYPRLAND_INSTANCE_SIGNATURE: "unreachable", XDG_RUNTIME_DIR: base },
+    env: { ...process.env, DESKLINK_ENGINE: wrapper, HYPRLAND_INSTANCE_SIGNATURE: "unreachable", XDG_RUNTIME_DIR: base },
     stdio: ["ignore", "pipe", "pipe"],
   });
   try {
@@ -289,7 +289,7 @@ test("stop during monitor setup does not publish an unusable take", { timeout: 2
   });
   await new Promise<void>((resolve) => server.listen(join(socketDir, ".socket.sock"), resolve));
   const child = spawn(process.execPath, [join(here, "../cli.js"), "record", "--root", root, "--state-dir", stateDir], {
-    env: { ...process.env, MUXR_DESKLINK_ENGINE: wrapper, XDG_RUNTIME_DIR: base, HYPRLAND_INSTANCE_SIGNATURE: "test" },
+    env: { ...process.env, DESKLINK_ENGINE: wrapper, XDG_RUNTIME_DIR: base, HYPRLAND_INSTANCE_SIGNATURE: "test" },
     stdio: ["ignore", "pipe", "pipe"],
   });
   let stderr = "";
