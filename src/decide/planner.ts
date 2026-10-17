@@ -51,11 +51,17 @@ export function plannerConfigPath(o: KeyOptions = {}): string {
 }
 
 /** Stored BYOKit decide config, or the Jev default when the user picked
- * nothing. Throws ConfigError on an invalid file (fix or delete it). */
+ * nothing. Throws ConfigError on an invalid file (fix or delete it): the kit
+ * accepts account auth this host cannot serve, so only opencode-go may use it. */
 export function loadPlannerConfig(o: KeyOptions = {}): { config: DecideConfig; defaulted: boolean } {
   const path = plannerConfigPath(o);
   if (!existsSync(path)) return { config: { ...DEFAULT_PLANNER_CONFIG }, defaulted: true };
-  return { config: parseConfig(readFileSync(path, "utf8")), defaulted: false };
+  const config = parseConfig(readFileSync(path, "utf8"));
+  const c = config as { backend: string; auth: string };
+  if (c.auth === "account" && c.backend !== "opencode-go") {
+    throw new ConfigError(`account authentication is only supported for opencode-go, not ${c.backend}`);
+  }
+  return { config, defaulted: false };
 }
 
 /** Record the user's provider choice. The config is validated by parseConfig,
