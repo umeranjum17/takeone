@@ -324,7 +324,8 @@ function snapHairline(state: CameraState, width: number, height: number, d: Came
   if (clean(first)) return { ...state, z: first };
   const second = first === down ? up : down;
   if (clean(second)) return { ...state, z: second };
-  for (let z = up; z >= 1; z -= (top - 1) / 200) if (clean(z)) return { ...state, z };
+  // No zoom headroom (top 1, e.g. a 1080p source in a 4:5 crop): a zero step would never end.
+  for (let z = up, step = (top - 1) / 200 || 1; z >= 1; z -= step) if (clean(z)) return { ...state, z };
   return { ...state, z: 1 };
 }
 

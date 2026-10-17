@@ -938,3 +938,23 @@ test("a held framing moved off a hairline matte still passes the cut guard", () 
   assert.ok(!band(view.w), `emitted hold rests on a hairline matte (${view.w.toFixed(1)} px wide)`);
   assert.equal(cutCount(mask(view)), 0, `emitted hold cuts the guard's own text at ${JSON.stringify(view)}`);
 });
+
+test("a crop with no zoom headroom and no clean edge settles instead of hanging", () => {
+  // A 1080p source in a 4:5 export cannot zoom (zMax 1) and here every edge cuts text.
+  // Run in a child: on a hang, a synchronous loop would block this runner's own timeout.
+  const child = spawnSync(process.execPath, ["--input-type=module", "-e", `
+    import { DEFAULTS } from ${JSON.stringify(new URL("../src/camera/defaults.ts", import.meta.url).href)};
+    import { frame, zMax } from ${JSON.stringify(new URL("../src/camera/solver.ts", import.meta.url).href)};
+    import { sourceViewport, stageGeometry } from ${JSON.stringify(new URL("../src/render/stage.ts", import.meta.url).href)};
+    const d = { ...DEFAULTS, out_w: 1080, out_h: 1350 };
+    const stage = stageGeometry(1920, 1080, d);
+    const project = (f) => sourceViewport(f, 1920, 1080, stage, d);
+    const z = { name: "save", type: "act", bbox: [800, 500, 200, 80] };
+    console.log(JSON.stringify({ top: zMax(1920, 1080, d), state: frame(z, 2, 1920, 1080, undefined, d, project, () => 1) }));
+  `], { encoding: "utf8", timeout: 30_000 });
+  assert.equal(child.signal, null, "frame() did not return within 30 s");
+  assert.equal(child.status, 0, child.stderr);
+  const { top, state } = JSON.parse(child.stdout);
+  assert.equal(top, 1);
+  assert.equal(state.z, 1);
+});
