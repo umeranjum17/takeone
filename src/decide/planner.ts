@@ -1,10 +1,11 @@
 // Provider-agnostic AI planner over @byokit/decide: the decider is whatever
 // model the user picked through a stored BYOKit decide config
 // (`parseConfig` / `createDecider` shape: backend, auth, model, via).
-// Jev is only the default when the user picked nothing; no code path below
-// branches on a provider name, and the provider is never switched
-// automatically: limits, auth errors and timeouts stop with
-// PlannerUnavailable instead of silently falling back.
+// Jev is only the default when the user picked nothing. Provider names appear
+// only in DEFAULT_PLANNER_CONFIG, modelOf (jev's default model),
+// loadPlannerConfig and askBeat (opencode-go is the only account-auth backend). The
+// provider is never switched automatically: limits, auth errors and timeouts
+// stop with PlannerUnavailable instead of silently falling back.
 //
 // Answer validation stays takeone's own mapping (mapAnswers). Kit-level
 // abstention (malformed answers) and transport failures fall back per beat, as
