@@ -33,7 +33,7 @@ const NEEDED_BY: Record<string, string> = {
   evdev: "linux-desktop",
   xcrun: "ios-simulator",
   "motion-shell": "motion",
-  "jev-key": "planner",
+  "ai-planner": "planner",
 };
 
 export function neededBy(check: string): string {
