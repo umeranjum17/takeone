@@ -152,7 +152,7 @@ takeone make "$take_path" --no-jev --set idle_speed=1 --set out_w=1920 --set out
 cp "$take_path/out/$take_id.mp4" tmp/android-renders/wide.mp4
 ```
 
-The film compresses idle time, so it is usually shorter than the take it came from (the Tidewater take runs about 20 s and its film about 15 s).
+The film starts after a leading trim of the raw take (about 2 s, `source_trim_start_seconds` in the evidence manifest), so it is shorter than the take it came from: the Tidewater take runs about 19.8 s and its film about 17.7 s.
 
 Committed real-device evidence for this flow is in
 [`docs/evidence/android-recording/`](evidence/android-recording/), with capture provenance,
