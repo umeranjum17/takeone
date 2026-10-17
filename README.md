@@ -86,7 +86,7 @@ Isolated installs (CI, throwaway test HOMEs) can set `TAKEONE_NO_KEYRING=1` so t
 - **Looks finished out of the box.** A rounded screen card on a stage, in six themes from dark `midnight` to cream `paper`.
 - **Titles and captions.** In 16:9 videos they sit in a band below the screen, never over your app ([how](docs/look.md)).
 - **Paces itself.** Idle stretches play faster, typing can too, and spotlight and blur boxes follow the content.
-- **Private and cheap.** Works fully offline with `--no-jev`. The optional AI planner gets short descriptions of what changed and cost about $0.0006 per minute of video in a [measured take](docs/cost.md). The planner choice is provider-neutral: `takeone key set --backend <name> --model <model> [--via typesafe|openrouter]` stores your key and records the choice in `planner.json` (Jev is the default when nothing is picked; takeone never switches providers automatically).
+- **Private and cheap.** Works fully offline with `--no-jev`. The optional AI planner gets short descriptions of what changed and cost about $0.0006 per minute of video in a [measured take](docs/cost.md). The planner choice is provider-neutral: `takeone key set --backend <name> --model <model> [--via typesafe|openrouter]` stores your key and records the choice in `planner.json` (Jev is the default when nothing is picked; takeone never switches providers automatically). `make` does not read the recorded choice yet: it still plans with the Jev key or fallback rules until the planner is wired.
 - **Exports what you need.** MP4 by default, plus GIF, WebM and ProRes 4444, in landscape, portrait, square or 4:5.
 - **Motion films from screens.** `takeone motion` turns screenshots, HTML or a URL into a short film.
 

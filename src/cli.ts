@@ -352,7 +352,7 @@ async function runKeySet(rest: string[]): Promise<number> {
   try {
     await savePlannerConfig(config);
     await setPlannerKeyFromStdin(process.stdin, backend);
-    console.log(`planner key stored through BYOKit (${describePlanner(config)})`);
+    console.log(`planner key stored through BYOKit (${describePlanner(config)}); make still uses the Jev key or fallback rules until the planner is wired`);
     return 0;
   } catch (e) {
     console.error(`could not store planner key; check stdin, the OS keyring or TAKEONE_SECRETS_PASSPHRASE_FD for the BYOKit sealed store (${e instanceof Error ? e.message : e})`);

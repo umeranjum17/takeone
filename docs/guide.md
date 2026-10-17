@@ -54,7 +54,7 @@ The polished video lands at `/tmp/takes/synth-demo/out/synth-demo.mp4`, next to 
 
 ### 2. Store a planner key
 
-`takeone key set` reads one key line from piped stdin and stores it for one provider. The default backend is Jev; `--backend <name>` picks another (`jev`, `openai`, `anthropic` or `opencode-go`), `--model <model>` names the model (required for openai, anthropic and opencode-go), and `--via typesafe|openrouter` routes Jev through an alternative gateway. In Bash, this hidden prompt keeps the key out of argv and shell history:
+`takeone key set` reads one key line from piped stdin and stores it for one provider. The default backend is Jev; `--backend <name>` picks another (`jev`, `openai`, `anthropic` or `opencode-go`), `--model <model>` names the model (required for openai, anthropic and opencode-go), and `--via typesafe|openrouter` routes Jev through an alternative gateway. `make` still plans with the Jev key only; a non-Jev choice takes effect once the planner is wired in. In Bash, this hidden prompt keeps the key out of argv and shell history:
 
 ```bash
 read -rsp 'Jev API key: ' jev_key; printf '\n'
@@ -66,7 +66,7 @@ printf '%s' "$openai_key" | takeone key set --backend openai --model gpt-6.1-sol
 unset openai_key
 ```
 
-The provider choice is recorded in `planner.json` under the takeone config directory (`${XDG_CONFIG_HOME:-$HOME/.config}/takeone/planner.json`) as a BYOKit decide config (`backend`, `auth`, `model`, `via`). When nothing is stored, Jev is the planner default; takeone never switches the provider automatically. `takeone doctor` reports the stored choice and key presence in its `ai-planner` row — `AI planner: <backend>[ via <via>] (<model>)` when the key is set, `AI planner off` with the fix when it is not.
+The provider choice is recorded in `planner.json` under the takeone config directory (`${XDG_CONFIG_HOME:-$HOME/.config}/takeone/planner.json`) as a BYOKit decide config (`backend`, `auth`, `model`, `via`). When nothing is stored, Jev is the planner default; takeone never switches the provider automatically. `takeone doctor` reports the stored choice and key presence in its `ai-planner` row — `AI planner: <backend>[ via <via>] (<model>) is set up` when the key is stored, `AI planner off` with the fix when it is not. `make` does not read `planner.json` yet: it still plans with the Jev key or the local fallback, whatever the row says.
 
 The key lives under service `takeone`, secret name matching the backend (`jev` by default), in the OS keyring through `@byokit/secrets` (macOS Keychain or Linux Secret Service; Linux needs `/usr/bin/secret-tool` and an unlocked session). If the keyring is absent, unsupported, or unavailable when used, BYOKit's sealed file at `${XDG_CONFIG_HOME:-$HOME/.config}/takeone/secrets.json` is used when a passphrase is supplied on an open fd >= 3. Set `TAKEONE_SECRETS_PASSPHRASE_FD` to that fd number for each command that reads or writes the store. Supply the same passphrase bytes each time; the passphrase is never saved. For an isolated install (CI, a throwaway test HOME), set `TAKEONE_NO_KEYRING=1` (only `1`, `true` or `yes` enable it) to skip the OS keyring entirely — keys then come only from `TYPESAFE_API_KEY` or the sealed file, and an inherited `XDG_RUNTIME_DIR` or `DBUS_SESSION_BUS_ADDRESS` cannot surface a host keyring key. For example:
 

@@ -172,7 +172,7 @@ export async function plannerStatus(o: ResolvePlannerOptions = {}): Promise<{
 }> {
   try {
     const r = await resolvePlanner(o);
-    if (r.active) return { available: true, detail: `AI planner: ${r.label}`, config: r.config, label: r.label };
+    if (r.active) return { available: true, detail: `AI planner: ${r.label} is set up; make still uses the Jev key or fallback rules until the planner is wired`, config: r.config, label: r.label };
     const c = r.config as { backend: string; auth: string };
     if (r.defaulted) {
       return {
@@ -184,7 +184,7 @@ export async function plannerStatus(o: ResolvePlannerOptions = {}): Promise<{
     }
     return {
       available: false,
-      detail: `AI planner off: films use fallback rules (no ${c.auth === "account" ? "sign-in" : "key"} for ${r.label})`,
+      detail: `AI planner off: no ${c.auth === "account" ? "sign-in" : "key"} for ${r.label}; make uses the Jev key or fallback rules until the planner is wired`,
       config: r.config,
       label: r.label,
     };
