@@ -1,6 +1,6 @@
 import type { CameraDefaults } from "../camera/defaults.ts";
 import type { CameraFrame } from "../camera/types.ts";
-import { cameraFilter, frameExpr } from "./camera-filter.ts";
+import { cameraFilter, frameExpr, prefilterFilter, prefilterSigma } from "./camera-filter.ts";
 import { boxAverageWeights } from "./frame-average.ts";
 
 /** Linear interpolation of the solved output-clock path, clamped at bookends. */
@@ -99,32 +99,38 @@ function readBox(frames: CameraFrame[], width: number, height: number): { x: num
 /** Crop the composed surface to what the camera reads and convert it to RGB16
  * once per source frame, ahead of the shutter resampling, then warp. A
  * crop-to-fill export samples a small window of a tall card, and every motion
- * blur sample used to convert the whole card. */
-function warpGraph(frames: CameraFrame[], width: number, height: number, d: CameraDefaults, from: number): { input: string; warp: string } {
+ * blur sample used to convert the whole card. `prefilter` runs on the source
+ * frames too, before any sample is duplicated. */
+function warpGraph(frames: CameraFrame[], width: number, height: number, d: CameraDefaults, from: number,
+  prefilter: string): { input: string; warp: string } {
   const box = readBox(frames, width, height);
   // A segment drops every frame before its own first one ahead of the warp.
   const skip = from > 0 ? `select='gte(t,${from.toFixed(9)})',` : "";
-  if (!box) return { input: "format=gbrp16le,", warp: skip + cameraFilter(frames, width, height, d, from) };
+  if (!box) return { input: `format=gbrp16le,${prefilter}`, warp: skip + cameraFilter(frames, width, height, d, from) };
   return {
-    input: `crop=${box.w}:${box.h}:${box.x}:${box.y},format=gbrp16le,`,
+    input: `crop=${box.w}:${box.h}:${box.x}:${box.y},format=gbrp16le,${prefilter}`,
     warp: skip + cameraFilter(frames.map(f => ({ ...f, x: f.x - box.x, y: f.y - box.y })), box.w, box.h, d, from),
   };
 }
 
 /** Duplicate source images by reference, discard unneeded samples before the
  * warp, and average only each exposure's samples. One chronological stream
- * avoids buffering whole shots across parallel velocity branches.
+ * avoids buffering whole shots across parallel velocity branches; its two
+ * lockstep branches only split the blurred exposures from the one-sample ones.
  * `start` is the first output frame of a render segment: samples before it are
  * dropped before the warp, so the expressions after the drop offset their index.
  */
 export function motionBlurGraph(frames: CameraFrame[], plan: ReturnType<typeof shutterPlan>, width: number, height: number, d: CameraDefaults, start = 0): string {
+  const from = start && (start - 0.5) / d.fps;
   if (!plan.metrics.blurredFrames) {
-    const { input, warp } = warpGraph(frames, width, height, d, start && (start - 0.5) / d.fps);
+    const { input, warp } = warpGraph(frames, width, height, d, from,
+      prefilterFilter(frames, prefilterSigma(frames, d), d.fps, from));
     return `[c4]${input}${warp}[camera]`;
   }
   const counts = plan.counts;
   const sampled: CameraFrame[] = [];
   const ends: number[] = [];
+  const blurEnds: number[] = [];
   const commands: string[] = [];
   let previous = 0;
   for (let i = 0; i < frames.length; i++) {
@@ -140,20 +146,35 @@ export function motionBlurGraph(frames: CameraFrame[], plan: ReturnType<typeof s
     for (const [j, frame] of shutterFrames(frames, plan, i).entries()) {
       sampled.push(frame);
       ends.push(j === count - 1 ? 1 : 0);
+      blurEnds.push(j === count - 1 && count > 1 ? 1 : 0);
     }
   }
   const rate = d.fps * plan.samples;
   const countExpr = frameExpr(counts).replaceAll("in-1", `floor(n/${plan.samples})`);
   const first = counts.slice(0, start).reduce((sum, count) => sum + count, 0);
   // By index, not time: a disabled tmix passes its oldest queued sample's timestamp.
-  const endExpr = `eq(round(${frameExpr(ends).replaceAll("in-1", first ? `(n+${first})` : "n")}),1)`;
+  const sampleExpr = (values: number[]) => `eq(round(${frameExpr(values).replaceAll("in-1", first ? `(n+${first})` : "n")}),1)`;
+  const endExpr = sampleExpr(ends);
+  // Every sample of an exposure shows the same source image, so its prefilter is the exposure's.
+  const sampleSigmas = prefilterSigma(sampled, d);
+  let next = 0;
+  const sigmas = counts.map(count => Math.max(...sampleSigmas.slice(next, next += count)));
   const { input, warp } = warpGraph(sampled.map((f, i) => ({ ...f, t: i / rate })), width, height,
-    { ...d, fps: rate }, start && (first - 0.5) / rate);
+    { ...d, fps: rate }, start && (first - 0.5) / rate, prefilterFilter(frames, sigmas, d.fps, from));
+  // tmix mixes all its slots for every frame it is enabled on, so it runs on the
+  // blurred exposures only. A one-sample exposure is its own sample: blend passes
+  // that branch through while disabled, and copies the mixed branch (normal at
+  // opacity 0) on blurred frames. Both branches carry the same frame clock.
+  const blurred = frameExpr(counts.map(count => count > 1 ? 1 : 0)).replaceAll("in-1", start ? `(n+${start})` : "n");
   // Pad before resampling: older fps filters can discard the last image at EOF.
   // tmix needs no samples from before a segment: earlier slots carry zero weight.
   return `[c4]${input}tpad=stop_mode=clone:stop=1,fps=${rate}:round=up:start_time=0,`
     + `trim=end_frame=${frames.length * plan.samples},select='lt(mod(n,${plan.samples}),round(${countExpr}))',`
-    + `setpts=N/(${rate}*TB),${warp},`
-    + `sendcmd=c='${commands.join(";")}',tmix@shutter=frames=${plan.samples + 1}:enable='${endExpr}',`
-    + `select='${endExpr}',settb=AVTB,setpts=(N+${start})/(${d.fps}*TB)[camera]`;
+    + `setpts=N/(${rate}*TB),${warp},split[shutterAll][shutterOne];`
+    + `[shutterAll]sendcmd=c='${commands.join(";")}',`
+    + `tmix@shutter=frames=${plan.samples + 1}:enable='${sampleExpr(blurEnds)}',`
+    + `select='${endExpr}',setpts=N/(${d.fps}*TB)[shutterMixed];`
+    + `[shutterOne]select='${endExpr}',setpts=N/(${d.fps}*TB)[shutterSharp];`
+    + `[shutterSharp][shutterMixed]blend@shutter=all_mode=normal:all_opacity=0:enable='eq(round(${blurred}),1)',`
+    + `settb=AVTB,setpts=(N+${start})/(${d.fps}*TB)[camera]`;
 }
