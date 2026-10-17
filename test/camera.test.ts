@@ -474,17 +474,17 @@ test("a blurred wide zoom rebuilds the warp only for camera parameters that chan
   const dir = await mkdtemp(join(process.cwd(), "takeone:rebuilds-"));
   try {
     await mkdir(join(dir, "analysis"));
-    execFileSync("ffmpeg", ["-v", "error", "-f", "lavfi", "-i", "testsrc2=s=800x600:r=30:d=4",
+    execFileSync("ffmpeg", ["-v", "error", "-f", "lavfi", "-i", "testsrc2=s=640x480:r=30:d=4",
       "-c:v", "mpeg4", "-q:v", "2", "-f", "matroska", "-y", join(dir, "screen.webm")]);
-    await writeFile(join(dir, "take.json"), JSON.stringify({ id: "rebuilds", width: 800, height: 600, trim_start: 0, trim_end: 4,
+    await writeFile(join(dir, "take.json"), JSON.stringify({ id: "rebuilds", width: 640, height: 480, trim_start: 0, trim_end: 4,
       zooms: [{ t0: 1.5, t1: 3, bbox: [100, 100, 320, 180], level: 3 }] }));
     await writeFile(join(dir, "analysis/beats.json"), "[]");
     await writeFile(join(dir, "analysis/decisions.jsonl"), "");
     await renderTake(dir, FAST);
     assert.ok(JSON.parse(await readFile(join(dir, "motion-blur.json"), "utf8")).blurredFrames > 0, "the shutter path runs");
     const graph = await readFile(join(dir, "camera.cmd"), "utf8");
-    assert.match(graph, /v360 d_fov/, "the camera zooms");
     assert.doesNotMatch(graph, /v360 [hv]_fov/, "a wide window zooms with one d_fov command per step");
+    assert.match(graph, /v360 d_fov/, "the camera zooms");
     const prefilter = graph.indexOf("gblur@prefilter="), duplicate = graph.indexOf("tpad=");
     assert.ok(prefilter > 0 && prefilter < duplicate, "the prefilter blurs each source image once, before the shutter repeats it");
   } finally {
