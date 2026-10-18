@@ -184,7 +184,8 @@ export async function renderTake(dir: string, d?: CameraDefaults): Promise<{ out
     const B = kept(decision.B) ? decision.B : A;
     return [{ ...decision, A, B }];
   }) : decisions;
-  const tapShots = meta.device === "android" ? phoneTapShots(outBeats, meta.width, meta.height) : null;
+  const tapShots = meta.device === "android" && meta.planner?.mode === "fallback"
+    ? phoneTapShots(outBeats, meta.width, meta.height) : null;
   const captions = takeCaptions(clock ? { ...meta, captions: meta.captions?.filter(c => clock.contains(c.t)) } : meta, outTime, duration);
   const banded = captions.length > 0 && bandEligible(meta.width, meta.height, d);
   let text = banded ? bandText(captions, [], d) : d;

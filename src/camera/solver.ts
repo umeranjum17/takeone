@@ -24,6 +24,7 @@ interface Target {
   t: number;
   state: CameraState;
   importance: number;
+  p?: number;
   subject?: Zone;
   boxes?: Box[];
   /** End of the hold this target opens; the guard judges the frames it shows. */
@@ -525,11 +526,11 @@ function isDeadzone(state: CameraState, target: CameraState, baseW: number, d: C
 /** A nearby target may still need a correction when the current hold cuts its context. */
 function canHold(state: CameraState, target: Target, width: number, height: number, d: CameraDefaults,
   project: (frame: CameraFrame) => CameraFrame, cuts?: EdgeCuts): boolean {
-  if (!isDeadzone(state, target.state, baseWidth(width, height, d), d)) return false;
+  if ((target.p ?? 0.5) >= 0.65) return false;
   // The hold's visible edges must not cut a word anywhere in the take, whatever the beat's boxes.
   const crop = project(toFrame(state, width, height, d));
   if (cuts && cuts(crop, target.t, target.until ?? target.t) > 0) return false;
-  if (target.screenChange) {
+  if (target.screenChange && (target.p ?? 0.5) > 0.35) {
     const viewW = baseWidth(width, height, d) / state.z;
     const viewH = viewW * d.out_h / d.out_w;
     // Edge clamping can make distinct subjects' composed camera centres nearly
@@ -540,6 +541,8 @@ function canHold(state: CameraState, target: Target, width: number, height: numb
     if (Math.abs(x + w / 2 - state.cx) > viewW * d.deadzone_margin
       || Math.abs(y + h / 2 - state.cy) > viewH * d.deadzone_margin) return false;
   }
+  if (target.p !== undefined && target.p <= 0.35) return true;
+  if (!isDeadzone(state, target.state, baseWidth(width, height, d), d)) return false;
   if (!target.boxes?.length || !target.subject) return true;
   const [x, y, w, h] = target.subject.bbox;
   const margin = Math.min(crop.w, crop.h) * 0.01;
@@ -651,6 +654,7 @@ interface Draft {
   t: number;
   build: (until: number) => CameraState;
   importance: number;
+  p?: number;
   subject?: Zone;
   boxes?: Box[];
   startAfter?: number;
@@ -685,6 +689,7 @@ function buildDrafts(
       t: shot.arrival,
       build: (until) => framed(shot.zoneA, shot.arrival, until),
       importance: shot.decision.K,
+      p: shot.decision.decided_by === "ai" ? shot.decision.p : undefined,
       subject: withContext(shot.zoneA, inShot(shot.zoneA), width, height, d),
       boxes: inShot(shot.zoneA),
       screenChange: shot.beat.kind === "change",
@@ -698,6 +703,7 @@ function buildDrafts(
         t: resultTime + d.result_late,
         build: (until) => framed(shot.zoneB, resultTime + d.result_late, until),
         importance: shot.decision.K,
+        p: shot.decision.decided_by === "ai" ? shot.decision.p : undefined,
         subject: withContext(shot.zoneB, inShot(shot.zoneB), width, height, d),
         boxes: inShot(shot.zoneB),
       });

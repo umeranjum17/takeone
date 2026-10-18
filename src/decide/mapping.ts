@@ -6,8 +6,6 @@ import { bboxArea } from "../types.ts";
 import { WIN_MAX_COVER } from "../beats/zones.ts";
 
 export const LOW_CONF = 0.5;
-export const HOLD_P = 0.35;
-export const MOVE_P = 0.65;
 export const WIDE_UNION_FRAC = 0.7; // union of top two over this -> all
 export const NEAR_UNION_FRAC = 0.2; // union up to a panel: keep the top choice when no zone contains it
 export const KEY_MOMENT_TIGHTEN = 1;

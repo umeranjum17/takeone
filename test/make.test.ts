@@ -599,11 +599,16 @@ test("make with a key decides via the planner and accounts usage; cache hit cost
   }
 });
 
-test("live API shape: object-keyed score probabilities and noul still decide via the planner", async () => {
+test("live API shape: Android tap hints stay planner decisions", async () => {
   const dir = newTake();
   try {
+    const takePath = join(dir, "take.json");
+    writeFileSync(takePath, JSON.stringify({ ...JSON.parse(readFileSync(takePath, "utf8")), device: "android" }));
+    const tapStates: { beat: { hint?: string }; zones: Record<string, { shows: string }> }[] = [];
     const fake = (async (_url: string | URL | Request, init?: RequestInit) => {
-      const names = Object.keys(JSON.parse(String(init?.body)).state.zones);
+      const state = JSON.parse(String(init?.body)).state;
+      if (state.beat.hint) tapStates.push(state);
+      const names = Object.keys(state.zones);
       const choiceProbs = Object.fromEntries(names.map((name, i) => [name, i === 0 ? 0.95 : 0.05 / (names.length - 1 || 1)]));
       const answer = {
         model: "jev-1.13.0",
@@ -624,6 +629,13 @@ test("live API shape: object-keyed score probabilities and noul still decide via
     const aiDecisions = r.decisions.filter((d) => d.decided_by === "ai");
     assert.ok(aiDecisions.length >= 2, `expected jev decisions from the live response shape, got ${aiDecisions.length}`);
     assert.ok(aiDecisions.every((d) => d.input_tokens === 874));
+    assert.ok(aiDecisions.every((d) => d.p === 0.27));
+    assert.ok(tapStates.length > 0, "Android taps reach the planner");
+    assert.match(tapStates[0]!.beat.hint ?? "", /first candidate zone is the tapped control/);
+    assert.equal(tapStates[0]!.zones.z1!.shows, "the tapped control");
+    const tapBeats = r.beats.filter((beat) => beat.hint);
+    assert.ok(tapBeats.length > 0);
+    for (const beat of tapBeats) assert.deepEqual(beat.zones[0]!.boxes, [beat.zones[0]!.bbox]);
     assert.deepEqual(aiDecisions.map((d) => d.L), aiDecisions.map(() => 2));
   } finally {
     rmSync(dir, { recursive: true, force: true });

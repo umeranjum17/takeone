@@ -33,7 +33,7 @@ export interface JevRequest {
     goal?: string;
     style?: string;
     current_shot: string;
-    beat: { length: string; what_happened: string; next_beat: string };
+    beat: { length: string; what_happened: string; next_beat: string; hint?: string };
     zones: Record<string, { shows: string; size: string; where: string; activity: string; text?: string }>;
   };
   questions: Record<string, unknown>;
@@ -214,6 +214,7 @@ export function buildState(beat: Beat, ctx: RequestCtx): JevRequest["state"] {
       length: `${((beat.t1 - beat.t0) / 1000).toFixed(1)} seconds`,
       what_happened: whatHappened(beat),
       next_beat: ctx.nextBeat ? whatHappened(ctx.nextBeat) : "The take ends after this beat.",
+      ...(beat.hint ? { hint: beat.hint } : {}),
     },
     zones,
   };

@@ -301,7 +301,11 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
       scale: take.scale ?? 1,
       frames: scopedFrames,
       uiBoxes: uiBoxes.frames,
+      tap: take.device === "android",
     });
+    if (take.device === "android" && b.actions.some((action) => action.k === "click")) {
+      b.hint = "The first candidate zone is the tapped control; prefer it for the action's start shot.";
+    }
     if (readScreenText) await addScreenText(b, opts.capture ? null : win, webm, videoStartMs);
   }
   const seconds = (ms: number) => (ms - videoStartMs) / 1000;
@@ -315,6 +319,7 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
     return {
       id: b.id, t0: seconds(b.t0), t1: seconds(resultT), anchor_t: seconds(b.anchor_t),
       kind: b.kind, window_cls: b.window_cls,
+      ...(b.hint ? { hint: b.hint } : {}),
       ...(windowRect ? { window_rect: windowRect } : {}),
       actions: b.actions.map(a => actionVideoSeconds(a, videoStartMs)),
       zones: b.zones.map((z) => ({ name: z.name, type: z.kind, bbox: z.bbox,

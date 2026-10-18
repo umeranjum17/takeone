@@ -16,6 +16,11 @@ export const PANEL_MAX_AREA = 0.5; // a larger region holding a click is the pan
 export const WIN_MAX_COVER = 0.9; // window zone skipped when it covers more of the screen
 export const OCR_MAX_AREA = 0.25; // screen text only read for zones under 25%
 
+/** A compact action candidate centered on a tap, clamped to the source frame. */
+export function tapZoneBBox(x: number, y: number, width: number, height: number): BBox | null {
+  return clampBBox([x - 64, y - 64, 128, 128], width, height);
+}
+
 // ---------------------------------------------------------------- zone bboxes
 
 /**
@@ -27,7 +32,7 @@ export const OCR_MAX_AREA = 0.25; // screen text only read for zones under 25%
  */
 export function zonesForBeat(
   beat: Beat,
-  o: { winRect: BBox | null; stream: { w: number; h: number }; scale: number; frames: FrameRegions[]; uiBoxes?: BoxFrame[] },
+  o: { winRect: BBox | null; stream: { w: number; h: number }; scale: number; frames: FrameRegions[]; uiBoxes?: BoxFrame[]; tap?: boolean },
 ): Zone[] {
   const screen = screenArea(o.stream);
   const cands: { kind: ZoneKind; bbox: BBox; t?: number }[] = [];
@@ -68,17 +73,23 @@ export function zonesForBeat(
   }
   kept.sort((a, b) => bboxArea(a.bbox) - bboxArea(b.bbox));
 
+  const tapAction = o.tap ? beat.actions.find((action) => action.k === "click") : undefined;
+  if (tapAction?.k === "click") {
+    const tap = tapZoneBBox(tapAction.x, tapAction.y, o.stream.w, o.stream.h);
+    if (tap) kept.unshift({ kind: "act", bbox: tap });
+  }
   const limited = kept.length > MAX_ZONES ? [...kept.slice(0, MAX_ZONES - 1), kept[kept.length - 1]!] : kept;
   return limited.map((c, i) => {
     const desc = describeZone(c.kind, c.bbox, beat, o, c.t);
+    const tapZone = i === 0 && tapAction?.k === "click";
     return {
       name: `z${i + 1}`,
       kind: c.kind,
       bbox: c.bbox,
-      ...(c.kind !== "all" && c.kind !== "win" ? { boxes: contextBoxes(beat, o, c.t ?? beat.anchor_t, c.kind) } : {}),
+      ...(c.kind !== "all" && c.kind !== "win" ? { boxes: tapZone ? [c.bbox] : contextBoxes(beat, o, c.t ?? beat.anchor_t, c.kind) } : {}),
       area_frac: bboxArea(c.bbox) / screen,
       ...(c.t !== undefined ? { t: c.t } : {}),
-      desc,
+      desc: tapZone ? { ...desc, shows: "the tapped control", activity: "tapped" } : desc,
     };
   });
 }
