@@ -7,9 +7,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { makeTake, type MakeOptions, type MakeResult } from "../src/make.ts";
 import { main } from "../src/cli.ts";
-import { JevFileCache, askBeat } from "../src/decide/jev.ts";
+import { PlannerFileCache, askBeat, resolvePlanner } from "../src/decide/planner.ts";
 import { DEFAULTS } from "../src/camera/defaults.ts";
-import type { JevAnswers, TakeMeta } from "../src/types.ts";
+import type { TakeMeta } from "../src/types.ts";
 import { hasFfmpeg } from "./helpers.ts";
 
 const needsFfmpeg = hasFfmpeg() ? undefined : "requires system ffmpeg and ffprobe on PATH";
@@ -18,7 +18,7 @@ const KEY = "test-key-000";
 const FAST = { ...DEFAULTS, preset: "veryfast", out_w: 320, out_h: 180, ripple_ms: 0, fade_s: 0 };
 function fastTake(dir: string, opts: MakeOptions = {}): Promise<MakeResult> {
   // No test may discover credentials from the real home; Jev tests pass fake keys explicitly.
-  return makeTake(dir, { apiKey: null, camera: FAST, log: () => {}, warn: () => {}, ...opts });
+  return makeTake(dir, { apiKey: null, camera: FAST, configDir: join(dir, "test-config"), log: () => {}, warn: () => {}, ...opts });
 }
 
 function buildTake(): string {
@@ -69,20 +69,21 @@ function stubPlanner(bodies: string[]): typeof fetch {
     bodies.push(body);
     const names = Object.keys(JSON.parse(body).state.zones);
     const probabilities = Object.fromEntries(names.map((name, i) => [name, i === 0 ? 1 : 0]));
-    const answers: JevAnswers = {
+    const answers = {
       focus_start: { choice: names[0], probabilities, confidence: 1 },
       focus_end: { choice: names[0], probabilities, confidence: 1 },
       tightness: { probabilities: [0.1, 0.1, 0.7, 0.1], confidence: 0.9 },
-      new_subject: { p: 0.2 },
+      new_subject: { noul: 0.2 },
+      key_moment: { probabilities: [0.7, 0.2, 0.1], confidence: 0.8 },
     };
     return new Response(JSON.stringify({ answers, usage: { input_tokens: 800 } }), { status: 200 });
   }) as typeof fetch;
 }
 
-test("JevFileCache stores hash and answers only, never request bodies; hits still work", async () => {
+test("PlannerFileCache stores hash and answers only, never request bodies; hits still work", async () => {
   const dir = mkdtempSync(join(tmpdir(), "takeone-capcache-"));
   try {
-    const path = join(dir, "jev-cache.jsonl");
+    const path = join(dir, "planner-cache.jsonl");
     const questions = { focus: { kind: "choice", options: { a: "Zone A" } } } as const;
     const state = { secret: "request-body-marker" };
     let calls = 0;
@@ -93,7 +94,8 @@ test("JevFileCache stores hash and answers only, never request bodies; hits stil
         usage: { input_tokens: 5 },
       }), { status: 200 });
     }) as typeof fetch;
-    const r1 = await askBeat(state, questions, KEY, new JevFileCache(path, { omitRequestBody: true }), { fetchImpl: fake });
+    const planner = await resolvePlanner({ apiKeyOverride: KEY, configDir: join(dir, "config") });
+    const r1 = await askBeat(state, questions, planner, new PlannerFileCache(path), { fetchImpl: fake });
     assert.equal(r1.decisionSource, "api");
     const raw = readFileSync(path, "utf8");
     assert.ok(!raw.includes("request-body-marker"), "no request body on disk");
@@ -102,10 +104,12 @@ test("JevFileCache stores hash and answers only, never request bodies; hits stil
     assert.equal(line.key.length, 64);
     assert.ok(line.answers !== undefined, "answers stored");
     // a reloaded cache hits without a network call and records zero tokens
-    const r2 = await askBeat(state, questions, KEY, new JevFileCache(path, { omitRequestBody: true }), { fetchImpl: fake });
+    const r2 = await askBeat(state, questions, planner, new PlannerFileCache(path), { fetchImpl: fake });
     assert.equal(r2.decisionSource, "cache");
     assert.equal(r2.inputTokens, undefined);
-    assert.deepEqual(r2.response, r1.response);
+    const stripSource = (a: typeof r1.answers) =>
+      JSON.parse(JSON.stringify(a, (k, v) => (k === "source" ? undefined : v)));
+    assert.deepEqual(stripSource(r2.answers), stripSource(r1.answers));
     assert.equal(calls, 1);
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -125,7 +129,7 @@ test("capture make drops titles, coords and cache bodies; standalone keeps them"
     for (const f of takeFiles(dir)) {
       assert.ok(!readFileSync(f, "utf8").includes(TITLE), `no title in ${f}`);
     }
-    const cachePath = join(dir, "analysis", "jev-cache.jsonl");
+    const cachePath = join(dir, "analysis", "planner-cache.jsonl");
     assert.ok(existsSync(cachePath));
     const raw = readFileSync(cachePath, "utf8");
     assert.ok(!raw.includes("Framing"), "no request prompt text in the cache file");
@@ -135,7 +139,7 @@ test("capture make drops titles, coords and cache bodies; standalone keeps them"
       assert.ok(e.answers !== undefined, "answers stored");
       assert.ok(!("request" in e), "no request body stored");
     }
-    assert.ok(r.decisions.some((d) => d.decided_by === "jev"));
+    assert.ok(r.decisions.some((d) => d.decided_by === "ai"));
 
     // Cache hits still work: a second run makes no planner calls.
     const calls = bodies.length;
@@ -155,7 +159,7 @@ test("standalone make keeps coords and titles; cache holds key and answers only"
     assert.ok(bodies.map((b) => JSON.parse(b).state.current_shot as string).join(" ").match(/\d,\d/),
       "standalone current_shot keeps coordinates");
     assert.ok(readFileSync(join(dir, "events.jsonl"), "utf8").includes(TITLE), "standalone keeps titles");
-    const cacheRaw = readFileSync(join(dir, "analysis", "jev-cache.jsonl"), "utf8");
+    const cacheRaw = readFileSync(join(dir, "analysis", "planner-cache.jsonl"), "utf8");
     assert.ok(!cacheRaw.includes("current_shot"), "no request body in the cache file");
     const line = JSON.parse(cacheRaw.trim().split("\n")[0]!);
     assert.equal(typeof line.key, "string");
@@ -182,7 +186,7 @@ test("capture make via the CLI scrubs the take dir; takeone make does not", { sk
   try {
     const sets = ["--set", "preset=veryfast", "--set", "out_w=320", "--set", "out_h=180",
       "--set", "ripple_ms=0", "--set", "fade_s=0"];
-    assert.equal(await main(["make", plain, "--no-jev", ...sets]), 0);
+    assert.equal(await main(["make", plain, "--no-ai", ...sets]), 0);
     assert.ok(readFileSync(join(plain, "events.jsonl"), "utf8").includes(TITLE),
       "standalone make leaves events.jsonl alone");
   } finally {

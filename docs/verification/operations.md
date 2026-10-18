@@ -15,7 +15,7 @@ npm run build      # rebuild after pulling; dist/ must be newer than src/
 node bin/takeone.mjs --help   # readiness: exits 0 and prints the usage block
 ```
 
-For the required Node version, see [Download / Install](../guide.md#download--install); check the installed version with `node --version`. Prerequisites: `ffmpeg` and `ffprobe` on PATH. Optional: `tesseract` (only for `--screen-text` OCR), Hyprland/Wayland (only for desktop recording). Planning and rendering an existing take need none of the capture prerequisites.
+For the required Node version, see [Download / Install](../guide.md#download--install); check the installed version with `node --version`. Prerequisites: `ffmpeg` and `ffprobe` on PATH. Optional: `tesseract` (only for screen-word OCR), Hyprland/Wayland (only for desktop recording). Planning and rendering an existing take need none of the capture prerequisites.
 
 On a shared machine, every encode (`make`, `render`, `motion`, `scripts/synth-take.ts`) is heavy work: agree on one heavy-render lock for the machine and hold it for the whole proof budget instead of picking a per-command lock. Limit the stock CLI to your allowed CPUs with `taskset -c <allowed-CPU-IDs>` when needed; inspect current affinity first, never patch the renderer to get a slot.
 
@@ -28,7 +28,7 @@ export TAKEONE_DIR="$PWD/tmp/verify-takes" TAKEONE_STATE_DIR="$PWD/tmp/verify-st
 node bin/takeone.mjs doctor
 ```
 
-Prints TOON `doctor[N]{check,ok,needed_by,detail}` rows: `engine`, `engine-protocol`, `ai-planner`, `ffmpeg`, `motion-shell`, `state-dir`, `takes-root`, plus `hyprland` and `evdev` on Linux only and `xcrun` (iOS Simulator) on macOS only. The exit code is 1 only when a check with `needed_by` `all` fails (ffmpeg, state-dir, takes-root), so read the `ok` column per check, not just the exit code: for make/render verification the gate is `ffmpeg,true` plus `takes-root,true`/`state-dir,true` — `hyprland`/`evdev`/`engine*` rows matter only for desktop recording, `ai-planner` reports the stored provider choice, but `make` still plans with the Jev key or fallback rules, so `ai-planner,false` means no key or sign-in is stored for the chosen provider (fix: `takeone key set` from stdin), and `motion-shell,false` (pinned chrome-headless-shell missing) blocks only motion drives, where the fix is `takeone motion install-shell`.
+Prints TOON `doctor[N]{check,ok,needed_by,detail}` rows: `engine`, `engine-protocol`, `ai-planner`, `ffmpeg`, `motion-shell`, `state-dir`, `takes-root`, plus `hyprland` and `evdev` on Linux only and `xcrun` (iOS Simulator) on macOS only. The exit code is 1 only when a check with `needed_by` `all` fails (ffmpeg, state-dir, takes-root), so read the `ok` column per check, not just the exit code: for make/render verification the gate is `ffmpeg,true` plus `takes-root,true`/`state-dir,true` — `hyprland`/`evdev`/`engine*` rows matter only for desktop recording, `ai-planner` reports the stored provider choice, and `ai-planner,false` means no key or sign-in is stored for the chosen provider, so planned films fall back to `--no-ai` rules (fix: `takeone key set` from stdin), and `motion-shell,false` (pinned chrome-headless-shell missing) blocks only motion drives, where the fix is `takeone motion install-shell`.
 
 ## Drive
 
@@ -47,7 +47,7 @@ The canonical offline journey (works on any machine, zero capture, zero network,
 ```sh
 export TAKEONE_DIR="$PWD/tmp/verify-takes" && mkdir -p "$TAKEONE_DIR"
 node scripts/synth-take.ts "$TAKEONE_DIR/synth-demo"     # scripted 44 s 1920x1080 take, drawn by ffmpeg — no screen capture
-node bin/takeone.mjs make "$TAKEONE_DIR/synth-demo" --no-jev   # local-only planning + render
+node bin/takeone.mjs make "$TAKEONE_DIR/synth-demo" --no-ai   # local-only planning + render
 test -s "$TAKEONE_DIR/synth-demo/out/synth-demo.mp4"     # the proof artifact
 ```
 
@@ -82,7 +82,7 @@ Proof artifacts live in a named folder inside the checkout, `tmp/evidence/done-d
 - Machine-checkable output facts: `ffprobe -v error -show_entries format=duration,size -show_entries stream=width,height,codec_name -of json out/<id>.mp4 > probe.json`, and the sidecars (`camera.json`, `render.log`) that prove the pipeline ran.
 - A manifest: `sha256sum * > SHA256SUMS` plus a line naming the producing commit (`git rev-parse HEAD`).
 
-Standards: exercise the real user path (published CLI flags only — no internal setters, no test-only endpoints, no importing `dist/` internals as a library); capture the action and the resulting state, not just the final screen; verify side effects are files inside the take directory. `--no-jev` is a true offline mode (zero network calls); with a stored key `make` performs real paid calls — verification drives use `--no-jev` unless the point of the proof is the planner itself. A successful encode proves the pipeline and framing decisions ran; it does not qualify camera quality — visual quality claims need human review of the actual media. Label rendered defects `UNQUALIFIED`; missing prerequisites and incomplete validator/product proof must be reported as failure or inconclusive, never as release qualification.
+Standards: exercise the real user path (published CLI flags only — no internal setters, no test-only endpoints, no importing `dist/` internals as a library); capture the action and the resulting state, not just the final screen; verify side effects are files inside the take directory. `--no-ai` is a true offline mode (zero network calls); with a stored credential `make` performs real planner calls — verification drives use `--no-ai` unless the point of the proof is the planner itself. A successful encode proves the pipeline and framing decisions ran; it does not qualify camera quality — visual quality claims need human review of the actual media. Label rendered defects `UNQUALIFIED`; missing prerequisites and incomplete validator/product proof must be reported as failure or inconclusive, never as release qualification.
 
 ## Review evidence
 
@@ -115,8 +115,8 @@ rejects `--theme`/`--set` (`docs/verification/motion-films.md`).
 ### Form factor: phone and desktop
 
 ```sh
-node bin/takeone.mjs make <take-dir> --no-jev --set out_w=1080 --set out_h=1920  # phone/portrait
-node bin/takeone.mjs make <take-dir> --no-jev --set out_w=1920 --set out_h=1080  # desktop/wide
+node bin/takeone.mjs make <take-dir> --no-ai --set out_w=1080 --set out_h=1920  # phone/portrait
+node bin/takeone.mjs make <take-dir> --no-ai --set out_w=1920 --set out_h=1080  # desktop/wide
 ```
 
 ffprobe both `out/<id>.mp4` files into `probe.json` and keep one still from each;
@@ -216,7 +216,7 @@ moment, or the motion contact sheets), defect crops, `<cell>.json`, `pass.log`, 
 takes (cuts, speed) are rejected, not checked. A real device run at the largest font is
 `adb -s <emulator> shell settings put system font_scale 1.3` or
 `xcrun simctl ui <udid> content_size accessibility-extra-extra-extra-large`, under the device
-lock and memory gate, then `make --no-jev` and `visual-check.ts <take> --name <cell> --out <dir>`.
+lock and memory gate, then `make --no-ai` and `visual-check.ts <take> --name <cell> --out <dir>`.
 
 Limits (`LIMIT` in `scripts/verification/visual-check.ts`), measured on main 868ff39:
 

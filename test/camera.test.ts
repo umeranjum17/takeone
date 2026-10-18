@@ -137,7 +137,7 @@ test("render without trim_end uses the latest beat end", { timeout: 360_000, ski
       await writeFile(join(dir, "events.jsonl"), [...history,
         ...(released ? [{ k: "btn", t: 8500, b: "left", down: false }] : [])]
         .map(event => JSON.stringify(event)).join("\n") + "\n");
-      cli("make", "--no-jev");
+      cli("make", "--no-ai");
       const saved: Beat[] = JSON.parse(await readFile(join(dir, "analysis/beats.json"), "utf8"));
       const actions = saved.flatMap(b => b.actions as Action[]);
       const drags = actions.filter(a => a.k === "drag");
@@ -227,7 +227,7 @@ test("render without trim_end uses the latest beat end", { timeout: 360_000, ski
         "preset=ultrafast", "motion_blur=0", "idle_speed=1", "ripple_ms=0"]
         .flatMap(v => ["--set", v]), ...args],
       { env: { ...process.env, TAKEONE_DIR: dir, TAKEONE_STATE_DIR: join(dir, "state") } });
-    drive4K("make", "--no-jev");
+    drive4K("make", "--no-ai");
     const camera4K = async () => JSON.parse(await readFile(join(dir, "camera.json"), "utf8")) as
       { t: number; x: number; y: number; w: number; h: number }[];
     const auto = await camera4K();
@@ -352,7 +352,7 @@ test("render without trim_end uses the latest beat end", { timeout: 360_000, ski
       { k: "btn", t: 500, b: "left", down: true }, { k: "btn", t: 2300, b: "left", down: false },
     ].sort((a, b) => a.t - b.t).map(e => JSON.stringify(e)).join("\n") + "\n");
     await writeFile(join(dir, "take.json"), JSON.stringify({ ...fourK, trim: { start: 0, end: 8000 } }));
-    drive4K("make", "--no-jev", "--set", "out_w=540", "--set", "out_h=960", "--set", "outro_s=0");
+    drive4K("make", "--no-ai", "--set", "out_w=540", "--set", "out_h=960", "--set", "outro_s=0");
     const dropped = (await camera4K()).map(f => ({ ...sourceViewport(f, 3840, 2160, tallStage, tall), t: f.t }));
     const at = (t: number) => dropped[Math.round(t * 10)]!;
     assert.ok(dropped.at(-1)!.t >= 7.8, "the render holds the settled drop to the take end");

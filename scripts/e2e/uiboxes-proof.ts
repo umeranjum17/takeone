@@ -16,7 +16,7 @@ const dir = resolve("tmp/uiboxes-proof");
 const ffmpeg = (args: string[]) => execFileSync("ffmpeg", ["-nostdin", "-v", "error", "-y", ...args], { stdio: "inherit" });
 const clicks: number[][] = JSON.parse(readFileSync(join(dir, "proof-clicks.json"), "utf8"));
 const camera = { ...DEFAULTS, preset: "veryfast", idle_speed: 1 };
-const planned = await makeTake(dir, { noJev: true, apiKey: null, camera, planOnly: true });
+const planned = await makeTake(dir, { noAi: true, apiKey: null, camera, planOnly: true });
 const changes = JSON.parse(readFileSync(join(dir, "analysis/regions.json"), "utf8")).frames as FrameRegions[];
 for (const [t] of clicks) {
   const near = changes.filter(f => Math.abs(f.t - t!) <= 200);

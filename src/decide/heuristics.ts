@@ -1,5 +1,5 @@
-// Heuristic decision policy (design 8.3): the pre-pass and the
-// per-beat fallback on any Jev failure. Pure functions over plain data.
+// Heuristic decision policy (design 8.3): the pre-pass, --no-ai mode, and the
+// per-beat fallback on any planner failure. Pure functions over plain data.
 
 import type { Beat, Decision, Tightness } from "../types.ts";
 

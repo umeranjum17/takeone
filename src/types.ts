@@ -88,7 +88,7 @@ export interface ZoneDesc {
   size: string;
   where: string;
   activity: string;
-  /** OCR words + window title, only with --screen-text */
+  /** OCR words + window title, only when screen text is read */
   text?: string;
 }
 
@@ -129,19 +129,16 @@ export interface Beat {
   results?: Region[];
 }
 
-/** Jev answers for one beat, as returned by the API. */
-export interface JevAnswers {
+/** Planner answers for one beat, in the shape the decision mapping reads.
+ * Any configured BYOKit decide backend produces them; the mapping never
+ * knows which provider answered. */
+export interface PlannerAnswers {
   focus_start?: { choice?: string; probabilities?: Record<string, number>; confidence?: number };
   focus_end?: { choice?: string; probabilities?: Record<string, number>; confidence?: number };
   tightness?: { score?: number; probabilities?: number[]; confidence?: number };
   new_subject?: { p?: number };
   key_moment?: { score?: number; probabilities?: number[]; confidence?: number };
 }
-
-/** Planner answers for one beat, in the shape the decision mapping reads. Any
- * configured BYOKit decide backend produces them; the mapping never knows
- * which provider answered. Same wire shape as JevAnswers today. */
-export type PlannerAnswers = JevAnswers;
 
 /** Framing tightness levels, whole screen (0) to tight (3). */
 export type Tightness = 0 | 1 | 2 | 3;
@@ -154,7 +151,7 @@ export interface Decision {
   p: number;
   K: 0 | 1 | 2;
   conf: { A?: number; B?: number; L?: number; K?: number };
-  decided_by: "jev" | "heuristic";
+  decided_by: "ai" | "heuristic";
   model?: string;
   input_tokens?: number;
 }
@@ -180,15 +177,16 @@ export interface TakeMeta extends TakeEdits {
   duration_ms?: number;
   /** Record wrote this trim itself; any later trim is the caller's. */
   auto_trim?: true;
-  jev?: { input_tokens: number; usd: number; failed: number };
   /** How the film was planned: AI decider or local fallback rules. */
   planner?: {
     mode: "ai" | "fallback";
-    backend: string;
-    model: string;
+    /** The provider that planned (ai) or the configured choice (fallback); null when none is configured. */
+    backend: string | null;
+    model: string | null;
     input_tokens: number;
     output_tokens: number;
-    usd: number;
+    /** null when the backend's price is unknown */
+    usd: number | null;
     failed: number;
   };
 }

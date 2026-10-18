@@ -5,19 +5,19 @@ Guide (docs/guide.md) Quickstart 1: generate a fully synthetic take (a scripted 
 ## Sub-features
 
 - Synthetic take generation (`scripts/synth-take.ts`): video + events from one timeline spec.
-- Local-only planning: `make --no-jev` decides every beat with the local heuristic, zero network calls.
+- Local-only planning: `make --no-ai` decides every beat with the local heuristic, zero network calls.
 - Render: stage, click rings, keycaps, idle speed-up, titles and captions from `take.json` baked into a silent H.264 MP4.
 
 ## How to get to it (user POV)
 
-The user runs two commands from the checkout: `node scripts/synth-take.ts <dir>` to create the demo take, then `node bin/takeone.mjs make <dir> --no-jev` to plan and render it. The polished video lands at `<dir>/out/synth-demo.mp4`, next to the plan in `analysis/` and the camera path in `camera.json` + `camera.cmd`.
+The user runs two commands from the checkout: `node scripts/synth-take.ts <dir>` to create the demo take, then `node bin/takeone.mjs make <dir> --no-ai` to plan and render it. The polished video lands at `<dir>/out/synth-demo.mp4`, next to the plan in `analysis/` and the camera path in `camera.json` + `camera.cmd`.
 
 ## Driving it with the takeone CLI
 
 ```sh
 export TAKEONE_DIR="$PWD/tmp/verify-takes" && mkdir -p "$TAKEONE_DIR"
 node scripts/synth-take.ts "$TAKEONE_DIR/synth-demo"          # exit 0; writes take.json, screen.webm, frames.tsv, events.jsonl
-node bin/takeone.mjs make "$TAKEONE_DIR/synth-demo" --no-jev  # exit 0; TOON progress on stdout
+node bin/takeone.mjs make "$TAKEONE_DIR/synth-demo" --no-ai  # exit 0; TOON progress on stdout
 test -s "$TAKEONE_DIR/synth-demo/out/synth-demo.mp4"
 node bin/takeone.mjs render "$TAKEONE_DIR/synth-demo" --set idle_speed=3   # optional rerender sanity, no planner
 ```

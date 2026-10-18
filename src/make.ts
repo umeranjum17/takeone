@@ -4,7 +4,6 @@ import type {
   Beat,
   Decision,
   FrameRegions,
-  JevAnswers,
   TakeMeta,
 } from "./types.ts";
 import { dialogResults } from "./perceive/dialogs.ts";
@@ -15,17 +14,25 @@ import { decodeAnalysisFrames, firstFrameTimeMs, readEvents } from "./perceive/d
 import { segmentBeats, actStart, resultTime, RESULT_MIN_AREA } from "./beats/segment.ts";
 import { actionVideoSeconds } from "./beats/clock.ts";
 import { zonesForBeat, OCR_MAX_AREA } from "./beats/zones.ts";
-import { buildRequest, PRICE_PER_MTOK, REQUEST_TOKEN_CAP, RequestTooLarge } from "./decide/request.ts";
-import type { Question } from "@byokit/decide";
+import { buildRequest, REQUEST_TOKEN_CAP, RequestTooLarge } from "./decide/request.ts";
+import type { Answer, DecideCache, Question } from "@byokit/decide";
+import { ConfigError } from "@byokit/decide";
 import { heuristicDecision } from "./decide/heuristics.ts";
-import { mapAnswers, frameRect, sumsTo1 } from "./decide/mapping.ts";
+import { mapAnswers, frameRect } from "./decide/mapping.ts";
 import {
   askBeat,
+  toPlannerAnswers,
+  resolvePlanner,
+  loadPlannerConfig,
+  PlannerUnavailable,
   CONCURRENCY,
-  JevFileCache,
-  loadApiKey,
+  PlannerFileCache,
+  modelOf,
   pooled,
-} from "./decide/jev.ts";
+  type ResolvedPlanner,
+  type AskOutcome,
+} from "./decide/planner.ts";
+import { estimateUsd } from "./decide/prices.ts";
 import { ocrZone } from "./decide/ocr.ts";
 import { redactText } from "./decide/redact.ts";
 import { renderTake } from "./render/render.ts";
@@ -42,12 +49,23 @@ const ANALYSIS_FRAME_MS = 100;
 export interface MakeOptions {
   /** Capture privacy: drop window titles, cache hashes only, no coords in current_shot. */
   capture?: boolean;
-  noJev?: boolean;
-  about?: string;
-  screenText?: boolean;
+  /** Decide every beat with the local heuristic; zero network calls. */
+  noAi?: boolean;
+  /** What the demo is for; sharpens key moments. Alias --about. */
+  goal?: string;
+  /** Style hint for the film call (slice 5); recorded, not yet decided on. */
+  style?: string;
+  /** Opt out of screen words (on by default when the planner runs). */
+  noScreenText?: boolean;
+  /** Ignore saved planner answers and ask again. */
+  replan?: boolean;
   maxTokens?: number;
-  /** Host-passed BYOKit override; null disables Jev, undefined loads the configured store. */
+  /** Host-passed BYOKit credential override for the configured backend;
+   * null disables the planner, undefined loads the configured store. */
   apiKey?: string | null;
+  /** Config dir holding planner.json and the sealed store; defaults to the
+   * platform config dir. Tests point it at a throwaway dir. */
+  configDir?: string;
   /** injectable for tests */
   fetchImpl?: typeof fetch;
   /** camera defaults override for the render; tests pass a fast preset */
@@ -84,9 +102,10 @@ export interface MakeResult {
   take: TakeMeta;
   beats: Beat[];
   decisions: Decision[];
-  jev: { input_tokens: number; usd: number; failed: number };
-  /** reserved preflight tokens and their planned cost; zeros without a planner key */
-  planned: { planned_tokens: number; usd: number };
+  /** usd is null when the backend's price is unknown ("cost unknown"), never a made-up $0 */
+  planner: { input_tokens: number; output_tokens: number; usd: number | null; failed: number };
+  /** reserved preflight tokens and their planned cost; zeros without a planner credential */
+  planned: { planned_tokens: number; usd: number | null };
   /** render output path and output seconds; null/0 when planOnly skips the render */
   out: string | null;
   seconds: number;
@@ -159,6 +178,46 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
   if (hasEvents && events.length === 0 && statSync(eventsPath).size > 0 && take.events !== "none") {
     throw new TakeInputError("events.jsonl", "invalid event data");
   }
+
+  // 0 planner -----------------------------------------------------------
+  // Resolve the provider-agnostic decider before perception output is built:
+  // screen words are read by default only when the planner will actually run.
+  let planner: ResolvedPlanner | null = null;
+  if (!opts.noAi) {
+    try {
+      planner = await resolvePlanner({
+        apiKeyOverride: opts.apiKey,
+        ...(opts.configDir === undefined ? {} : { configDir: opts.configDir }),
+      });
+    } catch (e) {
+      // A corrupt planner.json is user error: fail fast instead of hiding it
+      // behind the fallback. Anything else (no store, no credential) falls back.
+      if (e instanceof ConfigError) throw e;
+      planner = null;
+      warn("planner store unavailable; using heuristic policy for all beats");
+    }
+    if (planner && !planner.active) {
+      if (!planner.defaulted && opts.apiKey === undefined) {
+        // The user chose a provider but its credential is missing: stop with
+        // the choices instead of silently falling back (or switching provider).
+        const auth = (planner.config as { auth: string }).auth;
+        throw new PlannerUnavailable(planner.label, `no ${auth === "account" ? "sign-in" : "key"} for ${planner.label}`);
+      }
+      planner = null;
+    }
+  }
+  let fallbackChoice: { backend: string; model: string } | null = null;
+  if (planner === null) {
+    try {
+      const { config, defaulted } = loadPlannerConfig(opts.configDir === undefined ? {} : { configDir: opts.configDir });
+      if (!defaulted) {
+        const c = config as { backend: string };
+        fallbackChoice = { backend: c.backend, model: modelOf(config) };
+      }
+    } catch { /* no readable stored choice: record null, not a default */ }
+  }
+  const aiActive = planner !== null;
+  const readScreenText = aiActive && !opts.noScreenText;
 
   // 1 perceive ------------------------------------------------------------
   let videoStartMs: number;
@@ -239,7 +298,7 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
       frames: scopedFrames,
       uiBoxes: uiBoxes.frames,
     });
-    if (opts.screenText) await addScreenText(b, opts.capture ? null : win, webm, videoStartMs);
+    if (readScreenText) await addScreenText(b, opts.capture ? null : win, webm, videoStartMs);
   }
   const seconds = (ms: number) => (ms - videoStartMs) / 1000;
   const renderBeats: RenderBeat[] = beats.map((b) => {
@@ -272,15 +331,15 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
   writeFileSync(join(analysisDir, "beats.json"), JSON.stringify(renderBeats, null, 1));
 
   // 3 decide --------------------------------------------------------------
-  let key: string | null = null;
-  if (!opts.noJev) {
-    try {
-      key = opts.apiKey === null ? null : await loadApiKey(opts.apiKey !== undefined
-        ? { env: { TYPESAFE_API_KEY: opts.apiKey } } : {});
-    } catch {
-      warn("Jev secret store unavailable; enable the OS keyring or supply TAKEONE_SECRETS_PASSPHRASE_FD for the BYOKit sealed store");
-    }
-    if (!key) warn("no Jev key; run takeone key set (stdin); using heuristic policy for all beats");
+  if (!planner && !opts.noAi) {
+    warn(
+      "──────────────────────────────────────────────────────────────\n" +
+      " AI planner is OFF: no credential is set. This film uses fallback rules:\n" +
+      " generic framing, every pause sped up, no captions, default theme.\n" +
+      " Set a key:  read -rs k; printf %s \"$k\" | takeone key set\n" +
+      " Hide this:  takeone make <id> --no-ai\n" +
+      "──────────────────────────────────────────────────────────────",
+    );
   }
 
   // heuristic pre-pass, in shot order, to fill current_shot
@@ -294,18 +353,24 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
 
   const decisions: Decision[] = [...heuristics];
   let inputTokens = 0;
+  let outputTokens = 0;
   let failed = 0;
-  let usd = 0;
-  let planned = { planned_tokens: 0, usd: 0 };
+  let usd: number | null = 0;
+  let planned: MakeResult["planned"] = { planned_tokens: 0, usd: 0 };
+  const plannerBackend = planner
+    ? (planner.config as { backend: string }).backend
+    : fallbackChoice?.backend ?? null;
+  const plannerModel = planner ? modelOf(planner.config) : fallbackChoice?.model ?? null;
 
-  if (key) {
+  if (planner) {
     const minutes = Math.max(takeMs / 60000, 1 / 60);
     const maxTokens = opts.maxTokens ?? Math.ceil(DEFAULT_TOKENS_PER_MIN * minutes);
     if (!Number.isSafeInteger(maxTokens) || maxTokens <= 0) {
       throw new PreflightRefusal("--max-tokens must be a positive integer");
     }
     const ctxs = beats.map((b, i) => ({
-      about: opts.about,
+      goal: opts.goal,
+      style: opts.style,
       currentShot: shotDescription(beats[i - 1] ?? null, heuristics[i - 1] ?? null, i > 0 ? winFor(beats[i - 1]!.anchor_t)?.rect ?? null : null, take.stream, aspect, opts.capture),
       nextBeat: beats[i + 1],
     }));
@@ -323,7 +388,7 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
         continue;
       }
       try {
-        const request = buildRequest(beats[i]!, ctxs[i]!, Boolean(opts.about));
+        const request = buildRequest(beats[i]!, ctxs[i]!);
         jobs.push({ i, state: request.state, questions: request.questions });
         plannedTokens += request.tokens;
       } catch (e) {
@@ -333,35 +398,62 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
       }
     }
     const reservedTokens = plannedTokens + jobs.filter((j) => j.i > 0).length * REQUEST_TOKEN_CAP;
-    planned = { planned_tokens: reservedTokens, usd: (reservedTokens * PRICE_PER_MTOK) / 1e6 };
+    // The ceiling is estimated in the default request shape; other backends
+    // answer the same questions, so the bound still holds within its margin.
+    planned = { planned_tokens: reservedTokens, usd: estimateUsd(plannerBackend!, reservedTokens) ?? null };
     if (reservedTokens > maxTokens) {
       throw new PreflightRefusal(
         `planned ${reservedTokens} tokens exceeds the cap of ${maxTokens} (--max-tokens); ` +
-          `use --no-jev or raise the cap`,
+          `use --no-ai or raise the cap`,
         { plannedTokens: reservedTokens, cap: maxTokens },
       );
     }
     log(
-      `preflight: ${beats.length} beats, ${reservedTokens} planned tokens, $${planned.usd.toFixed(6)} planned`,
+      `AI planner: ${planner.label}. ${beats.length} beats, ${jobs.length} calls planned, ${planned.usd === null ? "cost unknown" : `about $${planned.usd.toFixed(4)}`}.` +
+      (readScreenText ? " reading screen words (redacted; turn off with --no-screen-text)" : ""),
+    );
+    log(
+      `preflight: ${beats.length} beats, ${reservedTokens} planned tokens, ${costText(planned.usd)} planned`,
     );
     // --plan-only stops here: the plan is priced but no planner call is made
     // and nothing is rendered.
     if (opts.planOnly) {
-      return { take, beats, decisions, jev: { input_tokens: 0, usd: 0, failed }, planned, out: null, seconds: 0 };
+      return { take, beats, decisions, planner: { input_tokens: 0, output_tokens: 0, usd: 0, failed }, planned, out: null, seconds: 0 };
     }
 
-    const cache = new JevFileCache(join(analysisDir, "jev-cache.jsonl"), { omitRequestBody: opts.capture });
-    const outcomes: ({ response: unknown; inputTokens?: number } | "failed")[] = new Array(beats.length);
+    const cacheFile = new PlannerFileCache(join(analysisDir, "planner-cache.jsonl"));
+    const cache: DecideCache = opts.replan
+      ? { get: async () => undefined, set: (k, v) => cacheFile.set(k, v) }
+      : cacheFile;
+    const mapCtx = (i: number) => ({
+      viewport: null as BBox | null,
+      winRect: winFor(beats[i]!.anchor_t)?.rect ?? null,
+      stream: take.stream,
+      aspect,
+      model: plannerModel!,
+    });
+    const outcomes: (AskOutcome | "failed")[] = new Array(beats.length);
     await pooled(jobs, CONCURRENCY, async (j) => {
-      const r = await askBeat(j.state, j.questions, key, cache, { fetchImpl: opts.fetchImpl,
-        usable: (response) => mapJevResponse(beats[j.i]!, response, { viewport: null, winRect: winFor(beats[j.i]!.anchor_t)?.rect ?? null, stream: take.stream, aspect, about: opts.about }) !== null,
+      const r = await askBeat(j.state, j.questions, planner, cache, { fetchImpl: opts.fetchImpl,
+        usable: (answers) => toPlannerAnswers(answers) !== null &&
+          mapAnswers(beats[j.i]!, toPlannerAnswers(answers)!, mapCtx(j.i)) !== null,
       });
+      // PlannerUnavailable (provider limit, auth or timeout) propagates: the
+      // run stops before rendering instead of silently using rules.
       if (r.decisionSource === "failed") {
         outcomes[j.i] = "failed";
       } else {
-        outcomes[j.i] = { response: r.response, inputTokens: r.inputTokens };
+        outcomes[j.i] = r;
       }
     });
+    const takeOutcome = (r: AskOutcome): void => {
+      if (r.inputTokens) {
+        inputTokens += r.inputTokens;
+        const cost = estimateUsd(plannerBackend!, r.inputTokens);
+        usd = usd === null || cost === undefined ? null : usd + cost;
+      }
+      if (r.outputTokens) outputTokens += r.outputTokens;
+    };
     for (let i = 0; i < beats.length; i++) {
       if (skipped.has(i)) continue;
       const o = outcomes[i]!;
@@ -369,16 +461,10 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
         failed++;
         continue; // keep heuristic
       }
-      if (o.inputTokens) {
-        inputTokens += o.inputTokens;
-        usd += (o.inputTokens * PRICE_PER_MTOK) / 1e6;
-      }
-      const d = mapJevResponse(beats[i]!, o.response, {
+      takeOutcome(o);
+      const d = mapPlannerResponse(beats[i]!, o.answers!, {
+        ...mapCtx(i),
         viewport: i === 0 ? null : finalFrame(beats[i - 1]!, decisions[i - 1]!, winFor(beats[i]!.anchor_t - 1)?.rect ?? null, take.stream, aspect),
-        winRect: winFor(beats[i]!.anchor_t)?.rect ?? null,
-        stream: take.stream,
-        aspect,
-        about: opts.about,
       });
       if (d) {
         if (o.inputTokens) d.input_tokens = o.inputTokens;
@@ -393,7 +479,7 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
       let state: unknown;
       let questions: Record<string, Question>;
       try {
-        const request = buildRequest(beats[i]!, { ...ctxs[i]!, currentShot: actual }, Boolean(opts.about));
+        const request = buildRequest(beats[i]!, { ...ctxs[i]!, currentShot: actual });
         state = request.state;
         questions = request.questions;
       } catch (e) {
@@ -402,24 +488,19 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
         failed++;
         continue;
       }
-      const r = await askBeat(state, questions, key, cache, { fetchImpl: opts.fetchImpl,
-        usable: (response) => mapJevResponse(beats[i]!, response, { viewport: null, winRect: winFor(beats[i]!.anchor_t)?.rect ?? null, stream: take.stream, aspect, about: opts.about }) !== null,
+      const r = await askBeat(state, questions, planner, cache, { fetchImpl: opts.fetchImpl,
+        usable: (answers) => toPlannerAnswers(answers) !== null &&
+          mapAnswers(beats[i]!, toPlannerAnswers(answers)!, mapCtx(i)) !== null,
       });
       if (r.decisionSource === "failed") {
         decisions[i] = heuristics[i]!;
         failed++;
         continue;
       }
-      if (r.inputTokens) {
-        inputTokens += r.inputTokens;
-        usd += (r.inputTokens * PRICE_PER_MTOK) / 1e6;
-      }
-      const d = mapJevResponse(beats[i]!, r.response, {
+      takeOutcome(r);
+      const d = mapPlannerResponse(beats[i]!, r.answers!, {
+        ...mapCtx(i),
         viewport: finalFrame(beats[i - 1]!, decisions[i - 1]!, winFor(beats[i]!.anchor_t - 1)?.rect ?? null, take.stream, aspect),
-        winRect: winFor(beats[i]!.anchor_t)?.rect ?? null,
-        stream: take.stream,
-        aspect,
-        about: opts.about,
       });
       if (d) {
         if (r.inputTokens) d.input_tokens = r.inputTokens;
@@ -431,17 +512,22 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
     }
   }
 
-  // --plan-only without a planner key: nothing planned, nothing rendered.
+  // --plan-only without a planner credential: nothing planned, nothing rendered.
   if (opts.planOnly) {
-    return { take, beats, decisions, jev: { input_tokens: 0, usd: 0, failed: 0 }, planned, out: null, seconds: 0 };
+    return { take, beats, decisions, planner: { input_tokens: 0, output_tokens: 0, usd: 0, failed: 0 }, planned, out: null, seconds: 0 };
   }
 
   const renderDecisions: RenderDecision[] = decisions.map((d) => ({
     ...d, conf: Math.max(0, Math.min(1, d.conf.A ?? d.conf.B ?? d.conf.L ?? 0)),
   }));
   writeFileSync(join(analysisDir, "decisions.jsonl"), renderDecisions.map((d) => JSON.stringify(d)).join("\n") + "\n");
-  const jev = { input_tokens: inputTokens, usd, failed };
-  take.jev = jev;
+  const plannerStats = { input_tokens: inputTokens, output_tokens: outputTokens, usd, failed };
+  take.planner = {
+    mode: planner ? "ai" : "fallback",
+    backend: plannerBackend,
+    model: plannerModel,
+    ...plannerStats,
+  };
   const renderMeta: RenderMeta = {
     id: take.id, width: take.stream.w, height: take.stream.h,
     trim_start: seconds(startMs), duration: seconds(videoEndMs),
@@ -463,94 +549,32 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
   writeFileSync(join(dir, "take.json"), JSON.stringify(meta, null, 1) + "\n");
   const { out, seconds: renderSeconds } = await renderTake(dir, camera);
 
-  const byJev = decisions.filter((d) => d.decided_by === "jev").length;
-  log(`make: ${beats.length} beats; ${byJev} by jev, ${decisions.length - byJev} by heuristic` +
-    (key ? `; ${inputTokens} input tokens, $${usd.toFixed(6)}, ${failed} failed` : ""));
-  return { take, beats, decisions, jev, planned, out, seconds: renderSeconds };
+  const byAi = decisions.filter((d) => d.decided_by === "ai").length;
+  const byRule = decisions.length - byAi;
+  if (planner) {
+    log(`plan: ${byAi} choices by AI, ${byRule} by rules. ` +
+      `make: ${beats.length} beats; ${byAi} by ai, ${byRule} by heuristic; ` +
+      `${inputTokens} input tokens, ${costText(usd)}, ${failed} failed`);
+  } else {
+    log(`make: ${beats.length} beats; ${byRule} by heuristic (planner: fallback)`);
+  }
+  return { take, beats, decisions, planner: plannerStats, planned, out, seconds: renderSeconds };
 }
 
-function mapJevResponse(
+function costText(usd: number | null): string {
+  return usd === null ? "cost unknown" : `$${usd.toFixed(6)}`;
+}
+
+function mapPlannerResponse(
   beat: Beat,
-  response: unknown,
-  ctx: { viewport: BBox | null; winRect: BBox | null; stream: { w: number; h: number }; about?: string; aspect?: number },
+  answers: Record<string, Answer>,
+  ctx: { viewport: BBox | null; winRect: BBox | null; stream: { w: number; h: number }; aspect?: number; model: string },
 ): Decision | null {
-  const answers = extractAnswers(response);
-  if (!answers) return null;
-  const d = mapAnswers(beat, answers, ctx);
+  const adapted = toPlannerAnswers(answers);
+  if (!adapted) return null;
+  const d = mapAnswers(beat, adapted, ctx);
   if (d) d.input_tokens = undefined; // set by the caller from usage
   return d;
-}
-
-/** Pull the five question answers out of a systemone response. */
-function extractAnswers(response: unknown): JevAnswers | null {
-  const r = response as {
-    answers?: Record<string, unknown>;
-    questions?: Record<string, unknown>;
-  };
-  const src = r?.answers ?? r?.questions ?? null;
-  if (!src || typeof src !== "object") return null;
-  const pick = (k: string): Record<string, unknown> | undefined => {
-    const v = (src as Record<string, unknown>)[k];
-    return v && typeof v === "object" ? (v as Record<string, unknown>) : undefined;
-  };
-  const asChoices = (v: Record<string, unknown> | undefined) =>
-    v
-      ? {
-          choice: typeof v["choice"] === "string" ? (v["choice"] as string) : undefined,
-          probabilities:
-            v["probabilities"] && typeof v["probabilities"] === "object"
-              ? (v["probabilities"] as Record<string, number>)
-              : undefined,
-          confidence: typeof v["confidence"] === "number" ? (v["confidence"] as number) : undefined,
-        }
-      : undefined;
-  /** Score probabilities arrive as arrays or as objects keyed by level ("0".."3"). */
-  const asProbs = (v: unknown): number[] | undefined => {
-    if (Array.isArray(v)) return v.every((n) => typeof n === "number") ? (v as number[]) : undefined;
-    if (v && typeof v === "object") {
-      const entries = Object.entries(v as Record<string, unknown>).filter(
-        ([k, n]) => /^\d+$/.test(k) && typeof n === "number",
-      );
-      if (entries.length === 0) return undefined;
-      const arr: number[] = [];
-      for (const [k, n] of entries) arr[Number(k)] = n as number;
-      // dense iff length matches: a skipped level leaves a hole and length > count
-      return arr.length === entries.length ? arr : undefined;
-    }
-    return undefined;
-  };
-  const asScore = (v: Record<string, unknown> | undefined) =>
-    v
-      ? {
-          probabilities: asProbs(v["probabilities"]),
-          confidence: typeof v["confidence"] === "number" ? (v["confidence"] as number) : undefined,
-        }
-      : undefined;
-  const ns = pick("new_subject");
-  return {
-    focus_start: asChoices(pick("focus_start")),
-    focus_end: asChoices(pick("focus_end")),
-    tightness: asScore(pick("tightness")),
-    new_subject:
-      ns && typeof ns["p"] === "number"
-        ? { p: ns["p"] as number }
-        : ns && ns["probabilities"] !== undefined
-          ? { p: noulP(ns) }
-          : ns && typeof ns["noul"] === "number"
-            ? { p: ns["noul"] as number }
-            : undefined,
-    key_moment: asScore(pick("key_moment")),
-  };
-}
-
-function noulP(v: Record<string, unknown>): number | undefined {
-  const probs = v["probabilities"];
-  if (Array.isArray(probs) && probs.length === 2 && sumsTo1(probs)) {
-    return probs[1];
-  }
-  if (typeof v["p"] === "number") return v["p"] as number;
-  if (typeof v["noul"] === "number") return v["noul"] as number;
-  return undefined;
 }
 
 function finalFrame(

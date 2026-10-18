@@ -26,7 +26,7 @@ import {
 } from "@byokit/decide";
 import { writeFileAtomic } from "@byokit/secrets";
 import type { PlannerAnswers } from "../types.ts";
-import { takeoneConfigDir, readPlannerKey, noKeyring, type KeyOptions } from "../secrets.ts";
+import { takeoneConfigDir, loadPlannerKey, readPlannerKey, noKeyring, type KeyOptions } from "../secrets.ts";
 
 export const CONCURRENCY = 8;
 /** Whole-call budget per beat (attempts plus bounded 429 waits). */
@@ -50,13 +50,19 @@ export function plannerConfigPath(o: KeyOptions = {}): string {
 }
 
 /** Stored BYOKit decide config, or the Jev default when the user picked
- * nothing. Throws ConfigError or UnsupportedAccountError on an invalid file
- * (fix or delete it): the kit accepts account auth this host cannot serve,
- * so only opencode-go may use it. */
+ * nothing. Throws ConfigError on an invalid file (fix or delete it); an
+ * account-auth file this host cannot serve is the same user error, so its
+ * kit error is reported as one. */
 export function loadPlannerConfig(o: KeyOptions = {}): { config: DecideConfig; defaulted: boolean } {
   const path = plannerConfigPath(o);
   if (!existsSync(path)) return { config: { ...DEFAULT_PLANNER_CONFIG }, defaulted: true };
-  const config = parseConfig(readFileSync(path, "utf8"));
+  let config: DecideConfig;
+  try {
+    config = parseConfig(readFileSync(path, "utf8"));
+  } catch (e) {
+    if (e instanceof UnsupportedAccountError) throw new ConfigError(e.message);
+    throw e;
+  }
   const c = config as { backend: string; auth: string };
   if (c.auth === "account" && c.backend !== "opencode-go") {
     throw new ConfigError(`account authentication is only supported for opencode-go, not ${c.backend}`);
@@ -112,6 +118,9 @@ export interface ResolvePlannerOptions extends KeyOptions {
   /** Host-passed credential for the configured apiKey backend. null disables
    * the planner without touching the store; undefined loads the store. */
   apiKeyOverride?: string | null;
+  /** Presence probe (doctor, capture hello): read the store without migrating
+   * the legacy env file. */
+  probe?: boolean;
 }
 
 /** Load the stored config and probe only whether its credential exists. Never
@@ -125,12 +134,15 @@ export async function resolvePlanner(o: ResolvePlannerOptions = {}): Promise<Res
   if (o.apiKeyOverride === null) {
     // explicitly disabled: no store reads at all.
   } else if (c.auth === "account") {
+    if (o.apiKeyOverride !== undefined) {
+      throw new ConfigError(`${describePlanner(config)} plans through an account sign-in, which a supplied key cannot drive; fix planner.json or drop --planner-key-fd`);
+    }
     member = plannerMember(o);
     accountPresent = await goAccountPresent(member, o.env);
   } else if (o.apiKeyOverride !== undefined) {
     key = o.apiKeyOverride;
   } else {
-    key = await readPlannerKey(c.backend, o);
+    key = await (o.probe ? readPlannerKey : loadPlannerKey)(c.backend, o);
   }
   return {
     config,
@@ -174,8 +186,8 @@ export async function plannerStatus(o: ResolvePlannerOptions = {}): Promise<{
   label: string;
 }> {
   try {
-    const r = await resolvePlanner(o);
-    if (r.active) return { available: true, detail: `AI planner: ${r.label} is set up; make still uses the Jev key or fallback rules until the planner is wired`, config: r.config, label: r.label };
+    const r = await resolvePlanner({ ...o, probe: true });
+    if (r.active) return { available: true, detail: `AI planner: ${r.label}`, config: r.config, label: r.label };
     const c = r.config as { backend: string; auth: string };
     if (r.defaulted) {
       return {
@@ -187,7 +199,7 @@ export async function plannerStatus(o: ResolvePlannerOptions = {}): Promise<{
     }
     return {
       available: false,
-      detail: `AI planner off: no ${c.auth === "account" ? "sign-in" : "key"} for ${r.label}; make uses the Jev key or fallback rules until the planner is wired`,
+      detail: `AI planner off: films use fallback rules (no ${c.auth === "account" ? "sign-in" : "key"} for ${r.label})`,
       config: r.config,
       label: r.label,
     };
@@ -283,7 +295,7 @@ export interface AskOutcome {
 /** Statuses that stop the run before rendering instead of falling back: the
  * provider is limited, refused or too slow, and silently using rules would
  * bill nothing yet hide the outage. Anything else fails the beat, as before. */
-const LIMIT_RE = /failed: http (429|401|402)\b|timed out/;
+const LIMIT_RE = /failed: http (429|401|402|403)\b|timed out/;
 
 /** The provider cannot serve this run: rate-limited, unauthorized, or timed
  * out. The CLI exits 3 with the choices; nothing renders. */
@@ -291,8 +303,8 @@ export class PlannerUnavailable extends Error {
   readonly provider: string;
   constructor(provider: string, reason: string) {
     super(
-      `AI planner: ${provider} ${reason} (answers saved). ` +
-        `Choose: wait and rerun (resumes from saved answers), ` +
+      `AI planner: ${provider} ${reason}. ` +
+        `Choose: wait and rerun, run with --no-ai for fallback rules, ` +
         `or switch provider yourself with takeone key set --backend <name> --model <model>.`,
     );
     this.name = "PlannerUnavailable";

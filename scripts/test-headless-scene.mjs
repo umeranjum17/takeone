@@ -80,7 +80,7 @@ async function render(a, run) {
   // This executes the existing CLI and render pipeline without changing it.
   // The take carries its text boxes, so render fails on any box in the 5% band. A push-in on this
   // dense board always parks text there; max_upscale=0.5 keeps the 2x source at its rest framing.
-  execFileSync(process.execPath, ['bin/takeone.mjs','make',a,'--no-jev','--set','fps=60','--set','preset=ultrafast','--set','max_upscale=0.5'], { stdio:'inherit', timeout: 1_200_000 });
+  execFileSync(process.execPath, ['bin/takeone.mjs','make',a,'--no-ai','--set','fps=60','--set','preset=ultrafast','--set','max_upscale=0.5'], { stdio:'inherit', timeout: 1_200_000 });
   const beats = JSON.parse(await readFile(join(a,'analysis/beats.json'),'utf8'));
   for (const kind of ['click','drag','type']) assert.ok(beats.some(beat => beat.kind === kind), `make must plan a ${kind} beat`);
   const video = join(a,'out/headless-demo.mp4');

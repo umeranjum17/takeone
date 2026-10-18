@@ -62,26 +62,15 @@ test("capture hello sees a legacy TYPESAFE env file key, as doctor does", async 
   }
 });
 
-test("capture hello sees the TYPESAFE_API_KEY host override, as make does", async () => {
-  const home = await mkdtemp(join(tmpdir(), "takeone-cap-"));
-  try {
-    const r = run(["capture", "hello"], { HOME: home, TYPESAFE_API_KEY: "test-key" });
-    assert.equal(r.status, 0, r.stderr);
-    assert.deepEqual(JSON.parse(r.stdout).planner, { available: true, needsKey: true });
-  } finally {
-    await rm(home, { recursive: true, force: true });
-  }
-});
-
 test("capture hello reports no planner without a key, never printing it", async () => {
   const home = await mkdtemp(join(tmpdir(), "takeone-cap-"));
   try {
-    // Empty override and a fake BYOKit keyring report no configured key.
-    const r = run(["capture", "hello"], { HOME: home, TYPESAFE_API_KEY: "" });
+    // No keyring key and no env fallback: the environment is never a credential.
+    const r = run(["capture", "hello"], { HOME: home, TYPESAFE_API_KEY: "bogus-env-key" });
     assert.equal(r.status, 0, r.stderr);
     const out = JSON.parse(r.stdout);
     assert.deepEqual(out.planner, { available: false, needsKey: true });
-    assert.ok(!r.stdout.includes("test-key"));
+    assert.ok(!r.stdout.includes("bogus-env-key"));
   } finally {
     await rm(home, { recursive: true, force: true });
   }
