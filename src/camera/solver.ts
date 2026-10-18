@@ -566,18 +566,19 @@ function applyDwellAndShotLength(shots: Shot[], d: CameraDefaults): Shot[] {
   // opening establish, or an earlier wide shot) is a no-op; accepting it would
   // let the minimum shot length drop the next real shot right behind it.
   let wide = true;
+  // The planner's shot answer: a beat it says needs no camera move gets none.
+  // Pointer travel alone is not an action shot. Zooming to its empty trail
+  // delays the next real action behind dwell and can crop a newly opened dialog.
+  const takesShot = (shot: Shot): boolean => shot.decision.shot !== false
+    && shot.beat.kind !== "scroll" && shot.beat.kind !== "idle"
+    && !(shot.beat.kind === "travel" && !shot.beat.actions.some(action =>
+      ["click", "type", "drag", "shortcut"].includes((action as { k?: string }).k ?? "")));
   for (const shot of shots) {
-    // The planner's shot answer: a beat it says needs no camera move gets none.
-    if (shot.decision.shot === false) continue;
-    if (shot.beat.kind === "scroll" || shot.beat.kind === "idle") continue;
-    // Pointer travel alone is not an action shot. Zooming to its empty trail
-    // delays the next real action behind dwell and can crop a newly opened dialog.
-    if (shot.beat.kind === "travel" && !shot.beat.actions.some(action =>
-      ["click", "type", "drag", "shortcut"].includes((action as { k?: string }).k ?? ""))) continue;
+    if (!takesShot(shot)) continue;
     // A simultaneous subject shot already covers the cut's arrival. Accepting
     // a redundant wide cut would let shot spacing discard that subject instead.
     if (shot.beat.kind === "cut" && wholeStage(shot) && shots.some((other) =>
-      other.beat.anchor_t === shot.beat.anchor_t && !wholeStage(other))) continue;
+      other.beat.anchor_t === shot.beat.anchor_t && takesShot(other) && !wholeStage(other))) continue;
     if (wide && wholeStage(shot)) continue;
     const previous = accepted.at(-1);
     if (previous) {

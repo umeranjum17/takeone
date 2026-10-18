@@ -14,7 +14,21 @@ interface BeatChoices { beat: string; shot?: boolean; idle?: boolean; follow?: b
 
 export function readPlan(dir: string): Plan | null {
   const path = join(dir, "analysis/plan.json");
-  return existsSync(path) ? JSON.parse(readFileSync(path, "utf8")) as Plan : null;
+  if (!existsSync(path)) return null;
+  const plan = JSON.parse(readFileSync(path, "utf8")) as Plan;
+  for (const beat of plan.beats) {
+    for (const f of FIELDS) {
+      const choice = beat[f];
+      if (choice === undefined) continue;
+      if (choice.value !== undefined && typeof choice.value !== "boolean") {
+        throw new Error(`analysis/plan.json: ${beat.id}.${f}.value must be true or false`);
+      }
+      if (!["ai", "rule", "user"].includes(choice.by)) {
+        throw new Error(`analysis/plan.json: ${beat.id}.${f}.by must be ai, rule or user`);
+      }
+    }
+  }
+  return plan;
 }
 
 /** Write the plan from the decisions. A choice the user set by hand is kept. */
