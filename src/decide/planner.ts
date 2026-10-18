@@ -444,7 +444,12 @@ export async function pooled<T>(items: T[], limit: number, fn: (item: T) => Prom
   const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
     while (i < items.length) {
       const idx = i++;
-      await fn(items[idx]!);
+      try {
+        await fn(items[idx]!);
+      } catch (e) {
+        i = items.length;
+        throw e;
+      }
     }
   });
   await Promise.all(workers);

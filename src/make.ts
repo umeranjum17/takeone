@@ -484,19 +484,13 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
         questions = request.questions;
       } catch (e) {
         if (!(e instanceof RequestTooLarge)) throw e;
-        decisions[i] = heuristics[i]!;
-        failed++;
         continue;
       }
       const r = await askBeat(state, questions, planner, cache, { fetchImpl: opts.fetchImpl,
         usable: (answers) => toPlannerAnswers(answers) !== null &&
           mapAnswers(beats[i]!, toPlannerAnswers(answers)!, mapCtx(i)) !== null,
       });
-      if (r.decisionSource === "failed") {
-        decisions[i] = heuristics[i]!;
-        failed++;
-        continue;
-      }
+      if (r.decisionSource === "failed") continue;
       takeOutcome(r);
       const d = mapPlannerResponse(beats[i]!, r.answers!, {
         ...mapCtx(i),
@@ -505,9 +499,6 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
       if (d) {
         if (r.inputTokens) d.input_tokens = r.inputTokens;
         decisions[i] = d;
-      } else {
-        decisions[i] = heuristics[i]!;
-        failed++;
       }
     }
   }

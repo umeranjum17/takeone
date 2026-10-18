@@ -252,6 +252,8 @@ test("a provider with no known price shows cost unknown, never $0", async () => 
 
 test("a chosen provider without its credential stops instead of falling back", async () => {
   const dir = newTake();
+  const keyring = process.env.TAKEONE_NO_KEYRING;
+  process.env.TAKEONE_NO_KEYRING = "1";
   try {
     const configDir = join(dir, "test-config");
     mkdirSync(join(configDir, "takeone"), { recursive: true });
@@ -271,6 +273,8 @@ test("a chosen provider without its credential stops instead of falling back", a
     );
     assert.ok(!existsSync(join(dir, "out", "t1.mp4")), "rendered despite PlannerUnavailable");
   } finally {
+    if (keyring === undefined) delete process.env.TAKEONE_NO_KEYRING;
+    else process.env.TAKEONE_NO_KEYRING = keyring;
     rmSync(dir, { recursive: true, force: true });
   }
 });
