@@ -340,9 +340,8 @@ function validUsageTokens(answers: Record<string, Answer>): { input?: number; ou
 }
 
 /** Adapt one beat's typed answers into the shape the decision mapping reads.
- * Returns null when an asked field abstained or went missing — key_moment
- * counts as asked only when present in the answers, matching mapAnswers —
- * and the caller then applies the heuristic for the whole beat. */
+ * Returns null when an asked field abstained or went missing, and the caller
+ * then applies the heuristic for the whole beat. */
 export function toPlannerAnswers(answers: Record<string, Answer>): PlannerAnswers | null {
   const choice = (k: string): { choice?: string; probabilities?: Record<string, number>; confidence?: number } | null => {
     const a = answers[k];
@@ -373,9 +372,9 @@ export function toPlannerAnswers(answers: Record<string, Answer>): PlannerAnswer
   const focus_end = choice("focus_end");
   const tightness = score("tightness", 4);
   const new_subject = yesno("new_subject");
-  const key_moment = answers["key_moment"] === undefined ? undefined : score("key_moment", 3);
-  if (!focus_start || !focus_end || !tightness || !new_subject || key_moment === null) return null;
-  return { focus_start, focus_end, tightness, new_subject, ...(key_moment ? { key_moment } : {}) };
+  const key_moment = score("key_moment", 3);
+  if (!focus_start || !focus_end || !tightness || !new_subject || !key_moment) return null;
+  return { focus_start, focus_end, tightness, new_subject, key_moment };
 }
 
 /** Ask one beat through the configured decider. Never throws on transport or
