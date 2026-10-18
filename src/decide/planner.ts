@@ -419,7 +419,7 @@ export async function askBeat(
   };
   if (!Object.values(answers).some((a) => a && !a.abstained)) return { decisionSource: "failed", ...tokens };
   if (o.usable && !o.usable(answers)) return { decisionSource: "failed", ...tokens };
-  const cached = Object.values(answers).every((a) => a?.source === "cache");
+  const cached = Object.values(answers).filter(Boolean).every((a) => a.source === "cache");
   if (cached) return { decisionSource: "cache", answers };
   return { decisionSource: "api", answers, ...tokens };
 }
