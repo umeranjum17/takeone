@@ -1,7 +1,7 @@
 /** `takeone capture make` over a tiny synthetic take, via the built CLI. */
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdtempSync, openSync, closeSync, readFileSync, rmSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
+import { mkdtempSync, openSync, closeSync, readFileSync, rmSync, writeFileSync, existsSync, mkdirSync, chmodSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -133,6 +133,57 @@ function withHome() {
   const home = mkdtempSync(join(tmpdir(), "takeone-caphome-"));
   return { home, cleanup: () => rmSync(home, { recursive: true, force: true }) };
 }
+
+test("doctor and make use a signed-in installed Claude CLI without a planner key", async () => {
+  const { home, cleanup } = withHome();
+  const dir = mkdtempSync(join(tmpdir(), "takeone-cli-account-"));
+  const binDir = join(dir, "bin");
+  mkdirSync(binDir);
+  const cli = join(binDir, "claude");
+  writeFileSync(cli, `#!/usr/bin/env node
+const args = process.argv.slice(2);
+if (args.includes("auth") && args.includes("status")) {
+  process.stdout.write(JSON.stringify({ loggedIn: true, authMethod: "claude.ai", apiProvider: "firstParty" }) + "\\n");
+} else if (args[0] === "-p") {
+  const schema = JSON.parse(args[args.indexOf("--json-schema") + 1]);
+  const answers = {};
+  for (const [name, property] of Object.entries(schema.properties)) {
+    if (property.properties?.ranking) answers[name] = { ranking: property.properties.ranking.items.enum, confidence: 0.9 };
+    else {
+      const keys = Object.keys(property.properties.probabilities.properties);
+      answers[name] = { probabilities: Object.fromEntries(keys.map((key, index) => [key, keys.length === 1 ? 1 : index === 0 ? 0.9 : 0.1 / (keys.length - 1)])), pick: keys[0] };
+      for (const key of property.required) if (!(key in answers[name])) answers[name][key] = "fixture";
+    }
+  }
+  process.stdout.write(JSON.stringify({ type: "result", subtype: "success", is_error: false, stop_reason: "end_turn", result: "fixture", structured_output: answers, usage: { input_tokens: 1, output_tokens: 1 } }) + "\\n");
+} else process.exit(2);
+`);
+  chmodSync(cli, 0o755);
+  const take = join(dir, "take");
+  writeFileSync(join(dir, "passphrase"), "fixture-only-passphrase");
+  try {
+    execFileSync(process.execPath, [join(here, "../../scripts/synth-take.ts"), take], { stdio: "ignore" });
+    const env = {
+      HOME: home,
+      XDG_CONFIG_HOME: join(home, ".config"),
+      PATH: `${binDir}:${process.env.PATH ?? "/usr/bin:/bin"}`,
+      TAKEONE_NO_KEYRING: "1",
+      TAKEONE_SECRETS_PASSPHRASE_FD: "3",
+    };
+    const doctor = run(["doctor"], { env, keyFile: join(dir, "passphrase") });
+    assert.equal(doctor.status, 0, doctor.stderr);
+    assert.match(doctor.stdout, /ai-planner,true,planner,.*found and using signed-in Claude account/);
+    const made = run(["make", take, ...FAST_SET], { env, keyFile: join(dir, "passphrase") });
+    assert.equal(made.status, 0, made.stderr);
+    assert.match(made.stdout, /AI planner: signed-in Claude account/);
+    assert.match(made.stdout, /choices by AI/);
+    assert.equal(JSON.parse(readFileSync(join(take, "take.json"), "utf8")).planner.mode, "ai");
+    assert.ok(!/set a key|paste.*key/i.test(made.stdout + made.stderr));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+    cleanup();
+  }
+});
 
 test("capture make --no-planner renders and prints one JSON object", { skip: needsFfmpeg }, async () => {
   const { home, cleanup } = withHome();
