@@ -48,6 +48,8 @@ test("floor guard passes renamed tests and assertions, still flags real removals
     assert.equal(guard(BASE.replace("  assert.equal(r.jev.failed, 0);\n", "")), 1, "a removed assertion still fails");
     assert.equal(guard(BASE.replace("r.jev.failed, 0", "true, true")), 1, "a subject rewritten into another shape still fails");
     assert.equal(guard(renamed + `test("new", ${SKIP}, async () => {});\n`), 1, "a new skipped test still fails");
+    const unrelated = BASE.replace('test("make --no-jev renders"', 'test("unrelated"');
+    assert.equal(guard(unrelated + `test("different", ${SKIP}, async () => {});\n`), 1, "an unrelated skipped declaration cannot pair with a removed test");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

@@ -93,19 +93,17 @@ const SKIPS = /\.(skip|todo)\b|\b(skip|todo)["']?\s*:(?!\s*false\s*(?:[,}]|$))|\
 // A changed timeout re-adds the declaration's existing ffmpeg prerequisite.
 // Compare simple skip fields only within the same BASE declaration; uncertain
 // expressions and other skip forms remain findings rather than gaining an exemption.
-// A renamed test is the same BASE declaration under a new name: a skipped
-// declaration pairs once with a removed one in the same file whose name is gone.
 const TEST_DECLARATION = /\b(?:test|it|describe)\s*\(\s*("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`)/;
 const SKIP_FIELD = /\b(skip|todo)["']?\s*:\s*("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*)\s*(?=[,}]|$)/g;
-const renamedFrom = new Set();
 const declarationOf = (t) => TEST_DECLARATION.exec(t)?.[0];
+const baseText = (file) => git(['show', `${mergeBase}:${file}`]) ?? '';
+const currentText = (file) => existsSync(file) ? readFileSync(file, 'utf8') : '';
 function addedSkip(file, text) {
   const declaration = declarationOf(text);
   let before = declaration && removed.find(r => r.file === file && declarationOf(r.text) === declaration)?.text;
-  if (!before && declaration && SKIPS.test(text)) {
-    const old = removed.find(r => r.file === file && !renamedFrom.has(r) && declarationOf(r.text)
-      && !added.some(a => a.file === file && declarationOf(a.text) === declarationOf(r.text)));
-    if (old) { renamedFrom.add(old); before = old.text; }
+  if (!before && declaration) {
+    before = removed.find(r => r.file === file && declarationOf(r.text)
+      && renamed(declarationOf(r.text), declaration, declarationOf(r.text), declaration))?.text;
   }
   if (!before) return SKIPS.test(text);
   const fields = [...before.matchAll(SKIP_FIELD)];
