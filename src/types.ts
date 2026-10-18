@@ -190,6 +190,13 @@ export interface TakeMeta extends TakeEdits {
     /** null when the backend's price is unknown */
     usd: number | null;
     failed: number;
+    /** planner asks, cache hits included */
+    requests: number;
+    cached: number;
+    /** estimated request size of those asks */
+    request_tokens: number;
+    calls_per_min: number;
+    request_tokens_per_min: number;
   };
 }
 

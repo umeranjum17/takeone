@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { rmSync } from "node:fs";
-import { DEFAULT_PLANNER_CONFIG, PlannerFileCache, askBeat, pooled } from "../src/decide/planner.ts";
+import { DEFAULT_PLANNER_CONFIG, PlannerFileCache, askChunk, pooled } from "../src/decide/planner.ts";
 import type { Answer } from "@byokit/decide";
 
 test("PlannerFileCache surfaces write failures through warn and never fails the decision", async () => {
@@ -33,7 +33,7 @@ test("a fully abstained planner beat reports failed and keeps its billed tokens"
   const questions = { focus: { kind: "choice", options: { a: "Zone A" } } } as const;
   const fetchImpl = (async () =>
     new Response(JSON.stringify({ answers: { focus: { choice: "zz", probabilities: { zz: 1 }, confidence: 0 } }, usage: { input_tokens: 15800, output_tokens: 40 } }), { status: 200 })) as typeof fetch;
-  const r = await askBeat({ secret: "x" }, questions, planner as never, new Map() as never, { fetchImpl, timeoutMs: 2000 });
+  const r = await askChunk({ secret: "x" }, questions, planner as never, new Map() as never, { fetchImpl, timeoutMs: 2000 });
   assert.equal(r.decisionSource, "failed");
   assert.equal(r.inputTokens, 15800);
   assert.equal(r.outputTokens, 40);

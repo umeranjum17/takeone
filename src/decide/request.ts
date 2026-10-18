@@ -1,12 +1,19 @@
-// Planner request building, token estimation and the 1,200-token per-request cap.
+// Planner request building, token estimation and the 4,000-token chunk cap.
 // Pure functions over plain data: no Node imports.
 
-import type { Question } from "@byokit/decide";
+import type { Answer, Question } from "@byokit/decide";
 import type { Beat, Decision } from "../types.ts";
 
 export const JEV_MODEL = "jev-latest";
-export const REQUEST_TOKEN_CAP = 1200;
+/** One planner call asks for up to CHUNK_BEATS beats, capped at CHUNK_TOKEN_CAP estimated tokens. */
+export const CHUNK_TOKEN_CAP = 4000;
+export const CHUNK_BEATS = 8;
 export const CHARS_PER_TOKEN = 3.5;
+/** Estimate for one keyframe thumbnail (512 px long side, JPEG). Providers bill
+ * images by their own tile formulas; this is the planner's budget figure. */
+export const IMAGE_TOKENS = 255;
+/** Actions per beat described to the planner. */
+export const ACTIONS_PER_BEAT = 6;
 
 /** Kit floor on our questions. Zero: takeone's own mapping (mapAnswers) is the
  * single validator in slice 1, so a merely unsure answer still widens through
@@ -16,28 +23,41 @@ export const QUESTION_FLOOR = 0;
 
 export class RequestTooLarge extends Error {}
 
-export interface RequestCtx {
+/** What the fallback rules would do for one beat, shown to the planner as advice. */
+export interface BeatHint {
+  suggest_shot: { start: string; end: string; tightness: string; rule: string };
+  /** whether the rule's start zone fits the shot before the beat */
+  fits_current_shot: "yes" | "no";
+}
+
+export interface ChunkCtx {
   /** what the demo is for, from --goal (alias --about) */
   goal?: string;
   /** style hint, from --style; carried for the film call, unused by beats */
   style?: string;
-  /** description of the shot the viewer is looking at when the beat starts */
+  /** description of the shot the viewer is looking at when the chunk's first beat starts */
   currentShot: string;
-  /** the next beat, for what_happened lookahead */
+  /** the beat after the chunk, for what_happened lookahead */
   nextBeat?: Beat;
+  /** one hint per beat, in chunk order */
+  hints: BeatHint[];
+  /** attached thumbnail ids per beat, in chunk order; absent for text-only models */
+  images?: string[][];
 }
 
-export interface JevRequest {
-  model: string;
-  state: {
-    goal?: string;
-    style?: string;
-    current_shot: string;
-    beat: { length: string; what_happened: string; next_beat: string; hint?: string };
-    zones: Record<string, { shows: string; size: string; where: string; activity: string; text?: string }>;
-  };
-  questions: Record<string, unknown>;
+type ZoneNotes = Record<string, { shows: string; size: string; where: string; activity: string; text?: string }>;
+
+export interface ChunkState {
+  goal?: string;
+  style?: string;
+  rubric: Record<string, string>;
+  current_shot: string;
+  beats: Record<string, { length: string; what_happened: string; device_hint?: string; zones: ZoneNotes; hint: BeatHint }>;
+  after_chunk: string;
 }
+
+export const TIGHTNESS_LEVELS = ["entire screen", "window or area", "zone with room", "zone tightly"];
+const KEY_LEVELS = ["routine", "useful step", "key moment"];
 
 export function estimateTokens(body: string): number {
   return Math.ceil(body.length / CHARS_PER_TOKEN);
@@ -56,7 +76,7 @@ function shortcutWords(combo: string): string {
 /** Words describing what happened in a beat, from its actions and zones. Digit-free. */
 export function whatHappened(beat: Beat): string {
   const parts: string[] = [];
-  for (const a of beat.actions.slice(0, 3)) {
+  for (const a of beat.actions.slice(0, ACTIONS_PER_BEAT)) {
     switch (a.k) {
       case "click":
         parts.push(a.double ? "The user double-clicked a control" : "The user clicked a control");
@@ -100,81 +120,53 @@ export function whatHappened(beat: Beat): string {
   return s;
 }
 
-function truncateZonesToCap(state: JevRequest["state"]): string {
-  let body = JSON.stringify({ model: JEV_MODEL, state, questions: toWire(buildQuestions(state)) });
-  // drop optional text fields first, then shorten them word by word, until under the cap
-  for (const z of Object.values(state.zones)) {
-    if (z.text) {
-      const words = z.text.split(" ");
-      while (words.length > 0 && estimateTokens(body) > REQUEST_TOKEN_CAP) {
-        words.pop();
-        z.text = words.join(" ");
-        body = JSON.stringify({ model: JEV_MODEL, state, questions: toWire(buildQuestions(state)) });
-      }
-      if (estimateTokens(body) > REQUEST_TOKEN_CAP) {
-        delete z.text;
-        body = JSON.stringify({ model: JEV_MODEL, state, questions: toWire(buildQuestions(state)) });
-      }
-    }
-  }
-  return body;
+/** The shared rubric: every judgement's full wording, once per chunk. */
+function rubric(goal: string | undefined, withImages: boolean): Record<string, string> {
+  return {
+    focus_start:
+      "At the START of the beat, which zone should the viewer be looking at to see the action the user takes? Pick the zone where the user's action happens.",
+    focus_end:
+      "At the END of the beat, which zone should the viewer be looking at to understand the result of the action? Pick the zone that shows what changed because of the action; pick the same zone as the action if nothing else changed.",
+    tightness:
+      "How closely should the camera frame the zone the viewer should look at, so a viewer on a laptop screen can follow the beat? " +
+      "entire screen: the beat is about the overall layout or a big change; window or area: the context matters as much as the detail; " +
+      "zone with room: the detail matters and the surroundings help; zone tightly: small text or a small control is the whole point.",
+    new_subject:
+      "Yes when the viewer's attention must move to a different part of the screen than the shot before the beat shows: what matters is outside or much smaller than that shot. " +
+      "No when it is already comfortably visible. Before the first beat that shot is current_shot; before a later beat it is the shot the previous beat ends on.",
+    key_moment:
+      `How important is the beat ${goal ? "to the story of `goal`" : "to the demo as a whole"}? ` +
+      "routine: navigation or setup a viewer can skim; useful step: a normal step of the workflow; key moment: the payoff or the step the demo exists to show.",
+    hints:
+      "Each beat's hint is what the fallback rules would pick: suggest_shot names the rule's start zone, end zone and tightness, and fits_current_shot says whether that start zone already fits the shot before the beat (current_shot for the first beat, the rule's shot for the previous beat after it). " +
+      "Hints are advice: overrule them when the beat calls for something else.",
+    ...(withImages ? {
+      images:
+        "Thumbnails <beat>_act (at the action) and <beat>_res (at the result) show the screen with every zone outlined and labelled by its name. Black boxes are redacted text.",
+    } : {}),
+  };
 }
 
-/** The planner questions as @byokit/decide Questions. The key-moment question
- * is always asked: a goal sentence sharpens it but is not required. Choice
- * criteria keep the planner's null descriptions (cast: the wire passes values
- * through verbatim). */
-export function buildQuestions(state: JevRequest["state"]): Record<string, Question> {
-  const zoneNames = Object.fromEntries(Object.keys(state.zones).map((n) => [n, null])) as unknown as Record<string, string>;
-  const q: Record<string, Question> = {
-    focus_start: {
-      kind: "choice",
-      floor: QUESTION_FLOOR,
-      options: zoneNames,
-      instructions:
-        "At the START of `beat`, which zone should the viewer be looking at to see the action the user takes? Pick the zone where the user's action happens.",
-    },
-    focus_end: {
-      kind: "choice",
-      floor: QUESTION_FLOOR,
-      options: zoneNames,
-      instructions:
-        "At the END of `beat`, which zone should the viewer be looking at to understand the result of the action? Pick the zone that shows what changed because of the action; pick the same zone as the action if nothing else changed.",
-    },
-    tightness: {
-      kind: "score",
-      floor: QUESTION_FLOOR,
-      instructions:
-        "How closely should the camera frame the zone the viewer should look at, so a viewer on a laptop screen can follow this beat?",
-      levels: [
-        "Show the entire screen; the beat is about the overall layout or a big change",
-        "Show the surrounding window or area; the context matters as much as the detail",
-        "Frame the zone with some room around it; the detail matters and the surroundings help",
-        "Frame the zone tightly; small text or a small control is the whole point",
-      ],
-    },
-    new_subject: {
-      kind: "yesno",
-      floor: QUESTION_FLOOR,
-      question:
-        "The viewer's attention must move to a different part of the screen than `current_shot` shows during this beat.",
-      yes: "What matters in this beat is outside or much smaller than the current shot",
-      no: "What matters in this beat is already comfortably visible in the current shot",
-    },
-    key_moment: {
-      kind: "score",
-      floor: QUESTION_FLOOR,
-      instructions: state.goal
-        ? "How important is this beat to the story of `goal`?"
-        : "How important is this beat to the demo as a whole?",
-      levels: [
-        "Routine: navigation or setup a viewer can skim",
-        "Useful: a normal step of the workflow",
-        "Key moment: the payoff or the step the demo exists to show",
-      ],
-    },
+/** Per-beat questions: short pointers into the shared rubric. Choice criteria
+ * keep the planner's null descriptions (cast: the wire passes values through
+ * verbatim). */
+function beatQuestions(id: string, zones: ZoneNotes, images: string[] | undefined): Record<string, Question> {
+  const options = Object.fromEntries(Object.keys(zones).map((n) => [n, null])) as unknown as Record<string, string>;
+  const pointer = (rule: string) => `Apply rubric.${rule} to beats.${id}.`;
+  const seen = images?.length ? { images } : {};
+  return {
+    [`${id}_focus_start`]: { kind: "choice", floor: QUESTION_FLOOR, options, instructions: pointer("focus_start"), ...seen },
+    [`${id}_focus_end`]: { kind: "choice", floor: QUESTION_FLOOR, options, instructions: pointer("focus_end"), ...seen },
+    [`${id}_tightness`]: { kind: "score", floor: QUESTION_FLOOR, levels: TIGHTNESS_LEVELS, instructions: pointer("tightness"), ...seen },
+    [`${id}_new_subject`]: { kind: "yesno", floor: QUESTION_FLOOR, question: pointer("new_subject") },
+    [`${id}_key_moment`]: { kind: "score", floor: QUESTION_FLOOR, levels: KEY_LEVELS, instructions: pointer("key_moment") },
   };
-  return q;
+}
+
+/** One beat's answers out of a chunk's, keyed by the bare question name. */
+export function beatAnswers(answers: Record<string, Answer>, id: string): Record<string, Answer> {
+  const prefix = `${id}_`;
+  return Object.fromEntries(Object.entries(answers).filter(([k]) => k.startsWith(prefix)).map(([k, a]) => [k.slice(prefix.length), a]));
 }
 
 /** Mirror of @byokit/decide's internal wire(): Question -> planner JSON, used
@@ -194,9 +186,8 @@ function toWire(questions: Record<string, Question>): Record<string, unknown> {
   );
 }
 
-/** The planner state for one beat; shared by the body builder and decide(). */
-export function buildState(beat: Beat, ctx: RequestCtx): JevRequest["state"] {
-  const zones: JevRequest["state"]["zones"] = {};
+function zoneNotes(beat: Beat): ZoneNotes {
+  const zones: ZoneNotes = {};
   for (const z of beat.zones) {
     zones[z.name] = {
       shows: z.desc.shows,
@@ -206,42 +197,99 @@ export function buildState(beat: Beat, ctx: RequestCtx): JevRequest["state"] {
       ...(z.desc.text ? { text: z.desc.text } : {}),
     };
   }
-  return {
-    ...(ctx.goal ? { goal: ctx.goal } : {}),
-    ...(ctx.style ? { style: ctx.style } : {}),
-    current_shot: ctx.currentShot,
-    beat: {
-      length: `${((beat.t1 - beat.t0) / 1000).toFixed(1)} seconds`,
-      what_happened: whatHappened(beat),
-      next_beat: ctx.nextBeat ? whatHappened(ctx.nextBeat) : "The take ends after this beat.",
-      ...(beat.hint ? { hint: beat.hint } : {}),
-    },
-    zones,
-  };
+  return zones;
 }
 
-/** Build the exact request body for one beat (compact JSON), capped at 1,200 estimated tokens.
- *  `state`/`questions` are also returned for decide(). */
-export function buildRequest(
-  beat: Beat,
-  ctx: RequestCtx,
-): { body: string; tokens: number; state: JevRequest["state"]; questions: Record<string, Question>; trimmed: boolean } {
-  const state = buildState(beat, ctx);
-  let body = truncateZonesToCap(state);
-  let trimmed = false;
-  for (const field of ["style", "goal"] as const) {
-    const words = state[field]?.split(/\s+/) ?? [];
-    while (words.length && estimateTokens(body) > REQUEST_TOKEN_CAP) {
-      words.pop();
-      if (words.length) state[field] = words.join(" ");
-      else delete state[field];
-      trimmed = true;
-      body = JSON.stringify({ model: JEV_MODEL, state, questions: toWire(buildQuestions(state)) });
+/**
+ * Build one chunk request: up to CHUNK_BEATS beats sharing one rubric, capped
+ * at CHUNK_TOKEN_CAP estimated tokens (thumbnails included). Over the cap,
+ * screen words are dropped first; a single beat then shortens style and goal.
+ * Still over: RequestTooLarge, and planChunks splits the chunk in half.
+ * `state`/`questions` go to decide() as they are.
+ */
+export function buildChunk(
+  beats: Beat[],
+  ctx: ChunkCtx,
+): { body: string; tokens: number; state: ChunkState; questions: Record<string, Question>; trimmed: boolean } {
+  const imageCount = (ctx.images ?? []).reduce((n, ids) => n + ids.length, 0);
+  const state: ChunkState = {
+    ...(ctx.goal ? { goal: ctx.goal } : {}),
+    ...(ctx.style ? { style: ctx.style } : {}),
+    rubric: rubric(ctx.goal, imageCount > 0),
+    current_shot: ctx.currentShot,
+    beats: {},
+    after_chunk: ctx.nextBeat ? whatHappened(ctx.nextBeat) : "The take ends after these beats.",
+  };
+  beats.forEach((b, k) => {
+    state.beats[b.id] = {
+      length: `${((b.t1 - b.t0) / 1000).toFixed(1)} seconds`,
+      what_happened: whatHappened(b),
+      ...(b.hint ? { device_hint: b.hint } : {}),
+      zones: zoneNotes(b),
+      hint: ctx.hints[k]!,
+    };
+  });
+  const questions = () => Object.assign({}, ...beats.map((b, k) => beatQuestions(b.id, state.beats[b.id]!.zones, ctx.images?.[k])));
+  const measure = () => {
+    const body = JSON.stringify({ model: JEV_MODEL, state, questions: toWire(questions()) });
+    return { body, tokens: estimateTokens(body) + imageCount * IMAGE_TOKENS };
+  };
+  let m = measure();
+  // drop screen words, word by word, until under the cap
+  for (const beat of Object.values(state.beats)) {
+    for (const z of Object.values(beat.zones)) {
+      if (!z.text) continue;
+      const words = z.text.split(" ");
+      while (words.length > 0 && m.tokens > CHUNK_TOKEN_CAP) {
+        words.pop();
+        z.text = words.join(" ");
+        m = measure();
+      }
+      if (!z.text) delete z.text;
     }
   }
-  const tokens = estimateTokens(body);
-  if (tokens > REQUEST_TOKEN_CAP) throw new RequestTooLarge(`request exceeds ${REQUEST_TOKEN_CAP} estimated tokens`);
-  return { body, tokens, state, questions: buildQuestions(state), trimmed };
+  let trimmed = false;
+  if (beats.length === 1) {
+    for (const field of ["style", "goal"] as const) {
+      const words = state[field]?.split(/\s+/) ?? [];
+      while (words.length && m.tokens > CHUNK_TOKEN_CAP) {
+        words.pop();
+        if (words.length) state[field] = words.join(" ");
+        else delete state[field];
+        trimmed = true;
+        state.rubric = rubric(state.goal, imageCount > 0);
+        m = measure();
+      }
+    }
+  }
+  if (m.tokens > CHUNK_TOKEN_CAP) throw new RequestTooLarge(`request exceeds ${CHUNK_TOKEN_CAP} estimated tokens`);
+  return { ...m, state, questions: questions(), trimmed };
+}
+
+/**
+ * Group items into ordered chunks of at most CHUNK_BEATS, sized evenly (ten
+ * beats ask as five and five, not eight and two). A chunk the builder refuses
+ * as too large splits in half; a single item that is still too large goes to
+ * `tooLarge` and keeps the rules.
+ */
+export function planChunks<T, C>(items: T[], build: (group: T[]) => C, tooLarge: (item: T) => void): { items: T[]; chunk: C }[] {
+  const out: { items: T[]; chunk: C }[] = [];
+  const place = (group: T[]): void => {
+    try {
+      out.push({ items: group, chunk: build(group) });
+    } catch (e) {
+      if (!(e instanceof RequestTooLarge)) throw e;
+      if (group.length === 1) return tooLarge(group[0]!);
+      const half = Math.ceil(group.length / 2);
+      place(group.slice(0, half));
+      place(group.slice(half));
+    }
+  };
+  const n = Math.ceil(items.length / CHUNK_BEATS);
+  for (let k = 0; k < n; k++) {
+    place(items.slice(Math.round((k * items.length) / n), Math.round(((k + 1) * items.length) / n)));
+  }
+  return out;
 }
 
 export type { Decision };

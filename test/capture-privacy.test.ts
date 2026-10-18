@@ -7,10 +7,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { makeTake, type MakeOptions, type MakeResult } from "../src/make.ts";
 import { main } from "../src/cli.ts";
-import { PlannerFileCache, askBeat, resolvePlanner } from "../src/decide/planner.ts";
+import { PlannerFileCache, askChunk, resolvePlanner } from "../src/decide/planner.ts";
 import { DEFAULTS } from "../src/camera/defaults.ts";
 import type { TakeMeta } from "../src/types.ts";
-import { hasFfmpeg } from "./helpers.ts";
+import { hasFfmpeg, buildLongTake, chunkAnswers } from "./helpers.ts";
 
 const needsFfmpeg = hasFfmpeg() ? undefined : "requires system ffmpeg and ffprobe on PATH";
 const TITLE = "Quarterly report";
@@ -62,20 +62,26 @@ function takeFiles(dir: string): string[] {
   return out;
 }
 
+/** Twelve asked beats, two planner chunks: the second starts from a real shot. */
+function buildLongTitledTake(): string {
+  return buildLongTake(mkdtempSync(join(tmpdir(), "takeone-capriv-")), TITLE);
+}
+
 /** Stub planner: valid answers shaped to each request's zones; records bodies. */
 function stubPlanner(bodies: string[]): typeof fetch {
   return (async (_url: string | URL | Request, init?: RequestInit) => {
     const body = String(init?.body);
     bodies.push(body);
-    const names = Object.keys(JSON.parse(body).state.zones);
-    const probabilities = Object.fromEntries(names.map((name, i) => [name, i === 0 ? 1 : 0]));
-    const answers = {
-      focus_start: { choice: names[0], probabilities, confidence: 1 },
-      focus_end: { choice: names[0], probabilities, confidence: 1 },
-      tightness: { probabilities: [0.1, 0.1, 0.7, 0.1], confidence: 0.9 },
-      new_subject: { noul: 0.2 },
-      key_moment: { probabilities: [0.7, 0.2, 0.1], confidence: 0.8 },
-    };
+    const answers = chunkAnswers(body, (names) => {
+      const probabilities = Object.fromEntries(names.map((name, i) => [name, i === 0 ? 1 : 0]));
+      return {
+        focus_start: { choice: names[0], probabilities, confidence: 1 },
+        focus_end: { choice: names[0], probabilities, confidence: 1 },
+        tightness: { probabilities: [0.1, 0.1, 0.7, 0.1], confidence: 0.9 },
+        new_subject: { noul: 0.2 },
+        key_moment: { probabilities: [0.7, 0.2, 0.1], confidence: 0.8 },
+      };
+    });
     return new Response(JSON.stringify({ answers, usage: { input_tokens: 800 } }), { status: 200 });
   }) as typeof fetch;
 }
@@ -95,7 +101,7 @@ test("PlannerFileCache stores hash and answers only, never request bodies; hits 
       }), { status: 200 });
     }) as typeof fetch;
     const planner = await resolvePlanner({ apiKeyOverride: KEY, configDir: join(dir, "config") });
-    const r1 = await askBeat(state, questions, planner, new PlannerFileCache(path), { fetchImpl: fake });
+    const r1 = await askChunk(state, questions, planner, new PlannerFileCache(path), { fetchImpl: fake });
     assert.equal(r1.decisionSource, "api");
     const raw = readFileSync(path, "utf8");
     assert.ok(!raw.includes("request-body-marker"), "no request body on disk");
@@ -104,7 +110,7 @@ test("PlannerFileCache stores hash and answers only, never request bodies; hits 
     assert.equal(line.key.length, 64);
     assert.ok(line.answers !== undefined, "answers stored");
     // a reloaded cache hits without a network call and records zero tokens
-    const r2 = await askBeat(state, questions, planner, new PlannerFileCache(path), { fetchImpl: fake });
+    const r2 = await askChunk(state, questions, planner, new PlannerFileCache(path), { fetchImpl: fake });
     assert.equal(r2.decisionSource, "cache");
     assert.equal(r2.inputTokens, undefined);
     // The hit returns the first run's answers, each marked as served from the cache.
@@ -118,7 +124,7 @@ test("PlannerFileCache stores hash and answers only, never request bodies; hits 
 });
 
 test("capture make drops titles, coords and cache bodies; standalone keeps them", { skip: needsFfmpeg }, async () => {
-  const dir = buildTake();
+  const dir = buildLongTitledTake();
   try {
     const bodies: string[] = [];
     const r = await fastTake(dir, { capture: true, apiKey: KEY, fetchImpl: stubPlanner(bodies) });
@@ -152,7 +158,7 @@ test("capture make drops titles, coords and cache bodies; standalone keeps them"
 });
 
 test("standalone make keeps coords and titles; cache holds key and answers only", { skip: needsFfmpeg }, async () => {
-  const dir = buildTake();
+  const dir = buildLongTitledTake();
   try {
     const bodies: string[] = [];
     await fastTake(dir, { apiKey: KEY, fetchImpl: stubPlanner(bodies) });

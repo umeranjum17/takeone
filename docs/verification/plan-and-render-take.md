@@ -5,7 +5,7 @@ The core pipeline: `takeone make <id>` segments an existing take into beats, fin
 ## Sub-features
 
 - Beat segmentation and change-region analysis (`analysis/regions.json`, `analysis/beats.json`, `analysis/actions.json`, one decision per line in `analysis/decisions.jsonl`).
-- Local vs AI planning: `--no-ai` keeps every decision local (zero network); with a stored credential, the planner decides judgement beats inside a hard token preflight (`--max-tokens`, default 40k per take minute). Planner answers cache to `analysis/planner-cache.jsonl` — replanning an unchanged take costs nothing; `--replan` asks again.
+- Local vs AI planning: `--no-ai` keeps every decision local (zero network); with a stored credential, the planner decides judgement beats inside a hard token preflight (`--max-tokens`, default 40k per take minute). The `make` log prints `preflight: N beats, K chunks, X planned tokens` and, at the end, `planner: R requests (C from cache), T request tokens; ... calls a minute, ... request tokens a minute` (also in `take.json` `planner.calls_per_min` / `planner.request_tokens_per_min`). Planner answers cache to `analysis/planner-cache.jsonl` — replanning an unchanged take costs nothing; `--replan` asks again.
 - `--goal "<sentence>"` sharpens key moments (always asked); `--style "<word>"` steers the film; screen words are read by default with a planner (`--no-screen-text` opts out; needs `tesseract`).
 - Theme selection (`--theme NAME`) and camera-setting overrides (`--set key=value`) at plan time.
 - Cost accounting: usage lands in `take.json` (`planner.mode`, `planner.backend`, `planner.model`, `planner.input_tokens`, `planner.usd`); see the [per-provider table](../cost.md#per-provider-cost-slice-1).
