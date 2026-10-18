@@ -107,9 +107,9 @@ test("PlannerFileCache stores hash and answers only, never request bodies; hits 
     const r2 = await askBeat(state, questions, planner, new PlannerFileCache(path), { fetchImpl: fake });
     assert.equal(r2.decisionSource, "cache");
     assert.equal(r2.inputTokens, undefined);
-    const stripSource = (a: typeof r1.answers) =>
-      JSON.parse(JSON.stringify(a, (k, v) => (k === "source" ? undefined : v)));
-    assert.deepEqual(stripSource(r2.answers), stripSource(r1.answers));
+    // The hit returns the first run's answers, each marked as served from the cache.
+    const fromCache = Object.fromEntries(Object.entries(r1.answers ?? {}).map(([k, a]) => [k, { ...a, source: "cache" }]));
+    assert.deepEqual(r2.answers, fromCache);
     assert.equal(calls, 1);
   } finally {
     rmSync(dir, { recursive: true, force: true });

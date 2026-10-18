@@ -175,7 +175,7 @@ test("CLI rejects malformed --max-tokens values", async () => {
   }
 }); 
 
-test("without a credential the run falls back loudly and records planner.mode fallback", { skip: needsFfmpeg }, async () => {
+test("without a credential the run falls back loudly and records planner.mode fallback", async () => {
   const dir = newTake();
   try {
     const warns: string[] = [];
@@ -190,7 +190,7 @@ test("without a credential the run falls back loudly and records planner.mode fa
   }
 });
 
-test("key moment is asked on every beat even without --goal", { skip: needsFfmpeg }, async () => {
+test("key moment is asked on every beat even without --goal", async () => {
   const dir = newTake();
   try {
     const bodies: string[] = [];
@@ -217,7 +217,7 @@ test("key moment is asked on every beat even without --goal", { skip: needsFfmpe
   }
 });
 
-test("a corrupt planner.json fails fast instead of falling back silently", { skip: needsFfmpeg }, async () => {
+test("a corrupt planner.json fails fast instead of falling back silently", async () => {
   const dir = newTake();
   try {
     const configDir = join(dir, "test-config");
@@ -232,7 +232,7 @@ test("a corrupt planner.json fails fast instead of falling back silently", { ski
   }
 });
 
-test("a provider with no known price shows cost unknown, never $0", { skip: needsFfmpeg }, async () => {
+test("a provider with no known price shows cost unknown, never $0", async () => {
   const dir = newTake();
   try {
     const configDir = join(dir, "test-config");
@@ -250,7 +250,7 @@ test("a provider with no known price shows cost unknown, never $0", { skip: need
   }
 });
 
-test("a chosen provider without its credential stops instead of falling back", { skip: needsFfmpeg }, async () => {
+test("a chosen provider without its credential stops instead of falling back", async () => {
   const dir = newTake();
   try {
     const configDir = join(dir, "test-config");
@@ -275,7 +275,7 @@ test("a chosen provider without its credential stops instead of falling back", {
   }
 });
 
-test("a rate-limited provider stops before render instead of falling back", { skip: needsFfmpeg }, async () => {
+test("a rate-limited provider stops before render instead of falling back", async () => {
   const dir = newTake();
   try {
     const fetchImpl = (async () => new Response("limited", { status: 429 })) as typeof fetch;
@@ -295,7 +295,7 @@ test("a rate-limited provider stops before render instead of falling back", { sk
   }
 });
 
-test("an unauthorized provider stops before render instead of falling back", { skip: needsFfmpeg }, async () => {
+test("an unauthorized provider stops before render instead of falling back", async () => {
   const dir = newTake();
   try {
     const fetchImpl = (async () => new Response("no", { status: 401 })) as typeof fetch;
@@ -309,7 +309,7 @@ test("an unauthorized provider stops before render instead of falling back", { s
   }
 });
 
-test("a forbidden provider stops before render instead of falling back", { skip: needsFfmpeg }, async () => {
+test("a forbidden provider stops before render instead of falling back", async () => {
   const dir = newTake();
   try {
     const fetchImpl = (async () => new Response("forbidden", { status: 403 })) as typeof fetch;
@@ -323,7 +323,7 @@ test("a forbidden provider stops before render instead of falling back", { skip:
   }
 });
 
-test("--replan ignores saved answers and asks again", { skip: needsFfmpeg }, async () => {
+test("--replan ignores saved answers and asks again", async () => {
   const dir = newTake();
   try {
     let calls = 0;

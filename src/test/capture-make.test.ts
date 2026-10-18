@@ -269,7 +269,7 @@ test("capture make render failure uses the envelope with exit 1", { skip: needsF
   }
 });
 
-test("capture make with an fd key stops loudly when planner.json names account auth", { skip: needsFfmpeg }, async () => {
+test("capture make with an fd key stops loudly when planner.json names account auth", async () => {
   const { home, cleanup } = withHome();
   const dir = buildTake();
   try {
@@ -337,7 +337,8 @@ test("makeTake planOnly prices the plan with zero planner calls", { skip: needsF
     });
     assert.equal(calls, 0);
     assert.ok(r.planned.planned_tokens > 0);
-    assert.ok(r.planned.usd !== null && r.planned.usd > 0);
+    assert.ok(r.planned.usd !== null);
+    assert.ok(r.planned.usd > 0);
     assert.equal(r.out, null);
     assert.equal(r.seconds, 0);
     assert.ok(r.beats.length > 0);
