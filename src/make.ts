@@ -209,7 +209,7 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
         // The user chose a provider but its credential is missing: stop with
         // the choices instead of silently falling back (or switching provider).
         const auth = (planner.config as { auth: string }).auth;
-        throw new PlannerUnavailable(planner.label, `no ${auth === "account" ? "sign-in" : "key"} for ${planner.label}`, opts.capture ? "--no-planner" : "--no-ai");
+        throw new PlannerUnavailable(planner.label, `no ${auth === "account" ? "sign-in" : "key"} for ${planner.label}`);
       }
       planner = null;
     }

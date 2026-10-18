@@ -303,14 +303,16 @@ const LIMIT_RE = /failed: http (429|401|402|403)\b|timed out/;
  * out. The CLI exits 3 with the choices; nothing renders. */
 export class PlannerUnavailable extends Error {
   readonly provider: string;
-  constructor(provider: string, reason: string, fallbackFlag = "--no-ai") {
+  readonly reason: string;
+  constructor(provider: string, reason: string) {
     super(
       `AI planner: ${provider} ${reason}. ` +
-        `Choose: wait and rerun, run with ${fallbackFlag} for fallback rules, ` +
+        `Choose: wait and rerun, run with --no-ai for fallback rules, ` +
         `or switch provider yourself with takeone key set --backend <name> --model <model>.`,
     );
     this.name = "PlannerUnavailable";
     this.provider = provider;
+    this.reason = reason;
   }
 }
 

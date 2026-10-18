@@ -294,7 +294,8 @@ async function runCaptureMake(argv: string[]): Promise<number> {
     if (e instanceof PlannerUnavailable) {
       captureFail({
         code: "planner-unavailable",
-        message: e.message,
+        // capture's off switch is --no-planner, so it words its own choices
+        message: `AI planner: ${e.provider} ${e.reason}.`,
         hint: "wait for the limit to reset and rerun, or rerun with --no-planner",
       });
     }
