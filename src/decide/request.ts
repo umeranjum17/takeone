@@ -132,17 +132,18 @@ function rubric(goal: string | undefined, withImages: boolean): Record<string, s
       "entire screen: the beat is about the overall layout or a big change; window or area: the context matters as much as the detail; " +
       "zone with room: the detail matters and the surroundings help; zone tightly: small text or a small control is the whole point.",
     new_subject:
-      "Yes when the viewer's attention must move to a different part of the screen than current_shot shows: what matters is outside or much smaller than that shot. " +
-      "No when it is already comfortably visible in current_shot. Use fits_current_shot and the per-beat hint to judge whether the action fits; all beats in this chunk share current_shot.",
+      "Yes when the viewer's attention must move to a different part of the screen than the shot before the beat shows: what matters is outside or much smaller than that shot. " +
+      "No when it is already comfortably visible. Before the first beat that shot is current_shot; before a later beat it is the shot the previous beat ends on - the focus_end and tightness you chose for that beat.",
     key_moment:
       `How important is the beat ${goal ? "to the story of `goal`" : "to the demo as a whole"}? ` +
       "routine: navigation or setup a viewer can skim; useful step: a normal step of the workflow; key moment: the payoff or the step the demo exists to show.",
     hints:
       "Each beat's hint is what the fallback rules would pick: suggest_shot names the rule's start zone, end zone and tightness, and fits_current_shot says whether that start zone already fits the shot before the beat (current_shot for the first beat, the rule's shot for the previous beat after it). " +
+      "fits_current_shot assumes the previous beat took its suggest_shot; if you chose differently for it, judge new_subject against the shot you chose. " +
       "Hints are advice: overrule them when the beat calls for something else.",
     ...(withImages ? {
       images:
-        "Thumbnails <beat>_act (at the action) and <beat>_res (at the result) show the screen with every zone outlined and labelled by its name. Black boxes are redacted text.",
+        "Thumbnails <beat>_act (at the action) and <beat>_res (at the result) show the screen with every zone outlined and labelled by its name. Outside the zones whose text is read the screen is blurred; black boxes are redacted text.",
     } : {}),
   };
 }
