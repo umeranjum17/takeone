@@ -5,7 +5,8 @@ The core pipeline: `takeone make <id>` segments an existing take into beats, fin
 ## Sub-features
 
 - Beat segmentation and change-region analysis (`analysis/regions.json`, `analysis/beats.json`, `analysis/actions.json`, one decision per line in `analysis/decisions.jsonl`).
-- Local vs AI planning: `--no-ai` keeps every decision local (zero network); with a stored credential, the planner decides judgement beats inside a hard token preflight (`--max-tokens`, default 40k per take minute). Planner answers cache to `analysis/planner-cache.jsonl` — replanning an unchanged take costs nothing; `--replan` asks again.
+- Local vs AI planning: `--no-ai` keeps every decision local (zero network); with a stored credential or explicitly picked plan account, the planner decides judgement beats inside a hard token preflight (`--max-tokens`, default 40k per take minute). Planner answers cache to `analysis/planner-cache.jsonl` — replanning an unchanged take costs nothing; `--replan` asks again.
+- Picked-account planning: `planner.json` can explicitly select the installed Codex CLI ChatGPT-plan account or a BYOKit ChatGPT handle; TakeOne does not list or automatically select signed-in accounts.
 - `--goal "<sentence>"` sharpens key moments (always asked); `--style "<word>"` steers the film; screen words are read by default with a planner (`--no-screen-text` opts out; needs `tesseract`).
 - Theme selection (`--theme NAME`) and camera-setting overrides (`--set key=value`) at plan time.
 - Cost accounting: usage lands in `take.json` (`planner.mode`, `planner.backend`, `planner.model`, `planner.input_tokens`, `planner.usd`); see the [per-provider table](../cost.md#per-provider-cost-slice-1).
@@ -26,6 +27,14 @@ node bin/takeone.mjs make /abs/path/to/take --no-ai --goal "Creating a task and 
 Proving end state: exit 0; `analysis/decisions.jsonl` has one line per decided beat; `out/<id>.mp4` exists and `ffprobe` reports the expected dimensions (default 1920×1080; 1080×1920 for portrait takes without `out_w`/`out_h` overrides); `take.json` carries updated usage/render metadata. For a planner-enabled drive, additionally check `analysis/planner-cache.jsonl` exists and `take.json`'s `planner.input_tokens` is within the preflight cap — and treat it as a billed run: verification defaults to `--no-ai`. A provider that cannot serve the run (rate limit, auth refusal, timeout) stops before rendering with exit 3 and the three choices.
 
 Error shapes worth asserting: `takeone make: no take at <dir> (take.json missing)` exits 2; `PreflightRefusal` exits 2 with a message naming the token cap.
+
+## Live planner run on a picked account
+
+For the installed Codex subscription, write `${XDG_CONFIG_HOME:-$HOME/.config}/takeone/planner.json` with `{"backend":"codex","auth":"account","account":"installed-codex","bin":"/absolute/path/to/codex","model":"gpt-6-luna"}`. Set `bin` to the already installed Codex executable; BYOKit checks its existing ChatGPT sign-in and never reads, copies or changes login files. This selection is explicit and the installed account is never offered or picked automatically.
+
+The board authorization for this live proof is limited to small runs and at most two attempts per take, through 21 Oct 11:50Z. These are limits on this proof authorization, not product-wide enforcement; a user-invoked live `make` may incur charges. Retain the token preflight: it refuses runs exceeding the configured cap before any planner call.
+
+Run `node bin/takeone.mjs make <take-dir>` with normal `HOME` and no `--no-ai`. A successful live proof requires exit 0, `take.json` with `planner.mode: "ai"`, the selected model, reported token counts and `planner.usd` (null means cost unknown), plus `analysis/decisions.jsonl` with `decided_by: "ai"` for every planned beat. Keep the make log, rendered MP4 and a contact sheet; derive tokens and known cost per output-video minute from `take.json` totals and the MP4 duration reported by `ffprobe`. Do not treat planned calls as completed calls or infer a price when `planner.usd` is null.
 
 ## done-done: 4K action and manual camera proof
 
