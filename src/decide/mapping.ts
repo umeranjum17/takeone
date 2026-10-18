@@ -101,7 +101,7 @@ export function medianLevel(probs: number[] | undefined): number | null {
 export function mapAnswers(
   beat: Beat,
   answers: JevAnswers,
-  ctx: { viewport: BBox | null; winRect: BBox | null; stream: { w: number; h: number }; about?: string; aspect?: number },
+  ctx: { viewport: BBox | null; winRect: BBox | null; stream: { w: number; h: number }; about?: string; aspect?: number; model?: string },
 ): Decision | null {
   const fs = answers.focus_start;
   const fe = answers.focus_end;
@@ -166,7 +166,7 @@ export function mapAnswers(
     K,
     conf: { A: confA, B: confB, L: confL, K: ctx.about ? answers.key_moment?.confidence : undefined },
     decided_by: "jev",
-    model: "jev-latest",
+    model: ctx.model ?? "jev-latest",
   };
 }
 

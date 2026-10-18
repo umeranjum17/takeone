@@ -5,6 +5,8 @@ import { existsSync, readFileSync, realpathSync, unlinkSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 import { setKeyFromStdin } from "./secrets.ts";
+import { parseConfig } from "@byokit/decide";
+import { savePlannerConfig, describePlanner } from "./decide/planner.ts";
 import { runCapture } from "./capture.ts";
 import { makeTake, PreflightRefusal, TakeInputError } from "./make.ts";
 import { renderTake, renderThreads } from "./render/render.ts";
@@ -148,11 +150,12 @@ function usage(code: number): never {
 takeone render <take-dir> [--theme ${themes}] [--set key=value] [--aspect landscape|portrait|square|4:5] [--resolution 4k] [--format mp4|gif|webm|prores4444]
 takeone render <motion-dir> [--aspect landscape|portrait|square|4:5] [--stills <seconds,...>]
 ${MOTION_USAGE}
-takeone key set < stdin
+takeone key set [--backend <name>] [--model <model>] [--via typesafe|openrouter] < stdin
 takeone [list|record|stop|doctor]
 
   make plans beats and camera decisions, then renders an MP4.
   render creates a camera path and MP4 from a planned take.
+  key set --backend <name> stores that provider's key and records the planner choice.
 
   --no-jev        decide every beat with the local heuristic; zero network calls
   --about         optional demo topic; adds the key_moment question
@@ -166,6 +169,8 @@ export async function main(argv: string[]): Promise<number> {
   if (cmd === "capture") return runCapture(rest);
   if (cmd === "key") {
     if (rest.length !== 1 || rest[0] !== "set") {
+      // Flag form records the provider choice as well as the key.
+      if (rest.includes("set")) return runKeySet(rest);
       console.error("usage: takeone key set < stdin (no key arguments)");
       return 2;
     }
@@ -177,8 +182,8 @@ export async function main(argv: string[]): Promise<number> {
       await setKeyFromStdin(process.stdin);
       console.log("Jev key stored through BYOKit");
       return 0;
-    } catch {
-      console.error("could not store Jev key; check stdin, the OS keyring or TAKEONE_SECRETS_PASSPHRASE_FD for the BYOKit sealed store");
+    } catch (e) {
+      console.error(`could not store Jev key; check stdin, the OS keyring or TAKEONE_SECRETS_PASSPHRASE_FD for the BYOKit sealed store (${e instanceof Error ? e.message : e})`);
       return 1;
     }
   }
@@ -293,6 +298,65 @@ export async function main(argv: string[]): Promise<number> {
       return 2;
     }
     throw e;
+  }
+}
+
+/** `takeone key set`: store one backend's key from stdin and record the
+ * provider choice. Keys go through BYOKit secrets; the choice is a stored
+ * BYOKit decide config (planner.json). */
+async function runKeySet(rest: string[]): Promise<number> {
+  let sub: string | undefined;
+  let backend: string | undefined;
+  let model: string | undefined;
+  let via: string | undefined;
+  for (let i = 0; i < rest.length; i++) {
+    const s = rest[i]!;
+    if (s === "set" && sub === undefined) sub = s;
+    else if (s === "--backend") {
+      const v = rest[++i];
+      if (!v || v.startsWith("--")) { console.error("takeone key set: --backend needs a backend name"); return 2; }
+      backend = v;
+    } else if (s === "--model") {
+      const v = rest[++i];
+      if (!v || v.startsWith("--")) { console.error("takeone key set: --model needs a model"); return 2; }
+      model = v;
+    } else if (s === "--via") {
+      const v = rest[++i];
+      if (!v || v.startsWith("--")) { console.error("takeone key set: --via needs typesafe or openrouter"); return 2; }
+      via = v;
+    } else {
+      console.error(`takeone key set: unknown option ${s}`);
+      return 2;
+    }
+  }
+  if (sub !== "set") {
+    console.error("usage: takeone key set [--backend <name>] [--model <model>] [--via typesafe|openrouter] < stdin (no key arguments)");
+    return 2;
+  }
+  if (backend === undefined && (model !== undefined || via !== undefined)) {
+    console.error("takeone key set: --model and --via need --backend");
+    return 2;
+  }
+  backend ??= "jev";
+  let config;
+  try {
+    config = parseConfig({ backend, auth: "apiKey", ...(model === undefined ? {} : { model }), ...(via === undefined ? {} : { via }) });
+  } catch (e) {
+    console.error(`takeone key set: ${e instanceof Error ? e.message : e}`);
+    return 2;
+  }
+  if (process.stdin.isTTY) {
+    console.error("pipe the key into takeone key set; use a hidden-input prompt or a credential manager");
+    return 2;
+  }
+  try {
+    await setKeyFromStdin(process.stdin, backend);
+    await savePlannerConfig(config);
+    console.log(`planner key stored through BYOKit (${describePlanner(config)}); make still uses the Jev key or fallback rules until the planner is wired`);
+    return 0;
+  } catch (e) {
+    console.error(`could not store planner key; check stdin, the OS keyring or TAKEONE_SECRETS_PASSPHRASE_FD for the BYOKit sealed store (${e instanceof Error ? e.message : e})`);
+    return 1;
   }
 }
 

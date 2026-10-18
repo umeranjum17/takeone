@@ -43,6 +43,7 @@ test("doctor exits 0 when only optional rows are false", async () => {
     assert.match(result.stdout, /^  ffmpeg,true,all,/m);
     assert.match(result.stdout, /^  state-dir,true,all,/m);
     assert.match(result.stdout, /^  takes-root,true,all,/m);
+    assert.match(result.stdout, /^  ai-planner,false,planner,/m);
   } finally {
     await rm(base, { recursive: true, force: true });
   }
