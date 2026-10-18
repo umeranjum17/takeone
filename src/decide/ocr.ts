@@ -82,6 +82,7 @@ export async function keyframeThumb(
             `drawtext=font='Liberation Sans':text='${z.name}':x=${x + Math.ceil(3 * k)}:y=${y + Math.ceil(3 * k)}:fontsize=${Math.ceil(14 * k)}:fontcolor=white:box=1:boxcolor=${color}`,
           ];
         }),
+        ...hidden.map((w) => `drawbox=x=${w.box[0]}:y=${w.box[1]}:w=${w.box[2]}:h=${w.box[3]}:color=black:t=fill`),
         stream.w >= stream.h ? `scale=${THUMB_LONG_SIDE}:-2` : `scale=-2:${THUMB_LONG_SIDE}`,
       ].join(","),
     ];
