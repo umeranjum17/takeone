@@ -16,7 +16,6 @@ import { actionVideoSeconds } from "./beats/clock.ts";
 import { zonesForBeat, OCR_MAX_AREA } from "./beats/zones.ts";
 import { buildRequest, REQUEST_TOKEN_CAP, RequestTooLarge } from "./decide/request.ts";
 import type { Answer, DecideCache, Question } from "@byokit/decide";
-import { ConfigError } from "@byokit/decide";
 import { heuristicDecision } from "./decide/heuristics.ts";
 import { mapAnswers, frameRect } from "./decide/mapping.ts";
 import {
@@ -192,18 +191,10 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
   // screen words are read by default only when the planner will actually run.
   let planner: ResolvedPlanner | null = null;
   if (!opts.noAi) {
-    try {
-      planner = await resolvePlanner({
-        apiKeyOverride: opts.apiKey,
-        ...(opts.configDir === undefined ? {} : { configDir: opts.configDir }),
-      });
-    } catch (e) {
-      // A corrupt planner.json is user error: fail fast instead of hiding it
-      // behind the fallback. Anything else (no store, no credential) falls back.
-      if (e instanceof ConfigError) throw e;
-      planner = null;
-      warn("planner store unavailable; using heuristic policy for all beats");
-    }
+    planner = await resolvePlanner({
+      apiKeyOverride: opts.apiKey,
+      ...(opts.configDir === undefined ? {} : { configDir: opts.configDir }),
+    });
     if (planner && !planner.active) {
       if (!planner.defaulted && opts.apiKey === undefined) {
         // The user chose a provider but its credential is missing: stop with
