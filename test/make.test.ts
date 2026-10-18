@@ -10,7 +10,7 @@ import { join } from "node:path";
 import { makeTake, PreflightRefusal, TakeInputError, type MakeOptions, type MakeResult } from "../src/make.ts";
 import { PlannerUnavailable } from "../src/decide/planner.ts";
 import { ConfigError } from "@byokit/decide";
-import { main } from "../src/cli.ts";
+import { main, resolveCamera } from "../src/cli.ts";
 import { frameRect } from "../src/decide/mapping.ts";
 import type { Beat, Decision, TakeMeta } from "../src/types.ts";
 import { STREAM, hasFfmpeg, buildLongTake, beatViews, chunkAnswers } from "./helpers.ts";
@@ -601,6 +601,48 @@ test("make with a key decides via the planner and accounts usage; cache hit cost
   }
 });
 
+test("the film call sets the look and ending; a --set key stays pinned", { skip: needsFfmpeg }, async () => {
+  const dir = newLongTake();
+  try {
+    let filmRequest: { state: { style?: string; timeline: string[] }; questions: { ending: { criteria: Record<string, string> } } } | null = null;
+    const r = await fastTake(dir, { apiKey: KEY, style: "calm", set: ["pace=0.9"], log: () => {}, warn: () => {}, fetchImpl: (async (_url, init) => {
+      const body = String(init?.body);
+      if (JSON.parse(body).state.current_shot !== undefined) return firstZoneReply(body);
+      filmRequest = JSON.parse(body);
+      const endings = Object.keys(filmRequest!.questions.ending.criteria);
+      const last = endings.at(-1)!;
+      const answers = {
+        theme: { choice: "paper", probabilities: { midnight: 0, paper: 1, aurora: 0, mono: 0, sand: 0, editorial: 0 }, confidence: 1 },
+        pace: { probabilities: [0, 0, 0, 1], confidence: 1 },
+        opening: { choice: "straight", probabilities: { establish: 0, short: 0, straight: 1 }, confidence: 1 },
+        camera_style: { choice: "calm", probabilities: { calm: 1, lively: 0 }, confidence: 1 },
+        ending: { choice: last, probabilities: Object.fromEntries(endings.map((id) => [id, id === last ? 1 : 0])), confidence: 1 },
+      };
+      return new Response(JSON.stringify({ answers, usage: { input_tokens: 500 } }), { status: 200 });
+    }) as typeof fetch });
+    assert.equal(filmRequest!.state.style, "calm");
+    assert.ok(filmRequest!.state.timeline.length >= 2);
+    const film = r.take.film!;
+    assert.equal(film.theme, "paper");
+    assert.equal(film.camera_path, "hold");
+    assert.equal(film.establish_s, 0);
+    assert.deepEqual(film.by, { theme: "ai", pace: "ai", opening: "ai", ending: "ai", camera_style: "ai" });
+    // The ending is the last beat; the take keeps the outro after it, clamped to the recording's end.
+    const beats = JSON.parse(readFileSync(join(dir, "analysis", "beats.json"), "utf8")) as { id: string; t1: number }[];
+    const end = beats.find((b) => b.id === film.end_beat)!;
+    assert.equal(end.id, beats.at(-1)!.id);
+    const saved = JSON.parse(readFileSync(join(dir, "take.json"), "utf8"));
+    assert.ok(Math.abs(saved.trim_end - Math.min(saved.duration, end.t1 + DEFAULTS.outro_s)) < 1e-6, `trim_end ${saved.trim_end} for beat end ${end.t1}`);
+    assert.equal(saved.film.theme, "paper");
+    // A re-render reads the same look from take.json; a --set pin still wins over the film.
+    assert.equal(resolveCamera(dir, []).accent, "#e2522f");
+    assert.equal(resolveCamera(dir, []).pace, 1.4);
+    assert.equal(resolveCamera(dir, ["pace=0.9"]).pace, 0.9);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("live API shape: Android tap hints stay planner decisions", async () => {
   const dir = newTake();
   try {
@@ -708,9 +750,11 @@ test("a single-chunk take reserves every request twice", async () => {
       return firstZoneReply(String(init?.body));
     }) as typeof fetch });
     const planned = Number(logs.find((s) => s.startsWith("preflight:"))!.match(/(\d+) planned tokens/)![1]);
-    // One chunk is the largest chunk, so its re-ask is reserved alongside it.
-    assert.equal(bodies.length, 1);
-    assert.ok(planned >= bodies.reduce((sum, body) => sum + Math.ceil(body.length / 3.5), 0) * 2 - 1200);
+    // One chunk is the largest chunk, so its re-ask is reserved alongside it. The film call is the other request.
+    const chunks = bodies.filter((body) => JSON.parse(body).state.current_shot !== undefined);
+    assert.equal(bodies.length, 2);
+    assert.equal(chunks.length, 1);
+    assert.ok(planned >= chunks.reduce((sum, body) => sum + Math.ceil(body.length / 3.5), 0) * 2 - 1200);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -726,12 +770,14 @@ test("preflight reserves re-asks and current shots distinguish viewport position
       return new Response("boom", { status: 500 });
     }) as typeof fetch });
     const planned = Number(logs.find((s) => s.startsWith("preflight:"))!.match(/(\d+) planned tokens/)![1]);
-    // Two chunks fail: the first is asked once more, the second keeps the rules.
-    assert.equal(bodies.length, 3);
-    assert.equal(bodies[1], bodies[0], "the re-ask repeats the first chunk");
+    // The film call comes first and fails too. Two chunks fail: the first is asked once more, the second keeps the rules.
+    const chunks = bodies.filter((body) => JSON.parse(body).state.current_shot !== undefined);
+    assert.equal(bodies.length, 4);
+    assert.equal(chunks.length, 3);
+    assert.equal(chunks[1], chunks[0], "the re-ask repeats the first chunk");
     const tokens = (body: string) => Math.ceil(body.length / 3.5);
-    assert.ok(planned >= tokens(bodies[0]!) + tokens(bodies[2]!) + Math.max(tokens(bodies[0]!), tokens(bodies[2]!)));
-    const shots = bodies.map((body) => JSON.parse(body).state.current_shot);
+    assert.ok(planned >= tokens(chunks[0]!) + tokens(chunks[2]!) + Math.max(tokens(chunks[0]!), tokens(chunks[2]!)));
+    const shots = chunks.map((body) => JSON.parse(body).state.current_shot);
     assert.ok(new Set(shots).size > 1);
     assert.ok(bodies.every((body) => tokens(body) <= 4000), "every chunk stays under the 4,000-token cap");
     await assert.rejects(fastTake(dir, { apiKey: KEY, maxTokens: planned - 1, log: () => {}, warn: () => {}, fetchImpl: (async () => { throw new Error("called"); }) as typeof fetch }), PreflightRefusal);
