@@ -1,7 +1,8 @@
 // `takeone capture ...`: recorder protocol v1 surface: hello, record, stop, make.
 import { readFileSync, writeFileSync, writeSync } from "node:fs";
 import { resolve } from "node:path";
-import { keyStatus, type KeyOptions } from "./secrets.ts";
+import { plannerStatus } from "./decide/planner.ts";
+import type { KeyOptions } from "./secrets.ts";
 import { makeTake, PreflightRefusal, TakeInputError } from "./make.ts";
 import { resolveCamera } from "./cli.ts";
 import { packageVersion as recorderVersion } from "./version.ts";
@@ -432,7 +433,7 @@ export async function runCapture(argv: string[], keys: KeyOptions = {}): Promise
         android: false,
         events: ["own", "none"],
         // presence only; the key itself is never printed
-        planner: { available: (await keyStatus(keys)).available, needsKey: true },
+        planner: { available: (await plannerStatus(keys)).available, needsKey: true },
       }),
     );
     return 0;

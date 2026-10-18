@@ -14,6 +14,10 @@ export class RequestTooLarge extends Error {}
 export interface RequestCtx {
   /** optional demo topic from --about */
   about?: string;
+  /** what the demo is for, from --goal (alias --about); replaces about */
+  goal?: string;
+  /** style hint, from --style; carried for the film call, unused by beats */
+  style?: string;
   /** description of the shot the viewer is looking at when the beat starts */
   currentShot: string;
   /** the next beat, for what_happened lookahead */
@@ -24,6 +28,8 @@ export interface JevRequest {
   model: string;
   state: {
     demo_topic?: string;
+    goal?: string;
+    style?: string;
     current_shot: string;
     beat: { length: string; what_happened: string; next_beat: string };
     zones: Record<string, { shows: string; size: string; where: string; activity: string; text?: string }>;
@@ -162,9 +168,10 @@ export function buildQuestions(state: JevRequest["state"], askKeyMoment: boolean
   return q;
 }
 
-/** Mirror of @byokit/decide@0.6.0's internal wire(): Question -> planner JSON.
+/** Mirror of @byokit/decide@0.9.2's internal wire(): Question -> planner JSON.
  *  buildRequest bodies must stay byte-identical to what decide's jev backend
- *  sends; test/jev.test.ts asserts that equality against a fake transport. */
+ *  sends; nothing in this repo asserts that equality, so re-check it by hand
+ *  whenever buildQuestions/toWire or the kit version changes. */
 function toWire(questions: Record<string, Question>): Record<string, unknown> {
   return Object.fromEntries(
     Object.entries(questions).map(([k, q]) => {
@@ -193,6 +200,8 @@ export function buildState(beat: Beat, ctx: RequestCtx): JevRequest["state"] {
   }
   return {
     ...(ctx.about ? { demo_topic: ctx.about } : {}),
+    ...(ctx.goal ? { goal: ctx.goal } : {}),
+    ...(ctx.style ? { style: ctx.style } : {}),
     current_shot: ctx.currentShot,
     beat: {
       length: `${((beat.t1 - beat.t0) / 1000).toFixed(1)} seconds`,
@@ -205,7 +214,7 @@ export function buildState(beat: Beat, ctx: RequestCtx): JevRequest["state"] {
 
 /** Build the exact request body for one beat (compact JSON), capped at 1,200 estimated tokens.
  *  `state`/`questions` are also returned for decide(): the body must stay
- *  byte-identical to what decide's jev backend sends for them. */
+ *  byte-identical to what decide's jev backend (0.9.2) sends for them. */
 export function buildRequest(
   beat: Beat,
   ctx: RequestCtx,

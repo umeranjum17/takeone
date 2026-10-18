@@ -9,7 +9,7 @@ import { explainMissingEngine, resolveEngine, EngineClient } from "@desklink/hos
 import { listInputCandidates, type InputCandidate } from "./evdev.js";
 import { hyprlandSockets, getMonitors } from "./hyprland.js";
 import { parseBootedDevices } from "./ios/record.js";
-import { keyStatus } from "./secrets.js";
+import { plannerStatus } from "./decide/planner.js";
 import { toonTable } from "./toon.js";
 
 export interface DoctorCheck {
@@ -33,7 +33,7 @@ const NEEDED_BY: Record<string, string> = {
   evdev: "linux-desktop",
   xcrun: "ios-simulator",
   "motion-shell": "motion",
-  "jev-key": "planner",
+  "ai-planner": "planner",
 };
 
 export function neededBy(check: string): string {
@@ -155,10 +155,11 @@ export async function runDoctor(): Promise<DoctorCheck[]> {
     }
   }
 
-  // Jev key: presence only, never the key itself. Absent means planned films
-  // fall back to --no-jev, so this row gates the exit like the other rows.
-  const jev = await keyStatus();
-  checks.push({ check: "jev-key", ok: jev.available, detail: jev.detail });
+  // AI planner: presence only, never the credential itself. Absent means
+  // planned films fall back to local rules; the row is informational and does
+  // not change the exit code.
+  const planner = await plannerStatus();
+  checks.push({ check: "ai-planner", ok: planner.available, detail: planner.detail });
 
   // Hyprland IPC (Linux only)
   if (process.platform === "linux") {
