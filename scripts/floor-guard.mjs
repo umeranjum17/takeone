@@ -3,7 +3,7 @@
 // ponytail: regex-shallow diff guard; review semantics and use a secret scanner for exhaustive detection.
 // Usage: node floor-guard.mjs [--base <ref>]   (default base: origin/main)
 import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 
 const base = (() => {
   const i = process.argv.indexOf('--base');
@@ -159,24 +159,36 @@ function assertedSubject(line) {
   args.push(cur);
   return normSubject(args[0] ?? t);
 }
-// Pair a rename only when all changed words are consistently new to the file.
+// Pair a rename only when every changed word is consistently new to the file, or when the same
+// one-word swap recurs in 2+ assertion pairs of the file (`r.jev.failed` -> `r.planner.failed` across
+// a test file that still names the jev provider). A one-off swap (r.failed -> r.skipped) stays flagged.
+// ponytail: a one-off swap whose old word leaves the file entirely still pairs; review owns that.
 const WORD = /[A-Za-z_$][\w$]*/g;
 const shapeOf = (s) => s.replace(WORD, 'w');
-const renamed = (a, b, before, after) => {
+const hasWord = (text, w) => new RegExp(`(?<![\\w$])${w.replaceAll('$', '\\$')}(?![\\w$])`).test(text);
+const wordChanges = (a, b) => {
+  if (a === b || shapeOf(a) !== shapeOf(b)) return [];
   const wa = a.match(WORD) ?? [], wb = b.match(WORD) ?? [];
-  if (a === b || shapeOf(a) !== shapeOf(b)) return false;
-  const changed = wa.map((w, i) => [w, wb[i]]).filter(([oldWord, newWord]) => oldWord !== newWord);
-  return changed.length > 0 && changed.every(([oldWord, newWord]) => !new RegExp(`\\b${oldWord}\\b`).test(after) && !new RegExp(`\\b${newWord}\\b`).test(before));
+  return wa.map((w, i) => [w, wb[i]]).filter(([oldWord, newWord]) => oldWord !== newWord);
 };
 const assertsLost = [], assertsGained = [];
 for (const { file, text } of removed) if (isTest(file) && ASSERT_LINE.test(text)) assertsLost.push({ file, subject: assertedSubject(text) });
 for (const { file, text } of added) if (isTest(file) && ASSERT_LINE.test(text)) assertsGained.push({ file, subject: assertedSubject(text) });
+const swapCount = new Map(); // "file|old|new" -> lost/gained pairs differing in exactly that word
+for (const l of assertsLost) for (const g of assertsGained) {
+  const changed = g.file === l.file ? wordChanges(l.subject, g.subject) : [];
+  if (changed.length === 1) { const k = `${l.file}|${changed[0].join('|')}`; swapCount.set(k, (swapCount.get(k) ?? 0) + 1); }
+}
+const renamed = (file, a, b, before, after) => {
+  const changed = wordChanges(a, b);
+  return changed.length > 0 && changed.every(([oldWord, newWord]) =>
+    (!hasWord(after, oldWord) && !hasWord(before, newWord)) || (swapCount.get(`${file}|${oldWord}|${newWord}`) ?? 0) >= 2);
+};
 for (const lost of assertsLost) {
   if (deleted.includes(lost.file) || testDiet(lost.file)) continue; // test-deleted / test-diet own these
   const before = git(['show', `${mergeBase}:${lost.file}`]) ?? '';
-  let after = '';
-  try { after = readFileSync(lost.file, 'utf8'); } catch {}
-  const match = assertsGained.findIndex(g => g.file === lost.file && (g.subject === lost.subject || renamed(lost.subject, g.subject, before, after)));
+  const after = existsSync(lost.file) ? readFileSync(lost.file, 'utf8') : '';
+  const match = assertsGained.findIndex(g => g.file === lost.file && (g.subject === lost.subject || renamed(lost.file, lost.subject, g.subject, before, after)));
   const netLoss = assertsLost.filter(l => l.file === lost.file).length > assertsGained.filter(g => g.file === lost.file).length;
   if (match < 0 || netLoss) flag('assertion-removed', lost.file, lost.subject);
 }
