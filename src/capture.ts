@@ -212,7 +212,7 @@ async function runCaptureMake(argv: string[]): Promise<number> {
 
   let camera;
   try {
-    camera = resolveCamera(dir, a.set);
+    camera = resolveCamera(dir, a.set, undefined, false);
   } catch (e) {
     captureFail({
       code: "invalid-arguments",

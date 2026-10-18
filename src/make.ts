@@ -442,12 +442,12 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
     const asked = beats.map((_, i) => i).filter((i) => beats[i]!.zones.length >= 2);
     const chunks = planChunks(asked, build(heuristics), () => failed++);
     // The film call decides the whole take once; a take too long for one request keeps the base look.
-    const filmPlan = buildFilm({
+    const filmPlan = beats.length === 0 ? null : buildFilm({
       goal: opts.goal, style: opts.style, seconds: takeMs / 1000,
       source: `${take.stream.w}x${take.stream.h}`, device: take.device ?? "desktop",
       brightness: appBrightness(dec.frames), beats,
     });
-    if (!filmPlan) warn(`film call: the take is over ${CHUNK_TOKEN_CAP} estimated tokens for one request; the film keeps the base look`);
+    if (!filmPlan && beats.length > 0) warn(`film call: the take is over ${CHUNK_TOKEN_CAP} estimated tokens for one request; the film keeps the base look`);
     const plannedTokens = chunks.reduce((n, c) => n + c.chunk.tokens, 0) + (filmPlan?.tokens ?? 0);
     // One re-ask of the largest chunk is reserved for a malformed answer.
     const reservedTokens = plannedTokens + Math.max(0, ...chunks.map((c) => c.chunk.tokens));
