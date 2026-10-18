@@ -15,7 +15,7 @@ import { segmentBeats, actStart, resultTime, RESULT_MIN_AREA } from "./beats/seg
 import { actionVideoSeconds } from "./beats/clock.ts";
 import { zonesForBeat, OCR_MAX_AREA } from "./beats/zones.ts";
 import { beatAnswers, buildChunk, planChunks, TIGHTNESS_LEVELS, CHUNK_TOKEN_CAP, type BeatHint, type ChunkCtx } from "./decide/request.ts";
-import { appBrightness, buildFilm, filmOverrides, mapFilm, type FilmDecision } from "./decide/film.ts";
+import { appBrightness, appliedFilm, buildFilm, filmOverrides, mapFilm, type FilmDecision } from "./decide/film.ts";
 import type { Answer, DecideCache, ImageInput } from "@byokit/decide";
 import { ConfigError } from "@byokit/decide";
 import { KeystoreError } from "@byokit/secrets";
@@ -580,12 +580,12 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
   if (filmDecision) {
     // Theme tokens, then the film's choices, then the user's --set pairs (never replaced) and a picked theme.
     const pinned = (opts.set ?? []).map((pair) => pair.split("=")[0]!);
-    camera = applyOverrides(filmOverrides(filmDecision, take.theme === undefined, pinned), camera);
-    take.film = filmDecision;
-    const f = filmDecision;
+    const f = appliedFilm(filmDecision, { pinned, themeFree: take.theme === undefined, endFree: take.trim?.end === undefined });
+    camera = applyOverrides(filmOverrides(f, take.theme === undefined, pinned), camera);
+    take.film = f;
     const theme = take.theme !== undefined ? `kept (${take.theme} picked)` : f.theme ?? "unchanged";
     log(`film: theme ${theme}, pace ${f.pace ?? "unchanged"}, camera ${f.camera_path ?? "unchanged"}, ` +
-      `opening ${f.establish_s ?? "unchanged"} s, ends on ${f.end_beat ?? "the last beat"} (${Object.values(f.by).filter((v) => v === "ai").length} of ${Object.keys(f.by).length} by AI)`);
+      `opening ${f.establish_s ?? "unchanged"} s, ends on ${f.end_beat ?? "unchanged"} (${Object.values(f.by).filter((v) => v === "ai").length} of ${Object.keys(f.by).length} by AI)`);
   }
 
   // --plan-only without a planner credential: nothing planned, nothing rendered.
@@ -629,9 +629,10 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
   const autoTrim = take.auto_trim === true ? trimEnd === take.duration_ms : recorderOwned;
   if (take.trim?.end !== undefined && !autoTrim) meta.trim_end = seconds(endMs);
   else delete meta.trim_end;
-  // The film's ending keeps an outro after its beat; a trim the user or recorder set stays.
-  if (filmDecision?.end_beat !== undefined && meta.trim_end === undefined) {
-    const end = renderBeats.find((b) => b.id === filmDecision!.end_beat)!;
+  // The film's ending keeps an outro after its beat.
+  const filmEnd = take.film?.end_beat;
+  if (filmEnd !== undefined) {
+    const end = renderBeats.find((b) => b.id === filmEnd)!;
     meta.trim_end = Math.min(seconds(videoEndMs), end.t1 + camera.outro_s);
   }
   writeFileSync(join(dir, "take.json"), JSON.stringify(meta, null, 1) + "\n");

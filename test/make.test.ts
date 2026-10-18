@@ -13,8 +13,9 @@ import { ConfigError } from "@byokit/decide";
 import { main, resolveCamera } from "../src/cli.ts";
 import { frameRect } from "../src/decide/mapping.ts";
 import type { Beat, Decision, TakeMeta } from "../src/types.ts";
-import { STREAM, hasFfmpeg, buildLongTake, beatViews, chunkAnswers } from "./helpers.ts";
+import { STREAM, hasFfmpeg, buildLongTake, beatViews, chunkAnswers, filmAnswers } from "./helpers.ts";
 import { DEFAULTS } from "../src/camera/defaults.ts";
+import { THEMES } from "../src/themes.ts";
 
 const STREAM_W = 320;
 const STREAM_H = 180;
@@ -626,7 +627,8 @@ test("the film call sets the look and ending; a --set key stays pinned", { skip:
     assert.equal(film.theme, "paper");
     assert.equal(film.camera_path, "hold");
     assert.equal(film.establish_s, 0);
-    assert.deepEqual(film.by, { theme: "ai", pace: "ai", opening: "ai", ending: "ai", camera_style: "ai" });
+    assert.equal(film.pace, undefined);
+    assert.deepEqual(film.by, { theme: "ai", opening: "ai", ending: "ai", camera_style: "ai" });
     // The ending is the last beat; the take keeps the outro after it, clamped to the recording's end.
     const beats = JSON.parse(readFileSync(join(dir, "analysis", "beats.json"), "utf8")) as { id: string; t1: number }[];
     const end = beats.find((b) => b.id === film.end_beat)!;
@@ -636,8 +638,49 @@ test("the film call sets the look and ending; a --set key stays pinned", { skip:
     assert.equal(saved.film.theme, "paper");
     // A re-render reads the same look from take.json; a --set pin still wins over the film.
     assert.equal(resolveCamera(dir, []).accent, "#e2522f");
-    assert.equal(resolveCamera(dir, []).pace, 1.4);
+    assert.equal(resolveCamera(dir, []).pace, THEMES.paper.pace);
     assert.equal(resolveCamera(dir, ["pace=0.9"]).pace, 0.9);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+function filmEndingFetch(pickEnding: (endings: string[]) => string): typeof fetch {
+  return (async (_url, init) => {
+    const body = String(init?.body);
+    if (JSON.parse(body).state.current_shot !== undefined) return firstZoneReply(body);
+    const endings = Object.keys(JSON.parse(body).questions.ending.criteria);
+    const choice = pickEnding(endings);
+    const answers = { ...filmAnswers(), ending: { choice, probabilities: Object.fromEntries(endings.map((id) => [id, id === choice ? 1 : 0])), confidence: 1 } };
+    return new Response(JSON.stringify({ answers, usage: { input_tokens: 500 } }), { status: 200 });
+  }) as typeof fetch;
+}
+
+function setTakeFields(dir: string, fields: object): void {
+  const take = JSON.parse(readFileSync(join(dir, "take.json"), "utf8"));
+  writeFileSync(join(dir, "take.json"), JSON.stringify({ ...take, ...fields }));
+}
+
+test("a recorder-set trim end is never cut by the film ending", { skip: needsFfmpeg }, async () => {
+  const dir = newLongTake();
+  try {
+    setTakeFields(dir, { trim: { start: 0, end: 24000 }, auto_trim: true, duration_ms: 24000 });
+    const r = await fastTake(dir, { apiKey: KEY, log: () => {}, warn: () => {}, fetchImpl: filmEndingFetch((ends) => ends[0]!) });
+    assert.equal(r.take.film?.end_beat, undefined);
+    assert.equal(JSON.parse(readFileSync(join(dir, "take.json"), "utf8")).trim_end, undefined);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a user-set trim end is kept and the film ending does not replace it", { skip: needsFfmpeg }, async () => {
+  const dir = newLongTake();
+  try {
+    setTakeFields(dir, { trim: { start: 0, end: 12000 } });
+    const r = await fastTake(dir, { apiKey: KEY, log: () => {}, warn: () => {}, fetchImpl: filmEndingFetch((ends) => ends[0]!) });
+    assert.equal(r.take.film?.end_beat, undefined);
+    const trimEnd = JSON.parse(readFileSync(join(dir, "take.json"), "utf8")).trim_end;
+    assert.ok(Math.abs(trimEnd - 12) < 0.15, `trim_end ${trimEnd}`);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

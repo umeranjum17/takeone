@@ -126,6 +126,24 @@ export function mapFilm(answers: Record<string, Answer>, endings: string[]): Fil
   };
 }
 
+/** The camera field or saved key each film question sets. */
+const FIELD_OF_QUESTION: Record<string, string> = { theme: "theme", pace: "pace", opening: "establish_s", ending: "end_beat", camera_style: "camera_path" };
+
+/** The choices make applies. A field the user pinned with --set, a theme the user
+ * picked, and an ending a trim already bounds are left out, so the saved film and
+ * its log match what the render used. */
+export function appliedFilm(film: FilmDecision, skip: { pinned: string[]; themeFree: boolean; endFree: boolean }): FilmDecision {
+  const dropped = (field: string) => skip.pinned.includes(field) || (field === "theme" && !skip.themeFree) || (field === "end_beat" && !skip.endFree);
+  return {
+    ...(film.theme !== undefined && !dropped("theme") ? { theme: film.theme } : {}),
+    ...(film.pace !== undefined && !dropped("pace") ? { pace: film.pace } : {}),
+    ...(film.establish_s !== undefined && !dropped("establish_s") ? { establish_s: film.establish_s } : {}),
+    ...(film.end_beat !== undefined && !dropped("end_beat") ? { end_beat: film.end_beat } : {}),
+    ...(film.camera_path !== undefined && !dropped("camera_path") ? { camera_path: film.camera_path } : {}),
+    by: Object.fromEntries(Object.entries(film.by).filter(([question]) => !dropped(FIELD_OF_QUESTION[question]!))),
+  };
+}
+
 /** The film's settings as camera overrides. Theme tokens sit under the film's own
  * choices, and both sit under every key the user pinned with --set (or a theme
  * the user picked, which the film never replaces). */
