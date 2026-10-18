@@ -42,15 +42,10 @@ whole frame is blurred, so the image shows no word the notes would not carry. At
 15,300 estimated tokens a minute; the 40,000-token preflight counts them and
 still refuses anything above it.
 
-## Per-provider cost (slice 1)
+## Per-provider cost (slice 1 reference)
 
-Token counts are the same request shape for every provider: about **15–16k
-input tokens per minute of video, typical**, hard-bounded by the preflight in
-`src/make.ts` at 40,000 estimated tokens per take minute
-(`DEFAULT_TOKENS_PER_MIN`). The per-minute tokens come from today's measured
-Jev take below, plus the slice-1 additions (screen words on by default at up
-to ~90 tokens a beat, key moment asked on every beat). Cost per provider is
-tokens × that provider's list price:
+The following rows describe historical slice-1 request shapes, not current
+planner usage. Current measured usage and caps are in [Slice 3](#slice-3-batched-chunks-measured-offline). Cost per provider is tokens × that provider's list price:
 
 | Provider | Model (example) | Input price | Typical/min | Ceiling/min | Verified |
 |---|---|---|---|---|---|
@@ -79,9 +74,9 @@ Notes:
   replanning an unchanged take costs nothing on every provider.
 - With `--no-ai` the cost is exactly zero tokens on every provider.
 
-## Measured take (Jev, pre-slice-1 shape)
+## Historical measured take (Jev, pre-slice-1 shape)
 
-About **14–15k Jev input tokens, roughly $0.0006, per minute of video**, hard-bounded by the preflight in `src/make.ts`: it refuses any take whose reserved total — planned request tokens plus a 1,200-token re-ask reserve per planner job after the first — exceeds 40,000 estimated tokens per take minute (`DEFAULT_TOKENS_PER_MIN`), about $0.0017/min at the $0.042/Mtok estimate and about $0.0023/min worst billed given the measured ~1.34× estimate-to-billed gap.
+This live-run measurement predates the current chunk planner and is retained as historical context only. Current measured usage and preflight behavior are documented in [Slice 3](#slice-3-batched-chunks-measured-offline).
 
 Measured on a real 62.7 s desktop take recorded on Hyprland at 3840×2160 (`scripts/e2e`, see the [staged-scene take](guide.md#end-to-end-take-with-a-staged-scene)). The run used a live Jev credential, `--goal` set, and no cache:
 
@@ -102,6 +97,6 @@ The cost is bounded by design, not by luck:
 - **Beat cap**: at most 30 beats per minute (`MAX_BEATS_PER_MIN` in `src/beats/segment.ts`), so the number of planner calls never grows with how busy the recording is.
 - **Token preflight**: `make` estimates every planned request up front and refuses the whole run (`PreflightRefusal`) when the reserved total exceeds `--max-tokens`, default 40,000 input tokens per take minute (`DEFAULT_TOKENS_PER_MIN` in `src/make.ts`). Each single request is also hard-capped at `CHUNK_TOKEN_CAP` (4,000 estimated tokens) in `src/decide/request.ts`.
 
-Worst case at the defaults: the reserved total (planned tokens plus one re-asked chunk since slice 3; a 1,200-token re-ask per beat before it) is capped at 40,000 estimated tokens per take minute ≈ $0.0017/min at the listed Jev price, ≈ $0.0023/min worst billed. The measured take above used about half of that. Rendering costs no tokens at any setting.
+Rendering costs no tokens at any setting.
 
 Back to the [README](../README.md).
