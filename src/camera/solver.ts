@@ -755,7 +755,7 @@ function buildDrafts(
   // BREATHE rule: widen during long idle gaps when the following beat is distant.
   for (const [index, beat] of beats.entries()) {
     const nextBeat = beats[index + 1];
-    // The planner's idle answer decides; without one, a long idle beat breathes.
+    // A planner idle answer overrides the duration rule; without one, a long idle beat breathes.
     const breathe = beat.kind === "idle" && (decisions.get(beat.id)?.idle ?? beat.t1 - beat.t0 > d.idle_s);
     const distantNext = !nextBeat || nextBeat.t0 - beat.t1 > d.next_beat_s;
     if (!breathe || !distantNext) continue;

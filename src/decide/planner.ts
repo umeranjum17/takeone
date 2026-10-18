@@ -327,10 +327,6 @@ export class PlannerFileCache implements DecideCache {
   }
 }
 
-/** A camera choice (shot, idle, follow) may abstain: the rules fill it and the
- * beat still maps, so it never makes an answer unusable. */
-const CAMERA_CHOICE = /_(shot|idle|follow)$/;
-
 /** Refuse to store beats the mapping cannot use: an abstained or missing
  * field means the whole beat falls back, so caching it would only replay the
  * fallback and hide a model that recovered since. */
@@ -338,7 +334,7 @@ export function gateUnusable(cache: DecideCache): DecideCache {
   return {
     get: (key) => cache.get(key),
     set: (key, value) => {
-      if (Object.entries(value).every(([k, a]) => CAMERA_CHOICE.test(k) || (a && typeof a === "object" && !a.abstained))) {
+      if (Object.values(value).every((a) => a && typeof a === "object" && !a.abstained)) {
         return cache.set(key, value);
       }
     },

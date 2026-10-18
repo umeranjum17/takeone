@@ -52,7 +52,7 @@ export function applyPlan<T extends BeatChoices>(decisions: T[], plan: Plan | nu
   return decisions.map((d) => {
     const beat = byId.get(d.beat);
     if (!beat) return d;
-    const overrides = Object.fromEntries(FIELDS.flatMap((f) => beat[f]?.value === undefined ? [] : [[f, beat[f]!.value]]));
+    const overrides = Object.fromEntries(FIELDS.flatMap((f) => beat[f]?.by === "user" && beat[f]!.value !== undefined ? [[f, beat[f]!.value]] : []));
     return { ...d, ...overrides };
   });
 }
