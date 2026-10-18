@@ -206,7 +206,7 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
       // banner names it.
       if (e instanceof ConfigError) throw e;
       if (!(e instanceof SecretStoreUnavailable) &&
-          !(e instanceof KeystoreError && ["unavailable", "unsupported", "failed"].includes(e.code))) throw e;
+          !(e instanceof KeystoreError && ["unavailable", "unsupported"].includes(e.code))) throw e;
       planner = null;
       plannerOff = "the secret store cannot be read";
     }

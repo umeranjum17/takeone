@@ -453,5 +453,7 @@ export async function pooled<T>(items: T[], limit: number, fn: (item: T) => Prom
       }
     }
   });
-  await Promise.all(workers);
+  const settled = await Promise.allSettled(workers);
+  const failed = settled.find((result): result is PromiseRejectedResult => result.status === "rejected");
+  if (failed) throw failed.reason;
 }

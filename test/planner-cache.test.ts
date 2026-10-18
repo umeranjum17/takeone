@@ -41,15 +41,17 @@ test("a fully abstained planner beat reports failed and keeps its billed tokens"
 
 test("pooled stops pulling queued items once a worker rejects", async () => {
   const started: number[] = [];
+  let otherWorkerSettled = false;
   const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
   await assert.rejects(
     pooled([1, 2, 3, 4, 5, 6, 7, 8, 9, 10], 2, async (n) => {
       started.push(n);
-      await delay(5);
+      await delay(n === 1 ? 5 : 30);
       if (n === 1) throw new Error("rate limited");
+      otherWorkerSettled = true;
     }),
     /rate limited/,
   );
-  await delay(60);
   assert.equal(started.length, 2);
+  assert.equal(otherWorkerSettled, true);
 });
