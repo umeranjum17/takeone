@@ -173,7 +173,7 @@ test("CLI rejects malformed --max-tokens values", async () => {
   } finally {
     console.error = error;
   }
-}); 
+});
 
 test("without a credential the run falls back loudly and records planner.mode fallback", async () => {
   const dir = newTake();
