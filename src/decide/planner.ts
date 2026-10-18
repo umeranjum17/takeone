@@ -408,9 +408,9 @@ export async function askBeat(
     }
     throw e;
   }
+  if (!answers || typeof answers !== "object") return { decisionSource: "failed" };
   const limited = limitReason(answers);
   if (limited) throw new PlannerUnavailable(planner.label, limited);
-  if (!answers || typeof answers !== "object") return { decisionSource: "failed" };
   const usage = validUsageTokens(answers);
   if (usage === null) return { decisionSource: "failed" };
   const tokens = {
