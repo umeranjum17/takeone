@@ -193,6 +193,11 @@ test("doctor, make and capture never read the planner key from the environment",
     const made = run(["make", dir, ...FAST_SET], { env });
     assert.equal(made.status, 0, made.stderr);
     assert.equal(JSON.parse(readFileSync(join(dir, "take.json"), "utf8")).planner.mode, "fallback");
+    // An unreadable secret store falls back too, and the banner names the cause.
+    const storeDown = run(["make", dir, ...FAST_SET], { env: { ...env, TAKEONE_TEST_KEYRING_FAILURE: "1" } });
+    assert.equal(storeDown.status, 0, storeDown.stderr);
+    assert.match(storeDown.stderr, /AI planner is OFF: the secret store cannot be read/);
+    assert.equal(JSON.parse(readFileSync(join(dir, "take.json"), "utf8")).planner.mode, "fallback");
     for (const r of [doctor, hello, made]) assert.ok(!r.stdout.includes("bogus-env-key") && !r.stderr.includes("bogus-env-key"));
     // A bogus env key must behave exactly like no key: zero planned tokens and
     // no preflight refusal even under --max-tokens 1.

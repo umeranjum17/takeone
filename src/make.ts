@@ -16,6 +16,7 @@ import { actionVideoSeconds } from "./beats/clock.ts";
 import { zonesForBeat, OCR_MAX_AREA } from "./beats/zones.ts";
 import { buildRequest, REQUEST_TOKEN_CAP, RequestTooLarge } from "./decide/request.ts";
 import type { Answer, DecideCache, Question } from "@byokit/decide";
+import { ConfigError } from "@byokit/decide";
 import { heuristicDecision } from "./decide/heuristics.ts";
 import { mapAnswers, frameRect } from "./decide/mapping.ts";
 import {
@@ -190,11 +191,21 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
   // Resolve the provider-agnostic decider before perception output is built:
   // screen words are read by default only when the planner will actually run.
   let planner: ResolvedPlanner | null = null;
+  let plannerOff = "no credential is set";
   if (!opts.noAi) {
-    planner = await resolvePlanner({
-      apiKeyOverride: opts.apiKey,
-      ...(opts.configDir === undefined ? {} : { configDir: opts.configDir }),
-    });
+    try {
+      planner = await resolvePlanner({
+        apiKeyOverride: opts.apiKey,
+        ...(opts.configDir === undefined ? {} : { configDir: opts.configDir }),
+      });
+    } catch (e) {
+      // A corrupt planner.json is user error: fail fast instead of hiding it
+      // behind the fallback. An unreadable secret store falls back, and the
+      // banner names it.
+      if (e instanceof ConfigError) throw e;
+      planner = null;
+      plannerOff = "the secret store cannot be read";
+    }
     if (planner && !planner.active) {
       if (!planner.defaulted && opts.apiKey === undefined) {
         // The user chose a provider but its credential is missing: stop with
@@ -323,7 +334,7 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
   if (!planner && !opts.noAi) {
     warn(
       "──────────────────────────────────────────────────────────────\n" +
-      " AI planner is OFF: no credential is set. This film uses fallback rules:\n" +
+      ` AI planner is OFF: ${plannerOff}. This film uses fallback rules:\n` +
       " generic framing, every pause sped up, no captions, default theme.\n" +
       " Set a key:  read -rs k; printf %s \"$k\" | takeone key set\n" +
       " Hide this:  takeone make <id> --no-ai\n" +
