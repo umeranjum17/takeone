@@ -3,6 +3,7 @@
 // ponytail: regex-shallow diff guard; review semantics and use a secret scanner for exhaustive detection.
 // Usage: node floor-guard.mjs [--base <ref>]   (default base: origin/main)
 import { execFileSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 
 const base = (() => {
   const i = process.argv.indexOf('--base');
@@ -158,23 +159,24 @@ function assertedSubject(line) {
   args.push(cur);
   return normSubject(args[0] ?? t);
 }
-// A rename keeps the subject's shape and at least one of its words in place
-// (`r.jev.failed` -> `r.planner.failed`, `"--no-jev"` -> `"--no-ai"`); numbers,
-// operators and structure must match exactly.
-// ponytail: word-level pairing also passes a same-shape swap (r.failed -> r.total);
-// CONSTRAINTS.md leaves rewritten assertions to review, as it already does for changed expected values.
+// Pair a rename only when all changed words are consistently new to the file.
 const WORD = /[A-Za-z_$][\w$]*/g;
 const shapeOf = (s) => s.replace(WORD, 'w');
-const renamed = (a, b) => {
+const renamed = (a, b, before, after) => {
   const wa = a.match(WORD) ?? [], wb = b.match(WORD) ?? [];
-  return a !== b && shapeOf(a) === shapeOf(b) && wa.some((w, i) => w === wb[i]);
+  if (a === b || shapeOf(a) !== shapeOf(b)) return false;
+  const changed = wa.map((w, i) => [w, wb[i]]).filter(([oldWord, newWord]) => oldWord !== newWord);
+  return changed.length > 0 && changed.every(([oldWord, newWord]) => !new RegExp(`\\b${oldWord}\\b`).test(after) && !new RegExp(`\\b${newWord}\\b`).test(before));
 };
 const assertsLost = [], assertsGained = [];
 for (const { file, text } of removed) if (isTest(file) && ASSERT_LINE.test(text)) assertsLost.push({ file, subject: assertedSubject(text) });
 for (const { file, text } of added) if (isTest(file) && ASSERT_LINE.test(text)) assertsGained.push({ file, subject: assertedSubject(text) });
 for (const lost of assertsLost) {
   if (deleted.includes(lost.file) || testDiet(lost.file)) continue; // test-deleted / test-diet own these
-  const match = assertsGained.findIndex(g => g.file === lost.file && (g.subject === lost.subject || renamed(lost.subject, g.subject)));
+  const before = git(['show', `${mergeBase}:${lost.file}`]) ?? '';
+  let after = '';
+  try { after = readFileSync(lost.file, 'utf8'); } catch {}
+  const match = assertsGained.findIndex(g => g.file === lost.file && (g.subject === lost.subject || renamed(lost.subject, g.subject, before, after)));
   const netLoss = assertsLost.filter(l => l.file === lost.file).length > assertsGained.filter(g => g.file === lost.file).length;
   if (match < 0 || netLoss) flag('assertion-removed', lost.file, lost.subject);
 }

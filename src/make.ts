@@ -23,7 +23,6 @@ import {
   askBeat,
   toPlannerAnswers,
   resolvePlanner,
-  loadPlannerConfig,
   PlannerUnavailable,
   CONCURRENCY,
   PlannerFileCache,
@@ -57,6 +56,8 @@ export interface MakeOptions {
   style?: string;
   /** Opt out of screen words (on by default when the planner runs). */
   noScreenText?: boolean;
+  /** Explicit opt-in for screen words on the privacy-scoped capture surface. */
+  screenText?: boolean;
   /** Ignore saved planner answers and ask again. */
   replan?: boolean;
   maxTokens?: number;
@@ -156,6 +157,13 @@ export function videoOnlyHeadStart(frames: FrameRegions[], recordStartMs: number
 export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<MakeResult> {
   const log = opts.log ?? ((s: string) => console.log(s));
   const warn = opts.warn ?? ((s: string) => console.error(s));
+  let warnedTrimmedContext = false;
+  const noteTrimmedContext = (trimmed: boolean) => {
+    if (trimmed && !warnedTrimmedContext) {
+      warnedTrimmedContext = true;
+      warn("planner request exceeded its context budget; shortened style or goal");
+    }
+  };
   const take = readTakeMeta(dir);
   // Portrait takes (phone footage) default to a portrait output unless the
   // caller overrode the output size; desktop behaviour is unchanged.
@@ -201,23 +209,13 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
         // The user chose a provider but its credential is missing: stop with
         // the choices instead of silently falling back (or switching provider).
         const auth = (planner.config as { auth: string }).auth;
-        throw new PlannerUnavailable(planner.label, `no ${auth === "account" ? "sign-in" : "key"} for ${planner.label}`);
+        throw new PlannerUnavailable(planner.label, `no ${auth === "account" ? "sign-in" : "key"} for ${planner.label}`, opts.capture ? "--no-planner" : "--no-ai");
       }
       planner = null;
     }
   }
-  let fallbackChoice: { backend: string; model: string } | null = null;
-  if (planner === null) {
-    try {
-      const { config, defaulted } = loadPlannerConfig(opts.configDir === undefined ? {} : { configDir: opts.configDir });
-      if (!defaulted) {
-        const c = config as { backend: string };
-        fallbackChoice = { backend: c.backend, model: modelOf(config) };
-      }
-    } catch { /* no readable stored choice: record null, not a default */ }
-  }
   const aiActive = planner !== null;
-  const readScreenText = aiActive && !opts.noScreenText;
+  const readScreenText = aiActive && !opts.noScreenText && (!opts.capture || opts.screenText === true);
 
   // 1 perceive ------------------------------------------------------------
   let videoStartMs: number;
@@ -357,10 +355,8 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
   let failed = 0;
   let usd: number | null = 0;
   let planned: MakeResult["planned"] = { planned_tokens: 0, usd: 0 };
-  const plannerBackend = planner
-    ? (planner.config as { backend: string }).backend
-    : fallbackChoice?.backend ?? null;
-  const plannerModel = planner ? modelOf(planner.config) : fallbackChoice?.model ?? null;
+  const plannerBackend = planner ? (planner.config as { backend: string }).backend : null;
+  const plannerModel = planner ? modelOf(planner.config) : null;
 
   if (planner) {
     const minutes = Math.max(takeMs / 60000, 1 / 60);
@@ -389,6 +385,7 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
       }
       try {
         const request = buildRequest(beats[i]!, ctxs[i]!);
+        noteTrimmedContext(request.trimmed);
         jobs.push({ i, state: request.state, questions: request.questions });
         plannedTokens += request.tokens;
       } catch (e) {
@@ -476,6 +473,7 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
       let questions: Record<string, Question>;
       try {
         const request = buildRequest(beats[i]!, { ...ctxs[i]!, currentShot: actual });
+        noteTrimmedContext(request.trimmed);
         state = request.state;
         questions = request.questions;
       } catch (e) {

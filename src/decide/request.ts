@@ -224,12 +224,23 @@ export function buildState(beat: Beat, ctx: RequestCtx): JevRequest["state"] {
 export function buildRequest(
   beat: Beat,
   ctx: RequestCtx,
-): { body: string; tokens: number; state: JevRequest["state"]; questions: Record<string, Question> } {
+): { body: string; tokens: number; state: JevRequest["state"]; questions: Record<string, Question>; trimmed: boolean } {
   const state = buildState(beat, ctx);
-  const body = truncateZonesToCap(state);
+  let body = truncateZonesToCap(state);
+  let trimmed = false;
+  for (const field of ["style", "goal"] as const) {
+    const words = state[field]?.split(/\s+/) ?? [];
+    while (words.length && estimateTokens(body) > REQUEST_TOKEN_CAP) {
+      words.pop();
+      if (words.length) state[field] = words.join(" ");
+      else delete state[field];
+      trimmed = true;
+      body = JSON.stringify({ model: JEV_MODEL, state, questions: toWire(buildQuestions(state)) });
+    }
+  }
   const tokens = estimateTokens(body);
   if (tokens > REQUEST_TOKEN_CAP) throw new RequestTooLarge(`request exceeds ${REQUEST_TOKEN_CAP} estimated tokens`);
-  return { body, tokens, state, questions: buildQuestions(state) };
+  return { body, tokens, state, questions: buildQuestions(state), trimmed };
 }
 
 export type { Decision };

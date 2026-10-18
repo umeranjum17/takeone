@@ -180,7 +180,7 @@ export interface TakeMeta extends TakeEdits {
   /** How the film was planned: AI decider or local fallback rules. */
   planner?: {
     mode: "ai" | "fallback";
-    /** The provider that planned (ai) or the configured choice (fallback); null when none is configured. */
+    /** The provider that planned; null for fallback. */
     backend: string | null;
     model: string | null;
     input_tokens: number;

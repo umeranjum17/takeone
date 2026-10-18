@@ -1,5 +1,5 @@
 // Per-backend input-token prices behind the planner's usage accounting.
-// This is cost data, not provider behaviour: no code path branches on it, and
+// This is cost data, not provider behaviour: code uses it only for accounting, and
 // the human-readable source with workings is docs/cost.md.
 
 export interface ProviderPrice {

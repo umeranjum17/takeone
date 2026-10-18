@@ -33,6 +33,7 @@ interface MakeArgs {
   take?: string;
   planOnly: boolean;
   noPlanner: boolean;
+  screenText: boolean;
   plannerKeyFd?: number;
   maxTokens?: number;
   title?: string;
@@ -41,11 +42,12 @@ interface MakeArgs {
 }
 
 function parseMakeArgs(argv: string[]): MakeArgs {
-  const a: MakeArgs = { planOnly: false, noPlanner: false, set: [] };
+  const a: MakeArgs = { planOnly: false, noPlanner: false, screenText: false, set: [] };
   for (let i = 0; i < argv.length; i++) {
     const s = argv[i]!;
     if (s === "--plan-only") a.planOnly = true;
     else if (s === "--no-planner") a.noPlanner = true;
+    else if (s === "--screen-text") a.screenText = true;
     else if (s === "--planner-key-fd") {
       const v = argv[++i];
       const fd = v === undefined ? NaN : Number(v);
@@ -225,6 +227,7 @@ async function runCaptureMake(argv: string[]): Promise<number> {
   try {
     const r = await makeTake(dir, {
       capture: true,
+      screenText: a.screenText,
       ...(key === null ? { noAi: true } : { apiKey: key }),
       ...(a.maxTokens === undefined ? {} : { maxTokens: a.maxTokens }),
       ...(camera === undefined ? {} : { camera }),
