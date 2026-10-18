@@ -186,7 +186,7 @@ test("doctor, make and capture never read the planner key from the environment",
   try {
     // All three read the key the same way: an env key is no key.
     const doctor = run(["doctor"], { env });
-    assert.match(doctor.stdout, /ai-planner,false,"?AI planner off/, doctor.stdout);
+    assert.match(doctor.stdout, /ai-planner,false,planner,"?AI planner off/, doctor.stdout);
     const hello = run(["capture", "hello"], { env });
     assert.equal(hello.status, 0, hello.stderr);
     assert.equal(JSON.parse(hello.stdout).planner.available, false);
