@@ -6,9 +6,9 @@ Token counts are the same request shape for every provider: about **15–16k
 input tokens per minute of video, typical**, hard-bounded by the preflight in
 `src/make.ts` at 40,000 estimated tokens per take minute
 (`DEFAULT_TOKENS_PER_MIN`). The per-minute tokens come from today's measured
-Jev take below, plus screen words on by default at up to ~90 tokens a beat and
-key moment asked on every beat. Cost per provider is tokens × that provider's
-list price:
+Jev take below, plus screen words at up to ~90 tokens a beat when `--screen-text`
+is set, and the key-moment question when `--about` is set. Cost per provider is
+tokens × that provider's list price:
 
 | Provider | Model (example) | Input price | Typical/min | Ceiling/min | Verified |
 |---|---|---|---|---|---|
@@ -33,9 +33,6 @@ Notes:
 - An Anthropic API key is set with `takeone key set --backend anthropic --model
   <model>`; a model is required, and the price has no confirmed listing at the
   time of writing, so the cost shows as unknown rather than a number.
-- Responses are cached per request hash, so replanning an unchanged take costs
-  nothing on every provider.
-- With the planner off the cost is exactly zero tokens on every provider.
 
 ## Measured take (Jev)
 
