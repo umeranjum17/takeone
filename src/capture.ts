@@ -231,6 +231,7 @@ async function runCaptureMake(argv: string[]): Promise<number> {
       ...(key === null ? { noAi: true } : { apiKey: key }),
       ...(a.maxTokens === undefined ? {} : { maxTokens: a.maxTokens }),
       ...(camera === undefined ? {} : { camera }),
+      set: a.set,
       ...(a.planOnly ? { planOnly: true } : {}),
       log: (line: string) => console.error(line),
       warn: (line: string) => {
