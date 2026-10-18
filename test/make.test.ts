@@ -694,6 +694,28 @@ test("single-zone beats use the heuristic without planner tokens", async () => {
   }
 });
 
+test("a single-chunk take reserves every request twice", async () => {
+  const dir = newTake();
+  try {
+    const path = join(dir, "events.jsonl");
+    const events = readFileSync(path, "utf8").trim().split("\n").map((line) => JSON.parse(line));
+    events.splice(events.findIndex((e) => e.t === 6500), 0, { t: 6400, k: "ptr", x: 20, y: 30 });
+    writeFileSync(path, events.map((e) => JSON.stringify(e)).join("\n") + "\n");
+    const bodies: string[] = [];
+    const logs: string[] = [];
+    await fastTake(dir, { apiKey: KEY, maxTokens: 100000, log: (s) => logs.push(s), warn: () => {}, fetchImpl: (async (_url, init) => {
+      bodies.push(String(init?.body));
+      return firstZoneReply(String(init?.body));
+    }) as typeof fetch });
+    const planned = Number(logs.find((s) => s.startsWith("preflight:"))!.match(/(\d+) planned tokens/)![1]);
+    // One chunk is the largest chunk, so its re-ask is reserved alongside it.
+    assert.equal(bodies.length, 1);
+    assert.ok(planned >= bodies.reduce((sum, body) => sum + Math.ceil(body.length / 3.5), 0) * 2 - 1200);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("preflight reserves re-asks and current shots distinguish viewport positions", { skip: needsFfmpeg }, async () => {
   const dir = newLongTake();
   try {
