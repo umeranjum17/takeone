@@ -15,9 +15,9 @@
 // before. Kit floors engage with per-field fallback in a later slice.
 
 import { execFile } from "node:child_process";
-import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync, accessSync, constants } from "node:fs";
 import { homedir, userInfo } from "node:os";
-import { dirname, isAbsolute, join } from "node:path";
+import { delimiter, dirname, isAbsolute, join } from "node:path";
 import {
   decide,
   parseConfig,
@@ -32,6 +32,7 @@ import {
 } from "@byokit/decide";
 import { codex } from "@byokit/decide/codex";
 import { pi } from "@byokit/decide/pi";
+import { claudeCode } from "@byokit/decide/claude-code";
 import { writeFileAtomic } from "@byokit/secrets";
 import type { PlannerAnswers } from "../types.ts";
 import { takeoneConfigDir, loadPlannerKey, readPlannerKey, noKeyring, type KeyOptions } from "../secrets.ts";
@@ -51,11 +52,11 @@ export const DEFAULT_PLANNER_CONFIG: DecideConfig = {
   retryMaxMs: 3000,
 };
 
-type CodexPlannerConfig = { backend: "codex"; auth: "account"; account: "installed-codex"; bin: string; model: string };
+type CliPlannerConfig = { backend: "claude-code" | "codex"; auth: "account"; account: "installed-claude" | "installed-codex"; bin: string; model: string };
 /** The person's installed pi CLI and the model it should ask. TakeOne stores no
  * key of its own: pi answers with the provider sign-in it already has. */
 type PiPlannerConfig = { backend: "pi"; bin: string; model: string };
-type PlannerConfig = DecideConfig | CodexPlannerConfig | PiPlannerConfig;
+type PlannerConfig = DecideConfig | CliPlannerConfig | PiPlannerConfig;
 
 export function plannerConfigPath(o: KeyOptions = {}): string {
   return join(takeoneConfigDir(o), "planner.json");
@@ -77,11 +78,12 @@ export function loadPlannerConfig(o: KeyOptions = {}): { config: PlannerConfig; 
         throw new ConfigError("pi planner requires an absolute bin and a model");
       }
       config = value as PiPlannerConfig;
-    } else if (value?.backend === "codex") {
-      if (value.auth !== "account" || value.account !== "installed-codex" || typeof value.bin !== "string" || !isAbsolute(value.bin) || typeof value.model !== "string" || !value.model.trim() || Object.keys(value).some((key) => !["backend", "auth", "account", "bin", "model"].includes(key))) {
-        throw new ConfigError("codex planner requires auth account, account installed-codex, an absolute bin, and a model");
+    } else if (value?.backend === "claude-code" || value?.backend === "codex") {
+      const provider = value.backend === "claude-code" ? "claude" : "codex";
+      if (value.auth !== "account" || value.account !== `installed-${provider}` || typeof value.bin !== "string" || !isAbsolute(value.bin) || typeof value.model !== "string" || !value.model.trim() || Object.keys(value).some((key) => !["backend", "auth", "account", "bin", "model"].includes(key))) {
+        throw new ConfigError(`${provider} planner requires its installed account, an absolute bin, and a model`);
       }
-      config = value as CodexPlannerConfig;
+      config = value as CliPlannerConfig;
     } else {
       config = parseConfig(raw);
     }
@@ -90,15 +92,15 @@ export function loadPlannerConfig(o: KeyOptions = {}): { config: PlannerConfig; 
     throw e;
   }
   const c = config as { backend: string; auth: string };
-  if (c.auth === "account" && c.backend !== "opencode-go" && c.backend !== "openai" && c.backend !== "codex") {
-    throw new ConfigError(`account authentication is only supported for opencode-go, openai and codex, not ${c.backend}`);
+  if (c.auth === "account" && c.backend !== "opencode-go" && c.backend !== "openai") {
+    throw new ConfigError(`account authentication is only supported for opencode-go, openai and the installed Claude/Codex CLIs, not ${c.backend}`);
   }
   return { config, defaulted: false };
 }
 
 /** Record the user's planner choice after validating its backend-specific config. */
 export async function savePlannerConfig(config: PlannerConfig, o: KeyOptions = {}): Promise<void> {
-  const parsed = config.backend === "codex" || config.backend === "pi" ? config : parseConfig(config);
+  const parsed = config.backend === "codex" || config.backend === "claude-code" || config.backend === "pi" ? config : parseConfig(config);
   mkdirSync(dirname(plannerConfigPath(o)), { recursive: true });
   await writeFileAtomic(plannerConfigPath(o), JSON.stringify(parsed, null, 1) + "\n");
 }
@@ -106,7 +108,9 @@ export async function savePlannerConfig(config: PlannerConfig, o: KeyOptions = {
 /** "backend (model)" with the via route when the backend has one. Reads the
  * config; it never names a provider itself. */
 export function describePlanner(config: PlannerConfig): string {
-  return `${(config as { backend: string }).backend}${(config as { via?: string }).via ? ` via ${(config as { via?: string }).via}` : ""} (${modelOf(config)})`;
+  const c = config as { backend: string; via?: string; auth?: string };
+  const cli = c.backend === "claude-code" ? "Claude" : c.backend === "codex" ? "Codex" : null;
+  return `${cli && c.auth === "account" ? `signed-in ${cli} account` : c.backend}${c.via ? ` via ${c.via}` : ""} (${modelOf(config)})`;
 }
 
 /** Whether the planner can return free text beside its choices (answerFields).
@@ -159,7 +163,13 @@ export interface ResolvePlannerOptions extends KeyOptions {
 /** Load the stored config and probe only whether its credential exists. Never
  * prints or returns a credential. */
 export async function resolvePlanner(o: ResolvePlannerOptions = {}): Promise<ResolvedPlanner> {
-  const { config, defaulted } = loadPlannerConfig(o);
+  const loaded = loadPlannerConfig(o);
+  let config = loaded.config;
+  const { defaulted } = loaded;
+  if (defaulted && o.apiKeyOverride === undefined) {
+    const account = await discoverInstalledAccount(o.env ?? process.env);
+    if (account) config = account;
+  }
   const c = config as { backend: string; auth: string };
   let member: string | null = null;
   let key: string | null = null;
@@ -179,10 +189,10 @@ export async function resolvePlanner(o: ResolvePlannerOptions = {}): Promise<Res
       throw new ConfigError(`${describePlanner(config)} plans through an account sign-in, which a supplied key cannot drive; fix planner.json or drop --planner-key-fd`);
     }
     member = plannerMember(o);
-    accountPresent = c.backend === "openai"
-      ? await openAIAccountPresent(member, o.env)
-      : c.backend === "codex"
-        ? await codexAccountPresent(config as CodexPlannerConfig, o.env)
+    accountPresent = c.backend === "claude-code" || c.backend === "codex"
+      ? await cliAccountPresent(config as CliPlannerConfig, o.env)
+      : c.backend === "openai"
+        ? await openAIAccountPresent(member, o.env)
         : await goAccountPresent(member, o.env);
   } else if (o.apiKeyOverride !== undefined) {
     key = o.apiKeyOverride;
@@ -238,7 +248,6 @@ export async function loadGoAccount(member: string, env: NodeJS.ProcessEnv = pro
   return (await machineAccounts(env)).opencodeGo(member);
 }
 
-/** Member-bound ChatGPT plan account; the Codex sign-in stays inside BYOKit. */
 export async function loadOpenAIAccount(member: string, env: NodeJS.ProcessEnv = process.env): Promise<import("@byokit/decide").OpenAIAccount> {
   return (await machineAccounts(env)).chatgpt(member);
 }
@@ -251,26 +260,45 @@ async function openAIAccountPresent(member: string, env: NodeJS.ProcessEnv = pro
   }
 }
 
-async function loadCodexLaunch(config: CodexPlannerConfig, env: NodeJS.ProcessEnv = process.env) {
+/** The launch environment of the person's installed Claude or Codex CLI: no
+ * folder variable, so their own sign-in answers. */
+async function loadCliLaunch(config: CliPlannerConfig, env: NodeJS.ProcessEnv = process.env) {
+  const { cliAccounts } = await import("@byokit/accounts/cli");
+  const provider = config.backend === "claude-code" ? "claude" : "codex";
+  const stateDir = join(takeoneConfigDir({ env }), "cli-accounts");
+  mkdirSync(dirname(stateDir), { recursive: true });
+  const cliEnv = { HOME: env.HOME ?? homedir(), PATH: env.PATH ?? "", ...(env.CODEX_HOME ? { CODEX_HOME: env.CODEX_HOME } : {}) };
+  return cliAccounts({ stateDir, bins: { [provider]: config.bin }, env: cliEnv, installed: true }).launch(config.account);
+}
+
+async function cliAccountPresent(config: CliPlannerConfig, env: NodeJS.ProcessEnv = process.env): Promise<boolean> {
+  try { return (await loadCliLaunch(config, env)).ok; } catch { return false; }
+}
+
+function executable(name: string, env: NodeJS.ProcessEnv): string | undefined {
+  for (const dir of (env.PATH ?? "").split(delimiter)) {
+    if (!dir) continue;
+    const candidate = join(dir, name);
+    try { accessSync(candidate, constants.X_OK); return candidate; } catch { /* try next PATH entry */ }
+  }
+  return undefined;
+}
+
+async function discoverInstalledAccount(env: NodeJS.ProcessEnv): Promise<PlannerConfig | null> {
+  const bins = { claude: executable("claude", env), codex: executable("codex", env) };
+  if (!bins.claude && !bins.codex) return null;
   const { cliAccounts } = await import("@byokit/accounts/cli");
   const stateDir = join(takeoneConfigDir({ env }), "cli-accounts");
   mkdirSync(dirname(stateDir), { recursive: true });
-  const cliEnv = {
-    HOME: env.HOME ?? homedir(),
-    PATH: env.PATH ?? "",
-    ...(env.CODEX_HOME ? { CODEX_HOME: env.CODEX_HOME } : {}),
-  };
-  const accounts = cliAccounts({ stateDir, bins: { codex: config.bin }, env: cliEnv, installed: true });
-  return accounts.launch(config.account);
+  const roster = cliAccounts({ stateDir, bins: Object.fromEntries(Object.entries(bins).filter((entry): entry is ["claude" | "codex", string] => Boolean(entry[1]))), env: { HOME: env.HOME ?? homedir(), PATH: env.PATH ?? "", ...(env.CODEX_HOME ? { CODEX_HOME: env.CODEX_HOME } : {}) }, installed: true });
+  const rows = await roster.list();
+  for (const provider of ["claude", "codex"] as const) {
+    const row = rows.find((item) => item.id === `installed-${provider}` && item.state === "ready");
+    if (row && bins[provider]) return { backend: provider === "claude" ? "claude-code" : "codex", auth: "account", account: `installed-${provider}`, bin: bins[provider]!, model: provider === "claude" ? "sonnet" : "gpt-5-codex" };
+  }
+  return null;
 }
 
-async function codexAccountPresent(config: CodexPlannerConfig, env: NodeJS.ProcessEnv = process.env): Promise<boolean> {
-  try {
-    return (await loadCodexLaunch(config, env)).ok;
-  } catch {
-    return false;
-  }
-}
 
 /** Presence of the member's Go plan login. Reads the stored key into memory
  * only to check it exists; never prints or returns it, never touches network. */
@@ -294,12 +322,14 @@ export async function plannerStatus(o: ResolvePlannerOptions = {}): Promise<{
 }> {
   try {
     const r = await resolvePlanner({ ...o, probe: true });
-    if (r.active) return { available: true, detail: `AI planner: ${r.label}`, config: r.config, label: r.label };
+    if (r.active) {
+      return { available: true, detail: `AI planner: found and using ${r.label}`, config: r.config, label: r.label };
+    }
     const c = r.config as { backend: string; auth: string };
     if (r.defaulted) {
       return {
         available: false,
-        detail: "AI planner off: films use fallback rules (no key is set; set one: read -rs k; printf %s \"$k\" | takeone key set)",
+        detail: "AI planner off: no signed-in account or stored key was found; films use fallback rules (set a key: read -rs k; printf %s \"$k\" | takeone key set)",
         config: r.config,
         label: r.label,
       };
@@ -532,9 +562,9 @@ const PROBE_PNG = Uint8Array.from(Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABC
  * backend does not support them; otherwise it reaches fetch, which here is a
  * local stub that sends nothing. TakeOne keeps no model list of its own. */
 export async function seesImages(planner: ResolvedPlanner): Promise<boolean> {
-  // The installed Codex and pi CLI backends take no images through this planner.
+  // The installed Claude, Codex and pi CLI backends take no images through this planner.
   const backend = (planner.config as { backend: string }).backend;
-  if (backend === "codex" || backend === "pi") return false;
+  if (backend === "codex" || backend === "claude-code" || backend === "pi") return false;
   let reached = false;
   const stub = (async () => {
     reached = true;
@@ -599,15 +629,17 @@ export async function askChunk(
       }
       return answered;
     };
-  } else if (c.backend === "codex") {
+  } else if (c.backend === "codex" || c.backend === "claude-code") {
     if (planner.member === null) throw new Error("account planner resolved without a member");
-    const config = planner.config as CodexPlannerConfig;
-    const launch = await loadCodexLaunch(config);
+    const config = planner.config as CliPlannerConfig;
+    const launch = await loadCliLaunch(config);
     if (!launch.ok) throw new PlannerUnavailable(planner.label, launch.message);
-    const backend = codex({ bin: config.bin, account: launch, model: config.model, timeoutMs: 120_000 });
+    const backend = config.backend === "codex"
+      ? codex({ bin: config.bin, account: launch, model: config.model, timeoutMs: 120_000 })
+      : claudeCode({ bin: config.bin, account: launch, model: config.model, timeoutMs: 120_000 });
     const scopedCache: DecideCache = {
-      get: (key) => cache.get(`codex:${config.model}:${config.account}:${key}`),
-      set: (key, value) => cache.set(`codex:${config.model}:${config.account}:${key}`, value),
+      get: (key) => cache.get(`${config.backend}:${config.model}:${config.account}:${key}`),
+      set: (key, value) => cache.set(`${config.backend}:${config.model}:${config.account}:${key}`, value),
     };
     runDecider = () => decide(state, questions, {
       backends: [backend],

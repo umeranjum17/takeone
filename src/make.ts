@@ -213,7 +213,7 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
   // Resolve the provider-agnostic decider before perception output is built:
   // screen words are read by default only when the planner will actually run.
   let planner: ResolvedPlanner | null = null;
-  let plannerOff = "no credential is set";
+  let plannerOff = "no signed-in account or stored key was found";
   if (!opts.noAi) {
     try {
       planner = await resolvePlanner({
