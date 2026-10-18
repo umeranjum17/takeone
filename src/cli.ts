@@ -5,10 +5,11 @@ import { existsSync, readFileSync, realpathSync, unlinkSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 import { setKeyFromStdin } from "./secrets.ts";
-import { parseConfig } from "@byokit/decide";
+import { parseConfig, ConfigError } from "@byokit/decide";
 import { savePlannerConfig, describePlanner } from "./decide/planner.ts";
 import { runCapture } from "./capture.ts";
 import { makeTake, PreflightRefusal, TakeInputError } from "./make.ts";
+import { PlannerUnavailable } from "./decide/planner.ts";
 import { renderTake, renderThreads } from "./render/render.ts";
 import { THEMES, resolveTheme } from "./themes.ts";
 import { isMotionTake, MOTION_USAGE, runMotion } from "./motion/cli.ts";
@@ -21,9 +22,11 @@ export function takesDir(): string {
 
 interface Args {
   id?: string;
-  noJev: boolean;
-  about?: string;
-  screenText: boolean;
+  noAi: boolean;
+  goal?: string;
+  style?: string;
+  noScreenText: boolean;
+  replan: boolean;
   maxTokens?: number;
   set: string[];
   camera?: CameraDefaults;
@@ -113,18 +116,35 @@ export function renderDimensions(aspect?: string, resolution?: string, source: "
   return dimensions;
 }
 
+/** A sentence, not an essay: both hints ride along in every beat's request,
+ * and anything near the 1,200-token request cap would push whole runs of
+ * beats past it. */
+const GOAL_STYLE_MAX_CHARS = 500;
+
 function parseArgs(argv: string[]): Args {
-  const a: Args = { noJev: false, screenText: false, set: [] };
+  const a: Args = { noAi: false, noScreenText: false, replan: false, set: [] };
   for (let i = 0; i < argv.length; i++) {
     const s = argv[i]!;
-    if (s === "--no-jev") a.noJev = true;
+    if (s === "--no-ai") a.noAi = true;
     else if (s === "--theme") {
       const value = argv[++i];
       if (!value || value.startsWith("--")) throw Error("--theme needs a theme name");
       a.theme = value;
     }
-    else if (s === "--about") a.about = argv[++i];
-    else if (s === "--screen-text") a.screenText = true;
+    else if (s === "--goal" || s === "--about") {
+      const value = argv[++i];
+      if (!value || value.startsWith("--")) throw Error(`${s} needs a sentence`);
+      if (value.length > GOAL_STYLE_MAX_CHARS) throw Error(`${s} must be at most ${GOAL_STYLE_MAX_CHARS} characters`);
+      a.goal = value;
+    }
+    else if (s === "--style") {
+      const value = argv[++i];
+      if (!value || value.startsWith("--")) throw Error("--style needs a word or short sentence");
+      if (value.length > GOAL_STYLE_MAX_CHARS) throw Error(`--style must be at most ${GOAL_STYLE_MAX_CHARS} characters`);
+      a.style = value;
+    }
+    else if (s === "--no-screen-text") a.noScreenText = true;
+    else if (s === "--replan") a.replan = true;
     else if (s === "--max-tokens") a.maxTokens = Number(argv[++i]);
     else if (s === "--set") {
       const v = argv[++i];
@@ -146,7 +166,7 @@ function parseArgs(argv: string[]): Args {
 
 function usage(code: number): never {
   const themes = Object.keys(THEMES).join("|");
-  console.error(`takeone make <id> [--no-jev] [--about "<topic>"] [--screen-text] [--max-tokens N] [--theme ${themes}] [--set key=value]
+  console.error(`takeone make <id> [--no-ai] [--goal "<sentence>"] [--style "<word>"] [--no-screen-text] [--replan] [--max-tokens N] [--theme ${themes}] [--set key=value]
 takeone render <take-dir> [--theme ${themes}] [--set key=value] [--aspect landscape|portrait|square|4:5] [--resolution 4k] [--format mp4|gif|webm|prores4444]
 takeone render <motion-dir> [--aspect landscape|portrait|square|4:5] [--stills <seconds,...>]
 ${MOTION_USAGE}
@@ -157,9 +177,11 @@ takeone [list|record|stop|doctor]
   render creates a camera path and MP4 from a planned take.
   key set --backend <name> stores that provider's key and records the planner choice.
 
-  --no-jev        decide every beat with the local heuristic; zero network calls
-  --about         optional demo topic; adds the key_moment question
-  --screen-text   opt-in: send up to 12 redacted OCR words per zone plus the window title
+  --no-ai         decide every beat with the local heuristic; zero network calls
+  --goal          what the demo is for; sharpens key moments (--about is an alias)
+  --style         style hint for the film, e.g. calm, brisk
+  --no-screen-text  do not send redacted screen words (sent by default with a planner)
+  --replan        ignore saved planner answers and ask again
   --max-tokens    refuse above this many planned input tokens (default 40k x take minutes)`);
   process.exit(code);
 }
@@ -293,9 +315,13 @@ export async function main(argv: string[]): Promise<number> {
     await makeTake(dir, a);
     return 0;
   } catch (e) {
-    if (e instanceof PreflightRefusal || e instanceof TakeInputError) {
+    if (e instanceof PreflightRefusal || e instanceof TakeInputError || e instanceof ConfigError) {
       console.error(`takeone make: ${e.message}`);
       return 2;
+    }
+    if (e instanceof PlannerUnavailable) {
+      console.error(`takeone make: ${e.message}`);
+      return 3;
     }
     throw e;
   }
@@ -351,15 +377,19 @@ async function runKeySet(rest: string[]): Promise<number> {
   }
   try {
     await setKeyFromStdin(process.stdin, backend);
-    await savePlannerConfig(config);
-    console.log(`planner key stored through BYOKit (${describePlanner(config)}); make still uses the Jev key or fallback rules until the planner is wired`);
-    return 0;
   } catch (e) {
     console.error(`could not store planner key; check stdin, the OS keyring or TAKEONE_SECRETS_PASSPHRASE_FD for the BYOKit sealed store (${e instanceof Error ? e.message : e})`);
     return 1;
   }
+  try {
+    await savePlannerConfig(config);
+  } catch {
+    console.error("planner key stored, but the provider choice could not be recorded in planner.json; run key set again to record it");
+    return 1;
+  }
+  console.log(`planner key stored through BYOKit (${describePlanner(config)})`);
+  return 0;
 }
-
 /** True when this module is the program that was run. `npm install -g`
  * launches the bin through a symlink (prefix/bin/takeone), so the as-invoked
  * argv[1] never matches anything: resolve it through realpath first, then

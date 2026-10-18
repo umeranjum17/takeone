@@ -1,9 +1,10 @@
 // `takeone capture ...`: recorder protocol v1 surface: hello, record, stop, make.
 import { readFileSync, writeFileSync, writeSync } from "node:fs";
 import { resolve } from "node:path";
-import { plannerStatus } from "./decide/planner.ts";
 import type { KeyOptions } from "./secrets.ts";
+import { plannerStatus, PlannerUnavailable } from "./decide/planner.ts";
 import { makeTake, PreflightRefusal, TakeInputError } from "./make.ts";
+import { ConfigError } from "@byokit/decide";
 import { resolveCamera } from "./cli.ts";
 import { packageVersion as recorderVersion } from "./version.ts";
 
@@ -32,6 +33,7 @@ interface MakeArgs {
   take?: string;
   planOnly: boolean;
   noPlanner: boolean;
+  screenText: boolean;
   plannerKeyFd?: number;
   maxTokens?: number;
   title?: string;
@@ -40,11 +42,12 @@ interface MakeArgs {
 }
 
 function parseMakeArgs(argv: string[]): MakeArgs {
-  const a: MakeArgs = { planOnly: false, noPlanner: false, set: [] };
+  const a: MakeArgs = { planOnly: false, noPlanner: false, screenText: false, set: [] };
   for (let i = 0; i < argv.length; i++) {
     const s = argv[i]!;
     if (s === "--plan-only") a.planOnly = true;
     else if (s === "--no-planner") a.noPlanner = true;
+    else if (s === "--screen-text") a.screenText = true;
     else if (s === "--planner-key-fd") {
       const v = argv[++i];
       const fd = v === undefined ? NaN : Number(v);
@@ -224,7 +227,8 @@ async function runCaptureMake(argv: string[]): Promise<number> {
   try {
     const r = await makeTake(dir, {
       capture: true,
-      ...(key === null ? { noJev: true } : { apiKey: key }),
+      screenText: a.screenText,
+      ...(key === null ? { noAi: true } : { apiKey: key }),
       ...(a.maxTokens === undefined ? {} : { maxTokens: a.maxTokens }),
       ...(camera === undefined ? {} : { camera }),
       ...(a.planOnly ? { planOnly: true } : {}),
@@ -234,6 +238,10 @@ async function runCaptureMake(argv: string[]): Promise<number> {
         console.error(line);
       },
     });
+    // Protocol v1 types usd as a number: an unknown price goes out as 0 with a
+    // warning saying so, never as a silent $0.
+    const usd = a.planOnly ? r.planned.usd : r.planner.usd;
+    if (usd === null) warnings.push("cost unknown: no price for this planner's provider; usd is 0");
     console.log(
       JSON.stringify(
         a.planOnly
@@ -244,8 +252,8 @@ async function runCaptureMake(argv: string[]): Promise<number> {
               planner: {
                 planned_tokens: r.planned.planned_tokens,
                 input_tokens: 0,
-                usd: r.planned.usd,
-                failed: r.jev.failed > 0,
+                usd: usd ?? 0,
+                failed: r.planner.failed > 0,
               },
               warnings,
             }
@@ -255,9 +263,9 @@ async function runCaptureMake(argv: string[]): Promise<number> {
               beats: r.beats.length,
               planner: {
                 planned_tokens: r.planned.planned_tokens,
-                input_tokens: r.jev.input_tokens,
-                usd: r.jev.usd,
-                failed: r.jev.failed > 0,
+                input_tokens: r.planner.input_tokens,
+                usd: usd ?? 0,
+                failed: r.planner.failed > 0,
               },
               warnings,
             },
@@ -281,6 +289,21 @@ async function runCaptureMake(argv: string[]): Promise<number> {
         code: "take-input",
         message: e.message,
         hint: "check the take directory inputs (take.json, screen.webm, frames.tsv, events.jsonl)",
+      });
+    }
+    if (e instanceof PlannerUnavailable) {
+      captureFail({
+        code: "planner-unavailable",
+        // capture's off switch is --no-planner, so it words its own choices
+        message: `AI planner: ${e.provider} ${e.reason}.`,
+        hint: "wait for the limit to reset and rerun, or rerun with --no-planner",
+      });
+    }
+    if (e instanceof ConfigError) {
+      captureFail({
+        code: "planner-config",
+        message: e.message,
+        hint: "fix planner.json",
       });
     }
     captureFail({

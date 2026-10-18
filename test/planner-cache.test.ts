@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { rmSync } from "node:fs";
-import { DEFAULT_PLANNER_CONFIG, PlannerFileCache, askBeat } from "../src/decide/planner.ts";
+import { DEFAULT_PLANNER_CONFIG, PlannerFileCache, askBeat, pooled } from "../src/decide/planner.ts";
 import type { Answer } from "@byokit/decide";
 
 test("PlannerFileCache surfaces write failures through warn and never fails the decision", async () => {
@@ -37,4 +37,21 @@ test("a fully abstained planner beat reports failed and keeps its billed tokens"
   assert.equal(r.decisionSource, "failed");
   assert.equal(r.inputTokens, 15800);
   assert.equal(r.outputTokens, 40);
+});
+
+test("pooled stops pulling queued items once a worker rejects", async () => {
+  const started: number[] = [];
+  let otherWorkerSettled = false;
+  const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
+  await assert.rejects(
+    pooled([1, 2, 3, 4, 5, 6, 7, 8, 9, 10], 2, async (n) => {
+      started.push(n);
+      await delay(n === 1 ? 5 : 30);
+      if (n === 1) throw new Error("rate limited");
+      otherWorkerSettled = true;
+    }),
+    /rate limited/,
+  );
+  assert.equal(started.length, 2);
+  assert.equal(otherWorkerSettled, true);
 });

@@ -1,7 +1,7 @@
 # Output quality gates
 
 `npm run quality` builds the two existing synthetic takes, plans them locally
-(`noJev: true`), renders at 60 fps, and rerenders to test byte determinism.
+(`noAi: true`), renders at 60 fps, and rerenders to test byte determinism.
 It uses no desktop, device, credentials or model service. Dependencies are the
 existing ffmpeg/ffprobe tools plus tesseract (English) and Liberation fonts.
 Harness captions explicitly use Liberation Sans to avoid machine-specific

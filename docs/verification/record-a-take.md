@@ -25,7 +25,7 @@ python3 scripts/e2e/drive.py serve /tmp/drive.fifo &  # virtual uinput mouse/key
 node bin/takeone.mjs record &                         # consent dialog -> share only the scene output
 echo scene > /tmp/drive.fifo; sleep 65; node bin/takeone.mjs stop
 scripts/e2e/scene.sh stop ~/lab/scene-profile 1
-node bin/takeone.mjs make "$TAKEONE_DIR/<id>" --about "Creating a task and moving it across a project board"
+node bin/takeone.mjs make "$TAKEONE_DIR/<id>" --goal "Creating a task and moving it across a project board"
 ```
 
 Proving end state: a new take directory with `take.json`, `screen.webm`, `frames.tsv`, `events.jsonl`; `ffprobe` confirms the stream; `takeone list` shows it `complete`. A cancelled consent dialog is a `consent-cancelled` structured error and is never retried or bypassed.

@@ -5,7 +5,7 @@ Install, the full quickstart, planning and rendering, and development notes. Bac
 ## How it works
 
 1. **Record.** `takeone record` captures the desktop through desklink's view-only portal session and, when evdev is readable, the pointer, clicks, wheel, key classes and focused window. Desktop frames are captured cursor-free when the engine can hide the system cursor; the renderer then draws its own vector cursor from the pointer track. Typed characters are never recorded. `takeone record --android <serial>` records a phone or emulator into the same take format instead, and `takeone record --ios-sim` records the booted iOS Simulator on macOS, video-only with no touch events (see [Recording](recording.md)).
-2. **Make.** `takeone make` segments the take into beats (at most 30 per minute), finds the regions that changed, and decides each beat's shot. Jev decides the beats that need judgement, from zone descriptions and an optional `--about` topic; idle and cut beats are decided locally. A token preflight refuses the whole run before any call if the plan would exceed its cap, and `--no-jev` keeps every decision local.
+2. **Make.** `takeone make` segments the take into beats (at most 30 per minute), finds the regions that changed, and decides each beat's shot. The AI planner decides the beats that need judgement, from zone descriptions, redacted screen words and an optional `--goal` sentence; idle and cut beats are decided locally. A token preflight refuses the whole run before any call if the plan would exceed its cap, and `--no-ai` keeps every decision local.
 3. **Render.** The camera path is solved on the output clock, eased through a spring and rendered with ffmpeg and libass into a silent H.264 MP4 (default 1920×1080; see [Output aspect and format](edit-controls.md) for orientation defaults and `--aspect`/`--resolution`/`--format` options): stage, click rings, shortcut keycaps, timed spotlight and blur regions, idle speed-up, titles and captions. Rerendering with new `--set` values never calls the planner.
 
 ## Download / Install
@@ -21,7 +21,7 @@ The same command works on macOS and Linux. npm 12 refuses the tarball URL withou
 
 Installing straight from git (`npm install -g github:umeranjum17/takeone`) does not work: npm 10 and 11 break the build of a git package during a global install, and npm 12 blocks git packages by default. To work on takeone itself, install from source:
 
-Requires Node.js 22.19+ and `ffmpeg` on PATH. Optional: `tesseract` for `--screen-text` OCR. Recording the desktop additionally needs Linux on Wayland with Hyprland (see [Recording](recording.md)); recording a phone needs `adb` on PATH and an attached device with USB debugging; recording the iOS Simulator needs macOS with Xcode (`xcrun simctl`), `ffprobe` on PATH, and a booted simulator; planning and rendering an existing recording take do not require those capture prerequisites. Motion setup requirements are documented in [Motion renders](motion.md).
+Requires Node.js 22.19+ and `ffmpeg` on PATH. Optional: `tesseract` for screen-word OCR (read by default when the planner runs). Recording the desktop additionally needs Linux on Wayland with Hyprland (see [Recording](recording.md)); recording a phone needs `adb` on PATH and an attached device with USB debugging; recording the iOS Simulator needs macOS with Xcode (`xcrun simctl`), `ffprobe` on PATH, and a booted simulator; planning and rendering an existing recording take do not require those capture prerequisites. Motion setup requirements are documented in [Motion renders](motion.md).
 
 ```sh
 git clone https://github.com/umeranjum17/takeone
@@ -45,30 +45,39 @@ Run `node bin/takeone.mjs` from the checkout, or `takeone` if the package is lin
 git clone https://github.com/umeranjum17/takeone && cd takeone
 npm install
 node scripts/synth-take.ts /tmp/takes/synth-demo
-node bin/takeone.mjs make /tmp/takes/synth-demo --no-jev
+node bin/takeone.mjs make /tmp/takes/synth-demo --no-ai
 ```
 
-The polished video lands at `/tmp/takes/synth-demo/out/synth-demo.mp4`, next to the plan in `analysis/` and the camera path in `camera.json`. `--no-jev` makes this run offline at zero tokens.
+The polished video lands at `/tmp/takes/synth-demo/out/synth-demo.mp4`, next to the plan in `analysis/` and the camera path in `camera.json`. `--no-ai` makes this run offline at zero tokens.
 
-<a id="jev-key"></a>
+<a id="ai-planner-key"></a>
 
-### 2. Store a planner key
+### 2. Let the planner decide (AI by default)
 
-`takeone key set` reads one key line from piped stdin and stores it for one provider. The default backend is Jev; `--backend <name>` picks another (`jev`, `openai`, `anthropic` or `opencode-go`), `--model <model>` names the model (required for openai, anthropic and opencode-go), and `--via typesafe|openrouter` routes Jev through an alternative gateway. `make` still plans with the Jev key only; a non-Jev choice takes effect once the planner is wired in. In Bash, this hidden prompt keeps the key out of argv and shell history:
+The planner is AI by default: whenever a credential is set, `takeone make` asks the configured model for every judgement beat and records `planner.mode: "ai"` in `take.json`. With no credential it renders anyway with loud fallback rules (`planner.mode: "fallback"`); `--no-ai` forces the fallback even with a credential.
+
+Store your key with `takeone key set`, which reads one key line from piped stdin and records the provider choice. For example, in Bash, this hidden prompt keeps it out of argv and shell history:
 
 ```bash
-read -rsp 'Jev API key: ' jev_key; printf '\n'
-printf '%s' "$jev_key" | takeone key set
-unset jev_key
-# another provider:
-read -rsp 'OpenAI API key: ' openai_key; printf '\n'
-printf '%s' "$openai_key" | takeone key set --backend openai --model gpt-6.1-sol
-unset openai_key
+read -rsp 'Planner API key: ' planner_key; printf '\n'
+printf '%s' "$planner_key" | takeone key set
+unset planner_key
 ```
 
-The provider choice is recorded in `planner.json` under the takeone config directory (`${XDG_CONFIG_HOME:-$HOME/.config}/takeone/planner.json`) as a BYOKit decide config (`backend`, `auth`, `model`, `via`). When nothing is stored, Jev is the planner default; takeone never switches the provider automatically. `takeone doctor` reports the stored choice and key presence in its `ai-planner` row — `AI planner: <backend>[ via <via>] (<model>) is set up` when the key is stored, `AI planner off` with the fix when it is not. `make` does not read `planner.json` yet: it still plans with the Jev key or the local fallback, whatever the row says.
+With no flags that stores a Jev key (the default when you pick nothing). Pick another provider with flags:
 
-The key lives under service `takeone`, secret name matching the backend (`jev` by default), in the OS keyring through `@byokit/secrets` (macOS Keychain or Linux Secret Service; Linux needs `/usr/bin/secret-tool` and an unlocked session). If the keyring is absent, unsupported, or unavailable when used, BYOKit's sealed file at `${XDG_CONFIG_HOME:-$HOME/.config}/takeone/secrets.json` is used when a passphrase is supplied on an open fd >= 3. Set `TAKEONE_SECRETS_PASSPHRASE_FD` to that fd number for each command that reads or writes the store. Supply the same passphrase bytes each time; the passphrase is never saved. For an isolated install (CI, a throwaway test HOME), set `TAKEONE_NO_KEYRING=1` (only `1`, `true` or `yes` enable it) to skip the OS keyring entirely — keys then come only from `TYPESAFE_API_KEY` or the sealed file, and an inherited `XDG_RUNTIME_DIR` or `DBUS_SESSION_BUS_ADDRESS` cannot surface a host keyring key. For example:
+```bash
+printf '%s' "$planner_key" | takeone key set --backend openai --model gpt-6.1-sol
+printf '%s' "$planner_key" | takeone key set --backend anthropic --model claude-opus-5-5
+printf '%s' "$planner_key" | takeone key set --backend opencode-go --model opencode-go/muse-spark-1.3-contributor
+printf '%s' "$planner_key" | takeone key set --backend jev --via openrouter
+```
+
+The choice is stored as a BYOKit decide config in `${XDG_CONFIG_HOME:-$HOME/.config}/takeone/planner.json` (`backend`, `auth`, `model`, `via`), validated on load. Jev stays the default: only `takeone key set` (or editing that file) changes it, and takeone never switches provider on a limit, an error or a missing key — a provider that cannot serve the run stops before rendering with exit 3 and the three choices (wait and rerun, `--no-ai`, or pick another provider yourself). `takeone doctor` reports the stored choice and key presence in its `ai-planner` row: `AI planner: <backend>[ via <via>] (<model>)` when the key is set, `AI planner off` with the fix when it is not.
+
+Subscription sign-ins need no key: with `"backend": "opencode-go", "auth": "account"` in `planner.json` (plus a `model`), takeone reads the member's OpenCode Go plan login from the shared BYOKit machine store for the current OS user. A missing sign-in stops the run the same way; it never falls back silently.
+
+Each backend's key lives under service `takeone` in the OS keyring through `@byokit/secrets` (macOS Keychain or Linux Secret Service; Linux needs `/usr/bin/secret-tool` and an unlocked session), under the backend's own secret name (`jev` for the default). If the keyring is absent, unsupported, or unavailable when used, BYOKit's sealed file at `${XDG_CONFIG_HOME:-$HOME/.config}/takeone/secrets.json` is used when a passphrase is supplied on an open fd >= 3. Set `TAKEONE_SECRETS_PASSPHRASE_FD` to that fd number for each command that reads or writes the store. Supply the same passphrase bytes each time; the passphrase is never saved. For an isolated install (CI, a throwaway test HOME), set `TAKEONE_NO_KEYRING=1` (only `1`, `true` or `yes` enable it) to skip the OS keyring entirely — keys then come only from the sealed file, and an inherited `XDG_RUNTIME_DIR` or `DBUS_SESSION_BUS_ADDRESS` cannot surface a host keyring key. TakeOne never reads a key from an environment variable. For example:
 
 ```bash
 read -rsp 'Store passphrase: ' store_passphrase; printf '\n'
@@ -78,9 +87,9 @@ TAKEONE_SECRETS_PASSPHRASE_FD=3 takeone make <id> 3< <(printf '%s' "$store_passp
 unset jev_key store_passphrase
 ```
 
-`TYPESAFE_API_KEY` remains a host-passed BYOKit override for CI/non-interactive use and is never persisted. `capture make --planner-key-fd N` uses only the supplied fd key, preserving capture's host-owned credential contract; without it, capture planning stays local even when a stored key is available. `capture hello` reports key availability without migrating legacy credentials. On the first planner run without an override, a legacy plaintext key from `~/.config/takeone/env` is moved into an empty store, verified, then its old line (or key-only file) is removed. This legacy path does not follow `XDG_CONFIG_HOME`. Unrelated settings are preserved; an existing stored key is never overwritten by migration, and a different legacy key is left untouched. Interrupted cleanup resumes when the stored and legacy keys match.
+`capture make --screen-text` opts into reading redacted screen words; capture otherwise keeps OCR off. `capture make --planner-key-fd N` uses only the supplied fd key, preserving capture's host-owned credential contract; without it, capture planning stays local even when a stored key is available. Planner stops carry their own capture error codes: `planner-unavailable` when the provider cannot serve the run (wait for the limit to reset and rerun, or rerun with `--no-planner`), and `planner-config` when planner.json is invalid or names an account sign-in, which a supplied key cannot drive (fix planner.json); every other failure keeps the `render-failed` envelope. `capture hello` reports key availability through the same stored-key read `make` uses, so it also migrates a legacy credential. A legacy plaintext key from `~/.config/takeone/env` is moved into an empty `jev` slot on the first read (by make, doctor or `capture hello`), verified, then its old line (or key-only file) is removed. This legacy path does not follow `XDG_CONFIG_HOME`. Unrelated settings are preserved; an existing stored key is never overwritten by migration, and a different legacy key is left untouched. Interrupted cleanup resumes when the stored and legacy keys match.
 
-Re-run `make` without `--no-jev`. Add `--about "what the demo shows"` for better key moments.
+Re-run `make` without `--no-ai`. Add `--goal "what the demo shows"` for sharper key moments, `--style calm` for the film's manner, and `--replan` to ask the planner again instead of reusing saved answers.
 
 ### 3. Record your own take (Linux, Wayland, Hyprland)
 
@@ -89,7 +98,7 @@ takeone record                # grant the screen-share consent; share only the o
 # ...demonstrate your app...
 takeone stop
 takeone                       # list takes, newest first
-takeone make <id> --about "Creating a task and moving it across a project board"
+takeone make <id> --goal "Creating a task and moving it across a project board"
 ```
 
 `takeone record` needs a person to click Share in the compositor's screen-share dialog, so it cannot run unattended. If no one is at the desktop, use the [headless demo scene](headless-scene.md) instead (from a git checkout): it produces a take without opening a display, portal or input device.
@@ -100,7 +109,7 @@ takeone make <id> --about "Creating a task and moving it across a project board"
 takeone record --android <serial>   # USB phone or emulator; needs adb on PATH with USB debugging enabled
 # ...demonstrate the app with fingers on the phone (or the emulator-window mouse)...
 takeone stop
-takeone make <id> --about "Searching and checking out in the app"
+takeone make <id> --goal "Searching and checking out in the app"
 ```
 
 The phone take uses the same directory format (`take.json`, `screen.webm`,
@@ -152,9 +161,9 @@ node scripts/e2e/android/record.ts emulator-PORT "$PWD/tmp/android-takes"
 take_path=/absolute/path/to/take
 take_id=$(basename "$take_path")
 mkdir -p tmp/android-renders
-takeone make "$take_path" --no-jev --set idle_speed=1
+takeone make "$take_path" --no-ai --set idle_speed=1
 cp "$take_path/out/$take_id.mp4" tmp/android-renders/portrait.mp4
-takeone make "$take_path" --no-jev --set idle_speed=1 --set out_w=1920 --set out_h=1080
+takeone make "$take_path" --no-ai --set idle_speed=1 --set out_w=1920 --set out_h=1080
 cp "$take_path/out/$take_id.mp4" tmp/android-renders/wide.mp4
 ```
 
@@ -192,13 +201,13 @@ takeone record --ios-sim   # needs a booted simulator; macOS only
 takeone record --ios-sim --ios-udid <UUID>   # isolate capture to this booted device
 # ...drive the app in the Simulator by hand...
 takeone stop
-takeone make <id> --about "Onboarding and first export in the app"
+takeone make <id> --goal "Onboarding and first export in the app"
 takeone render ~/Videos/takeone/<id> --aspect landscape   # wide 1920×1080 film; make writes portrait for a phone take
 ```
 
 To drive a demo app instead of your own, the [iOS fixture recipe](../scripts/e2e/ios/README.md) builds, installs and launches the Tidewater app on a Simulator you created.
 
-Video-only: no `events.jsonl` is written, so the camera plans from screen changes alone. Localized changes form `change` beats with result zones; animation frames group into one subject, and unchanged footage stays idle. Observed result holds retain their duration through shared pacing. These beats use the shared Jev attention policy, camera path and renderer, with the same beat and token caps. A changed subject is recentered after it appears, without inventing touch events.
+Video-only: no `events.jsonl` is written, so the camera plans from screen changes alone. Localized changes form `change` beats with result zones; animation frames group into one subject, and unchanged footage stays idle. Observed result holds retain their duration through shared pacing. These beats use the shared AI attention policy, camera path and renderer, with the same beat and token caps. A changed subject is recentered after it appears, without inventing touch events.
 
 ### 4. Tweak the look and rerender
 
@@ -221,15 +230,15 @@ See [Motion renders](motion.md) for shell setup, capture states, pattern options
 ## Plan and render
 
 ```sh
-node bin/takeone.mjs make <id> [--no-jev] [--about "topic"] [--screen-text] [--max-tokens N] [--theme midnight|paper|aurora|mono|sand|editorial] [--set key=value]
+node bin/takeone.mjs make <id> [--no-ai] [--goal "sentence"] [--style "word"] [--no-screen-text] [--replan] [--max-tokens N] [--theme midnight|paper|aurora|mono|sand|editorial] [--set key=value]
 node bin/takeone.mjs render /path/to/take [--theme midnight|paper|aurora|mono|sand|editorial] [--set fps=24] [--aspect landscape|portrait|square|4:5] [--resolution 4k] [--format mp4|gif|webm|prores4444]
 ```
 
-`<id>` can also be an absolute take-directory path. `make` writes `analysis/regions.json`, `analysis/ui-boxes.json`, `analysis/actions.json`, renderer-format `analysis/beats.json` (video-relative seconds), and one decision per line in `analysis/decisions.jsonl`; Jev responses are cached separately in `analysis/jev-cache.jsonl`. It updates `take.json` with usage and render metadata, recording `trim_end` for a trim you set yourself (clamped to the recording) and leaving it unset for the trim `record` itself wrote, which it marks `auto_trim` next to the recorded capture length; any other trim is yours and is exported as given. A take recorded before that marker existed is read as record's whenever its unmarked trim end lands within one 100 ms analysis frame of the video's end, whichever way the timeline rounding falls. One case stays ambiguous: a take whose edited end is exactly equal to the recorded length still reads as automatic while the marker is left in place. It then writes `camera.json`, `camera.cmd`, and `out/<id>.mp4`. Zone data retains individual nearby perception boxes even when focus candidates are deduplicated. A local UI-surface pass also finds static cards, panels and dialogs in the existing quarter-size grey decode, so unchanged surfaces can frame clicks with empty change regions. It analyzes at most one reference per occupied second measured from the trim start, choosing actual decoded frames to prioritize uncovered action and shot times across adjacent seconds. Each reference retains at most 24 boxes. `ui-boxes.json` records reference count, elapsed analysis time per video minute, zero model calls and zero API cost. References more than half a second away, or across a cut/redraw, are excluded. This is a conservative flat-surface detector: low-contrast boundaries, gradients and image-filled cards may be missed. Zoomed holds include enclosing context, align crop edges around neighboring boxes, and widen when needed; known UI boxes are kept whole or at least 90% outside the crop. Re-running `make` can reuse cached responses. A trim must overlap the video; only that overlap is planned. Beats are capped at 30 per minute, which may merge idle gaps.
+`<id>` can also be an absolute take-directory path. `make` writes `analysis/regions.json`, `analysis/ui-boxes.json`, `analysis/actions.json`, renderer-format `analysis/beats.json` (video-relative seconds), and one decision per line in `analysis/decisions.jsonl`; Planner answers are cached separately in `analysis/planner-cache.jsonl`. It updates `take.json` with usage and render metadata, recording `trim_end` for a trim you set yourself (clamped to the recording) and leaving it unset for the trim `record` itself wrote, which it marks `auto_trim` next to the recorded capture length; any other trim is yours and is exported as given. A take recorded before that marker existed is read as record's whenever its unmarked trim end lands within one 100 ms analysis frame of the video's end, whichever way the timeline rounding falls. One case stays ambiguous: a take whose edited end is exactly equal to the recorded length still reads as automatic while the marker is left in place. It then writes `camera.json`, `camera.cmd`, and `out/<id>.mp4`. Zone data retains individual nearby perception boxes even when focus candidates are deduplicated. A local UI-surface pass also finds static cards, panels and dialogs in the existing quarter-size grey decode, so unchanged surfaces can frame clicks with empty change regions. It analyzes at most one reference per occupied second measured from the trim start, choosing actual decoded frames to prioritize uncovered action and shot times across adjacent seconds. Each reference retains at most 24 boxes. `ui-boxes.json` records reference count, elapsed analysis time per video minute, zero model calls and zero API cost. References more than half a second away, or across a cut/redraw, are excluded. This is a conservative flat-surface detector: low-contrast boundaries, gradients and image-filled cards may be missed. Zoomed holds include enclosing context, align crop edges around neighboring boxes, and widen when needed; known UI boxes are kept whole or at least 90% outside the crop. Re-running `make` can reuse cached responses. A trim must overlap the video; only that overlap is planned. Beats are capped at 30 per minute, which may merge idle gaps.
 
 Drag framing widens the view to keep the dragged element and cursor visible, retaining the whole source when complete object bounds are unknown. See [drag visibility and boundary handling](quality.md#drag-framing) for the path, trim and coverage-check contracts.
 
-With a [configured Jev key](#jev-key), Jev receives zone descriptions and an optional `--about` topic. Without a key, when the secret store cannot be read, or with `--no-jev`, decisions stay local; failed calls fall back to a local heuristic. Screen text and window titles are not sent by default. `--screen-text` opts in to OCR (with `tesseract` on PATH) and sending filtered text and window labels: each OCR token and each whitespace-delimited window-title word is sent only if it has 2–15 ASCII letters; every other token is `[redacted]`. OCR fragments are not joined. The preflight refuses planned Jev requests above `--max-tokens` (default 40,000 per take minute); `--no-jev` skips calls entirely.
+With a [configured planner credential](#ai-planner-key), the planner receives zone descriptions, redacted screen words, and an optional `--goal` sentence. Screen words (up to 12 redacted OCR words per zone plus the window title) are read by default when the planner runs; `--no-screen-text` opts out, and the redaction is unchanged: each OCR token and each whitespace-delimited window-title word is sent only if it has 2–15 ASCII letters; every other token is `[redacted]`. OCR fragments are not joined. Without a credential, when the secret store cannot be read, or with `--no-ai`, decisions stay local; failed calls fall back to a local heuristic. A provider that cannot serve the run (rate limit, auth refusal, timeout) stops before rendering with exit 3 instead of falling back silently. The preflight refuses planned requests above `--max-tokens` (default 40,000 per take minute); `--no-ai` skips calls entirely.
 
 ### Render an existing take
 
@@ -257,10 +266,10 @@ scripts/e2e/scene.sh start ~/lab/scene-profile
 takeone record &                                         # share only the output that shows the scene
 echo scene > /tmp/drive.fifo; sleep 65; takeone stop
 scripts/e2e/scene.sh stop ~/lab/scene-profile 1          # return to your workspace
-takeone make <id> --about "Creating a task and moving it across a project board"
+takeone make <id> --goal "Creating a task and moving it across a project board"
 ```
 
-The README hero and how-it-works images come from one headless take: the `scripts/e2e/scene.html` board captured cursor-free by `scripts/headless-scene.mjs` (see the [headless demo-scene guide](headless-scene.md)), planned locally (`make --no-jev --set fps=60`) and rendered with `--theme sand` for light mode and `--theme aurora` for dark mode. Each hero clip opens on the raw recording and wipes into the takeone render just before the camera pushes in on the New task dialog, both at double speed, 24 fps, 960 px wide, as animated WebP.
+The README hero and how-it-works images come from one headless take: the `scripts/e2e/scene.html` board captured cursor-free by `scripts/headless-scene.mjs` (see the [headless demo-scene guide](headless-scene.md)), planned locally (`make --no-ai --set fps=60`) and rendered with `--theme sand` for light mode and `--theme aurora` for dark mode. Each hero clip opens on the raw recording and wipes into the takeone render just before the camera pushes in on the New task dialog, both at double speed, 24 fps, 960 px wide, as animated WebP.
 
 ## Development
 

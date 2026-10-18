@@ -287,7 +287,7 @@ async function main() {
         const meta = json<Record<string, unknown>>(join(dir, 'take.json'));
         save(join(dir, 'take.json'), { ...meta, title: 'Explore the demo', captions: [{ t: 3, text: 'Tap to see details' }] });
       }
-      await makeTake(dir, { noJev: true, camera: d });
+      await makeTake(dir, { noAi: true, camera: d });
     }
     const original = sha(video);
     await renderTake(dir, d);

@@ -1,7 +1,7 @@
-// Mapping Jev answers to decisions (design 8.2), plus the decision-side framing
+// Mapping planner answers to decisions (design 8.2), plus the decision-side framing
 // estimator used for fit checks. Pure functions over plain data.
 
-import type { Beat, BBox, Decision, JevAnswers, Tightness, Zone } from "../types.ts";
+import type { Beat, BBox, Decision, PlannerAnswers, Tightness, Zone } from "../types.ts";
 import { bboxArea } from "../types.ts";
 import { WIN_MAX_COVER } from "../beats/zones.ts";
 
@@ -100,8 +100,8 @@ export function medianLevel(probs: number[] | undefined): number | null {
  */
 export function mapAnswers(
   beat: Beat,
-  answers: JevAnswers,
-  ctx: { viewport: BBox | null; winRect: BBox | null; stream: { w: number; h: number }; about?: string; aspect?: number; model?: string },
+  answers: PlannerAnswers,
+  ctx: { viewport: BBox | null; winRect: BBox | null; stream: { w: number; h: number }; aspect?: number; model: string },
 ): Decision | null {
   const fs = answers.focus_start;
   const fe = answers.focus_end;
@@ -144,9 +144,9 @@ export function mapAnswers(
   const p = answers.new_subject?.p;
   if (p === undefined || !Number.isFinite(p) || p < 0 || p > 1) return null;
 
-  // key moment (only asked with --about)
+  // key moment (always asked; a goal sharpens it but is not required)
   let K: 0 | 1 | 2 = 1;
-  if (ctx.about) {
+  {
     if (answers.key_moment?.probabilities?.length !== 3) return null;
     const kl = argmaxLevel(answers.key_moment?.probabilities);
     if (kl === null) return null;
@@ -164,9 +164,9 @@ export function mapAnswers(
     L,
     p,
     K,
-    conf: { A: confA, B: confB, L: confL, K: ctx.about ? answers.key_moment?.confidence : undefined },
-    decided_by: "jev",
-    model: ctx.model ?? "jev-latest",
+    conf: { A: confA, B: confB, L: confL, K: answers.key_moment?.confidence },
+    decided_by: "ai",
+    model: ctx.model,
   };
 }
 

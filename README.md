@@ -70,13 +70,13 @@ On Linux, you need [Node.js](https://nodejs.org/) 22.19 or newer, [ffmpeg](https
 ```sh
 git clone https://github.com/umeranjum17/takeone && cd takeone
 npm install
-node scripts/synth-take.ts tmp/synth-demo && node bin/takeone.mjs make "$PWD/tmp/synth-demo" --no-jev
+node scripts/synth-take.ts tmp/synth-demo && node bin/takeone.mjs make "$PWD/tmp/synth-demo" --no-ai
 ```
 
 Your video is at `tmp/synth-demo/out/synth-demo.mp4`. The demo recording is generated, so you need no screen recorder or API key, and planning runs offline.
 To record your own screen, a phone or the iOS Simulator, follow the [guide](docs/guide.md#quickstart).
 
-Isolated installs (CI, throwaway test HOMEs) can set `TAKEONE_NO_KEYRING=1` so takeone never reads the OS keyring and cannot see the host's stored key even when `XDG_RUNTIME_DIR` or `DBUS_SESSION_BUS_ADDRESS` are inherited; keys then come only from `TYPESAFE_API_KEY` or a `TAKEONE_SECRETS_PASSPHRASE_FD` sealed file.
+Isolated installs (CI, throwaway test HOMEs) can set `TAKEONE_NO_KEYRING=1` so takeone never reads the OS keyring and cannot see the host's stored key even when `XDG_RUNTIME_DIR` or `DBUS_SESSION_BUS_ADDRESS` are inherited; keys then come only from a `TAKEONE_SECRETS_PASSPHRASE_FD` sealed file.
 
 ## Features
 
@@ -86,7 +86,7 @@ Isolated installs (CI, throwaway test HOMEs) can set `TAKEONE_NO_KEYRING=1` so t
 - **Looks finished out of the box.** A rounded screen card on a stage, in six themes from dark `midnight` to cream `paper`.
 - **Titles and captions.** In 16:9 videos they sit in a band below the screen, never over your app ([how](docs/look.md)).
 - **Paces itself.** Idle stretches play faster, typing can too, and spotlight and blur boxes follow the content.
-- **Private and cheap.** Works fully offline with `--no-jev`. The optional AI planner gets short descriptions of what changed and cost about $0.0006 per minute of video in a [measured take](docs/cost.md). The planner choice is provider-neutral: `takeone key set --backend <name> --model <model> [--via typesafe|openrouter]` stores your key and records the choice in `planner.json` (Jev is the default when nothing is picked; takeone never switches providers automatically). `make` does not read the recorded choice yet: it still plans with the Jev key or fallback rules until the planner is wired.
+- **Private and cheap.** Works fully offline with `--no-ai`. The AI planner is on by default with any configured provider (Jev by default) and cost about $0.0006 per minute of video in a [measured take](docs/cost.md); see the [per-provider table](docs/cost.md#per-provider-cost-slice-1). `takeone key set --backend <name> --model <model> [--via typesafe|openrouter]` stores your key and records the choice in `planner.json` (Jev is the default when nothing is picked; takeone never switches providers automatically).
 - **Exports what you need.** MP4 by default, plus GIF, WebM and ProRes 4444, in landscape, portrait, square or 4:5.
 - **Motion films from screens.** `takeone motion` turns screenshots, HTML or a URL into a short film.
 

@@ -1,13 +1,16 @@
 /** Planner credentials: persistence and encryption belong to BYOKit.
- * ApiKey slots (one per backend) live in the OS keyring or the BYOKit sealed
- * file; the legacy Jev environment override below is kept for the old path
- * and goes away with it. */
+ * TakeOne never reads a key from an environment variable: every credential
+ * comes from the OS keyring or the BYOKit sealed file (apiKey slots), from a
+ * host-passed fd (capture), or from the member's BYOKit sign-in store
+ * (account auth). */
 import { readFileSync, existsSync, unlinkSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { fileStore, keyringStore, overrideStore, writeFileAtomic, KeystoreError, type Keystore } from "@byokit/secrets";
+import { fileStore, keyringStore, writeFileAtomic, KeystoreError, type Keystore } from "@byokit/secrets";
 
 export const JEV_SECRET = "jev";
+
+export class SecretStoreUnavailable extends Error {}
 
 export interface KeyOptions {
   env?: NodeJS.ProcessEnv;
@@ -34,7 +37,7 @@ export function noKeyring(env: NodeJS.ProcessEnv): boolean {
 function sealedStore(env: NodeJS.ProcessEnv, o: KeyOptions): Keystore {
   const fd = env.TAKEONE_SECRETS_PASSPHRASE_FD;
   if (!fd || !/^\d+$/.test(fd) || Number(fd) < 3 || !Number.isSafeInteger(Number(fd))) {
-    throw new Error("no OS keyring; supply a passphrase on TAKEONE_SECRETS_PASSPHRASE_FD (an open fd >= 3) for the BYOKit sealed store");
+    throw new SecretStoreUnavailable("no OS keyring; supply a passphrase on TAKEONE_SECRETS_PASSPHRASE_FD (an open fd >= 3) for the BYOKit sealed store");
   }
   // fileStore retains these bytes for subsequent operations; it owns encryption.
   const passphrase = readFileSync(Number(fd));
@@ -115,13 +118,13 @@ async function migrate(store: Keystore, path: string, slot: string): Promise<voi
   else unlinkSync(path);
 }
 
-/** The environment is a host-passed BYOKit override; it never enters persistence. */
-export async function loadApiKey(o: KeyOptions = {}): Promise<string | null> {
+/** Load one backend's apiKey credential from the persistent store. The legacy
+ * TYPESAFE file migrates into the Jev slot; the environment is never read. */
+export async function loadPlannerKey(slot: string, o: KeyOptions = {}): Promise<string | null> {
   const env = o.env ?? process.env;
-  if (env.TYPESAFE_API_KEY) return overrideStore({ [JEV_SECRET]: env.TYPESAFE_API_KEY }).get(JEV_SECRET);
   const store = persistentKeys(o);
-  await migrate(store, legacyPath(env), JEV_SECRET);
-  return store.get(JEV_SECRET);
+  if (slot === JEV_SECRET) await migrate(store, legacyPath(env), slot);
+  return store.get(slot);
 }
 
 function legacyKey(o: KeyOptions): string | null {
@@ -131,10 +134,9 @@ function legacyKey(o: KeyOptions): string | null {
 }
 
 /** Read one backend's apiKey credential from the persistent store. The Jev slot
- * also reads the legacy TYPESAFE file without migrating or changing it. */
+ * also reads the legacy TYPESAFE file without migrating or changing it; the
+ * environment is never read. */
 export async function readPlannerKey(slot: string, o: KeyOptions = {}): Promise<string | null> {
-  const env = o.env ?? process.env;
-  if (slot === JEV_SECRET && env.TYPESAFE_API_KEY) return env.TYPESAFE_API_KEY;
   const stored = await persistentKeys(o).get(slot);
   if (stored !== null || slot !== JEV_SECRET) return stored;
   return legacyKey(o);

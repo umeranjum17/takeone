@@ -1,7 +1,7 @@
 /** `takeone capture make` over a tiny synthetic take, via the built CLI. */
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdtempSync, openSync, closeSync, readFileSync, rmSync, writeFileSync, existsSync } from "node:fs";
+import { mkdtempSync, openSync, closeSync, readFileSync, rmSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -179,15 +179,29 @@ test("capture make --plan-only prices the plan without network or render", { ski
   }
 });
 
-test("capture make never reads the planner key from the environment", { skip: needsFfmpeg }, async () => {
+test("doctor, make and capture never read the planner key from the environment", async () => {
   const { home, cleanup } = withHome();
   const dir = buildTake();
+  const env = { HOME: home, TYPESAFE_API_KEY: "bogus-env-key" };
   try {
+    // All three read the key the same way: an env key is no key.
+    const doctor = run(["doctor"], { env });
+    assert.match(doctor.stdout, /ai-planner,false,planner,"?AI planner off/, doctor.stdout);
+    const hello = run(["capture", "hello"], { env });
+    assert.equal(hello.status, 0, hello.stderr);
+    assert.equal(JSON.parse(hello.stdout).planner.available, false);
+    const made = run(["make", dir, ...FAST_SET], { env });
+    assert.equal(made.status, 0, made.stderr);
+    assert.equal(JSON.parse(readFileSync(join(dir, "take.json"), "utf8")).planner.mode, "fallback");
+    // An unreadable secret store falls back too, and the banner names the cause.
+    const storeDown = run(["make", dir, ...FAST_SET], { env: { ...env, TAKEONE_TEST_KEYRING_FAILURE: "1" } });
+    assert.equal(storeDown.status, 0, storeDown.stderr);
+    assert.match(storeDown.stderr, /AI planner is OFF: the secret store cannot be read/);
+    assert.equal(JSON.parse(readFileSync(join(dir, "take.json"), "utf8")).planner.mode, "fallback");
+    for (const r of [doctor, hello, made]) assert.ok(!r.stdout.includes("bogus-env-key") && !r.stderr.includes("bogus-env-key"));
     // A bogus env key must behave exactly like no key: zero planned tokens and
     // no preflight refusal even under --max-tokens 1.
-    const r = run(["capture", "make", dir, "--plan-only", "--max-tokens", "1"], {
-      env: { HOME: home, TYPESAFE_API_KEY: "bogus-env-key" },
-    });
+    const r = run(["capture", "make", dir, "--plan-only", "--max-tokens", "1"], { env });
     assert.equal(r.status, 0, r.stderr);
     assert.deepEqual(JSON.parse(r.stdout).planner,
       { planned_tokens: 0, input_tokens: 0, usd: 0, failed: false });
@@ -260,6 +274,31 @@ test("capture make render failure uses the envelope with exit 1", { skip: needsF
   }
 });
 
+test("capture make with an fd key stops loudly when planner.json names account auth", async () => {
+  const { home, cleanup } = withHome();
+  const dir = buildTake();
+  try {
+    mkdirSync(join(home, ".config", "takeone"), { recursive: true });
+    writeFileSync(join(home, ".config", "takeone", "planner.json"), JSON.stringify({
+      backend: "opencode-go",
+      auth: "account",
+      model: "opencode-go/muse-spark-1.3-contributor",
+    }));
+    const keyFile = writeKeyFile(dir);
+    const r = run(["capture", "make", dir, "--plan-only", "--planner-key-fd", "3"], {
+      env: { HOME: home, XDG_CONFIG_HOME: join(home, ".config") }, keyFile,
+    });
+    assert.equal(r.status, 1, r.stderr);
+    const out = JSON.parse(r.stdout);
+    assert.equal(out.error.code, "planner-config");
+    assert.match(out.error.message, /account sign-in/);
+    assert.ok(!existsSync(join(dir, "out")), "nothing rendered on a planner-config stop");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+    cleanup();
+  }
+});
+
 test("capture make usage errors use the envelope with exit 2", { skip: needsFfmpeg }, async () => {
   const { home, cleanup } = withHome();
   const dir = buildTake();
@@ -303,6 +342,7 @@ test("makeTake planOnly prices the plan with zero planner calls", { skip: needsF
     });
     assert.equal(calls, 0);
     assert.ok(r.planned.planned_tokens > 0);
+    assert.ok(r.planned.usd !== null);
     assert.ok(r.planned.usd > 0);
     assert.equal(r.out, null);
     assert.equal(r.seconds, 0);

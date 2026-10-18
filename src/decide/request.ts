@@ -1,20 +1,23 @@
-// Jev request building, token estimation and the 1,200-token per-request cap.
+// Planner request building, token estimation and the 1,200-token per-request cap.
 // Pure functions over plain data: no Node imports.
 
 import type { Question } from "@byokit/decide";
 import type { Beat, Decision } from "../types.ts";
 
 export const JEV_MODEL = "jev-latest";
-export const PRICE_PER_MTOK = 0.042;
 export const REQUEST_TOKEN_CAP = 1200;
 export const CHARS_PER_TOKEN = 3.5;
+
+/** Kit floor on our questions. Zero: takeone's own mapping (mapAnswers) is the
+ * single validator in slice 1, so a merely unsure answer still widens through
+ * the uncertainty rules instead of dropping the whole beat. Malformed answers
+ * still abstain at any floor. Kit floors engage with per-field fallback later. */
+export const QUESTION_FLOOR = 0;
 
 export class RequestTooLarge extends Error {}
 
 export interface RequestCtx {
-  /** optional demo topic from --about */
-  about?: string;
-  /** what the demo is for, from --goal (alias --about); replaces about */
+  /** what the demo is for, from --goal (alias --about) */
   goal?: string;
   /** style hint, from --style; carried for the film call, unused by beats */
   style?: string;
@@ -27,7 +30,6 @@ export interface RequestCtx {
 export interface JevRequest {
   model: string;
   state: {
-    demo_topic?: string;
     goal?: string;
     style?: string;
     current_shot: string;
@@ -98,8 +100,8 @@ export function whatHappened(beat: Beat): string {
   return s;
 }
 
-function truncateZonesToCap(state: JevRequest["state"], askKeyMoment: boolean): string {
-  let body = JSON.stringify({ model: JEV_MODEL, state, questions: toWire(buildQuestions(state, askKeyMoment)) });
+function truncateZonesToCap(state: JevRequest["state"]): string {
+  let body = JSON.stringify({ model: JEV_MODEL, state, questions: toWire(buildQuestions(state)) });
   // drop optional text fields first, then shorten them word by word, until under the cap
   for (const z of Object.values(state.zones)) {
     if (z.text) {
@@ -107,36 +109,41 @@ function truncateZonesToCap(state: JevRequest["state"], askKeyMoment: boolean): 
       while (words.length > 0 && estimateTokens(body) > REQUEST_TOKEN_CAP) {
         words.pop();
         z.text = words.join(" ");
-        body = JSON.stringify({ model: JEV_MODEL, state, questions: toWire(buildQuestions(state, askKeyMoment)) });
+        body = JSON.stringify({ model: JEV_MODEL, state, questions: toWire(buildQuestions(state)) });
       }
       if (estimateTokens(body) > REQUEST_TOKEN_CAP) {
         delete z.text;
-        body = JSON.stringify({ model: JEV_MODEL, state, questions: toWire(buildQuestions(state, askKeyMoment)) });
+        body = JSON.stringify({ model: JEV_MODEL, state, questions: toWire(buildQuestions(state)) });
       }
     }
   }
   return body;
 }
 
-/** The planner questions as @byokit/decide Questions. Choice criteria keep the
- *  planner's null descriptions (cast: the wire passes values through verbatim). */
-export function buildQuestions(state: JevRequest["state"], askKeyMoment: boolean): Record<string, Question> {
+/** The planner questions as @byokit/decide Questions. The key-moment question
+ * is always asked: a goal sentence sharpens it but is not required. Choice
+ * criteria keep the planner's null descriptions (cast: the wire passes values
+ * through verbatim). */
+export function buildQuestions(state: JevRequest["state"]): Record<string, Question> {
   const zoneNames = Object.fromEntries(Object.keys(state.zones).map((n) => [n, null])) as unknown as Record<string, string>;
   const q: Record<string, Question> = {
     focus_start: {
       kind: "choice",
+      floor: QUESTION_FLOOR,
       options: zoneNames,
       instructions:
         "At the START of `beat`, which zone should the viewer be looking at to see the action the user takes? Pick the zone where the user's action happens.",
     },
     focus_end: {
       kind: "choice",
+      floor: QUESTION_FLOOR,
       options: zoneNames,
       instructions:
         "At the END of `beat`, which zone should the viewer be looking at to understand the result of the action? Pick the zone that shows what changed because of the action; pick the same zone as the action if nothing else changed.",
     },
     tightness: {
       kind: "score",
+      floor: QUESTION_FLOOR,
       instructions:
         "How closely should the camera frame the zone the viewer should look at, so a viewer on a laptop screen can follow this beat?",
       levels: [
@@ -148,30 +155,31 @@ export function buildQuestions(state: JevRequest["state"], askKeyMoment: boolean
     },
     new_subject: {
       kind: "yesno",
+      floor: QUESTION_FLOOR,
       question:
         "The viewer's attention must move to a different part of the screen than `current_shot` shows during this beat.",
       yes: "What matters in this beat is outside or much smaller than the current shot",
       no: "What matters in this beat is already comfortably visible in the current shot",
     },
-  };
-  if (askKeyMoment) {
-    q["key_moment"] = {
+    key_moment: {
       kind: "score",
-      instructions: "How important is this beat to the story of `demo_topic`?",
+      floor: QUESTION_FLOOR,
+      instructions: state.goal
+        ? "How important is this beat to the story of `goal`?"
+        : "How important is this beat to the demo as a whole?",
       levels: [
         "Routine: navigation or setup a viewer can skim",
         "Useful: a normal step of the workflow",
         "Key moment: the payoff or the step the demo exists to show",
       ],
-    };
-  }
+    },
+  };
   return q;
 }
 
-/** Mirror of @byokit/decide@0.9.2's internal wire(): Question -> planner JSON.
- *  buildRequest bodies must stay byte-identical to what decide's jev backend
- *  sends; nothing in this repo asserts that equality, so re-check it by hand
- *  whenever buildQuestions/toWire or the kit version changes. */
+/** Mirror of @byokit/decide's internal wire(): Question -> planner JSON, used
+ *  only for the token estimate. The kit floors (floor: 0 here) stay kit-side
+ *  and never enter the body. */
 function toWire(questions: Record<string, Question>): Record<string, unknown> {
   return Object.fromEntries(
     Object.entries(questions).map(([k, q]) => {
@@ -199,7 +207,6 @@ export function buildState(beat: Beat, ctx: RequestCtx): JevRequest["state"] {
     };
   }
   return {
-    ...(ctx.about ? { demo_topic: ctx.about } : {}),
     ...(ctx.goal ? { goal: ctx.goal } : {}),
     ...(ctx.style ? { style: ctx.style } : {}),
     current_shot: ctx.currentShot,
@@ -213,18 +220,27 @@ export function buildState(beat: Beat, ctx: RequestCtx): JevRequest["state"] {
 }
 
 /** Build the exact request body for one beat (compact JSON), capped at 1,200 estimated tokens.
- *  `state`/`questions` are also returned for decide(): the body must stay
- *  byte-identical to what decide's jev backend (0.9.2) sends for them. */
+ *  `state`/`questions` are also returned for decide(). */
 export function buildRequest(
   beat: Beat,
   ctx: RequestCtx,
-  askKeyMoment: boolean,
-): { body: string; tokens: number; state: JevRequest["state"]; questions: Record<string, Question> } {
+): { body: string; tokens: number; state: JevRequest["state"]; questions: Record<string, Question>; trimmed: boolean } {
   const state = buildState(beat, ctx);
-  const body = truncateZonesToCap(state, askKeyMoment);
+  let body = truncateZonesToCap(state);
+  let trimmed = false;
+  for (const field of ["style", "goal"] as const) {
+    const words = state[field]?.split(/\s+/) ?? [];
+    while (words.length && estimateTokens(body) > REQUEST_TOKEN_CAP) {
+      words.pop();
+      if (words.length) state[field] = words.join(" ");
+      else delete state[field];
+      trimmed = true;
+      body = JSON.stringify({ model: JEV_MODEL, state, questions: toWire(buildQuestions(state)) });
+    }
+  }
   const tokens = estimateTokens(body);
   if (tokens > REQUEST_TOKEN_CAP) throw new RequestTooLarge(`request exceeds ${REQUEST_TOKEN_CAP} estimated tokens`);
-  return { body, tokens, state, questions: buildQuestions(state, askKeyMoment) };
+  return { body, tokens, state, questions: buildQuestions(state), trimmed };
 }
 
 export type { Decision };
