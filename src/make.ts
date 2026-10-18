@@ -385,7 +385,9 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
     if (!Number.isSafeInteger(maxTokens) || maxTokens <= 0) {
       throw new PreflightRefusal("--max-tokens must be a positive integer");
     }
-    const vision = readScreenText && await seesImages(planner);
+    // Thumbnails go to a decider that reads images; a capture sends them only
+    // with screen text opted in. Without screen text every word is blacked out.
+    const vision = (!opts.capture || opts.screenText === true) && await seesImages(planner);
     const resultMs = (b: Beat) => Math.max(b.t1, ...b.zones
       .filter((z) => z.kind === "res" && z.t !== undefined)
       .map((z) => Math.max(b.t0, Math.min(endMs, z.t!))));
@@ -461,7 +463,8 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
       const shots = chunks.flatMap((c) => c.items).flatMap((i) => keyframes(beats[i]!).map((k) => ({ ...k, i })));
       await pooled(shots, 2, async (k) => {
         try {
-          const bytes = await keyframeThumb(webm, Math.max(0, k.t - videoStartMs), beats[k.i]!.zones, take.stream);
+          const textZones = readScreenText ? beats[k.i]!.zones.filter((z) => z.area_frac < OCR_MAX_AREA).map((z) => z.bbox) : [];
+          const bytes = await keyframeThumb(webm, Math.max(0, k.t - videoStartMs), beats[k.i]!.zones, textZones, take.stream);
           images.set(k.id, { id: k.id, mime: "image/jpeg", bytes });
         } catch (e) {
           if (!warned) warn(`keyframe thumbnails: ${e instanceof Error ? e.message : String(e)}; those beats ask with zone notes only`);
@@ -491,9 +494,19 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
       if (r.outputTokens) outputTokens += r.outputTokens;
     };
     let reasks = 1;
+    let overReserve = 0;
     // Chunks run in order: each one starts from the shot the previous chunk decided.
-    for (const plannedChunk of chunks) {
+    for (const [c, plannedChunk] of chunks.entries()) {
+      const later = chunks.slice(c + 1).reduce((n, next) => n + next.chunk.tokens, 0);
+      // A rebuilt chunk can grow or split; it is asked only while the preflight
+      // reserve still covers it and the planned chunks after it.
+      const covered = (tokens: number) => requestTokens + tokens + later <= reservedTokens;
       for (const { items, chunk } of planChunks(plannedChunk.items, build(decisions), () => failed++)) {
+        if (!covered(chunk.tokens)) {
+          failed += items.length;
+          overReserve += items.length;
+          continue;
+        }
         const ask = async (from: DecideCache) => {
           const r = await askChunk(chunk.state, chunk.questions, planner, from, { fetchImpl: opts.fetchImpl,
             usable: (answers) => items.every((i) => {
@@ -511,7 +524,7 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
           return r;
         };
         const outcomes = [await ask(cache)];
-        if (outcomes[0]!.decisionSource === "failed" && reasks > 0) {
+        if (outcomes[0]!.decisionSource === "failed" && reasks > 0 && covered(chunk.tokens)) {
           // A malformed chunk is asked once more without the cache; beats the
           // re-ask still cannot map keep the first answer, then the rules.
           reasks--;
@@ -532,6 +545,7 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
         }
       }
     }
+    if (overReserve) warn(`planner: ${overReserve} beats keep the rules; their rebuilt chunk no longer fit the preflight reserve`);
   }
 
   // --plan-only without a planner credential: nothing planned, nothing rendered.

@@ -41,15 +41,17 @@ export async function ocrZone(
 }
 
 /**
- * One keyframe thumbnail at time t (ms): the full frame, every word that would
- * not pass as screen text blacked out, each zone but the whole screen outlined
- * and labelled with its name, scaled to THUMB_LONG_SIDE. JPEG bytes. Throws
- * when ffmpeg or tesseract fails; the caller then stays text-only.
+ * One keyframe thumbnail at time t (ms): the full frame blurred past reading
+ * except inside textZones, where every word that would not pass as screen text
+ * is blacked out; each zone but the whole screen outlined and labelled with
+ * its name, scaled to THUMB_LONG_SIDE. JPEG bytes. Throws when ffmpeg or
+ * tesseract fails; the caller then stays text-only.
  */
 export async function keyframeThumb(
   webm: string,
   tMs: number,
   zones: Zone[],
+  textZones: BBox[],
   stream: { w: number; h: number },
 ): Promise<Uint8Array> {
   const dir = mkdtempSync(join(tmpdir(), "takeone-thumb-"));
@@ -58,21 +60,32 @@ export async function keyframeThumb(
   try {
     await ffmpeg(["-ss", (tMs / 1000).toFixed(3), "-i", webm, "-frames:v", "1", "-y", png]);
     const hidden = tsvWords(await tesseract(png, "11"))
-      .filter((w) => redactWord(w.text) !== w.text);
+      .filter((w) => !(w.conf >= OCR_MIN_CONF && redactWord(w.text) === w.text));
     const k = Math.max(stream.w, stream.h) / THUMB_LONG_SIDE; // source pixels per thumbnail pixel
-    const filters = [
-      ...hidden.map((w) => `drawbox=x=${w.box[0]}:y=${w.box[1]}:w=${w.box[2]}:h=${w.box[3]}:color=black:t=fill`),
-      ...zones.filter((z) => z.kind !== "all").flatMap((z, i) => {
-        const color = ZONE_COLORS[i % ZONE_COLORS.length]!;
-        const [x, y, w, h] = z.bbox.map(Math.round) as BBox;
-        return [
-          `drawbox=x=${x}:y=${y}:w=${w}:h=${h}:color=${color}:t=${Math.ceil(2 * k)}`,
-          `drawtext=font='Liberation Sans':text='${z.name}':x=${x + Math.ceil(3 * k)}:y=${y + Math.ceil(3 * k)}:fontsize=${Math.ceil(14 * k)}:fontcolor=white:box=1:boxcolor=${color}`,
-        ];
-      }),
-      stream.w >= stream.h ? `scale=${THUMB_LONG_SIDE}:-2` : `scale=-2:${THUMB_LONG_SIDE}`,
+    // Text zones stay sharp over a blurred frame: OCR misses faint or dimmed
+    // words, so outside them nothing is left readable.
+    const sharp = textZones.map((z) => {
+      const x = Math.max(0, Math.round(z[0]));
+      const y = Math.max(0, Math.round(z[1]));
+      return [x, y, Math.min(stream.w - x, Math.round(z[2])), Math.min(stream.h - y, Math.round(z[3]))] as BBox;
+    }).filter(([, , w, h]) => w > 0 && h > 0);
+    const graph = [
+      `[0:v]${hidden.map((w) => `drawbox=x=${w.box[0]}:y=${w.box[1]}:w=${w.box[2]}:h=${w.box[3]}:color=black:t=fill,`).join("")}split=${sharp.length + 1}[f0]${sharp.map((_, i) => `[s${i}]`).join("")}`,
+      `[f0]boxblur=${Math.ceil(4 * k)}:2[b0]`,
+      ...sharp.flatMap(([x, y, w, h], i) => [`[s${i}]crop=${w}:${h}:${x}:${y}[c${i}]`, `[b${i}][c${i}]overlay=${x}:${y}[b${i + 1}]`]),
+      `[b${sharp.length}]` + [
+        ...zones.filter((z) => z.kind !== "all").flatMap((z, i) => {
+          const color = ZONE_COLORS[i % ZONE_COLORS.length]!;
+          const [x, y, w, h] = z.bbox.map(Math.round) as BBox;
+          return [
+            `drawbox=x=${x}:y=${y}:w=${w}:h=${h}:color=${color}:t=${Math.ceil(2 * k)}`,
+            `drawtext=font='Liberation Sans':text='${z.name}':x=${x + Math.ceil(3 * k)}:y=${y + Math.ceil(3 * k)}:fontsize=${Math.ceil(14 * k)}:fontcolor=white:box=1:boxcolor=${color}`,
+          ];
+        }),
+        stream.w >= stream.h ? `scale=${THUMB_LONG_SIDE}:-2` : `scale=-2:${THUMB_LONG_SIDE}`,
+      ].join(","),
     ];
-    await ffmpeg(["-i", png, "-vf", filters.join(","), "-q:v", "5", "-y", jpg]);
+    await ffmpeg(["-i", png, "-filter_complex", graph.join(";"), "-q:v", "5", "-y", jpg]);
     return new Uint8Array(readFileSync(jpg));
   } finally {
     rmSync(dir, { recursive: true, force: true });

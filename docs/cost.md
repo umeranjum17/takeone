@@ -31,13 +31,14 @@ width × height / 750 ≈ 197); they are unverified until a live run reports
 billed usage. The planner budgets 255 tokens per thumbnail (`IMAGE_TOKENS`).
 
 **Thumbnail rule.** Only when the decider BYOKit builds from the stored
-config reads images (its own `supportsImages` capability), and only when
-screen words are on: one thumbnail at each asked beat's action and one at its
-result when the beat has a result zone, so at most 2 a beat and 16 a chunk.
-Each is a JPEG, 512 px on the long side, with every zone outlined and
-labelled and every word that would not pass as screen text blacked out (the
-same redaction rule as screen words; text the OCR cannot find is not
-covered). At the 30-beats-a-minute cap that is at most 60 thumbnails, about
+config reads images (its own `supportsImages` capability), and in capture
+mode only with screen words opted in: one thumbnail at each asked beat's
+action and one at its result when the beat has a result zone, so at most 2 a
+beat and 16 a chunk. Each is a JPEG, 512 px on the long side, with every zone
+outlined and labelled. Only the zones whose text is read stay sharp; the rest
+of the frame is blurred past reading, and inside those zones every word that
+would not pass as screen text is blacked out. With `--no-screen-text` the
+whole frame is blurred, so the image shows no word the notes would not carry. At the 30-beats-a-minute cap that is at most 60 thumbnails, about
 15,300 estimated tokens a minute; the 40,000-token preflight counts them and
 still refuses anything above it.
 
