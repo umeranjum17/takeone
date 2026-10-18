@@ -92,12 +92,20 @@ const SKIPS = /\.(skip|todo)\b|\b(skip|todo)["']?\s*:(?!\s*false\s*(?:[,}]|$))|\
 // A changed timeout re-adds the declaration's existing ffmpeg prerequisite.
 // Compare simple skip fields only within the same BASE declaration; uncertain
 // expressions and other skip forms remain findings rather than gaining an exemption.
+// A renamed test is the same BASE declaration under a new name: a skipped
+// declaration pairs once with a removed one in the same file whose name is gone.
 const TEST_DECLARATION = /\b(?:test|it|describe)\s*\(\s*("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`)/;
 const SKIP_FIELD = /\b(skip|todo)["']?\s*:\s*("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*)\s*(?=[,}]|$)/g;
+const renamedFrom = new Set();
+const declarationOf = (t) => TEST_DECLARATION.exec(t)?.[0];
 function addedSkip(file, text) {
-  const declaration = TEST_DECLARATION.exec(text)?.[0];
-  const before = declaration && removed.find(r => r.file === file
-    && TEST_DECLARATION.exec(r.text)?.[0] === declaration)?.text;
+  const declaration = declarationOf(text);
+  let before = declaration && removed.find(r => r.file === file && declarationOf(r.text) === declaration)?.text;
+  if (!before && declaration && SKIPS.test(text)) {
+    const old = removed.find(r => r.file === file && !renamedFrom.has(r) && declarationOf(r.text)
+      && !added.some(a => a.file === file && declarationOf(a.text) === declarationOf(r.text)));
+    if (old) { renamedFrom.add(old); before = old.text; }
+  }
   if (!before) return SKIPS.test(text);
   const fields = [...before.matchAll(SKIP_FIELD)];
   const changed = text.replace(SKIP_FIELD, (token, key, value) =>
@@ -150,12 +158,23 @@ function assertedSubject(line) {
   args.push(cur);
   return normSubject(args[0] ?? t);
 }
+// A rename keeps the subject's shape and at least one of its words in place
+// (`r.jev.failed` -> `r.planner.failed`, `"--no-jev"` -> `"--no-ai"`); numbers,
+// operators and structure must match exactly.
+// ponytail: word-level pairing also passes a same-shape swap (r.failed -> r.total);
+// CONSTRAINTS.md leaves rewritten assertions to review, as it already does for changed expected values.
+const WORD = /[A-Za-z_$][\w$]*/g;
+const shapeOf = (s) => s.replace(WORD, 'w');
+const renamed = (a, b) => {
+  const wa = a.match(WORD) ?? [], wb = b.match(WORD) ?? [];
+  return a !== b && shapeOf(a) === shapeOf(b) && wa.some((w, i) => w === wb[i]);
+};
 const assertsLost = [], assertsGained = [];
 for (const { file, text } of removed) if (isTest(file) && ASSERT_LINE.test(text)) assertsLost.push({ file, subject: assertedSubject(text) });
 for (const { file, text } of added) if (isTest(file) && ASSERT_LINE.test(text)) assertsGained.push({ file, subject: assertedSubject(text) });
 for (const lost of assertsLost) {
   if (deleted.includes(lost.file) || testDiet(lost.file)) continue; // test-deleted / test-diet own these
-  const match = assertsGained.findIndex(g => g.file === lost.file && g.subject === lost.subject);
+  const match = assertsGained.findIndex(g => g.file === lost.file && (g.subject === lost.subject || renamed(lost.subject, g.subject)));
   const netLoss = assertsLost.filter(l => l.file === lost.file).length > assertsGained.filter(g => g.file === lost.file).length;
   if (match < 0 || netLoss) flag('assertion-removed', lost.file, lost.subject);
 }
