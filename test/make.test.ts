@@ -742,11 +742,12 @@ test("dependent re-asks use the preceding finalized shot", { skip: needsFfmpeg }
 });
 
 test("every planner failure mode falls back to the heuristic and counts as failed", { skip: needsFfmpeg }, async () => {
-  const modes: Array<{ name: string; impl: () => Response }> = [
-    { name: "500", impl: () => new Response("boom", { status: 500 }) },
-    { name: "malformed", impl: () => new Response("not json", { status: 200 }) },
+  const modes: Array<{ name: string; tokens: number; impl: () => Response }> = [
+    { name: "500", tokens: 0, impl: () => new Response("boom", { status: 500 }) },
+    { name: "malformed", tokens: 0, impl: () => new Response("not json", { status: 200 }) },
     {
       name: "bad probabilities",
+      tokens: 10,
       impl: () =>
         new Response(
           JSON.stringify({
@@ -761,10 +762,12 @@ test("every planner failure mode falls back to the heuristic and counts as faile
   ];
   for (const m of modes) {
     const dir = newTake();
+    let calls = 0;
     try {
-      const r = await fastTake(dir, { apiKey: KEY, fetchImpl: (async () => m.impl()) as typeof fetch, log: () => {}, warn: () => {} });
+      const r = await fastTake(dir, { apiKey: KEY, fetchImpl: (async () => { calls++; return m.impl(); }) as typeof fetch, log: () => {}, warn: () => {} });
       assert.equal(r.decisions.filter((d) => d.decided_by === "ai").length, 0, m.name);
       assert.equal(r.planner.failed, r.beats.filter((b) => b.zones.length >= 2).length, m.name);
+      assert.equal(r.planner.input_tokens, calls * m.tokens, m.name);
       assert.equal(JSON.parse(readFileSync(join(dir, "take.json"), "utf8")).planner.mode, "fallback", m.name);
       // nothing ever waits on or fails because of Jev: the run still succeeded
       assert.ok(r.beats.length >= 2);

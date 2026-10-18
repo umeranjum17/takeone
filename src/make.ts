@@ -432,7 +432,7 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
       aspect,
       model: plannerModel!,
     });
-    const outcomes: (AskOutcome | "failed")[] = new Array(beats.length);
+    const outcomes: AskOutcome[] = new Array(beats.length);
     await pooled(jobs, CONCURRENCY, async (j) => {
       const r = await askBeat(j.state, j.questions, planner, cache, { fetchImpl: opts.fetchImpl,
         usable: (answers) => toPlannerAnswers(answers) !== null &&
@@ -440,11 +440,7 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
       });
       // PlannerUnavailable (provider limit, auth or timeout) propagates: the
       // run stops before rendering instead of silently using rules.
-      if (r.decisionSource === "failed") {
-        outcomes[j.i] = "failed";
-      } else {
-        outcomes[j.i] = r;
-      }
+      outcomes[j.i] = r;
     });
     const takeOutcome = (r: AskOutcome): void => {
       if (r.inputTokens) {
@@ -454,22 +450,22 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
       }
       if (r.outputTokens) outputTokens += r.outputTokens;
     };
+    const failedBeats = new Set<number>();
     for (let i = 0; i < beats.length; i++) {
       if (skipped.has(i)) continue;
       const o = outcomes[i]!;
-      if (o === "failed") {
-        failed++;
-        continue; // keep heuristic
-      }
       takeOutcome(o);
-      const d = mapPlannerResponse(beats[i]!, o.answers!, {
+      const d = o.decisionSource === "failed" ? null : mapPlannerResponse(beats[i]!, o.answers!, {
         ...mapCtx(i),
         viewport: i === 0 ? null : finalFrame(beats[i - 1]!, decisions[i - 1]!, winFor(beats[i]!.anchor_t - 1)?.rect ?? null, take.stream, aspect),
       });
       if (d) {
         if (o.inputTokens) d.input_tokens = o.inputTokens;
         decisions[i] = d;
-      } else failed++;
+      } else {
+        failedBeats.add(i);
+        failed++;
+      }
     }
 
     for (let i = 1; i < beats.length; i++) {
@@ -490,8 +486,8 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
         usable: (answers) => toPlannerAnswers(answers) !== null &&
           mapAnswers(beats[i]!, toPlannerAnswers(answers)!, mapCtx(i)) !== null,
       });
-      if (r.decisionSource === "failed") continue;
       takeOutcome(r);
+      if (r.decisionSource === "failed") continue;
       const d = mapPlannerResponse(beats[i]!, r.answers!, {
         ...mapCtx(i),
         viewport: finalFrame(beats[i - 1]!, decisions[i - 1]!, winFor(beats[i]!.anchor_t - 1)?.rect ?? null, take.stream, aspect),
@@ -499,6 +495,7 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
       if (d) {
         if (r.inputTokens) d.input_tokens = r.inputTokens;
         decisions[i] = d;
+        if (failedBeats.delete(i)) failed--;
       }
     }
   }
