@@ -75,7 +75,7 @@ export function loadPlannerConfig(o: KeyOptions = {}): { config: PlannerConfig; 
       config = parseConfig(raw);
     }
   } catch (e) {
-    if (e instanceof UnsupportedAccountError) throw new ConfigError(e.message);
+    if (e instanceof UnsupportedAccountError || e instanceof SyntaxError) throw new ConfigError(e.message);
     throw e;
   }
   const c = config as { backend: string; auth: string };
