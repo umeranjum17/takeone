@@ -14,8 +14,8 @@
 // before. Kit floors engage with per-field fallback in a later slice.
 
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { userInfo } from "node:os";
-import { dirname, join } from "node:path";
+import { homedir, userInfo } from "node:os";
+import { dirname, isAbsolute, join } from "node:path";
 import {
   decide,
   parseConfig,
@@ -28,6 +28,7 @@ import {
   type ImageInput,
   type Question,
 } from "@byokit/decide";
+import { codex } from "@byokit/decide/codex";
 import { writeFileAtomic } from "@byokit/secrets";
 import type { PlannerAnswers } from "../types.ts";
 import { takeoneConfigDir, loadPlannerKey, readPlannerKey, noKeyring, type KeyOptions } from "../secrets.ts";
@@ -47,6 +48,9 @@ export const DEFAULT_PLANNER_CONFIG: DecideConfig = {
   retryMaxMs: 3000,
 };
 
+type CodexPlannerConfig = { backend: "codex"; auth: "account"; account: "installed-codex"; bin: string; model: string };
+type PlannerConfig = DecideConfig | CodexPlannerConfig;
+
 export function plannerConfigPath(o: KeyOptions = {}): string {
   return join(takeoneConfigDir(o), "planner.json");
 }
@@ -55,46 +59,54 @@ export function plannerConfigPath(o: KeyOptions = {}): string {
  * nothing. Throws ConfigError on an invalid file (fix or delete it); an
  * account-auth file this host cannot serve is the same user error, so its
  * kit error is reported as one. */
-export function loadPlannerConfig(o: KeyOptions = {}): { config: DecideConfig; defaulted: boolean } {
+export function loadPlannerConfig(o: KeyOptions = {}): { config: PlannerConfig; defaulted: boolean } {
   const path = plannerConfigPath(o);
   if (!existsSync(path)) return { config: { ...DEFAULT_PLANNER_CONFIG }, defaulted: true };
-  let config: DecideConfig;
+  const raw = readFileSync(path, "utf8");
+  let config: PlannerConfig;
   try {
-    config = parseConfig(readFileSync(path, "utf8"));
+    const value = JSON.parse(raw) as Record<string, unknown>;
+    if (value?.backend === "codex") {
+      if (value.auth !== "account" || value.account !== "installed-codex" || typeof value.bin !== "string" || !isAbsolute(value.bin) || typeof value.model !== "string" || !value.model.trim() || Object.keys(value).some((key) => !["backend", "auth", "account", "bin", "model"].includes(key))) {
+        throw new ConfigError("codex planner requires auth account, account installed-codex, an absolute bin, and a model");
+      }
+      config = value as CodexPlannerConfig;
+    } else {
+      config = parseConfig(raw);
+    }
   } catch (e) {
-    if (e instanceof UnsupportedAccountError) throw new ConfigError(e.message);
+    if (e instanceof UnsupportedAccountError || e instanceof SyntaxError) throw new ConfigError(e.message);
     throw e;
   }
   const c = config as { backend: string; auth: string };
-  if (c.auth === "account" && c.backend !== "opencode-go") {
-    throw new ConfigError(`account authentication is only supported for opencode-go, not ${c.backend}`);
+  if (c.auth === "account" && c.backend !== "opencode-go" && c.backend !== "openai" && c.backend !== "codex") {
+    throw new ConfigError(`account authentication is only supported for opencode-go, openai and codex, not ${c.backend}`);
   }
   return { config, defaulted: false };
 }
 
-/** Record the user's provider choice. The config is validated by parseConfig,
- * so only shapes BYOKit decide understands are ever stored. */
-export async function savePlannerConfig(config: DecideConfig, o: KeyOptions = {}): Promise<void> {
-  const parsed = parseConfig(config);
+/** Record the user's planner choice after validating its backend-specific config. */
+export async function savePlannerConfig(config: PlannerConfig, o: KeyOptions = {}): Promise<void> {
+  const parsed = config.backend === "codex" ? config : parseConfig(config);
   mkdirSync(dirname(plannerConfigPath(o)), { recursive: true });
   await writeFileAtomic(plannerConfigPath(o), JSON.stringify(parsed, null, 1) + "\n");
 }
 
 /** "backend (model)" with the via route when the backend has one. Reads the
  * config; it never names a provider itself. */
-export function describePlanner(config: DecideConfig): string {
+export function describePlanner(config: PlannerConfig): string {
   return `${(config as { backend: string }).backend}${(config as { via?: string }).via ? ` via ${(config as { via?: string }).via}` : ""} (${modelOf(config)})`;
 }
 
 /** The model id behind a planner config. The Jev default is the only
  * provider-specific value here; everything else comes from the config. */
-export function modelOf(config: DecideConfig): string {
+export function modelOf(config: PlannerConfig): string {
   const c = config as { backend: string; model?: string };
   return c.model ?? (c.backend === "jev" ? "jev-latest" : "default");
 }
 
 export interface ResolvedPlanner {
-  config: DecideConfig;
+  config: PlannerConfig;
   defaulted: boolean;
   label: string;
   member: string | null;
@@ -140,7 +152,11 @@ export async function resolvePlanner(o: ResolvePlannerOptions = {}): Promise<Res
       throw new ConfigError(`${describePlanner(config)} plans through an account sign-in, which a supplied key cannot drive; fix planner.json or drop --planner-key-fd`);
     }
     member = plannerMember(o);
-    accountPresent = await goAccountPresent(member, o.env);
+    accountPresent = c.backend === "openai"
+      ? await openAIAccountPresent(member, o.env)
+      : c.backend === "codex"
+        ? await codexAccountPresent(config as CodexPlannerConfig, o.env)
+        : await goAccountPresent(member, o.env);
   } else if (o.apiKeyOverride !== undefined) {
     key = o.apiKeyOverride;
   } else {
@@ -159,12 +175,50 @@ export async function resolvePlanner(o: ResolvePlannerOptions = {}): Promise<Res
 
 /** Member-bound OpenCode Go plan account from the shared BYOKit machine
  * store. The key never leaves BYOKit: decide reads it per call. */
-export async function loadGoAccount(member: string, env: NodeJS.ProcessEnv = process.env): Promise<import("@byokit/decide").OpenCodeGoAccount> {
-  if (noKeyring(env)) throw new Error("OpenCode Go sign-in lives in the OS keyring; TAKEONE_NO_KEYRING is set");
+async function machineAccounts(env: NodeJS.ProcessEnv) {
+  if (noKeyring(env)) throw new Error("BYOKit sign-in lives in the OS keyring; TAKEONE_NO_KEYRING is set");
   const { Accounts, machineStore } = await import("@byokit/accounts");
   const { osKeyringSeal } = await import("@byokit/secrets");
-  const accounts = new Accounts({ store: (m: string) => machineStore(m, osKeyringSeal({ service: "byokit" })) });
-  return accounts.opencodeGo(member);
+  return new Accounts({ store: (m: string) => machineStore(m, osKeyringSeal({ service: "byokit" })) });
+}
+
+/** Member-bound OpenCode Go plan account; the key never leaves BYOKit. */
+export async function loadGoAccount(member: string, env: NodeJS.ProcessEnv = process.env): Promise<import("@byokit/decide").OpenCodeGoAccount> {
+  return (await machineAccounts(env)).opencodeGo(member);
+}
+
+/** Member-bound ChatGPT plan account; the Codex sign-in stays inside BYOKit. */
+export async function loadOpenAIAccount(member: string, env: NodeJS.ProcessEnv = process.env): Promise<import("@byokit/decide").OpenAIAccount> {
+  return (await machineAccounts(env)).chatgpt(member);
+}
+
+async function openAIAccountPresent(member: string, env: NodeJS.ProcessEnv = process.env): Promise<boolean> {
+  try {
+    return await (await machineAccounts(env)).signedIn(member, "chatgpt");
+  } catch {
+    return false;
+  }
+}
+
+async function loadCodexLaunch(config: CodexPlannerConfig, env: NodeJS.ProcessEnv = process.env) {
+  const { cliAccounts } = await import("@byokit/accounts/cli");
+  const stateDir = join(takeoneConfigDir({ env }), "cli-accounts");
+  mkdirSync(dirname(stateDir), { recursive: true });
+  const cliEnv = {
+    HOME: env.HOME ?? homedir(),
+    PATH: env.PATH ?? "",
+    ...(env.CODEX_HOME ? { CODEX_HOME: env.CODEX_HOME } : {}),
+  };
+  const accounts = cliAccounts({ stateDir, bins: { codex: config.bin }, env: cliEnv, installed: true });
+  return accounts.launch(config.account);
+}
+
+async function codexAccountPresent(config: CodexPlannerConfig, env: NodeJS.ProcessEnv = process.env): Promise<boolean> {
+  try {
+    return (await loadCodexLaunch(config, env)).ok;
+  } catch {
+    return false;
+  }
 }
 
 /** Presence of the member's Go plan login. Reads the stored key into memory
@@ -184,7 +238,7 @@ export async function goAccountPresent(member: string, env: NodeJS.ProcessEnv = 
 export async function plannerStatus(o: ResolvePlannerOptions = {}): Promise<{
   available: boolean;
   detail: string;
-  config: DecideConfig;
+  config: PlannerConfig;
   label: string;
 }> {
   try {
@@ -386,7 +440,9 @@ async function plannerHost(planner: ResolvedPlanner, fetchImpl?: typeof fetch): 
   if ((planner.config as { auth: string }).auth === "account") {
     if (planner.member === null) throw new Error("account planner resolved without a member");
     return {
-      accounts: { "opencode-go": await loadGoAccount(planner.member) },
+      ...(c.backend === "openai"
+        ? { account: await loadOpenAIAccount(planner.member) }
+        : { accounts: { "opencode-go": await loadGoAccount(planner.member) } }),
       ...(fetchImpl ? { fetch: fetchImpl } : {}),
       cacheScope: planner.member,
     };
@@ -404,6 +460,8 @@ const PROBE_PNG = Uint8Array.from(Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABC
  * backend does not support them; otherwise it reaches fetch, which here is a
  * local stub that sends nothing. TakeOne keeps no model list of its own. */
 export async function seesImages(planner: ResolvedPlanner): Promise<boolean> {
+  // The installed Codex CLI backend takes no images through this planner.
+  if ((planner.config as { backend: string }).backend === "codex") return false;
   let reached = false;
   const stub = (async () => {
     reached = true;
@@ -411,7 +469,7 @@ export async function seesImages(planner: ResolvedPlanner): Promise<boolean> {
   }) as typeof fetch;
   try {
     await decide({}, { probe: { kind: "yesno", question: "probe", images: ["probe"] } }, {
-      config: { ...planner.config, maxRetries: 0 },
+      config: { ...(planner.config as DecideConfig), maxRetries: 0 },
       host: await plannerHost(planner, stub),
       privacy: "may-leave",
       images: [{ id: "probe", mime: "image/png", bytes: PROBE_PNG }],
@@ -439,17 +497,39 @@ export async function askChunk(
     images?: ImageInput[];
   } = {},
 ): Promise<AskOutcome> {
-  const host = await plannerHost(planner, o.fetchImpl);
-  let answers: Record<string, Answer>;
-  try {
-    answers = await decide(state, questions, {
-      config: planner.config,
+  const c = planner.config as { backend: string; model?: string };
+  let runDecider: () => Promise<Record<string, Answer>>;
+  if (c.backend === "codex") {
+    if (planner.member === null) throw new Error("account planner resolved without a member");
+    const config = planner.config as CodexPlannerConfig;
+    const launch = await loadCodexLaunch(config);
+    if (!launch.ok) throw new PlannerUnavailable(planner.label, launch.message);
+    const backend = codex({ bin: config.bin, account: launch, model: config.model, timeoutMs: 120_000 });
+    const scopedCache: DecideCache = {
+      get: (key) => cache.get(`codex:${config.model}:${config.account}:${key}`),
+      set: (key, value) => cache.set(`codex:${config.model}:${config.account}:${key}`, value),
+    };
+    runDecider = () => decide(state, questions, {
+      backends: [backend],
+      privacy: "may-leave",
+      timeoutMs: o.timeoutMs ?? 120_000,
+      cache: gateUnusable(scopedCache),
+      ...(o.images?.length ? { images: o.images } : {}),
+    });
+  } else {
+    const host = await plannerHost(planner, o.fetchImpl);
+    runDecider = () => decide(state, questions, {
+      config: planner.config as DecideConfig,
       host,
       privacy: "may-leave",
       timeoutMs: o.timeoutMs ?? DECIDE_TIMEOUT_MS,
       cache: gateUnusable(cache),
       ...(o.images?.length ? { images: o.images } : {}),
     });
+  }
+  let answers: Record<string, Answer>;
+  try {
+    answers = await runDecider();
   } catch (e) {
     if (e instanceof UnsupportedAccountError || e instanceof UnsupportedImagesError || e instanceof ConfigError) {
       throw new PlannerUnavailable(planner.label, e instanceof Error ? e.message : String(e));
