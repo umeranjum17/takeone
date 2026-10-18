@@ -1,6 +1,6 @@
 # Plan and render a recorded take (`make`)
 
-The core pipeline: `takeone make <id>` segments an existing take into beats, finds changed regions, decides each beat's shot (locally, or via the AI planner when a credential is set), and renders the framed MP4. `<id>` is a take directory name under the takes root or an absolute take path.
+The core pipeline: `takeone make <id>` segments an existing take into beats, finds changed regions, decides each beat's shot (locally, or via the AI planner for judgement beats when a credential is set), and renders the framed MP4. `<id>` is a take directory name under the takes root or an absolute take path.
 
 ## Sub-features
 
@@ -23,7 +23,7 @@ Offline verification drive (no key, no network, no capture):
 node bin/takeone.mjs make /abs/path/to/take --no-ai --goal "Creating a task and moving it across a board"; echo "exit=$?"
 ```
 
-Proving end state: exit 0; `analysis/decisions.jsonl` has one line per decided beat; `out/<id>.mp4` exists and `ffprobe` reports the expected dimensions (default 1920×1080; 1080×1920 for portrait takes without `out_w`/`out_h` overrides); `take.json` carries updated usage/render metadata. For a planner-enabled drive, additionally check `analysis/planner-cache.jsonl` exists and `take.json`'s `planner.input_tokens` is within the preflight cap — and treat it as a billed run: verification defaults to `--no-ai`. A provider that cannot serve the run (rate limit, auth refusal, timeout) stops before rendering with exit 3 and the three choices.
+Proving end state: exit 0; `analysis/decisions.jsonl` has one line per decided beat; `out/<id>.mp4` exists and `ffprobe` reports the expected dimensions (default 1920×1080; 1080×1920 for portrait takes without `out_w`/`out_h` overrides); `take.json` carries updated usage/render metadata. For a planner-enabled drive, additionally check `analysis/planner-cache.jsonl` exists and `take.json`'s `planner.input_tokens` is within the preflight cap — and treat it as a billed run: verification defaults to `--no-ai`. A provider that cannot serve the run stops before rendering with exit 3 and the three choices.
 
 Error shapes worth asserting: `takeone make: no take at <dir> (take.json missing)` exits 2; `PreflightRefusal` exits 2 with a message naming the token cap.
 
