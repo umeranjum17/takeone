@@ -491,9 +491,23 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
       if (r.outputTokens) outputTokens += r.outputTokens;
     };
     let reasks = 1;
+    let spentTokens = 0;
     // Chunks run in order: each one starts from the shot the previous chunk decided.
-    for (const plannedChunk of chunks) {
-      for (const { items, chunk } of planChunks(plannedChunk.items, build(decisions), () => failed++)) {
+    for (let c = 0; c < chunks.length; c++) {
+      const plannedChunk = chunks[c]!;
+      const actualChunks = planChunks(plannedChunk.items, build(decisions), () => failed++);
+      const remainingTokens = chunks.slice(c + 1).reduce((n, next) => n + next.chunk.tokens, 0);
+      const actualTokens = actualChunks.reduce((n, next) => n + next.chunk.tokens, 0);
+      const reaskTokens = reasks > 0 ? Math.max(0, ...actualChunks.map((next) => next.chunk.tokens)) : 0;
+      const requiredTokens = spentTokens + actualTokens + remainingTokens + reaskTokens;
+      const requiredCalls = requests + actualChunks.length + chunks.length - c - 1 + (reasks > 0 && actualChunks.length ? 1 : 0);
+      if (requiredTokens > maxTokens || requiredCalls > Math.floor(4 * minutes)) {
+        throw new PreflightRefusal(
+          `Sequential planner chunks exceed the rate budget: ${requiredCalls} calls and ${requiredTokens} tokens required`,
+          { plannedTokens: requiredTokens, cap: maxTokens },
+        );
+      }
+      for (const { items, chunk } of actualChunks) {
         const ask = async (from: DecideCache) => {
           const r = await askChunk(chunk.state, chunk.questions, planner, from, { fetchImpl: opts.fetchImpl,
             usable: (answers) => items.every((i) => {
@@ -530,6 +544,7 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
           if (d) decisions[i] = d;
           else failed++;
         }
+        spentTokens += chunk.tokens;
       }
     }
   }
