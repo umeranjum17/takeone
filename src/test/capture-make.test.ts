@@ -179,7 +179,7 @@ test("capture make --plan-only prices the plan without network or render", { ski
   }
 });
 
-test("doctor, make and capture never read the planner key from the environment", { skip: needsFfmpeg }, async () => {
+test("doctor, make and capture never read the planner key from the environment", async () => {
   const { home, cleanup } = withHome();
   const dir = buildTake();
   const env = { HOME: home, TYPESAFE_API_KEY: "bogus-env-key" };

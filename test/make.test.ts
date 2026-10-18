@@ -95,7 +95,7 @@ function plannerAnswers(): unknown {
   return { answers, usage: { input_tokens: 800 } };
 }
 
-test("make --no-ai renders the agreed beat/decision files into a tiny test MP4", { skip: needsFfmpeg }, async () => {
+test("make --no-ai renders the agreed beat/decision files into a tiny test MP4", async () => {
   const dir = newTake();
   try {
     // --set is test-only plumbing: full-size slow output stays the default.
@@ -512,7 +512,7 @@ test("invalid first frame clocks report frames.tsv before planning", { skip: nee
   }
 });
 
-test("make --no-ai writes analysis files and heuristic decisions", { skip: needsFfmpeg }, async () => {
+test("make --no-ai writes analysis files and heuristic decisions", async () => {
   const dir = newTake();
   try {
     const r = await fastTake(dir, { noAi: true, log: () => {}, warn: () => {} });
@@ -568,7 +568,7 @@ test("perceived cuts enter actions and start cut beats", { skip: needsFfmpeg }, 
   }
 });
 
-test("make with a key decides via the planner and accounts usage; cache hit costs zero calls", { skip: needsFfmpeg }, async () => {
+test("make with a key decides via the planner and accounts usage; cache hit costs zero calls", async () => {
   const dir = newTake();
   try {
     let calls = 0;
@@ -599,7 +599,7 @@ test("make with a key decides via the planner and accounts usage; cache hit cost
   }
 });
 
-test("live API shape: object-keyed score probabilities and noul still decide via the planner", { skip: needsFfmpeg }, async () => {
+test("live API shape: object-keyed score probabilities and noul still decide via the planner", async () => {
   const dir = newTake();
   try {
     const fake = (async (_url: string | URL | Request, init?: RequestInit) => {
@@ -656,7 +656,7 @@ test("sparse object-keyed score probabilities fall back to the heuristic", { ski
   }
 });
 
-test("single-zone beats use the heuristic without planner tokens", { skip: needsFfmpeg }, async () => {
+test("single-zone beats use the heuristic without planner tokens", async () => {
   const dir = newTake();
   try {
     const bodies: string[] = [];
@@ -741,7 +741,7 @@ test("dependent re-asks use the preceding finalized shot", { skip: needsFfmpeg }
   }
 });
 
-test("every planner failure mode falls back to the heuristic and counts as failed", { skip: needsFfmpeg }, async () => {
+test("every planner failure mode falls back to the heuristic and counts as failed", async () => {
   const modes: Array<{ name: string; tokens: number; impl: () => Response }> = [
     { name: "500", tokens: 0, impl: () => new Response("boom", { status: 500 }) },
     { name: "malformed", tokens: 0, impl: () => new Response("not json", { status: 200 }) },
@@ -800,7 +800,7 @@ test("oversize beat request falls back without aborting other beats", { skip: ne
   }
 });
 
-test("malformed planner answers are not cached across runs", { skip: needsFfmpeg }, async () => {
+test("malformed planner answers are not cached across runs", async () => {
   const dir = newTake();
   try {
     let calls = 0;
@@ -818,7 +818,7 @@ test("malformed planner answers are not cached across runs", { skip: needsFfmpeg
   }
 });
 
-test("invalid caps refuse before any planner call", { skip: needsFfmpeg }, async () => {
+test("invalid caps refuse before any planner call", async () => {
   const dir = newTake();
   try {
     let calls = 0;
@@ -849,7 +849,7 @@ test("preflight refuses above --max-tokens before any call", { skip: needsFfmpeg
   }
 });
 
-test("screen words are read by default with a planner and titles are redacted", { skip: needsFfmpeg }, async () => {
+test("screen words are read by default with a planner and titles are redacted", async () => {
   const dir = newTake();
   try {
     const path = join(dir, "events.jsonl");
@@ -875,7 +875,7 @@ test("screen words are read by default with a planner and titles are redacted", 
   }
 });
 
-test("zones never leak window titles without a planner; beats carry word-only descriptions", { skip: needsFfmpeg }, async () => {
+test("zones never leak window titles without a planner; beats carry word-only descriptions", async () => {
   const dir = newTake();
   try {
     const r = await fastTake(dir, { noAi: true, log: () => {}, warn: () => {} });
