@@ -55,6 +55,10 @@ export interface Decision {
   decided_by: string;
   model?: string;
   input_tokens?: number;
+  /** Camera choices for this beat (plan.json may override them); absent means the rules decide. */
+  shot?: boolean;
+  idle?: boolean;
+  follow?: boolean;
 }
 
 export interface TakeEdits {

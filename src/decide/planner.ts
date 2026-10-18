@@ -327,6 +327,10 @@ export class PlannerFileCache implements DecideCache {
   }
 }
 
+/** A camera choice (shot, idle, follow) may abstain: the rules fill it and the
+ * beat still maps, so it never makes an answer unusable. */
+const CAMERA_CHOICE = /_(shot|idle|follow)$/;
+
 /** Refuse to store beats the mapping cannot use: an abstained or missing
  * field means the whole beat falls back, so caching it would only replay the
  * fallback and hide a model that recovered since. */
@@ -334,7 +338,7 @@ export function gateUnusable(cache: DecideCache): DecideCache {
   return {
     get: (key) => cache.get(key),
     set: (key, value) => {
-      if (Object.values(value).every((a) => a && typeof a === "object" && !a.abstained)) {
+      if (Object.entries(value).every(([k, a]) => CAMERA_CHOICE.test(k) || (a && typeof a === "object" && !a.abstained))) {
         return cache.set(key, value);
       }
     },
@@ -430,7 +434,12 @@ export function toPlannerAnswers(answers: Record<string, Answer>): PlannerAnswer
   const new_subject = yesno("new_subject");
   const key_moment = score("key_moment", 3);
   if (!focus_start || !focus_end || !tightness || !new_subject || !key_moment) return null;
-  return { focus_start, focus_end, tightness, new_subject, key_moment };
+  // Camera choices are optional: an abstained or missing one leaves the rule in charge.
+  const flag = (k: string): boolean | undefined => {
+    const a = answers[k];
+    return a && !a.abstained && typeof a.answer === "boolean" ? a.answer : undefined;
+  };
+  return { focus_start, focus_end, tightness, new_subject, key_moment, shot: flag("shot"), idle: flag("idle"), follow: flag("follow") };
 }
 
 /** The decide host for a resolved planner: its credential or account, and

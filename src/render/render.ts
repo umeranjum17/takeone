@@ -20,6 +20,7 @@ import { phoneTapShots } from "./phone.ts";
 import { edgeCuts, cutCount, holdPath, lastFrameSecond, videoFrames } from "./framing.ts";
 import { SAFE_INSET, safeAreaReport } from "./safe-area.ts";
 import { typingBursts, editBeats, editTimeline, validateEdits, validateZooms } from "./edits.ts";
+import { applyPlan, readPlan } from "../decide/plan.ts";
 import {
   bandEligible, bandFrames, bandLayout, bandText, beatClicks, captionAss, captionLayouts, cardFilter, clickAss, measureAss, sourceViewport, stageFrames, stageGeometry, stageImageFilter,
   takeCaptions, type Caption, type CaptionInk,
@@ -148,8 +149,9 @@ export async function renderTake(dir: string, d?: CameraDefaults): Promise<{ out
   // The planner stores seconds; the existing FOLLOW solver consumes action timestamps in ms.
   if ("stream" in meta) for (const beat of beats) beat.actions = beat.actions.map(actionCameraMilliseconds);
   const decisionLines = await readFile(join(dir, "analysis/decisions.jsonl"), "utf8");
-  const decisions = decisionLines.split(/\r?\n/).filter(Boolean)
-    .map((line) => JSON.parse(line) as Decision);
+  // plan.json holds the camera choices the user may have edited; they win over decisions.jsonl.
+  const decisions = applyPlan(decisionLines.split(/\r?\n/).filter(Boolean)
+    .map((line) => JSON.parse(line) as Decision), readPlan(dir));
 
   const trimStart = meta.trim_start ?? 0;
   const wide = d.out_w > d.out_h;

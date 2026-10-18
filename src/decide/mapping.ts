@@ -165,6 +165,10 @@ export function mapAnswers(
     conf: { A: confA, B: confB, L: confL, K: answers.key_moment?.confidence },
     decided_by: "ai",
     model: ctx.model,
+    // Only the camera choices the planner actually answered; the rest stay unset for the rules.
+    ...(answers.shot === undefined ? {} : { shot: answers.shot }),
+    ...(answers.idle === undefined ? {} : { idle: answers.idle }),
+    ...(answers.follow === undefined ? {} : { follow: answers.follow }),
   };
 }
 

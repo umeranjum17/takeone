@@ -567,6 +567,8 @@ function applyDwellAndShotLength(shots: Shot[], d: CameraDefaults): Shot[] {
   // let the minimum shot length drop the next real shot right behind it.
   let wide = true;
   for (const shot of shots) {
+    // The planner's shot answer: a beat it says needs no camera move gets none.
+    if (shot.decision.shot === false) continue;
     if (shot.beat.kind === "scroll" || shot.beat.kind === "idle") continue;
     // Pointer travel alone is not an action shot. Zooming to its empty trail
     // delays the next real action behind dwell and can crop a newly opened dialog.
@@ -674,7 +676,8 @@ function buildDrafts(
   end: number,
   d: CameraDefaults,
   project: (frame: CameraFrame) => CameraFrame = identity,
-  cuts?: EdgeCuts,
+  cuts: EdgeCuts | undefined,
+  decisions: Map<string, Decision>,
 ): Draft[] {
   // The surfaces a beat's own zones frame against; a reveal borrows the shot in
   // effect so its composed crop keeps the same UI whole instead of none of it.
@@ -751,9 +754,10 @@ function buildDrafts(
   // BREATHE rule: widen during long idle gaps when the following beat is distant.
   for (const [index, beat] of beats.entries()) {
     const nextBeat = beats[index + 1];
-    const longIdle = beat.kind === "idle" && beat.t1 - beat.t0 > d.idle_s;
+    // The planner's idle answer decides; without one, a long idle beat breathes.
+    const breathe = beat.kind === "idle" && (decisions.get(beat.id)?.idle ?? beat.t1 - beat.t0 > d.idle_s);
     const distantNext = !nextBeat || nextBeat.t0 - beat.t1 > d.next_beat_s;
-    if (!longIdle || !distantNext) continue;
+    if (!breathe || !distantNext) continue;
     // Widen to the window itself; a fullscreen window widens to the whole screen.
     const zone: Zone = { name: "win", type: "win", bbox: beat.window_rect ?? [0, 0, width, height] };
     drafts.push({
@@ -870,6 +874,8 @@ function followPointer(
   velocity: { x: number; y: number },
   d: CameraDefaults,
 ): CameraState {
+  // The planner's follow answer: a beat it says should not be followed keeps the camera where it is.
+  if (decisions.get(beat.id)?.follow === false) return state;
   const points = beat.actions
     .map((action) => action as { t?: number; x?: number; y?: number })
     .filter((action) => Number.isFinite(action.x) && Number.isFinite(action.y))
@@ -1340,7 +1346,7 @@ export function solveCameraDetailed(
     .filter((shot) => visibleBeats.includes(shot.beat));
   const quietShots = applyDwellAndShotLength(shots, d).filter((shot) => shot.arrival < end);
   const directed = visibleBeats.filter(beat => !beat.camera_suppressed);
-  const drafts = buildDrafts(quietShots, directed, width, height, start, end, d, project, cuts);
+  const drafts = buildDrafts(quietShots, directed, width, height, start, end, d, project, cuts, decisionMap);
   drafts.unshift({ t: start, importance: 0,
     build: (until) => compose({ cx: width / 2, cy: height / 2, z: 1 },
       { name: "initial", type: "act", bbox: [width / 2, height / 2, 1, 1] },
