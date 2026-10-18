@@ -132,8 +132,8 @@ function rubric(goal: string | undefined, withImages: boolean): Record<string, s
       "entire screen: the beat is about the overall layout or a big change; window or area: the context matters as much as the detail; " +
       "zone with room: the detail matters and the surroundings help; zone tightly: small text or a small control is the whole point.",
     new_subject:
-      "Yes when the viewer's attention must move to a different part of the screen than the shot before the beat shows: what matters is outside or much smaller than that shot. " +
-      "No when it is already comfortably visible. Before the first beat that shot is current_shot; before a later beat it is the shot the previous beat ends on.",
+      "Yes when the viewer's attention must move to a different part of the screen than current_shot shows: what matters is outside or much smaller than that shot. " +
+      "No when it is already comfortably visible in current_shot. Use fits_current_shot and the per-beat hint to judge whether the action fits; all beats in this chunk share current_shot.",
     key_moment:
       `How important is the beat ${goal ? "to the story of `goal`" : "to the demo as a whole"}? ` +
       "routine: navigation or setup a viewer can skim; useful step: a normal step of the workflow; key moment: the payoff or the step the demo exists to show.",

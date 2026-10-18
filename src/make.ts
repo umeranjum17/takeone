@@ -503,11 +503,13 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
     // Chunks run in order: each one starts from the shot the previous chunk decided.
     for (const [c, plannedChunk] of chunks.entries()) {
       const later = chunks.slice(c + 1).reduce((n, next) => n + next.chunk.tokens, 0);
-      // A rebuilt chunk can grow or split; it is asked only while the preflight
-      // reserve still covers it and the planned chunks after it.
-      const covered = (tokens: number) => requestTokens + tokens + later <= reservedTokens;
-      for (const { items, chunk } of planChunks(plannedChunk.items, build(decisions), () => failed++)) {
+      const rebuilt = planChunks(plannedChunk.items, build(decisions), () => failed++);
+      let remaining = rebuilt.reduce((n, part) => n + part.chunk.tokens, 0);
+      // Reserve every rebuilt sibling, later planned chunk, and the possible re-ask.
+      const covered = (tokens: number) => requestTokens + tokens + (remaining - tokens) + later <= reservedTokens;
+      for (const { items, chunk } of rebuilt) {
         if (!covered(chunk.tokens)) {
+          remaining -= chunk.tokens;
           failed += items.length;
           overReserve += items.length;
           continue;
@@ -529,7 +531,8 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
           return r;
         };
         const outcomes = [await ask(cache)];
-        if (outcomes[0]!.decisionSource === "failed" && reasks > 0 && covered(chunk.tokens)) {
+        remaining -= chunk.tokens;
+        if (outcomes[0]!.decisionSource === "failed" && reasks > 0 && requestTokens + chunk.tokens + remaining + later <= reservedTokens) {
           // A malformed chunk is asked once more without the cache; beats the
           // re-ask still cannot map keep the first answer, then the rules.
           reasks--;
