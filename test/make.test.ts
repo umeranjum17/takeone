@@ -633,6 +633,9 @@ test("live API shape: Android tap hints stay planner decisions", async () => {
     assert.ok(tapStates.length > 0, "Android taps reach the planner");
     assert.match(tapStates[0]!.beat.hint ?? "", /first candidate zone is the tapped control/);
     assert.equal(tapStates[0]!.zones.z1!.shows, "the tapped control");
+    const tapBeats = r.beats.filter((beat) => beat.hint);
+    assert.ok(tapBeats.length > 0);
+    for (const beat of tapBeats) assert.deepEqual(beat.zones[0]!.boxes, [beat.zones[0]!.bbox]);
     assert.deepEqual(aiDecisions.map((d) => d.L), aiDecisions.map(() => 2));
   } finally {
     rmSync(dir, { recursive: true, force: true });

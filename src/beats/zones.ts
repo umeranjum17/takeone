@@ -86,7 +86,7 @@ export function zonesForBeat(
       name: `z${i + 1}`,
       kind: c.kind,
       bbox: c.bbox,
-      ...(c.kind !== "all" && c.kind !== "win" ? { boxes: contextBoxes(beat, o, c.t ?? beat.anchor_t, c.kind) } : {}),
+      ...(c.kind !== "all" && c.kind !== "win" ? { boxes: tapZone ? [c.bbox] : contextBoxes(beat, o, c.t ?? beat.anchor_t, c.kind) } : {}),
       area_frac: bboxArea(c.bbox) / screen,
       ...(c.t !== undefined ? { t: c.t } : {}),
       desc: tapZone ? { ...desc, shows: "the tapped control", activity: "tapped" } : desc,
