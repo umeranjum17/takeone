@@ -1,5 +1,46 @@
 # Cost per minute of video (measured + per-provider table)
 
+## Slice 3: batched chunks (measured offline)
+
+The planner asks up to 8 beats per call under one shared rubric, capped at
+4,000 estimated tokens a call (`CHUNK_TOKEN_CAP` in `src/decide/request.ts`;
+over the cap, screen words are dropped first, then the chunk splits in half).
+Chunks run in order, and the preflight reserves one re-asked chunk (the
+largest) instead of a re-ask per beat.
+
+**Measured offline**: these numbers come from the real request bodies the
+planner built for the slice-1 demo take (the 43.1 s Tidewater board take,
+3840×2160, 10 beats, 7 asked), sent to a fake provider that replays recorded
+answers. Tokens are the planner's estimate (body length / 3.5); no provider
+billed them. The live check waits for a cheap model route.
+
+| Demo take, per minute of video | Before (slice 1, one call per beat) | After (slice 3, text-only model) | After (slice 3, model reads images) |
+|---|---|---|---|
+| Planner calls | 7 (9.7 a minute) | 1 (1.4 a minute) | 2 (2.8 a minute) |
+| Request tokens | 5,163 (7,190 a minute) | 3,688 (5,134 a minute) | 6,419 planner estimate (8,936 a minute), 8 thumbnails included |
+| Largest request | 816 | 3,688 | under 4,000 each |
+| Preflight reserve | 12,363 | 7,376 | 10,140 |
+| Jev ($0.042 / Mtok input) | $0.00030 | $0.00022 | not offered (Jev is text only) |
+| OpenCode Go plan | $0 marginal | $0 marginal | not offered (no image capability in BYOKit) |
+| OpenAI API ($2 / Mtok input, unverified) | $0.0144 | $0.0103 | about $0.019 (6,543 text tokens a minute in the OpenAI body + 8 thumbnails at 255 tokens) |
+| Anthropic API | price unknown | price unknown | price unknown (about 8,700 tokens a minute, thumbnails at about 197 tokens) |
+
+The image token figures are the providers' published size formulas applied to
+a 512×288 thumbnail (OpenAI: 85 + 170 per 512 px tile = 255; Anthropic:
+width × height / 750 ≈ 197); they are unverified until a live run reports
+billed usage. The planner budgets 255 tokens per thumbnail (`IMAGE_TOKENS`).
+
+**Thumbnail rule.** Only when the decider BYOKit builds from the stored
+config reads images (its own `supportsImages` capability), and only when
+screen words are on: one thumbnail at each asked beat's action and one at its
+result when the beat has a result zone, so at most 2 a beat and 16 a chunk.
+Each is a JPEG, 512 px on the long side, with every zone outlined and
+labelled and every word that would not pass as screen text blacked out (the
+same redaction rule as screen words; text the OCR cannot find is not
+covered). At the 30-beats-a-minute cap that is at most 60 thumbnails, about
+15,300 estimated tokens a minute; the 40,000-token preflight counts them and
+still refuses anything above it.
+
 ## Per-provider cost (slice 1)
 
 Token counts are the same request shape for every provider: about **15–16k
@@ -58,8 +99,8 @@ Three clean live runs of the same take, from successive code states, landed betw
 The cost is bounded by design, not by luck:
 
 - **Beat cap**: at most 30 beats per minute (`MAX_BEATS_PER_MIN` in `src/beats/segment.ts`), so the number of planner calls never grows with how busy the recording is.
-- **Token preflight**: `make` estimates every planned request up front and refuses the whole run (`PreflightRefusal`) when the reserved total exceeds `--max-tokens`, default 40,000 input tokens per take minute (`DEFAULT_TOKENS_PER_MIN` in `src/make.ts`). Each single request is also hard-capped at `REQUEST_TOKEN_CAP` (1,200 estimated tokens) in `src/decide/request.ts`.
+- **Token preflight**: `make` estimates every planned request up front and refuses the whole run (`PreflightRefusal`) when the reserved total exceeds `--max-tokens`, default 40,000 input tokens per take minute (`DEFAULT_TOKENS_PER_MIN` in `src/make.ts`). Each single request is also hard-capped at `CHUNK_TOKEN_CAP` (4,000 estimated tokens) in `src/decide/request.ts`.
 
-Worst case at the defaults: the reserved total (planned tokens plus the 1,200-token re-ask reserve per planner job after the first) is capped at 40,000 estimated tokens per take minute ≈ $0.0017/min at the listed Jev price, ≈ $0.0023/min worst billed. The measured take above used about half of that. Rendering costs no tokens at any setting.
+Worst case at the defaults: the reserved total (planned tokens plus one re-asked chunk since slice 3; a 1,200-token re-ask per beat before it) is capped at 40,000 estimated tokens per take minute ≈ $0.0017/min at the listed Jev price, ≈ $0.0023/min worst billed. The measured take above used about half of that. Rendering costs no tokens at any setting.
 
 Back to the [README](../README.md).
