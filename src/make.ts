@@ -17,6 +17,8 @@ import { zonesForBeat, OCR_MAX_AREA } from "./beats/zones.ts";
 import { buildRequest, REQUEST_TOKEN_CAP, RequestTooLarge } from "./decide/request.ts";
 import type { Answer, DecideCache, Question } from "@byokit/decide";
 import { ConfigError } from "@byokit/decide";
+import { KeystoreError } from "@byokit/secrets";
+import { SecretStoreUnavailable } from "./secrets.ts";
 import { heuristicDecision } from "./decide/heuristics.ts";
 import { mapAnswers, frameRect } from "./decide/mapping.ts";
 import {
@@ -203,6 +205,8 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
       // behind the fallback. An unreadable secret store falls back, and the
       // banner names it.
       if (e instanceof ConfigError) throw e;
+      if (!(e instanceof SecretStoreUnavailable) &&
+          !(e instanceof KeystoreError && ["unavailable", "unsupported", "failed"].includes(e.code))) throw e;
       planner = null;
       plannerOff = "the secret store cannot be read";
     }

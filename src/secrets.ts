@@ -10,6 +10,8 @@ import { fileStore, keyringStore, writeFileAtomic, KeystoreError, type Keystore 
 
 export const JEV_SECRET = "jev";
 
+export class SecretStoreUnavailable extends Error {}
+
 export interface KeyOptions {
   env?: NodeJS.ProcessEnv;
   configDir?: string;
@@ -35,7 +37,7 @@ export function noKeyring(env: NodeJS.ProcessEnv): boolean {
 function sealedStore(env: NodeJS.ProcessEnv, o: KeyOptions): Keystore {
   const fd = env.TAKEONE_SECRETS_PASSPHRASE_FD;
   if (!fd || !/^\d+$/.test(fd) || Number(fd) < 3 || !Number.isSafeInteger(Number(fd))) {
-    throw new Error("no OS keyring; supply a passphrase on TAKEONE_SECRETS_PASSPHRASE_FD (an open fd >= 3) for the BYOKit sealed store");
+    throw new SecretStoreUnavailable("no OS keyring; supply a passphrase on TAKEONE_SECRETS_PASSPHRASE_FD (an open fd >= 3) for the BYOKit sealed store");
   }
   // fileStore retains these bytes for subsequent operations; it owns encryption.
   const passphrase = readFileSync(Number(fd));
