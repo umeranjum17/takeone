@@ -393,12 +393,13 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
     // Thumbnails go to a decider that reads images; a capture sends them only
     // with screen text opted in. Without screen text every word is blacked out.
     const vision = (!opts.capture || opts.screenText === true) && await seesImages(planner);
-    const resultMs = (b: Beat) => Math.max(b.t1, ...b.zones
+    const frameTime = (t: number) => Math.max(videoStartMs, Math.min(endMs, t));
+    const resultMs = (b: Beat) => frameTime(Math.max(b.t1, ...b.zones
       .filter((z) => z.kind === "res" && z.t !== undefined)
-      .map((z) => Math.max(b.t0, Math.min(endMs, z.t!))));
+      .map((z) => Math.max(b.t0, z.t!))));
     // Keyframes for a model that reads images: the action, and the result when the beat has one.
     const keyframes = (b: Beat) => [
-      { id: `${b.id}_act`, t: b.anchor_t },
+      { id: `${b.id}_act`, t: frameTime(b.anchor_t) },
       ...(b.zones.some((z) => z.kind === "res") ? [{ id: `${b.id}_res`, t: resultMs(b) }] : []),
     ];
     const images = new Map<string, ImageInput>();
@@ -469,7 +470,7 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
       await pooled(shots, 2, async (k) => {
         try {
           const textZones = readScreenText ? beats[k.i]!.zones.filter((z) => z.area_frac < OCR_MAX_AREA).map((z) => z.bbox) : [];
-          const bytes = await keyframeThumb(webm, Math.max(0, k.t - videoStartMs), beats[k.i]!.zones, textZones, take.stream);
+          const bytes = await keyframeThumb(webm, k.t - videoStartMs, beats[k.i]!.zones, textZones, take.stream);
           images.set(k.id, { id: k.id, mime: "image/jpeg", bytes });
         } catch (e) {
           if (!warned) warn(`keyframe thumbnails: ${e instanceof Error ? e.message : String(e)}; those beats ask with zone notes only`);
