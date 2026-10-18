@@ -58,7 +58,7 @@ export async function keyframeThumb(
   try {
     await ffmpeg(["-ss", (tMs / 1000).toFixed(3), "-i", webm, "-frames:v", "1", "-y", png]);
     const hidden = tsvWords(await tesseract(png, "11"))
-      .filter((w) => !(w.conf >= OCR_MIN_CONF && redactWord(w.text) === w.text));
+      .filter((w) => redactWord(w.text) !== w.text);
     const k = Math.max(stream.w, stream.h) / THUMB_LONG_SIDE; // source pixels per thumbnail pixel
     const filters = [
       ...hidden.map((w) => `drawbox=x=${w.box[0]}:y=${w.box[1]}:w=${w.box[2]}:h=${w.box[3]}:color=black:t=fill`),
