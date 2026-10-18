@@ -12,8 +12,8 @@ import { PlannerUnavailable } from "../src/decide/planner.ts";
 import { ConfigError } from "@byokit/decide";
 import { main } from "../src/cli.ts";
 import { frameRect } from "../src/decide/mapping.ts";
-import type { Beat, Decision, PlannerAnswers, TakeMeta } from "../src/types.ts";
-import { STREAM, hasFfmpeg } from "./helpers.ts";
+import type { Beat, Decision, TakeMeta } from "../src/types.ts";
+import { STREAM, hasFfmpeg, buildLongTake, beatViews, chunkAnswers } from "./helpers.ts";
 import { DEFAULTS } from "../src/camera/defaults.ts";
 
 const STREAM_W = 320;
@@ -93,6 +93,22 @@ function plannerAnswers(): unknown {
     key_moment: { probabilities: [0.7, 0.2, 0.1], confidence: 0.8 },
   };
   return { answers, usage: { input_tokens: 800 } };
+}
+
+/** plannerAnswers for one beat, focused on its first zone. */
+function firstZoneAnswers(names: string[]): Record<string, unknown> {
+  const probabilities = Object.fromEntries(names.map((name, i) => [name, i === 0 ? 1 : 0]));
+  const { answers } = plannerAnswers() as { answers: Record<string, unknown> };
+  return { ...answers, focus_start: { choice: names[0], probabilities, confidence: 1 }, focus_end: { choice: names[0], probabilities, confidence: 1 } };
+}
+
+/** A planner reply answering every beat of a chunk on its first zone; 800 input tokens a call. */
+function firstZoneReply(body: string): Response {
+  return new Response(JSON.stringify({ answers: chunkAnswers(body, firstZoneAnswers), usage: { input_tokens: 800 } }), { status: 200 });
+}
+
+function newLongTake(): string {
+  return buildLongTake(mkdtempSync(join(tmpdir(), "takeone-take-")));
 }
 
 test("make --no-ai renders the agreed beat/decision files into a tiny test MP4", async () => {
@@ -184,7 +200,7 @@ test("without a credential the run falls back loudly and records planner.mode fa
     assert.ok(r.decisions.every((d) => d.decided_by === "heuristic"));
     const take = JSON.parse(readFileSync(join(dir, "take.json"), "utf8")) as TakeMeta;
     assert.equal(take.planner?.mode, "fallback");
-    assert.deepEqual(r.planner, { input_tokens: 0, output_tokens: 0, usd: 0, failed: 0 });
+    assert.deepEqual(r.planner, { input_tokens: 0, output_tokens: 0, usd: 0, failed: 0, requests: 0, cached: 0, request_tokens: 0 });
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -200,13 +216,8 @@ test("key moment is asked on every beat even without --goal", async () => {
       warn: () => {},
       fetchImpl: (async (_url, init) => {
         const body = String(init?.body);
-        bodies.push(body);
-        const names = Object.keys(JSON.parse(body).state.zones);
-        const probabilities = Object.fromEntries(names.map((name, i) => [name, i === 0 ? 1 : 0]));
-        const response = plannerAnswers() as { answers: PlannerAnswers };
-        response.answers.focus_start = { choice: names[0], probabilities, confidence: 1 };
-        response.answers.focus_end = { choice: names[0], probabilities, confidence: 1 };
-        return new Response(JSON.stringify(response), { status: 200 });
+        bodies.push(...beatViews(body));
+        return firstZoneReply(body);
       }) as typeof fetch,
     });
     assert.ok(bodies.length > 0);
@@ -333,12 +344,7 @@ test("--replan ignores saved answers and asks again", async () => {
     let calls = 0;
     const fetchImpl = (async (_url: string | URL | Request, init?: RequestInit) => {
       calls++;
-      const names = Object.keys(JSON.parse(String(init?.body)).state.zones);
-      const probabilities = Object.fromEntries(names.map((name, i) => [name, i === 0 ? 1 : 0]));
-      const response = plannerAnswers() as { answers: PlannerAnswers };
-      response.answers.focus_start = { choice: names[0], probabilities, confidence: 1 };
-      response.answers.focus_end = { choice: names[0], probabilities, confidence: 1 };
-      return new Response(JSON.stringify(response), { status: 200 });
+      return firstZoneReply(String(init?.body));
     }) as typeof fetch;
     await fastTake(dir, { apiKey: KEY, fetchImpl, log: () => {}, warn: () => {} });
     const afterFirst = calls;
@@ -530,7 +536,7 @@ test("make --no-ai writes analysis files and heuristic decisions", async () => {
     }
     // take.json gains the planner accounting
     const take = JSON.parse(readFileSync(join(dir, "take.json"), "utf8")) as TakeMeta;
-    assert.deepEqual(take.planner, { mode: "fallback", backend: null, model: null, input_tokens: 0, output_tokens: 0, usd: 0, failed: 0 });
+    assert.deepEqual(take.planner, { mode: "fallback", backend: null, model: null, input_tokens: 0, output_tokens: 0, usd: 0, failed: 0, requests: 0, cached: 0, request_tokens: 0, calls_per_min: 0, request_tokens_per_min: 0 });
     // events.jsonl titles stay local: nothing in the analysis files carries the title
     const allAnalysis =
       readFileSync(join(dir, "analysis", "beats.json"), "utf8") +
@@ -569,17 +575,13 @@ test("perceived cuts enter actions and start cut beats", { skip: needsFfmpeg }, 
 });
 
 test("make with a key decides via the planner and accounts usage; cache hit costs zero calls", async () => {
-  const dir = newTake();
+  // Twelve asked beats: two chunk calls.
+  const dir = newLongTake();
   try {
     let calls = 0;
     const fake = (async (_url: string | URL | Request, init?: RequestInit) => {
       calls++;
-      const names = Object.keys(JSON.parse(String(init?.body)).state.zones);
-      const probabilities = Object.fromEntries(names.map((name, i) => [name, i === 0 ? 1 : 0]));
-      const answer = plannerAnswers() as { answers: PlannerAnswers; usage: { input_tokens: number } };
-      answer.answers.focus_start = { choice: names[0], probabilities, confidence: 1 };
-      answer.answers.focus_end = { choice: names[0], probabilities, confidence: 1 };
-      return new Response(JSON.stringify(answer), { status: 200 });
+      return firstZoneReply(String(init?.body));
     }) as typeof fetch;
     const r1 = await fastTake(dir, { apiKey: KEY, fetchImpl: fake, log: () => {}, warn: () => {} });
     assert.ok(calls >= 2, `expected jev calls, got ${calls}`);
@@ -606,13 +608,13 @@ test("live API shape: Android tap hints stay planner decisions", async () => {
     writeFileSync(takePath, JSON.stringify({ ...JSON.parse(readFileSync(takePath, "utf8")), device: "android" }));
     const tapStates: { beat: { hint?: string }; zones: Record<string, { shows: string }> }[] = [];
     const fake = (async (_url: string | URL | Request, init?: RequestInit) => {
-      const state = JSON.parse(String(init?.body)).state;
-      if (state.beat.hint) tapStates.push(state);
-      const names = Object.keys(state.zones);
-      const choiceProbs = Object.fromEntries(names.map((name, i) => [name, i === 0 ? 0.95 : 0.05 / (names.length - 1 || 1)]));
+      const beats = JSON.parse(String(init?.body)).state.beats as Record<string, { device_hint?: string; zones: Record<string, { shows: string }> }>;
+      for (const b of Object.values(beats)) if (b.device_hint) tapStates.push({ beat: { hint: b.device_hint }, zones: b.zones });
       const answer = {
         model: "jev-1.13.0",
-        answers: {
+        answers: chunkAnswers(String(init?.body), (names) => {
+          const choiceProbs = Object.fromEntries(names.map((name, i) => [name, i === 0 ? 0.95 : 0.05 / (names.length - 1 || 1)]));
+          return {
           focus_start: { type: "choice", choice: names[0], confidence: 0.93, probabilities: choiceProbs },
           focus_end: { type: "choice", choice: names[0], confidence: 0.65, probabilities: choiceProbs },
           // A live spread: Jev's tightness confidence sits under 0.5 even when it
@@ -620,7 +622,8 @@ test("live API shape: Android tap hints stay planner decisions", async () => {
           tightness: { type: "score", score: 1.45, confidence: 0.27, probabilities: { 0: 0.22, 1: 0.2, 2: 0.49, 3: 0.09 } },
           new_subject: { type: "noul", noul: 0.27 },
           key_moment: { type: "score", score: 0.01, confidence: 0.99, probabilities: { 0: 1, 1: 0, 2: 0 } },
-        },
+          };
+        }),
         usage: { input_tokens: 874, output_tokens: 131 },
       };
       return new Response(JSON.stringify(answer), { status: 200 });
@@ -646,16 +649,17 @@ test("sparse object-keyed score probabilities fall back to the heuristic", { ski
   const dir = newTake();
   try {
     const fake = (async (_url: string | URL | Request, init?: RequestInit) => {
-      const names = Object.keys(JSON.parse(String(init?.body)).state.zones);
-      const choiceProbs = Object.fromEntries(names.map((name, i) => [name, i === 0 ? 0.95 : 0.05 / (names.length - 1 || 1)]));
       const answer = {
-        answers: {
+        answers: chunkAnswers(String(init?.body), (names) => {
+          const choiceProbs = Object.fromEntries(names.map((name, i) => [name, i === 0 ? 0.95 : 0.05 / (names.length - 1 || 1)]));
+          return {
           focus_start: { choice: names[0], confidence: 0.93, probabilities: choiceProbs },
           focus_end: { choice: names[0], confidence: 0.93, probabilities: choiceProbs },
           // level 0 omitted: a sparse score must not silently decide as L=0
           tightness: { confidence: 0.9, probabilities: { 1: 0.1, 2: 0.2, 3: 0.7 } },
           new_subject: { noul: 0.27 },
-        },
+          };
+        }),
         usage: { input_tokens: 500 },
       };
       return new Response(JSON.stringify(answer), { status: 200 });
@@ -672,28 +676,25 @@ test("single-zone beats use the heuristic without planner tokens", async () => {
   const dir = newTake();
   try {
     const bodies: string[] = [];
+    let calls = 0;
     const r = await fastTake(dir, { apiKey: KEY, log: () => {}, warn: () => {}, fetchImpl: (async (_url, init) => {
       const body = String(init?.body);
-      bodies.push(body);
-      const names = Object.keys(JSON.parse(body).state.zones);
-      const probabilities = Object.fromEntries(names.map((name, i) => [name, i === 0 ? 1 : 0]));
-      const response = plannerAnswers() as { answers: PlannerAnswers };
-      response.answers.focus_start = { choice: names[0], probabilities, confidence: 1 };
-      response.answers.focus_end = { choice: names[0], probabilities, confidence: 1 };
-      return new Response(JSON.stringify(response), { status: 200 });
+      calls++;
+      bodies.push(...beatViews(body));
+      return firstZoneReply(body);
     }) as typeof fetch });
     const single = r.beats.map((b, i) => ({ b, d: r.decisions[i]! })).filter(({ b }) => b.zones.length === 1);
     assert.ok(single.length > 0);
     assert.ok(single.every(({ d }) => d.decided_by === "heuristic" && d.input_tokens === undefined));
     assert.ok(bodies.every((body) => Object.keys(JSON.parse(body).state.zones).length >= 2));
-    assert.equal(r.planner.input_tokens, bodies.length * 800);
+    assert.equal(r.planner.input_tokens, calls * 800);
     assert.equal(r.planner.failed, 0);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
 });
 
-test("preflight reserves re-asks and current shots distinguish viewport positions", { skip: needsFfmpeg }, async () => {
+test("a single-chunk take reserves every request twice", async () => {
   const dir = newTake();
   try {
     const path = join(dir, "events.jsonl");
@@ -704,68 +705,83 @@ test("preflight reserves re-asks and current shots distinguish viewport position
     const logs: string[] = [];
     await fastTake(dir, { apiKey: KEY, maxTokens: 100000, log: (s) => logs.push(s), warn: () => {}, fetchImpl: (async (_url, init) => {
       bodies.push(String(init?.body));
+      return firstZoneReply(String(init?.body));
+    }) as typeof fetch });
+    const planned = Number(logs.find((s) => s.startsWith("preflight:"))!.match(/(\d+) planned tokens/)![1]);
+    // One chunk is the largest chunk, so its re-ask is reserved alongside it.
+    assert.equal(bodies.length, 1);
+    assert.ok(planned >= bodies.reduce((sum, body) => sum + Math.ceil(body.length / 3.5), 0) * 2 - 1200);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("preflight reserves re-asks and current shots distinguish viewport positions", { skip: needsFfmpeg }, async () => {
+  const dir = newLongTake();
+  try {
+    const bodies: string[] = [];
+    const logs: string[] = [];
+    await fastTake(dir, { apiKey: KEY, maxTokens: 100000, log: (s) => logs.push(s), warn: () => {}, fetchImpl: (async (_url, init) => {
+      bodies.push(String(init?.body));
       return new Response("boom", { status: 500 });
     }) as typeof fetch });
     const planned = Number(logs.find((s) => s.startsWith("preflight:"))!.match(/(\d+) planned tokens/)![1]);
-    assert.ok(planned >= bodies.reduce((sum, body) => sum + Math.ceil(body.length / 3.5), 0) * 2 - 1200);
+    // Two chunks fail: the first is asked once more, the second keeps the rules.
+    assert.equal(bodies.length, 3);
+    assert.equal(bodies[1], bodies[0], "the re-ask repeats the first chunk");
+    const tokens = (body: string) => Math.ceil(body.length / 3.5);
+    assert.ok(planned >= tokens(bodies[0]!) + tokens(bodies[2]!) + Math.max(tokens(bodies[0]!), tokens(bodies[2]!)));
     const shots = bodies.map((body) => JSON.parse(body).state.current_shot);
     assert.ok(new Set(shots).size > 1);
+    assert.ok(bodies.every((body) => tokens(body) <= 4000), "every chunk stays under the 4,000-token cap");
     await assert.rejects(fastTake(dir, { apiKey: KEY, maxTokens: planned - 1, log: () => {}, warn: () => {}, fetchImpl: (async () => { throw new Error("called"); }) as typeof fetch }), PreflightRefusal);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
 });
 
-test("dependent re-asks use the preceding finalized shot", { skip: needsFfmpeg }, async () => {
-  const dir = newTake();
+test("the next chunk starts from the shot the previous chunk decided", async () => {
+  const dir = newLongTake();
   try {
-    const events = [
-      { t: 0, k: "win", cls: "chromium", title: "App", rect: [0, 0, 320, 180] },
-      ...[500, 2700, 4900].flatMap((t, i) => [
-        { t: t - 100, k: "ptr", x: 40 + i * 60, y: 80 },
-        { t, k: "btn", b: "left", down: true },
-        { t: t + 800, k: "ptr", x: 120 + i * 60, y: 100 },
-        { t: t + 900, k: "btn", b: "left", down: false },
-      ]),
-    ];
-    writeFileSync(join(dir, "events.jsonl"), events.map((e) => JSON.stringify(e)).join("\n") + "\n");
     const requests: any[] = [];
     const r = await fastTake(dir, { apiKey: KEY, log: () => {}, warn: () => {}, fetchImpl: (async (_url, init) => {
-      const request = JSON.parse(String(init?.body));
-      requests.push(request);
-      const names = Object.keys(request.state.zones);
-      const chosen = requests.length === 4 ? names[0]! : names[names.length - 1]!;
-      const probabilities = Object.fromEntries(names.map((name) => [name, name === chosen ? 1 : 0]));
-      const answer = plannerAnswers() as { answers: PlannerAnswers };
-      answer.answers.focus_start = { choice: chosen, probabilities, confidence: 1 };
-      answer.answers.focus_end = { choice: chosen, probabilities, confidence: 1 };
-      return new Response(JSON.stringify(answer), { status: 200 });
+      const body = String(init?.body);
+      requests.push(...beatViews(body).map((view) => JSON.parse(view)));
+      // The planner overrules the rules: every beat ends on its last zone.
+      const answers = chunkAnswers(body, (names) => {
+        const chosen = names[names.length - 1]!;
+        const probabilities = Object.fromEntries(names.map((name) => [name, name === chosen ? 1 : 0]));
+        return { ...firstZoneAnswers(names), focus_start: { choice: chosen, probabilities, confidence: 1 }, focus_end: { choice: chosen, probabilities, confidence: 1 } };
+      });
+      return new Response(JSON.stringify({ answers, usage: { input_tokens: 800 } }), { status: 200 });
     }) as typeof fetch });
     assert.ok(requests.length >= 5, JSON.stringify({ beats: r.beats.map((b) => [b.kind, b.zones.map((z) => z.kind)]), shots: requests.map((q) => q.state.current_shot) }));
-    const drags = r.beats.filter((b) => b.kind === "drag");
-    const second = drags[1]!;
-    const d = r.decisions.find((x) => x.beat === second.id)!;
-    const z = second.zones.find((x) => x.name === d.B)!;
-    const rect = frameRect(z, d.L, { stream: { w: 320, h: 180 }, winRect: [0, 0, 320, 180] });
-    assert.equal(requests[4]!.state.current_shot, `Framing ${z.desc.shows} at ${rect.join(",")}.`);
+    // Twelve beats ask as two chunks of six; the seventh beat opens the second chunk.
+    assert.equal(requests.filter((q) => q.state.current_shot !== undefined).length, 2);
+    const last = r.beats[5]!;
+    const d = r.decisions[5]!;
+    assert.equal(d.decided_by, "ai");
+    const z = last.zones.find((x) => x.name === d.B)!;
+    const rect = frameRect(z, d.L, { stream: { w: 320, h: 180 }, winRect: [0, 0, 280, 150] });
+    assert.equal(requests[6]!.state.current_shot, `Framing ${z.desc.shows} at ${rect.join(",")}.`);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
 });
 
 test("every planner failure mode falls back to the heuristic and counts as failed", async () => {
-  const modes: Array<{ name: string; tokens: number; impl: () => Response }> = [
+  const modes: Array<{ name: string; tokens: number; impl: (body: string) => Response }> = [
     { name: "500", tokens: 0, impl: () => new Response("boom", { status: 500 }) },
     { name: "malformed", tokens: 0, impl: () => new Response("not json", { status: 200 }) },
     {
       name: "bad probabilities",
       tokens: 10,
-      impl: () =>
+      impl: (body) =>
         new Response(
           JSON.stringify({
-            answers: {
+            answers: chunkAnswers(body, () => ({
               focus_start: { choice: "z1", probabilities: { z1: 0.9, z2: 0.2 }, confidence: 0.9 },
-            },
+            })),
             usage: { input_tokens: 10 },
           }),
           { status: 200 },
@@ -776,7 +792,7 @@ test("every planner failure mode falls back to the heuristic and counts as faile
     const dir = newTake();
     let calls = 0;
     try {
-      const r = await fastTake(dir, { apiKey: KEY, fetchImpl: (async () => { calls++; return m.impl(); }) as typeof fetch, log: () => {}, warn: () => {} });
+      const r = await fastTake(dir, { apiKey: KEY, fetchImpl: (async (_url, init) => { calls++; return m.impl(String(init?.body)); }) as typeof fetch, log: () => {}, warn: () => {} });
       assert.equal(r.decisions.filter((d) => d.decided_by === "ai").length, 0, m.name);
       assert.equal(r.planner.failed, r.beats.filter((b) => b.zones.length >= 2).length, m.name);
       assert.equal(r.planner.input_tokens, calls * m.tokens, m.name);

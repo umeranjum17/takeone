@@ -3,7 +3,7 @@
 // (`parseConfig` / `createDecider` shape: backend, auth, model, via).
 // Jev is only the default when the user picked nothing. Provider names appear
 // only in DEFAULT_PLANNER_CONFIG, modelOf (jev's default model),
-// loadPlannerConfig and askBeat (opencode-go is the only account-auth backend). The
+// loadPlannerConfig and askChunk (opencode-go is the only account-auth backend). The
 // provider is never switched automatically: limits, auth errors and timeouts
 // stop with PlannerUnavailable instead of silently falling back.
 //
@@ -21,9 +21,11 @@ import {
   parseConfig,
   ConfigError,
   UnsupportedAccountError,
+  UnsupportedImagesError,
   type Answer,
   type DecideCache,
   type DecideConfig,
+  type ImageInput,
   type Question,
 } from "@byokit/decide";
 import { codex } from "@byokit/decide/codex";
@@ -31,14 +33,12 @@ import { writeFileAtomic } from "@byokit/secrets";
 import type { PlannerAnswers } from "../types.ts";
 import { takeoneConfigDir, loadPlannerKey, readPlannerKey, noKeyring, type KeyOptions } from "../secrets.ts";
 
-export const CONCURRENCY = 8;
-/** Whole-call budget per beat (attempts plus bounded 429 waits). */
-export const DECIDE_TIMEOUT_MS = 10000;
+/** Whole-call budget per chunk of beats (attempts plus bounded 429 waits). */
+export const DECIDE_TIMEOUT_MS = 30000;
 
 /** The planner default: Jev, used only when the user picked nothing. This is
  * the one place takeone names a provider; everything else reads the config.
- * Transport matches the long-standing behaviour: 8 calls at once, 10 s per
- * call, one 429 retry. */
+ * One 429 retry per call. */
 export const DEFAULT_PLANNER_CONFIG: DecideConfig = {
   backend: "jev",
   auth: "apiKey",
@@ -433,10 +433,59 @@ export function toPlannerAnswers(answers: Record<string, Answer>): PlannerAnswer
   return { focus_start, focus_end, tightness, new_subject, key_moment };
 }
 
-/** Ask one beat through the configured decider. Never throws on transport or
- * mapping failures (failed beats keep the heuristic); throws
- * PlannerUnavailable when the provider itself cannot serve the run. */
-export async function askBeat(
+/** The decide host for a resolved planner: its credential or account, and
+ * the injectable fetch. */
+async function plannerHost(planner: ResolvedPlanner, fetchImpl?: typeof fetch): Promise<import("@byokit/decide").ConfigHost> {
+  const c = planner.config as { backend: string };
+  if ((planner.config as { auth: string }).auth === "account") {
+    if (planner.member === null) throw new Error("account planner resolved without a member");
+    return {
+      ...(c.backend === "openai"
+        ? { account: await loadOpenAIAccount(planner.member) }
+        : { accounts: { "opencode-go": await loadGoAccount(planner.member) } }),
+      ...(fetchImpl ? { fetch: fetchImpl } : {}),
+      cacheScope: planner.member,
+    };
+  }
+  return {
+    ...(planner.key !== null ? { keys: { [c.backend]: planner.key } } : {}),
+    ...(fetchImpl ? { fetch: fetchImpl } : {}),
+  };
+}
+
+const PROBE_PNG = Uint8Array.from(Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAAAAAA6fptVAAAACklEQVR4nGNgAAAAAgABSK+kcQAAAABJRU5ErkJggg==", "base64"));
+
+/** Whether the decider BYOKit builds for this config reads images. decide
+ * refuses images (UnsupportedImagesError) before any request when the built
+ * backend does not support them; otherwise it reaches fetch, which here is a
+ * local stub that sends nothing. TakeOne keeps no model list of its own. */
+export async function seesImages(planner: ResolvedPlanner): Promise<boolean> {
+  // The installed Codex CLI backend takes no images through this planner.
+  if ((planner.config as { backend: string }).backend === "codex") return false;
+  let reached = false;
+  const stub = (async () => {
+    reached = true;
+    throw new Error("image capability probe: nothing is sent");
+  }) as typeof fetch;
+  try {
+    await decide({}, { probe: { kind: "yesno", question: "probe", images: ["probe"] } }, {
+      config: { ...(planner.config as DecideConfig), maxRetries: 0 },
+      host: await plannerHost(planner, stub),
+      privacy: "may-leave",
+      images: [{ id: "probe", mime: "image/png", bytes: PROBE_PNG }],
+    });
+  } catch {
+    // UnsupportedImagesError, or a backend that cannot be built here: text only.
+  }
+  return reached;
+}
+
+/** Ask one chunk of beats through the configured decider. Never throws on
+ * transport or mapping failures (failed beats keep the heuristic); throws
+ * PlannerUnavailable when the provider itself cannot serve the run. An answer
+ * the `usable` check refuses comes back as "failed" with its answers, so the
+ * caller can keep the beats that do map. */
+export async function askChunk(
   state: unknown,
   questions: Record<string, Question>,
   planner: ResolvedPlanner,
@@ -445,6 +494,7 @@ export async function askBeat(
     fetchImpl?: typeof fetch;
     timeoutMs?: number;
     usable?: (answers: Record<string, Answer>) => boolean;
+    images?: ImageInput[];
   } = {},
 ): Promise<AskOutcome> {
   const c = planner.config as { backend: string; model?: string };
@@ -464,37 +514,24 @@ export async function askBeat(
       privacy: "may-leave",
       timeoutMs: o.timeoutMs ?? 120_000,
       cache: gateUnusable(scopedCache),
+      ...(o.images?.length ? { images: o.images } : {}),
     });
   } else {
-    let host: import("@byokit/decide").ConfigHost;
-    if ((planner.config as { auth: string }).auth === "account") {
-      if (planner.member === null) throw new Error("account planner resolved without a member");
-      host = {
-        ...(c.backend === "openai"
-          ? { account: await loadOpenAIAccount(planner.member) }
-          : { accounts: { "opencode-go": await loadGoAccount(planner.member) } }),
-        ...(o.fetchImpl ? { fetch: o.fetchImpl } : {}),
-        cacheScope: planner.member,
-      };
-    } else {
-      host = {
-        ...(planner.key !== null ? { keys: { [c.backend]: planner.key } } : {}),
-        ...(o.fetchImpl ? { fetch: o.fetchImpl } : {}),
-      };
-    }
+    const host = await plannerHost(planner, o.fetchImpl);
     runDecider = () => decide(state, questions, {
       config: planner.config as DecideConfig,
       host,
       privacy: "may-leave",
       timeoutMs: o.timeoutMs ?? DECIDE_TIMEOUT_MS,
       cache: gateUnusable(cache),
+      ...(o.images?.length ? { images: o.images } : {}),
     });
   }
   let answers: Record<string, Answer>;
   try {
     answers = await runDecider();
   } catch (e) {
-    if (e instanceof UnsupportedAccountError || e instanceof ConfigError) {
+    if (e instanceof UnsupportedAccountError || e instanceof UnsupportedImagesError || e instanceof ConfigError) {
       throw new PlannerUnavailable(planner.label, e instanceof Error ? e.message : String(e));
     }
     throw e;
@@ -509,7 +546,7 @@ export async function askBeat(
     ...(usage.output !== undefined ? { outputTokens: usage.output } : {}),
   };
   if (!Object.values(answers).some((a) => a && !a.abstained)) return { decisionSource: "failed", ...tokens };
-  if (o.usable && !o.usable(answers)) return { decisionSource: "failed", ...tokens };
+  if (o.usable && !o.usable(answers)) return { decisionSource: "failed", answers, ...tokens };
   const cached = Object.values(answers).filter(Boolean).every((a) => a.source === "cache");
   if (cached) return { decisionSource: "cache", answers };
   return { decisionSource: "api", answers, ...tokens };

@@ -14,27 +14,27 @@ import { decodeAnalysisFrames, firstFrameTimeMs, readEvents } from "./perceive/d
 import { segmentBeats, actStart, resultTime, RESULT_MIN_AREA } from "./beats/segment.ts";
 import { actionVideoSeconds } from "./beats/clock.ts";
 import { zonesForBeat, OCR_MAX_AREA } from "./beats/zones.ts";
-import { buildRequest, REQUEST_TOKEN_CAP, RequestTooLarge } from "./decide/request.ts";
-import type { Answer, DecideCache, Question } from "@byokit/decide";
+import { beatAnswers, buildChunk, planChunks, TIGHTNESS_LEVELS, type BeatHint, type ChunkCtx } from "./decide/request.ts";
+import type { Answer, DecideCache, ImageInput } from "@byokit/decide";
 import { ConfigError } from "@byokit/decide";
 import { KeystoreError } from "@byokit/secrets";
 import { SecretStoreUnavailable } from "./secrets.ts";
-import { heuristicDecision } from "./decide/heuristics.ts";
+import { heuristicDecision, RULE_WORDS } from "./decide/heuristics.ts";
 import { mapAnswers, frameRect } from "./decide/mapping.ts";
 import {
-  askBeat,
+  askChunk,
   toPlannerAnswers,
   resolvePlanner,
   PlannerUnavailable,
-  CONCURRENCY,
   PlannerFileCache,
+  seesImages,
   modelOf,
   pooled,
   type ResolvedPlanner,
   type AskOutcome,
 } from "./decide/planner.ts";
 import { estimateUsd } from "./decide/prices.ts";
-import { ocrZone } from "./decide/ocr.ts";
+import { keyframeThumb, ocrZone } from "./decide/ocr.ts";
 import { redactText } from "./decide/redact.ts";
 import { renderTake } from "./render/render.ts";
 import { resolveTheme } from "./themes.ts";
@@ -101,12 +101,24 @@ export class TakeInputError extends Error {
   }
 }
 
+/** Planner accounting for one make. `requests` counts planner asks, cache hits
+ * included (`cached`); `request_tokens` is their estimated size. */
+export interface PlannerStats {
+  input_tokens: number;
+  output_tokens: number;
+  usd: number | null;
+  failed: number;
+  requests: number;
+  cached: number;
+  request_tokens: number;
+}
+
 export interface MakeResult {
   take: TakeMeta;
   beats: Beat[];
   decisions: Decision[];
   /** usd is null when the backend's price is unknown ("cost unknown"), never a made-up $0 */
-  planner: { input_tokens: number; output_tokens: number; usd: number | null; failed: number };
+  planner: PlannerStats;
   /** reserved preflight tokens and their planned cost; zeros without a planner credential */
   planned: { planned_tokens: number; usd: number | null };
   /** render output path and output seconds; null/0 when planOnly skips the render */
@@ -364,48 +376,69 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
   let inputTokens = 0;
   let outputTokens = 0;
   let failed = 0;
+  let requests = 0;
+  let cachedRequests = 0;
+  let requestTokens = 0;
+  const minutes = Math.max(takeMs / 60000, 1 / 60);
   let usd: number | null = 0;
   let planned: MakeResult["planned"] = { planned_tokens: 0, usd: 0 };
   const plannerBackend = planner ? (planner.config as { backend: string }).backend : null;
   const plannerModel = planner ? modelOf(planner.config) : null;
 
   if (planner) {
-    const minutes = Math.max(takeMs / 60000, 1 / 60);
     const maxTokens = opts.maxTokens ?? Math.ceil(DEFAULT_TOKENS_PER_MIN * minutes);
     if (!Number.isSafeInteger(maxTokens) || maxTokens <= 0) {
       throw new PreflightRefusal("--max-tokens must be a positive integer");
     }
-    const ctxs = beats.map((b, i) => ({
-      goal: opts.goal,
-      style: opts.style,
-      currentShot: shotDescription(beats[i - 1] ?? null, heuristics[i - 1] ?? null, i > 0 ? winFor(beats[i - 1]!.anchor_t)?.rect ?? null : null, take.stream, aspect, opts.capture),
-      nextBeat: beats[i + 1],
-    }));
-    interface Job {
-      i: number;
-      state: unknown;
-      questions: Record<string, Question>;
-    }
-    const jobs: Job[] = [];
-    const skipped = new Set<number>();
-    let plannedTokens = 0;
-    for (let i = 0; i < beats.length; i++) {
-      if (beats[i]!.zones.length < 2) {
-        skipped.add(i);
-        continue;
+    // Thumbnails go to a decider that reads images; a capture sends them only
+    // with screen text opted in. Without screen text every word is blacked out.
+    const vision = (!opts.capture || opts.screenText === true) && await seesImages(planner);
+    const frameTime = (t: number) => Math.max(videoStartMs, Math.min(endMs, t));
+    const resultMs = (b: Beat) => frameTime(Math.max(b.t1, ...b.zones
+      .filter((z) => z.kind === "res" && z.t !== undefined)
+      .map((z) => Math.max(b.t0, z.t!))));
+    // Keyframes for a model that reads images: the action, and the result when the beat has one.
+    const keyframes = (b: Beat) => [
+      { id: `${b.id}_act`, t: frameTime(b.anchor_t) },
+      ...(b.zones.some((z) => z.kind === "res") ? [{ id: `${b.id}_res`, t: resultMs(b) }] : []),
+    ];
+    const images = new Map<string, ImageInput>();
+    let thumbsRead = false; // before extraction the preflight counts every planned thumbnail
+    const chunkCtx = (group: number[], decided: Decision[]): ChunkCtx => {
+      const i0 = group[0]!;
+      const iN = group.at(-1)!;
+      // The rules' choice for every beat of the chunk, starting from the shot
+      // the previous chunk decided: the hints, and the in-chunk shot guess.
+      const hints = new Map<number, BeatHint>();
+      let shot: BBox | null = i0 === 0 ? null : finalFrame(beats[i0 - 1]!, decided[i0 - 1]!, winFor(beats[i0 - 1]!.anchor_t)?.rect ?? null, take.stream, aspect);
+      for (let i = i0; i <= iN; i++) {
+        const d = heuristicDecision(beats[i]!, { viewport: shot ? { bbox: shot } : null });
+        hints.set(i, {
+          suggest_shot: { start: d.A, end: d.B, tightness: TIGHTNESS_LEVELS[d.L]!, rule: RULE_WORDS[beats[i]!.kind] },
+          fits_current_shot: d.p === 0 ? "yes" : "no",
+        });
+        shot = finalFrame(beats[i]!, d, winFor(beats[i]!.anchor_t)?.rect ?? null, take.stream, aspect);
       }
-      try {
-        const request = buildRequest(beats[i]!, ctxs[i]!);
-        noteTrimmedContext(request.trimmed);
-        jobs.push({ i, state: request.state, questions: request.questions });
-        plannedTokens += request.tokens;
-      } catch (e) {
-        if (!(e instanceof RequestTooLarge)) throw e;
-        skipped.add(i);
-        failed++;
-      }
-    }
-    const reservedTokens = plannedTokens + jobs.filter((j) => j.i > 0).length * REQUEST_TOKEN_CAP;
+      return {
+        goal: opts.goal,
+        style: opts.style,
+        currentShot: shotDescription(beats[i0 - 1] ?? null, decided[i0 - 1] ?? null, i0 > 0 ? winFor(beats[i0 - 1]!.anchor_t)?.rect ?? null : null, take.stream, aspect, opts.capture),
+        nextBeat: beats[iN + 1],
+        hints: group.map((i) => hints.get(i)!),
+        ...(vision ? { images: group.map((i) => keyframes(beats[i]!).map((k) => k.id).filter((id) => !thumbsRead || images.has(id))) } : {}),
+      };
+    };
+    const build = (decided: Decision[]) => (group: number[]) => {
+      const chunk = buildChunk(group.map((i) => beats[i]!), chunkCtx(group, decided));
+      noteTrimmedContext(chunk.trimmed);
+      return chunk;
+    };
+    // Beats with one zone have nothing to choose; they keep the rules uncounted.
+    const asked = beats.map((_, i) => i).filter((i) => beats[i]!.zones.length >= 2);
+    const chunks = planChunks(asked, build(heuristics), () => failed++);
+    const plannedTokens = chunks.reduce((n, c) => n + c.chunk.tokens, 0);
+    // One re-ask of the largest chunk is reserved for a malformed answer.
+    const reservedTokens = plannedTokens + Math.max(0, ...chunks.map((c) => c.chunk.tokens));
     // The ceiling is estimated in the default request shape; other backends
     // answer the same questions, so the bound still holds within its margin.
     planned = { planned_tokens: reservedTokens, usd: estimateUsd(plannerBackend!, reservedTokens) ?? null };
@@ -416,17 +449,35 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
         { plannedTokens: reservedTokens, cap: maxTokens },
       );
     }
+    const thumbCount = vision ? chunks.flatMap((c) => c.items).reduce((n, i) => n + keyframes(beats[i]!).length, 0) : 0;
     log(
-      `AI planner: ${planner.label}. ${beats.length} beats, ${jobs.length} calls planned, ${planned.usd === null ? "cost unknown" : `about $${planned.usd.toFixed(4)}`}.` +
-      (readScreenText ? " reading screen words (redacted; turn off with --no-screen-text)" : ""),
+      `AI planner: ${planner.label}. ${beats.length} beats, ${chunks.length} calls planned, ${planned.usd === null ? "cost unknown" : `about $${planned.usd.toFixed(4)}`}.` +
+      (readScreenText ? " reading screen words (redacted; turn off with --no-screen-text)" : "") +
+      (vision ? ` ${thumbCount} redacted keyframe thumbnails.` : ""),
     );
     log(
-      `preflight: ${beats.length} beats, ${reservedTokens} planned tokens, ${costText(planned.usd)} planned`,
+      `preflight: ${beats.length} beats, ${chunks.length} chunks, ${reservedTokens} planned tokens, ${costText(planned.usd)} planned`,
     );
     // --plan-only stops here: the plan is priced but no planner call is made
     // and nothing is rendered.
     if (opts.planOnly) {
-      return { take, beats, decisions, planner: { input_tokens: 0, output_tokens: 0, usd: 0, failed }, planned, out: null, seconds: 0 };
+      return { take, beats, decisions, planner: { input_tokens: 0, output_tokens: 0, usd: 0, failed, requests: 0, cached: 0, request_tokens: 0 }, planned, out: null, seconds: 0 };
+    }
+
+    if (vision) {
+      let warned = false;
+      const shots = chunks.flatMap((c) => c.items).flatMap((i) => keyframes(beats[i]!).map((k) => ({ ...k, i })));
+      await pooled(shots, 2, async (k) => {
+        try {
+          const textZones = readScreenText ? beats[k.i]!.zones.filter((z) => z.area_frac < OCR_MAX_AREA).map((z) => z.bbox) : [];
+          const bytes = await keyframeThumb(webm, k.t - videoStartMs, beats[k.i]!.zones, textZones, take.stream);
+          images.set(k.id, { id: k.id, mime: "image/jpeg", bytes });
+        } catch (e) {
+          if (!warned) warn(`keyframe thumbnails: ${e instanceof Error ? e.message : String(e)}; those beats ask with zone notes only`);
+          warned = true;
+        }
+      });
+      thumbsRead = true;
     }
 
     const cacheFile = new PlannerFileCache(join(analysisDir, "planner-cache.jsonl"));
@@ -440,16 +491,6 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
       aspect,
       model: plannerModel!,
     });
-    const outcomes: AskOutcome[] = new Array(beats.length);
-    await pooled(jobs, CONCURRENCY, async (j) => {
-      const r = await askBeat(j.state, j.questions, planner, cache, { fetchImpl: opts.fetchImpl,
-        usable: (answers) => toPlannerAnswers(answers) !== null &&
-          mapAnswers(beats[j.i]!, toPlannerAnswers(answers)!, mapCtx(j.i)) !== null,
-      });
-      // PlannerUnavailable (provider limit, auth or timeout) propagates: the
-      // run stops before rendering instead of silently using rules.
-      outcomes[j.i] = r;
-    });
     const takeOutcome = (r: AskOutcome): void => {
       if (r.inputTokens) {
         inputTokens += r.inputTokens;
@@ -458,60 +499,67 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
       }
       if (r.outputTokens) outputTokens += r.outputTokens;
     };
-    const failedBeats = new Set<number>();
-    for (let i = 0; i < beats.length; i++) {
-      if (skipped.has(i)) continue;
-      const o = outcomes[i]!;
-      takeOutcome(o);
-      const d = o.decisionSource === "failed" ? null : mapPlannerResponse(beats[i]!, o.answers!, {
-        ...mapCtx(i),
-        viewport: i === 0 ? null : finalFrame(beats[i - 1]!, decisions[i - 1]!, winFor(beats[i]!.anchor_t - 1)?.rect ?? null, take.stream, aspect),
-      });
-      if (d) {
-        if (o.inputTokens) d.input_tokens = o.inputTokens;
-        decisions[i] = d;
-      } else {
-        failedBeats.add(i);
-        failed++;
+    let reasks = 1;
+    let overReserve = 0;
+    // Chunks run in order: each one starts from the shot the previous chunk decided.
+    for (const [c, plannedChunk] of chunks.entries()) {
+      const later = chunks.slice(c + 1).reduce((n, next) => n + next.chunk.tokens, 0);
+      const rebuilt = planChunks(plannedChunk.items, build(decisions), () => failed++);
+      let remaining = rebuilt.reduce((n, part) => n + part.chunk.tokens, 0);
+      // Reserve every rebuilt sibling, later planned chunk, and the possible re-ask.
+      const covered = (tokens: number) => requestTokens + tokens + (remaining - tokens) + later <= reservedTokens;
+      for (const { items, chunk } of rebuilt) {
+        if (!covered(chunk.tokens)) {
+          remaining -= chunk.tokens;
+          failed += items.length;
+          overReserve += items.length;
+          continue;
+        }
+        const ask = async (from: DecideCache) => {
+          const r = await askChunk(chunk.state, chunk.questions, planner, from, { fetchImpl: opts.fetchImpl,
+            usable: (answers) => items.every((i) => {
+              const a = toPlannerAnswers(beatAnswers(answers, beats[i]!.id));
+              return a !== null && mapAnswers(beats[i]!, a, mapCtx(i)) !== null;
+            }),
+            images: items.flatMap((i) => keyframes(beats[i]!)).flatMap((k) => images.get(k.id) ?? []),
+          });
+          // PlannerUnavailable (provider limit, auth or timeout) propagates: the
+          // run stops before rendering instead of silently using rules.
+          requests++;
+          requestTokens += chunk.tokens;
+          if (r.decisionSource === "cache") cachedRequests++;
+          takeOutcome(r);
+          return r;
+        };
+        const outcomes = [await ask(cache)];
+        remaining -= chunk.tokens;
+        if (outcomes[0]!.decisionSource === "failed" && reasks > 0 && requestTokens + chunk.tokens + remaining + later <= reservedTokens) {
+          // A malformed chunk is asked once more without the cache; beats the
+          // re-ask still cannot map keep the first answer, then the rules.
+          reasks--;
+          outcomes.unshift(await ask({ get: async () => undefined, set: (k, v) => cacheFile.set(k, v) }));
+        }
+        for (const i of items) {
+          const viewport = i === 0 ? null : finalFrame(beats[i - 1]!, decisions[i - 1]!, winFor(beats[i]!.anchor_t - 1)?.rect ?? null, take.stream, aspect);
+          let d: Decision | null = null;
+          for (const o of outcomes) {
+            d = o.answers ? mapPlannerResponse(beats[i]!, beatAnswers(o.answers, beats[i]!.id), { ...mapCtx(i), viewport }) : null;
+            if (d) {
+              if (o.inputTokens) d.input_tokens = o.inputTokens;
+              break;
+            }
+          }
+          if (d) decisions[i] = d;
+          else failed++;
+        }
       }
     }
-
-    for (let i = 1; i < beats.length; i++) {
-      if (skipped.has(i)) continue;
-      const actual = shotDescription(beats[i - 1]!, decisions[i - 1]!, winFor(beats[i - 1]!.anchor_t)?.rect ?? null, take.stream, aspect, opts.capture);
-      if (actual === ctxs[i]!.currentShot) continue;
-      let state: unknown;
-      let questions: Record<string, Question>;
-      try {
-        const request = buildRequest(beats[i]!, { ...ctxs[i]!, currentShot: actual });
-        noteTrimmedContext(request.trimmed);
-        state = request.state;
-        questions = request.questions;
-      } catch (e) {
-        if (!(e instanceof RequestTooLarge)) throw e;
-        continue;
-      }
-      const r = await askBeat(state, questions, planner, cache, { fetchImpl: opts.fetchImpl,
-        usable: (answers) => toPlannerAnswers(answers) !== null &&
-          mapAnswers(beats[i]!, toPlannerAnswers(answers)!, mapCtx(i)) !== null,
-      });
-      takeOutcome(r);
-      if (r.decisionSource === "failed") continue;
-      const d = mapPlannerResponse(beats[i]!, r.answers!, {
-        ...mapCtx(i),
-        viewport: finalFrame(beats[i - 1]!, decisions[i - 1]!, winFor(beats[i]!.anchor_t - 1)?.rect ?? null, take.stream, aspect),
-      });
-      if (d) {
-        if (r.inputTokens) d.input_tokens = r.inputTokens;
-        decisions[i] = d;
-        if (failedBeats.delete(i)) failed--;
-      }
-    }
+    if (overReserve) warn(`planner: ${overReserve} beats keep the rules; their rebuilt chunk no longer fit the preflight reserve`);
   }
 
   // --plan-only without a planner credential: nothing planned, nothing rendered.
   if (opts.planOnly) {
-    return { take, beats, decisions, planner: { input_tokens: 0, output_tokens: 0, usd: 0, failed: 0 }, planned, out: null, seconds: 0 };
+    return { take, beats, decisions, planner: { input_tokens: 0, output_tokens: 0, usd: 0, failed: 0, requests: 0, cached: 0, request_tokens: 0 }, planned, out: null, seconds: 0 };
   }
 
   const renderDecisions: RenderDecision[] = decisions.map((d) => ({
@@ -520,12 +568,17 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
   writeFileSync(join(analysisDir, "decisions.jsonl"), renderDecisions.map((d) => JSON.stringify(d)).join("\n") + "\n");
   const byAi = decisions.filter((d) => d.decided_by === "ai").length;
   const byRule = decisions.length - byAi;
-  const plannerStats = { input_tokens: inputTokens, output_tokens: outputTokens, usd, failed };
+  const plannerStats: PlannerStats = {
+    input_tokens: inputTokens, output_tokens: outputTokens, usd, failed,
+    requests, cached: cachedRequests, request_tokens: requestTokens,
+  };
   take.planner = {
     mode: byAi > 0 ? "ai" : "fallback",
     backend: plannerBackend,
     model: plannerModel,
     ...plannerStats,
+    calls_per_min: Math.round((requests / minutes) * 10) / 10,
+    request_tokens_per_min: Math.round(requestTokens / minutes),
   };
   const renderMeta: RenderMeta = {
     id: take.id, width: take.stream.w, height: take.stream.h,
@@ -552,6 +605,8 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
     log(`plan: ${byAi} choices by AI, ${byRule} by rules. ` +
       `make: ${beats.length} beats; ${byAi} by ai, ${byRule} by heuristic; ` +
       `${inputTokens} input tokens, ${costText(usd)}, ${failed} failed`);
+    log(`planner: ${requests} requests (${cachedRequests} from cache), ${requestTokens} request tokens; ` +
+      `${take.planner.calls_per_min} calls a minute, ${take.planner.request_tokens_per_min} request tokens a minute`);
   } else {
     log(`make: ${beats.length} beats; ${byRule} by heuristic (planner: fallback)`);
   }

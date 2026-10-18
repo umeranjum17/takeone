@@ -31,6 +31,20 @@ export function heuristicDecision(
 
 export type BBoxFits = { bbox: [number, number, number, number] };
 
+/** The policy below in words, shown to the planner next to its suggestion. */
+export const RULE_WORDS: Record<Beat["kind"], string> = {
+  change: "change beat: frame the changed region",
+  click: "click beat: look at the control, end on the result",
+  dwell: "dwell beat: look at the control, end on the result",
+  shortcut: "shortcut beat: look at the control, end on the result",
+  type: "type beat: frame the text field",
+  drag: "drag beat: frame the pointer path",
+  travel: "travel beat: frame the pointer path",
+  scroll: "scroll beat: show the window",
+  cut: "cut beat: show the window",
+  idle: "idle beat: show the window, wide when long",
+};
+
 function heuristicA(beat: Beat): string {
   const z = (k: string) => beat.zones.find((x) => x.kind === k);
   switch (beat.kind) {

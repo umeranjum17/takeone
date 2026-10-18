@@ -1,11 +1,11 @@
 # Plan and render a recorded take (`make`)
 
-The core pipeline: `takeone make <id>` segments an existing take into beats, finds changed regions, decides each beat's shot (locally, or via the AI planner when a credential is set), and renders the framed MP4. `<id>` is a take directory name under the takes root or an absolute take path.
+The core pipeline: `takeone make <id>` segments an existing take into beats, finds changed regions, decides each beat's shot (locally, or via the AI planner for judgement beats when a credential is set), and renders the framed MP4. `<id>` is a take directory name under the takes root or an absolute take path.
 
 ## Sub-features
 
 - Beat segmentation and change-region analysis (`analysis/regions.json`, `analysis/beats.json`, `analysis/actions.json`, one decision per line in `analysis/decisions.jsonl`).
-- Local vs AI planning: `--no-ai` keeps every decision local (zero network); with a stored credential or explicitly picked plan account, the planner decides judgement beats inside a hard token preflight (`--max-tokens`, default 40k per take minute). Planner answers cache to `analysis/planner-cache.jsonl` — replanning an unchanged take costs nothing; `--replan` asks again.
+- Local vs AI planning: `--no-ai` keeps every decision local (zero network); with a stored credential or explicitly picked plan account, the planner decides judgement beats inside a hard token preflight (`--max-tokens`, default 40k per take minute). The `make` log prints `preflight: N beats, K chunks, X planned tokens` and, at the end, `planner: R requests (C from cache), T request tokens; ... calls a minute, ... request tokens a minute` (also in `take.json` `planner.calls_per_min` / `planner.request_tokens_per_min`). Planner answers cache to `analysis/planner-cache.jsonl` — replanning an unchanged take costs nothing; `--replan` asks again.
 - Picked-account planning: `planner.json` can explicitly select the installed Codex CLI ChatGPT-plan account or a BYOKit ChatGPT handle; TakeOne does not list or automatically select signed-in accounts.
 - `--goal "<sentence>"` sharpens key moments (always asked); `--style "<word>"` steers the film; screen words are read by default with a planner (`--no-screen-text` opts out; needs `tesseract`).
 - Theme selection (`--theme NAME`) and camera-setting overrides (`--set key=value`) at plan time.
@@ -24,7 +24,7 @@ Offline verification drive (no key, no network, no capture):
 node bin/takeone.mjs make /abs/path/to/take --no-ai --goal "Creating a task and moving it across a board"; echo "exit=$?"
 ```
 
-Proving end state: exit 0; `analysis/decisions.jsonl` has one line per decided beat; `out/<id>.mp4` exists and `ffprobe` reports the expected dimensions (default 1920×1080; 1080×1920 for portrait takes without `out_w`/`out_h` overrides); `take.json` carries updated usage/render metadata. For a planner-enabled drive, additionally check `analysis/planner-cache.jsonl` exists and `take.json`'s `planner.input_tokens` is within the preflight cap — and treat it as a billed run: verification defaults to `--no-ai`. A provider that cannot serve the run (rate limit, auth refusal, timeout) stops before rendering with exit 3 and the three choices.
+Proving end state: exit 0; `analysis/decisions.jsonl` has one line per decided beat; `out/<id>.mp4` exists and `ffprobe` reports the expected dimensions (default 1920×1080; 1080×1920 for portrait takes without `out_w`/`out_h` overrides); `take.json` carries updated usage/render metadata. For a planner-enabled drive, additionally check `analysis/planner-cache.jsonl` exists and `take.json`'s `planner.input_tokens` is within the preflight cap — and treat it as a billed run: verification defaults to `--no-ai`. A provider that cannot serve the run stops before rendering with exit 3 and the three choices.
 
 Error shapes worth asserting: `takeone make: no take at <dir> (take.json missing)` exits 2; `PreflightRefusal` exits 2 with a message naming the token cap.
 
