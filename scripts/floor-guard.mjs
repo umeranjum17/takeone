@@ -161,7 +161,9 @@ function assertedSubject(line) {
 }
 // Pair a rename only when every changed word is consistently new to the file, or when the same
 // one-word swap recurs in 2+ assertion pairs of the file (`r.jev.failed` -> `r.planner.failed` across
-// a test file that still names the jev provider). A one-off swap (r.failed -> r.skipped) stays flagged.
+// a test file that still names the jev provider), or when this diff deletes the old field from src/
+// and src/ has the new one (`r2.response` -> `r2.answers` once the code under test lost `.response`).
+// A one-off test-only swap (r.failed -> r.skipped) stays flagged.
 // ponytail: a one-off swap whose old word leaves the file entirely still pairs; review owns that.
 const WORD = /[A-Za-z_$][\w$]*/g;
 const shapeOf = (s) => s.replace(WORD, 'w');
@@ -179,10 +181,19 @@ for (const l of assertsLost) for (const g of assertsGained) {
   const changed = g.file === l.file ? wordChanges(l.subject, g.subject) : [];
   if (changed.length === 1) { const k = `${l.file}|${changed[0].join('|')}`; swapCount.set(k, (swapCount.get(k) ?? 0) + 1); }
 }
+// A field used as `.name`, or declared or keyed as `name:` / `name?:`, in non-test src/ (worktree when no rev).
+const fieldInSrc = (w, rev) => {
+  const e = w.replaceAll('$', '\\$');
+  const re = `\\.${e}([^A-Za-z0-9_$]|$)|(^|[{,])[[:space:]]*${e}\\??[[:space:]]*:`;
+  const out = git(['grep', '-l', '-E', re, ...(rev ? [rev] : []), '--', 'src']) ?? '';
+  return out.split('\n').map((l) => (rev ? l.slice(rev.length + 1) : l)).some((f) => f && isCode(f) && !isTest(f));
+};
+const fieldRenamed = (oldWord, newWord) => fieldInSrc(oldWord, mergeBase) && !fieldInSrc(oldWord) && fieldInSrc(newWord);
 const renamed = (file, a, b, before, after) => {
   const changed = wordChanges(a, b);
   return changed.length > 0 && changed.every(([oldWord, newWord]) =>
-    (!hasWord(after, oldWord) && !hasWord(before, newWord)) || (swapCount.get(`${file}|${oldWord}|${newWord}`) ?? 0) >= 2);
+    (!hasWord(after, oldWord) && !hasWord(before, newWord)) || (swapCount.get(`${file}|${oldWord}|${newWord}`) ?? 0) >= 2) ||
+    (changed.length === 1 && fieldRenamed(...changed[0]));
 };
 for (const lost of assertsLost) {
   if (deleted.includes(lost.file) || testDiet(lost.file)) continue; // test-deleted / test-diet own these
