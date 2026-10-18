@@ -521,9 +521,11 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
     ...d, conf: Math.max(0, Math.min(1, d.conf.A ?? d.conf.B ?? d.conf.L ?? 0)),
   }));
   writeFileSync(join(analysisDir, "decisions.jsonl"), renderDecisions.map((d) => JSON.stringify(d)).join("\n") + "\n");
+  const byAi = decisions.filter((d) => d.decided_by === "ai").length;
+  const byRule = decisions.length - byAi;
   const plannerStats = { input_tokens: inputTokens, output_tokens: outputTokens, usd, failed };
   take.planner = {
-    mode: planner ? "ai" : "fallback",
+    mode: byAi > 0 ? "ai" : "fallback",
     backend: plannerBackend,
     model: plannerModel,
     ...plannerStats,
@@ -549,8 +551,6 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
   writeFileSync(join(dir, "take.json"), JSON.stringify(meta, null, 1) + "\n");
   const { out, seconds: renderSeconds } = await renderTake(dir, camera);
 
-  const byAi = decisions.filter((d) => d.decided_by === "ai").length;
-  const byRule = decisions.length - byAi;
   if (planner) {
     log(`plan: ${byAi} choices by AI, ${byRule} by rules. ` +
       `make: ${beats.length} beats; ${byAi} by ai, ${byRule} by heuristic; ` +

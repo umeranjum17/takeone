@@ -761,6 +761,7 @@ test("every planner failure mode falls back to the heuristic and counts as faile
       const r = await fastTake(dir, { apiKey: KEY, fetchImpl: (async () => m.impl()) as typeof fetch, log: () => {}, warn: () => {} });
       assert.equal(r.decisions.filter((d) => d.decided_by === "ai").length, 0, m.name);
       assert.equal(r.planner.failed, r.beats.filter((b) => b.zones.length >= 2).length, m.name);
+      assert.equal(JSON.parse(readFileSync(join(dir, "take.json"), "utf8")).planner.mode, "fallback", m.name);
       // nothing ever waits on or fails because of Jev: the run still succeeded
       assert.ok(r.beats.length >= 2);
     } finally {
