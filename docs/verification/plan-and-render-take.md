@@ -32,6 +32,8 @@ Error shapes worth asserting: `takeone make: no take at <dir> (take.json missing
 
 For the installed Codex subscription, write `${XDG_CONFIG_HOME:-$HOME/.config}/takeone/planner.json` with `{"backend":"codex","auth":"account","account":"installed-codex","bin":"/absolute/path/to/codex","model":"gpt-6-luna"}`. Set `bin` to the already installed Codex executable; BYOKit checks its existing ChatGPT sign-in and never reads, copies or changes login files. This selection is explicit and the installed account is never offered or picked automatically.
 
+The board authorization for this live proof is limited to small runs and at most two attempts per take, through 21 Oct 11:50Z. These are limits on this proof authorization, not product-wide enforcement; a user-invoked live `make` may incur charges. Retain the token preflight: it refuses runs exceeding the configured cap before any planner call.
+
 Run `node bin/takeone.mjs make <take-dir>` with normal `HOME` and no `--no-ai`. A successful live proof requires exit 0, `take.json` with `planner.mode: "ai"`, the selected model, reported token counts and `planner.usd` (null means cost unknown), plus `analysis/decisions.jsonl` with `decided_by: "ai"` for every planned beat. Keep the make log, rendered MP4 and a contact sheet; derive tokens and known cost per output-video minute from `take.json` totals and the MP4 duration reported by `ffprobe`. Do not treat planned calls as completed calls or infer a price when `planner.usd` is null.
 
 ## done-done: 4K action and manual camera proof
