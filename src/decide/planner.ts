@@ -7,9 +7,11 @@
 // provider is never switched automatically: limits, auth errors and timeouts
 // stop with PlannerUnavailable instead of silently falling back.
 //
-// Answer validation stays takeone's own mapping (mapAnswers). Kit-level
+// Answer validation stays takeone's own mapping (mapAnswers): the kit floor is
+// set to 0 on our questions so a merely unsure answer still widens through the
+// existing uncertainty rules instead of dropping the whole beat. Kit-level
 // abstention (malformed answers) and transport failures fall back per beat, as
-// before.
+// before. Kit floors engage with per-field fallback in a later slice.
 
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { userInfo } from "node:os";

@@ -8,6 +8,12 @@ export const JEV_MODEL = "jev-latest";
 export const REQUEST_TOKEN_CAP = 1200;
 export const CHARS_PER_TOKEN = 3.5;
 
+/** Kit floor on our questions. Zero: takeone's own mapping (mapAnswers) is the
+ * single validator in slice 1, so a merely unsure answer still widens through
+ * the uncertainty rules instead of dropping the whole beat. Malformed answers
+ * still abstain at any floor. Kit floors engage with per-field fallback later. */
+export const QUESTION_FLOOR = 0;
+
 export class RequestTooLarge extends Error {}
 
 export interface RequestCtx {
@@ -123,18 +129,21 @@ export function buildQuestions(state: JevRequest["state"]): Record<string, Quest
   const q: Record<string, Question> = {
     focus_start: {
       kind: "choice",
+      floor: QUESTION_FLOOR,
       options: zoneNames,
       instructions:
         "At the START of `beat`, which zone should the viewer be looking at to see the action the user takes? Pick the zone where the user's action happens.",
     },
     focus_end: {
       kind: "choice",
+      floor: QUESTION_FLOOR,
       options: zoneNames,
       instructions:
         "At the END of `beat`, which zone should the viewer be looking at to understand the result of the action? Pick the zone that shows what changed because of the action; pick the same zone as the action if nothing else changed.",
     },
     tightness: {
       kind: "score",
+      floor: QUESTION_FLOOR,
       instructions:
         "How closely should the camera frame the zone the viewer should look at, so a viewer on a laptop screen can follow this beat?",
       levels: [
@@ -146,6 +155,7 @@ export function buildQuestions(state: JevRequest["state"]): Record<string, Quest
     },
     new_subject: {
       kind: "yesno",
+      floor: QUESTION_FLOOR,
       question:
         "The viewer's attention must move to a different part of the screen than `current_shot` shows during this beat.",
       yes: "What matters in this beat is outside or much smaller than the current shot",
@@ -153,6 +163,7 @@ export function buildQuestions(state: JevRequest["state"]): Record<string, Quest
     },
     key_moment: {
       kind: "score",
+      floor: QUESTION_FLOOR,
       instructions: state.goal
         ? "How important is this beat to the story of `goal`?"
         : "How important is this beat to the demo as a whole?",
@@ -167,7 +178,7 @@ export function buildQuestions(state: JevRequest["state"]): Record<string, Quest
 }
 
 /** Mirror of @byokit/decide's internal wire(): Question -> planner JSON, used
- *  only for the token estimate. Kit floors stay kit-side
+ *  only for the token estimate. The kit floors (floor: 0 here) stay kit-side
  *  and never enter the body. */
 function toWire(questions: Record<string, Question>): Record<string, unknown> {
   return Object.fromEntries(
