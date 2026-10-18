@@ -1,4 +1,5 @@
 import type { Beat, Decision } from "../camera/types.ts";
+import { tapZoneBBox } from "../beats/zones.ts";
 
 /** Android's known tap coordinates outrank whole-screen changes from opening
  * dialogs. Each tap gets a settled shot; wide exports re-aim on the same row. */
@@ -17,8 +18,7 @@ export function phoneTapShots(beats: Beat[], width: number, height: number): { b
   const shots: Beat[] = [...taps.values()].sort((a, b) => a.t - b.t).map((tap, i) => ({
     id: `phone-tap-${i}`, kind: "click", t0: tap.t, t1: tap.t + 0.3, anchor_t: tap.t,
     actions: [{ k: "click", t: tap.t * 1000, x: tap.x, y: tap.y }],
-    zones: [{ name: "tap", type: "act", bbox: [Math.max(0, Math.min(width - 128, tap.x - 64)),
-      Math.max(0, Math.min(height - 128, tap.y - 64)), Math.min(128, width), Math.min(128, height)] }],
+    zones: [{ name: "tap", type: "act", bbox: tapZoneBBox(tap.x, tap.y, width, height)! }],
   }));
   return { beats: shots, decisions: shots.map(beat => ({ beat: beat.id, A: "tap", L: 2,
     p: 0, K: 1, conf: 1, decided_by: "android-tap" })) };

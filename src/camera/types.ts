@@ -35,6 +35,7 @@ export interface Beat {
   actions: unknown[];
   zones: Zone[];
   kind: BeatKind;
+  hint?: string;
   /** UI revealed by a dialog dismissal, independent of the selected shot. */
   dialog_results?: { t: number; bbox: [number, number, number, number] }[];
   /** Cut beats: changed_frac at each analysis frame after the cut (video-relative s). */
@@ -67,6 +68,7 @@ export interface TakeEdits {
 }
 
 export interface TakeMeta extends TakeEdits {
+  planner?: { mode: "ai" | "fallback" };
   /** Mobile capture renders inside a handset frame. */
   device?: "android" | "ios";
   theme?: string;

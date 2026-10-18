@@ -125,6 +125,8 @@ export interface Beat {
   actions: Action[];
   zones: Zone[];
   kind: BeatKind;
+  /** Render hint for the model, such as the tapped control on Android. */
+  hint?: string;
   /** change regions attached as the beat's result (design 7.1 step 3), largest first */
   results?: Region[];
 }
