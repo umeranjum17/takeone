@@ -40,7 +40,7 @@ test("floor guard passes renamed tests and assertions, still flags real removals
     git("checkout", "-q", "-b", "change");
 
     const renamed = BASE.replaceAll("--no-jev", "--no-ai").replaceAll("r.jev.", "r.planner.").replace('=== "jev"', '=== "ai"');
-    assert.equal(guard(renamed), 0, "a rename is not a removal");
+    assert.equal(guard(renamed), 1, "renaming a skipped test does not exempt its skip");
     assert.equal(guard(BASE.replace("r.jev.failed, 0", "r.jev.skipped, 0") + "// failed beats\n"), 1, "a same-shape swap is not a rename while the old word remains");
     assert.equal(guard(BASE.replaceAll("r.jev.", "r.planner.")), 0, "a one-word swap recurring across assertions is a rename even while the old word remains");
     const answersSwap = BASE.replace("r2.response,", "r2.answers,");
