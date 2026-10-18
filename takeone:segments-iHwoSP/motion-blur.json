@@ -1,0 +1,71 @@
+{
+  "strength": 1,
+  "shutterDegrees": 180,
+  "frames": 264,
+  "blurredFrames": 75,
+  "samples": 18,
+  "maxSpacingPx": 1.9846543879394967,
+  "warpWorkRatio": 2.303030303030303,
+  "tiers": [
+    {
+      "samples": 1,
+      "frames": 189
+    },
+    {
+      "samples": 3,
+      "frames": 18
+    },
+    {
+      "samples": 4,
+      "frames": 27
+    },
+    {
+      "samples": 7,
+      "frames": 1
+    },
+    {
+      "samples": 11,
+      "frames": 1
+    },
+    {
+      "samples": 14,
+      "frames": 3
+    },
+    {
+      "samples": 12,
+      "frames": 3
+    },
+    {
+      "samples": 10,
+      "frames": 1
+    },
+    {
+      "samples": 8,
+      "frames": 1
+    },
+    {
+      "samples": 6,
+      "frames": 3
+    },
+    {
+      "samples": 9,
+      "frames": 1
+    },
+    {
+      "samples": 17,
+      "frames": 1
+    },
+    {
+      "samples": 18,
+      "frames": 1
+    },
+    {
+      "samples": 16,
+      "frames": 1
+    },
+    {
+      "samples": 5,
+      "frames": 13
+    }
+  ]
+}

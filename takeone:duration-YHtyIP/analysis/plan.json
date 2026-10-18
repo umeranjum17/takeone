@@ -1,0 +1,17 @@
+{
+ "version": 1,
+ "beats": [
+  {
+   "id": "b1",
+   "shot": {
+    "by": "rule"
+   },
+   "idle": {
+    "by": "rule"
+   },
+   "follow": {
+    "by": "rule"
+   }
+  }
+ ]
+}
