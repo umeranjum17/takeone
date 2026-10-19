@@ -54,7 +54,7 @@ The polished video lands at `/tmp/takes/synth-demo/out/synth-demo.mp4`, next to 
 
 ### 2. Let the planner decide (AI by default)
 
-The planner is AI by default: whenever a credential is set, `takeone make` asks the configured model for each beat that needs judgement and records `planner.mode: "ai"` when AI decisions are used in `take.json`. Beats with no choice to make use the local rules. With no credential it renders anyway with loud fallback rules (`planner.mode: "fallback"`); `--no-ai` forces the fallback even with a credential. Calls are batched in ordered chunks; see [cost and chunking](cost.md#slice-3-batched-chunks-measured-offline).
+The planner is AI by default: whenever a credential is set, `takeone make` asks the configured model for each beat that needs judgement and records `planner.mode: "ai"` when AI decisions are used in `take.json`. Beats with no choice to make use the local rules. With no credential it renders anyway with loud fallback rules (`planner.mode: "fallback"`); `--no-ai` forces the fallback even with a credential. Calls are batched in ordered chunks; see [cost and chunking](cost.md#slice-3-batched-chunks-measured-offline). One extra film call per take also picks the look; see [Plan and render](#plan-and-render).
 
 Store your key with `takeone key set`, which reads one key line from piped stdin and records the provider choice. For example, in Bash, this hidden prompt keeps it out of argv and shell history:
 

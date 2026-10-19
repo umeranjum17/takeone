@@ -55,7 +55,7 @@ export interface MakeOptions {
   noAi?: boolean;
   /** What the demo is for; sharpens key moments. Alias --about. */
   goal?: string;
-  /** Style hint for the film call (slice 5); recorded, not yet decided on. */
+  /** Style hint for the film call. */
   style?: string;
   /** Opt out of screen words (on by default when the planner runs). */
   noScreenText?: boolean;
