@@ -1,8 +1,11 @@
 // The film call: one planner call per take picks the theme, pace, opening,
-// ending and camera style from the whole take, before the beat chunks, plus the
-// title and per-beat captions when the backend returns text. These are the pure
-// builders and the answer mapping; make.ts asks and applies. A field the
-// planner abstains on keeps the base look (no override).
+// ending and camera style, plus the title and per-beat captions when the backend
+// returns text. A take over one request's cap is planned in chunks: the first
+// chunk picks the film-wide look, the last picks the ending, every chunk writes
+// the captions of its own beats, and each chunk after the first is given a short
+// summary of the chunk before it. These are the pure builders and the answer
+// mapping; make.ts asks and applies. A field the planner abstains on keeps the
+// base look (no override).
 
 import type { Answer, Question } from "@byokit/decide";
 import { type Overrides, type CameraDefaults } from "../camera/defaults.ts";
@@ -74,16 +77,66 @@ export interface FilmCtx {
   text: boolean;
 }
 
-/** The film request, or null when even the whole take is too long for one call. */
-export function buildFilm(ctx: FilmCtx): { state: Record<string, unknown>; questions: Record<string, Question>; tokens: number; endings: string[] } | null {
-  const endings = ctx.beats.slice(-ENDING_CANDIDATES);
+/** One film call: a part of the take's beats with its questions and estimated
+ * tokens. `endings` is the ending question's choices, in the part that holds the
+ * take's last beats; it is empty for every other part. */
+export interface FilmPart {
+  state: Record<string, unknown>;
+  questions: Record<string, Question>;
+  tokens: number;
+  endings: string[];
+}
+
+/** The film calls for one take, in order, and their total estimated tokens.
+ * Every chunk that holds beats is a call: no beat may be skipped between chunks. */
+export interface FilmPlan {
+  calls: FilmPart[];
+  tokens: number;
+}
+
+/** One beat on the timeline, in the words every film request uses. */
+function timelineLine(b: Beat): string {
+  return `${b.id}, ${((b.t1 - b.t0) / 1000).toFixed(1)} seconds: ${whatHappened(b)}`;
+}
+
+/** Characters of the previous chunk kept as the short summary the next chunk
+ * reads (~170 estimated tokens), counted from its end: the beats just before are
+ * what the next chunk continues from. */
+// ponytail: a fixed tail budget, not a rolling summary of the whole film. Upgrade
+// path: let each chunk write the summary of the next one, in a slice of its own.
+const SUMMARY_CHARS = 600;
+
+/** What the film already covered before a part, in a short summary: how many
+ * beats came before, then the last of the previous chunk's beats, in the words
+ * the timeline uses. */
+function beforeChunk(ctx: FilmCtx, beats: Beat[]): string {
+  const tail: string[] = [];
+  let used = 0;
+  for (let i = beats.length - 1; i >= 0; i--) {
+    const line = timelineLine(beats[i]!);
+    if (used + line.length > SUMMARY_CHARS) break;
+    tail.unshift(line);
+    used += line.length;
+  }
+  const from = beats[0]!.id;
+  const to = beats.at(-1)!.id;
+  const head = `The film planned beats ${from}-${to} of ${ctx.beats.length} before this part`;
+  return `${head}. ${tail.length === beats.length ? "They showed, in order" : `The last ${tail.length} of them`}:\n${tail.join("\n")}`;
+}
+
+/** One film call over `beats`: the film-wide questions in the first part, the
+ * ending in the last, and the title and captions of these beats in every part.
+ * Null when this part is over one request's cap. */
+function buildFilmPart(ctx: FilmCtx, beats: Beat[], before: string | undefined, first: boolean, last: boolean): FilmPart | null {
+  const endings = last ? ctx.beats.slice(-ENDING_CANDIDATES) : [];
   const state = {
     ...(ctx.goal ? { goal: ctx.goal } : {}),
     ...(ctx.style ? { style: ctx.style } : {}),
     take: { length: `${ctx.seconds.toFixed(1)} seconds`, source: ctx.source, device: ctx.device, app_brightness: ctx.brightness },
-    timeline: ctx.beats.map((b) => `${b.id}, ${((b.t1 - b.t0) / 1000).toFixed(1)} seconds: ${whatHappened(b)}`),
+    ...(before !== undefined ? { before_this_chunk: before } : {}),
+    timeline: beats.map(timelineLine),
   };
-  const questions: Record<string, Question> = {
+  const filmWide: Record<string, Question> = {
     theme: {
       kind: "choice",
       options: Object.fromEntries(Object.entries(THEME_NOTES)),
@@ -99,27 +152,110 @@ export function buildFilm(ctx: FilmCtx): { state: Record<string, unknown>; quest
       options: Object.fromEntries(Object.entries(OPENINGS).map(([k, v]) => [k, v.label])),
       instructions: "How should the film open, before the first move?",
     },
-    ending: {
-      kind: "choice",
-      options: Object.fromEntries(endings.map((b) => [b.id, whatHappened(b)])),
-      instructions: "Which beat should the film end on? The film keeps a short outro after it.",
-    },
     camera_style: {
       kind: "choice",
       options: Object.fromEntries(Object.entries(CAMERA_STYLES).map(([k, v]) => [k, v.label])),
       instructions: "Calm: hold each framing and move only between them. Lively: the camera follows the action.",
     },
-    ...(ctx.text ? { titled: {
+  };
+  const captions = `captions: a list of {beat, text} for the beats worth a line, each text in at most ${CAPTION_MAX} characters, ` +
+    "plain words, with beat set to an id from the timeline.";
+  // A middle chunk of a text-less planner has no caption question, so it would
+  // ask nothing. Ask the film-wide questions there too: every beat must be
+  // planned by a request, and the first chunk's answer still wins in joinFilm.
+  const askFilmWide = first || (!ctx.text && !last);
+  const questions: Record<string, Question> = {
+    ...(askFilmWide ? filmWide : {}),
+    ...(last ? { ending: {
+      kind: "choice",
+      options: Object.fromEntries(endings.map((b) => [b.id, whatHappened(b)])),
+      instructions: "Which beat should the film end on? The film keeps a short outro after it.",
+    } } : {}),
+    // The title is the film's, so only the first part asks for it; the later
+    // parts caption their own beats under the first part's title.
+    ...(ctx.text ? { titled: first ? {
       kind: "yesno",
       question: "Does a viewer need a title and captions to follow this film? Answer yes when the subject or a step is not clear from the screen alone. " +
-        `When yes, also give title: the film's subject in at most ${TITLE_MAX} characters; and captions: a list of {beat, text} for the beats worth a line, ` +
-        `each text in at most ${CAPTION_MAX} characters, plain words, with beat set to an id from the timeline.`,
+        `When yes, also give title: the film's subject in at most ${TITLE_MAX} characters; and ${captions}`,
       answerFields: ["title", "captions"],
+    } as Question : {
+      kind: "yesno",
+      question: "Does a viewer need a caption on any of these beats? Answer yes when a step or its result is not clear from the screen alone. " +
+        `The film's title and the earlier beats are already written. When yes, also give ${captions}`,
+      answerFields: ["captions"],
     } as Question } : {}),
   };
   const tokens = estimateTokens(JSON.stringify({ model: JEV_MODEL, state, questions: toWire(questions) }));
-  const endingIds = endings.map((b) => b.id);
-  return tokens > CHUNK_TOKEN_CAP ? null : { state, questions, tokens, endings: endingIds };
+  return tokens > CHUNK_TOKEN_CAP ? null : { state, questions, tokens, endings: endings.map((b) => b.id) };
+}
+
+/**
+ * The film requests for a take: one call when the whole take fits under
+ * CHUNK_TOKEN_CAP, else a chain of chunks. Each chunk takes as many beats as fit,
+ * and the one after it is told what the beats before it planned, so a long take
+ * is split rather than trimmed. Null only when a single beat is over the cap on
+ * its own; the caller then keeps the base look.
+ */
+export function planFilm(ctx: FilmCtx): FilmPlan | null {
+  if (ctx.beats.length === 0) return null;
+  const calls: FilmPart[] = [];
+  let before: string | undefined;
+  for (let i = 0; i < ctx.beats.length;) {
+    let part: FilmPart | null = null;
+    let end = i + 1;
+    // Grow the chunk one beat at a time until the next beat would break the cap.
+    // ponytail: this re-measures the chunk for every extra beat; a take long
+    // enough to notice wants a binary search instead.
+    for (let j = i + 1; j <= ctx.beats.length; j++) {
+      const next = buildFilmPart(ctx, ctx.beats.slice(i, j), before, i === 0, j === ctx.beats.length);
+      if (!next) break;
+      part = next;
+      end = j;
+    }
+    if (!part) return null;
+    calls.push(part);
+    before = beforeChunk(ctx, ctx.beats.slice(i, end));
+    i = end;
+  }
+  return { calls, tokens: calls.reduce((n, c) => n + c.tokens, 0) };
+}
+
+/** The film's text answers joined over the calls that asked for them: the first
+ * title any call gave, and every call's captions in order. */
+function joinText(answers: Answer[]): Answer | undefined {
+  const given = answers.filter((a) => !a.abstained && a.answer === true);
+  if (given.length === 0) return undefined;
+  const fields = given.map((a) => a as unknown as Record<string, unknown>);
+  const title = fields.find((f) => f.title !== undefined)?.title;
+  const captions = fields.flatMap((f) => (Array.isArray(f.captions) ? f.captions : []));
+  return {
+    answer: true,
+    confidence: Math.max(...given.map((a) => a.confidence)),
+    abstained: false,
+    by: given[0]!.by,
+    ms: given.reduce((n, a) => n + a.ms, 0),
+    ...(title !== undefined ? { title } : {}),
+    captions,
+  } as Answer;
+}
+
+/** One answer record from a take's film calls: a film-wide answer comes from the
+ * call that asked it, and the title and captions of every call are joined. */
+export function joinFilm(parts: (Record<string, Answer> | undefined)[]): Record<string, Answer> {
+  const joined: Record<string, Answer> = {};
+  const texts: Answer[] = [];
+  for (const answers of parts) {
+    for (const [key, answer] of Object.entries(answers ?? {})) {
+      if (key === "titled") texts.push(answer);
+      else if (joined[key] === undefined) joined[key] = answer;
+    }
+  }
+  const text = joinText(texts);
+  if (text !== undefined) joined.titled = text;
+  // No call gave text: keep the first answer, so the log still shows the field
+  // the planner was asked and marked "rule".
+  else if (texts.length > 0) joined.titled = texts[0]!;
+  return joined;
 }
 
 /** Caption timing for each beat: the start in video-relative seconds (`seconds`
