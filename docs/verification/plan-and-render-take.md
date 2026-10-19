@@ -31,7 +31,7 @@ Error shapes worth asserting: `takeone make: no take at <dir> (take.json missing
 
 ## Live planner run on the installed pi
 
-Write `${XDG_CONFIG_HOME:-$HOME/.config}/takeone/planner.json` with `{"backend":"pi","bin":"/absolute/path/to/pi","model":"deepseek/deepseek-flash"}`. `bin` is the person's own installed pi and `model` any model that pi can reach; BYOKit runs it once per planner call in JSON mode with no tools, extensions, skills, prompt templates, context files or session, and never reads or copies pi's key or settings. TakeOne probes readiness first with `pi auth check --model <model> --json` (`status: "ready"`): `takeone doctor | grep ai-planner` prints `AI planner: pi (<model>)` when it passes, and `make` stops with exit 3 and that check when it does not — a missing binary or an unsigned model never falls back to rules.
+Write `${XDG_CONFIG_HOME:-$HOME/.config}/takeone/planner.json` with `{"backend":"pi","bin":"/absolute/path/to/pi","model":"deepseek/deepseek-flash"}`. `bin` is the person's own installed pi and `model` any model that pi can reach; BYOKit runs it once per planner call in JSON mode with no tools, extensions, skills, prompt templates, context files or session, and never reads or copies pi's key or settings. TakeOne probes readiness first with `pi auth check --model <model> --json` (`status: "ready"`): `takeone doctor | grep ai-planner` prints `AI planner: found and using pi (<model>)` when it passes, and `make` stops with exit 3 and that check when it does not — a missing binary or an unsigned model never falls back to rules.
 
 Drive it on a real take with the person's normal `HOME` and their already signed-in pi, no `--no-ai`:
 

@@ -296,7 +296,7 @@ test("a signed-in CLI probe that cannot run leaves the planner on local rules in
     const resolved = await resolvePlanner({
       configDir,
       probe: true,
-      env: { HOME: dir, XDG_CONFIG_HOME: configDir, PATH: `${binDir}:${process.env.PATH ?? "/usr/bin:/bin"}` },
+      env: { HOME: dir, XDG_CONFIG_HOME: configDir, PATH: binDir, TAKEONE_NO_KEYRING: "1" },
       store: empty as unknown as Keystore,
     });
     assert.equal(resolved.config.backend, "jev");
@@ -315,7 +315,7 @@ test("an installed Claude CLI signed in with an API key is not offered, so a sto
     mkdirSync(join(configDir, "takeone"), { recursive: true });
     mkdirSync(binDir);
     const claude = join(binDir, "claude");
-    writeFileSync(claude, `#!/usr/bin/env node
+    writeFileSync(claude, `#!${process.execPath}
 const args = process.argv.slice(2);
 if (args.includes("auth") && args.includes("status")) {
   process.stdout.write(JSON.stringify({ loggedIn: true, authMethod: "api_key", apiProvider: "firstParty" }) + "\\n");
@@ -330,7 +330,7 @@ process.exit(2);
     };
     const resolved = await resolvePlanner({
       configDir,
-      env: { HOME: dir, XDG_CONFIG_HOME: configDir, PATH: `${binDir}:${process.env.PATH ?? "/usr/bin:/bin"}`, TAKEONE_NO_KEYRING: "1" },
+      env: { HOME: dir, XDG_CONFIG_HOME: configDir, PATH: binDir, TAKEONE_NO_KEYRING: "1" },
       store: store as unknown as Keystore,
     });
     assert.equal(resolved.config.backend, "jev", "a sign-in the Claude backend refuses was offered");
@@ -350,7 +350,7 @@ test("an ambient subscription token does not make a signed-out Claude CLI look r
     mkdirSync(join(configDir, "takeone"), { recursive: true });
     mkdirSync(binDir);
     const claude = join(binDir, "claude");
-    writeFileSync(claude, `#!/usr/bin/env node
+    writeFileSync(claude, `#!${process.execPath}
 const args = process.argv.slice(2);
 if (args.includes("auth") && args.includes("status")) {
   const sub = Boolean(process.env.CLAUDE_CODE_OAUTH_TOKEN);
@@ -366,7 +366,7 @@ process.exit(2);
     };
     const resolved = await resolvePlanner({
       configDir,
-      env: { HOME: dir, XDG_CONFIG_HOME: configDir, PATH: `${binDir}:${process.env.PATH ?? "/usr/bin:/bin"}`, TAKEONE_NO_KEYRING: "1", CLAUDE_CODE_OAUTH_TOKEN: "ambient-token" },
+      env: { HOME: dir, XDG_CONFIG_HOME: configDir, PATH: binDir, TAKEONE_NO_KEYRING: "1", CLAUDE_CODE_OAUTH_TOKEN: "ambient-token" },
       store: store as unknown as Keystore,
     });
     assert.equal(resolved.config.backend, "jev", "the probe used a token the Claude backend unsets");
@@ -385,7 +385,7 @@ test("a saved installed-CLI account that cannot serve names the refusal instead 
     mkdirSync(join(configDir, "takeone"), { recursive: true });
     mkdirSync(binDir);
     const claude = join(binDir, "claude");
-    writeFileSync(claude, `#!/usr/bin/env node
+    writeFileSync(claude, `#!${process.execPath}
 const args = process.argv.slice(2);
 if (args.includes("auth") && args.includes("status")) {
   process.stdout.write(JSON.stringify({ loggedIn: true, authMethod: "api_key", apiProvider: "firstParty" }) + "\\n");
@@ -399,7 +399,7 @@ process.exit(2);
     const resolved = await resolvePlanner({
       configDir,
       probe: true,
-      env: { HOME: dir, XDG_CONFIG_HOME: configDir, PATH: `${binDir}:${process.env.PATH ?? "/usr/bin:/bin"}`, TAKEONE_NO_KEYRING: "1" },
+      env: { HOME: dir, XDG_CONFIG_HOME: configDir, PATH: binDir, TAKEONE_NO_KEYRING: "1" },
       store: empty as unknown as Keystore,
     });
     assert.equal(resolved.defaulted, false);
@@ -422,7 +422,7 @@ test("a saved installed-CLI account whose state folder cannot be created is refu
     const resolved = await resolvePlanner({
       configDir,
       probe: true,
-      env: { HOME: dir, XDG_CONFIG_HOME: configDir, PATH: `${join(dir, "bin")}:${process.env.PATH ?? "/usr/bin:/bin"}`, TAKEONE_NO_KEYRING: "1" },
+      env: { HOME: dir, XDG_CONFIG_HOME: configDir, PATH: join(dir, "bin"), TAKEONE_NO_KEYRING: "1" },
       store: empty as unknown as Keystore,
     });
     assert.equal(resolved.defaulted, false);
