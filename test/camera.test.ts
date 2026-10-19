@@ -1072,6 +1072,47 @@ test("text guard samples the last frame of a recording that ends before the take
   }
 });
 
+// The safe-area gate judges the text each frame paints. A push-in crops the screen card, so a
+// box the crop hides or cuts is not text in the outer 5% of the output; text the frame paints
+// there is, and must still stop the render. One journey, both ways, through the real renderer.
+test("the safe-area gate judges the text a push-in paints", { timeout: 120_000 }, async () => {
+  // New tests cannot declare the needsFfmpeg skip (the floor guard blocks new skips).
+  if (!hasFfmpeg()) throw new Error("requires system ffmpeg and ffprobe on PATH");
+  // A 2x source held at the upscale ceiling crops 320x180 source px into the 320x180 output;
+  // the trim starts inside the hold, so the camera is settled and the crop does not move.
+  const render = async (title: string | undefined, boxes: [number, number, number, number, string][]) => {
+    const dir = await mkdtemp(join(tmpdir(), "takeone:safe-area-"));
+    await mkdir(join(dir, "analysis"));
+    execFileSync("ffmpeg", ["-v", "error", "-f", "lavfi", "-i", "color=c=navy:s=640x360:r=30:d=4",
+      "-c:v", "mpeg4", "-q:v", "2", "-f", "matroska", "-y", join(dir, "screen.webm")]);
+    await writeFile(join(dir, "take.json"), JSON.stringify({ id: "safe-area", width: 640, height: 360,
+      trim_start: 2, trim_end: 3.2, ...(title ? { title } : {}),
+      zooms: [{ t0: 0.3, t1: 3.5, bbox: [440, 60, 120, 90], level: 3 }] }));
+    await writeFile(join(dir, "analysis/beats.json"), "[]");
+    await writeFile(join(dir, "analysis/decisions.jsonl"), "");
+    await writeFile(join(dir, "text-boxes.json"), JSON.stringify({ space: "stream px", clock: "video s",
+      samples: [{ t: 0, boxes }] }));
+    return dir;
+  };
+  const cut = [500, 10, 60, 12, "cut by the crop"] as [number, number, number, number, string];
+  // A title keeps the screen card inside the output inset: the box's top rows fall on the
+  // background ring above the card, so the render must pass, and the box the crop hides must
+  // not even be counted.
+  const titled = await render("Board demo", [cut, [60, 60, 80, 12, "hidden by the crop"]]);
+  try {
+    await renderTake(titled, FAST);
+    const report = JSON.parse(await readFile(join(titled, "safe-area.json"), "utf8"));
+    assert.equal(report.failures.length, 0);
+    assert.equal(report.checked, 74, "one shown box across the held frames, and no placement for the hidden one");
+  } finally { await rm(titled, { recursive: true, force: true }); }
+  // Without a title the card fills the frame, so the same box is painted in the outer 5%.
+  const untitled = await render(undefined, [cut]);
+  try {
+    await assert.rejects(renderTake(untitled, FAST), /safe area: 73 text box placements cross the 5% inset .* "cut by the crop"/);
+    assert.ok(JSON.parse(await readFile(join(untitled, "safe-area.json"), "utf8")).failures.length);
+  } finally { await rm(untitled, { recursive: true, force: true }); }
+});
+
 test("a planner shot=false on a click beat removes its camera move", () => {
   const click: Beat = { id: "b1", t0: 3, t1: 6, anchor_t: 4, kind: "click", zones: [zone("z1", [1500, 900, 300, 200])],
     actions: [{ k: "click", t: 4000, x: 1650, y: 1000, window_cls: "x" } as Action] };

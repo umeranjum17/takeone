@@ -18,7 +18,7 @@ import { cursorAss } from "./cursor.ts";
 import { firstFrameTimeMs, readEvents } from "../perceive/decode.ts";
 import { phoneTapShots } from "./phone.ts";
 import { edgeCuts, cutCount, holdPath, lastFrameSecond, videoFrames } from "./framing.ts";
-import { SAFE_INSET, safeAreaReport } from "./safe-area.ts";
+import { SAFE_INSET, safeAreaReport, type Rect } from "./safe-area.ts";
 import { typingBursts, editBeats, editTimeline, validateEdits, validateZooms } from "./edits.ts";
 import { applyPlan, readPlan } from "../decide/plan.ts";
 import { withFilmText } from "../decide/film.ts";
@@ -248,9 +248,13 @@ export async function renderTake(dir: string, d?: CameraDefaults): Promise<{ out
   const commandFile = join(dir, "camera.cmd");
   // With a band the camera frames the screen alone, into the fixed card.
   const stageCamera = band ? bandFrames(frames, band, d) : stageFrames(frames, meta.width, meta.height, stage, d);
+  // The source region each frame paints: the band crops screen.webm to its frame, the stage
+  // crops the card at the screen's origin inside it. Text outside this is not shown at all.
+  const drawn: Rect[] = band ? frames.map(f => [f.x, f.y, f.x + f.w, f.y + f.h])
+    : stageCamera.map(f => [f.x - stage.screenX, f.y - stage.screenY, f.x + f.w - stage.screenX, f.y + f.h - stage.screenY]);
   const view = band ? { ...d, out_w: stage.baseW, out_h: stage.baseH } : d;
   // A take that carries its text boxes renders only when every shown box sits in the safe area.
-  const safe = safeAreaReport(dir, stageCamera, band ? { x: 0, y: 0 } : { x: stage.screenX, y: stage.screenY },
+  const safe = safeAreaReport(dir, stageCamera, drawn, band ? { x: 0, y: 0 } : { x: stage.screenX, y: stage.screenY },
     { w: d.out_w, h: d.out_h, fps: d.fps }, sourceAt,
     captionLayouts(captions, captionInk, text, phone && d.out_w > d.out_h, band, toasts).map(({ cx, cy, w, h, rise }, i) => (
       { t: captions[i]!.t0, label: captions[i]!.text, box: [cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2 + rise] })));
