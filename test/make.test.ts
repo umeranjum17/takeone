@@ -377,6 +377,40 @@ process.exit(2);
   }
 });
 
+test("a Claude CLI that reports signed out is not described as an API-key sign-in", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "takeone-cli-signedout-"));
+  try {
+    const configDir = join(dir, "config");
+    const binDir = join(dir, "bin");
+    mkdirSync(join(configDir, "takeone"), { recursive: true });
+    mkdirSync(binDir);
+    const claude = join(binDir, "claude");
+    writeFileSync(claude, `#!${process.execPath}
+const args = process.argv.slice(2);
+if (args.includes("auth") && args.includes("status")) {
+  const other = Boolean(process.env.CLAUDE_CONFIG_DIR);
+  process.stdout.write(JSON.stringify(other ? { loggedIn: false } : { loggedIn: true, authMethod: "claude.ai", apiProvider: "firstParty" }) + "\\n");
+  process.exit(0);
+}
+process.exit(2);
+`);
+    chmodSync(claude, 0o755);
+    writeFileSync(join(configDir, "takeone", "planner.json"), JSON.stringify({ backend: "claude-code", auth: "account", account: "installed-claude", bin: claude }));
+    const empty = { get: async () => null, set: async () => {}, delete: async () => {} };
+    const resolved = await resolvePlanner({
+      configDir,
+      probe: true,
+      env: { HOME: dir, XDG_CONFIG_HOME: configDir, PATH: binDir, TAKEONE_NO_KEYRING: "1", CLAUDE_CONFIG_DIR: join(dir, "other-claude") },
+      store: empty as unknown as Keystore,
+    });
+    assert.equal(resolved.active, false);
+    assert.doesNotMatch(resolved.refusal ?? "", /API key/);
+    assert.match(resolved.refusal ?? "", /does not report a claude\.ai subscription sign-in/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("a saved installed-CLI account that cannot serve names the refusal instead of claiming a sign-in", async () => {
   const dir = mkdtempSync(join(tmpdir(), "takeone-cli-refusal-"));
   try {

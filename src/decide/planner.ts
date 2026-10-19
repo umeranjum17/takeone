@@ -325,8 +325,11 @@ function claudeRefusal(bin: string, env: NodeJS.ProcessEnv): string | null {
     return "the installed Claude CLI did not report its sign-in, so the planner cannot use it";
   }
   const s = status as Record<string, unknown> | null;
-  if (s && s.loggedIn === true && s.authMethod === "claude.ai" && s.apiProvider === "firstParty") return null;
-  return "the installed Claude CLI is signed in with an API key, Bedrock or Vertex, not a claude.ai subscription, so the planner cannot use it";
+  if (s && s.loggedIn === true) {
+    if (s.authMethod === "claude.ai" && s.apiProvider === "firstParty") return null;
+    return "the installed Claude CLI is signed in with an API key, Bedrock or Vertex, not a claude.ai subscription, so the planner cannot use it";
+  }
+  return "the installed Claude CLI does not report a claude.ai subscription sign-in, so the planner cannot use it";
 }
 
 type CliLaunch = Awaited<ReturnType<typeof loadCliLaunch>>;
