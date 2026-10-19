@@ -4,6 +4,7 @@ import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { applyPlan, readPlan, type Plan } from "../src/decide/plan.ts";
+import { gateUnusable } from "../src/decide/planner.ts";
 
 function planDir(json: string): string {
   const dir = mkdtempSync(join(tmpdir(), "plan-"));
@@ -20,6 +21,24 @@ test("readPlan accepts boolean choices", () => {
 test("readPlan rejects a string value instead of treating it as true", () => {
   const dir = planDir(JSON.stringify({ version: 1, beats: [{ id: "b1", shot: { value: "false", by: "user" } }] }));
   assert.throws(() => readPlan(dir), /b1\.shot\.value must be true or false/);
+});
+
+test("gateUnusable caches a beat whose optional camera answer abstained", () => {
+  const store = new Map();
+  const cache = gateUnusable({ get: (k) => store.get(k), set: (k, v) => void store.set(k, v) });
+  const answers = {
+    focus_start: { answer: "a", abstained: false },
+    shot: { abstained: true },
+  };
+  cache.set("key", answers);
+  assert.deepEqual(cache.get("key"), answers);
+});
+
+test("gateUnusable refuses a beat whose required answer abstained", () => {
+  const store = new Map();
+  const cache = gateUnusable({ get: (k) => store.get(k), set: (k, v) => void store.set(k, v) });
+  cache.set("key", { focus_start: { abstained: true }, shot: { answer: true, abstained: false } });
+  assert.equal(cache.get("key"), undefined);
 });
 
 test("readPlan rejects beats that are not a list", () => {
