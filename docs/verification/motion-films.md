@@ -24,7 +24,7 @@ The user has screenshots or an HTML page and wants a launch film: `takeone motio
 node bin/takeone.mjs motion install-shell                      # once per machine; verify via doctor afterwards
 export TAKEONE_DIR="$PWD/tmp/verify-takes"
 node bin/takeone.mjs motion /abs/design.png --out "$TAKEONE_DIR/verify-motion" \
-  --pattern end-card --title "Ship your next idea" --device browser; echo "exit=$?"
+  --pattern end-card --title "Ship your next idea" --device browser --no-ai; echo "exit=$?"
 ```
 
 Proving end state: exit 0; the output take dir contains `storyboard.json`, `sources/`, `render.json` (workers, shell, encoder, timing) and `out/<id>.mp4` that `ffprobe` reports as 1920×1080 (default). `--plan-only` alone proves planning only — it writes no MP4, so it is not render proof.
