@@ -1,13 +1,14 @@
 # Plan and render a recorded take (`make`)
 
-The core pipeline: `takeone make <id>` segments an existing take into beats, finds changed regions, decides each beat's shot (locally, or via the AI planner for judgement beats when a credential is set), and renders the framed MP4. `<id>` is a take directory name under the takes root or an absolute take path.
+The core pipeline: `takeone make <id>` segments an existing take into beats, finds changed regions, decides each beat's shot (locally, or via the AI planner for judgement beats when a stored credential or a signed-in Claude or Codex CLI account is available), and renders the framed MP4. `<id>` is a take directory name under the takes root or an absolute take path.
 
 ## Sub-features
 
 - Beat segmentation and change-region analysis (`analysis/regions.json`, `analysis/beats.json`, `analysis/actions.json`, one decision per line in `analysis/decisions.jsonl`).
 - Per-beat camera choices in `analysis/plan.json`: `shot` (give the beat a camera move), `idle` (pull back in a long pause), `follow` (track the pointer). Each has `by`: `ai` (the planner answered), `rule` (no answer, the rules decide) or `user`. Edit a `value` and set its `by` to `user`, then run `takeone render <id>`: the render applies it, and a rerun of `make` keeps it. Only `by: user` entries are applied; an edit that leaves `by` as `ai` is ignored and overwritten by the next `make`. `shot=true` applies only where a camera move is possible: scroll, idle, pointer-only travel and redundant wide cuts keep no shot. `idle` and `follow` are read only on idle beats and on drag or travel beats: a user value for them on other beat kinds changes nothing in the render. plan.json edits do not reach the Android tap fallback, which builds its own beats. Proof (fixture, non-live): `test/make.test.ts` "per-beat camera answers" checks that the planner's answers reach `plan.json`, that the user's edit changes `camera.json`, and that a rerun of `make` keeps it; "a user shot=false in plan.json removes the camera zoom" checks that a user `shot=false` beats the planner's shot in the render. A real recording with a planner call is not proven for these answers.
-- Local vs AI planning: `--no-ai` keeps every decision local (zero network); with a stored credential or explicitly picked plan account, the planner decides judgement beats inside a hard token preflight (`--max-tokens`, default 40k per take minute). The `make` log prints `preflight: N beats, K calls (film included), X planned tokens` and, at the end, `planner: R requests (C from cache), T request tokens; ... calls a minute, ... request tokens a minute` (also in `take.json` `planner.calls_per_min` / `planner.request_tokens_per_min`). Planner answers cache to `analysis/planner-cache.jsonl` — replanning an unchanged take costs nothing; `--replan` asks again.
+- Local vs AI planning: `--no-ai` keeps every decision local (zero network); with a stored credential, an explicitly picked plan account, or a detected signed-in Claude or Codex CLI account, the planner decides judgement beats inside a hard token preflight (`--max-tokens`, default 40k per take minute). The `make` log prints `preflight: N beats, K calls (film included), X planned tokens` and, at the end, `planner: R requests (C from cache), T request tokens; ... calls a minute, ... request tokens a minute` (also in `take.json` `planner.calls_per_min` / `planner.request_tokens_per_min`). Planner answers cache to `analysis/planner-cache.jsonl` — replanning an unchanged take costs nothing; `--replan` asks again.
 - Picked-account planning: `planner.json` can explicitly select the installed Claude or Codex CLI account, the installed `pi` CLI (`{"backend":"pi","bin":"<absolute pi>","model":"<model>"}`), or a BYOKit ChatGPT handle, and an explicit choice always wins. With no saved choice, `make` offers an already-signed-in Claude or Codex CLI account first, then a stored key, then local rules. A model the person's own pi is signed in for plans the take with no key of TakeOne's own; see [Live planner run on the installed pi](#live-planner-run-on-the-installed-pi).
+
 - `--goal "<sentence>"` sharpens key moments (always asked); `--style "<word>"` steers the film; screen words are read by default with a planner (`--no-screen-text` opts out; needs `tesseract`).
 - Theme selection (`--theme NAME`) and camera-setting overrides (`--set key=value`) at plan time.
 - Cost accounting: usage lands in `take.json` (`planner.mode`, `planner.backend`, `planner.model`, `planner.input_tokens`, `planner.usd`); see the [per-provider table](../cost.md#per-provider-cost-slice-1).
@@ -63,8 +64,8 @@ the assigned memory gate with bounded encoder/filter threads.
 
 For each beat, map its times through the same idle/edit clock as the render and
 record `z = max(width, height * out_w / out_h) / cameraFrame.w`. The first dialog
-must rise above 1× (the default 4K→1080p ceiling is 2×). With a stored planner credential,
-repeat `make` without `--no-ai` on a third copy (a billed run: record `take.json`
+must rise above 1× (the default 4K→1080p ceiling is 2×). With a stored planner credential or a signed-in Claude or
+Codex CLI account, repeat `make` without `--no-ai` on a third copy (a billed run: record `take.json`
 `planner.input_tokens`/`planner.usd` per output minute): the AI plan must also push in on
 the first dialog while its title is typed, and its max zoom and frames above 1.05×
 must not fall below the `--no-ai` film's (on the fixed take: 2× and 656 vs 622
@@ -131,7 +132,7 @@ manual/hold/untitled variants. The runnable real-CLI regression is
 
 ## Gotchas
 
-- `make` without `--no-ai` and with a stored credential performs real planner calls; a token preflight refuses the run before any call if the plan would exceed the cap, but the verification default is `--no-ai`.
+- `make` without `--no-ai` and with a stored credential or a signed-in CLI account performs real planner calls; a token preflight refuses the run before any call if the plan would exceed the cap, but the verification default is `--no-ai`.
 - Beats are capped at 30 per minute; idle gaps may merge — a shorter-than-raw output duration is expected, not a bug.
 - A trim must overlap the video; only the overlap is planned.
 - Recording-quality claims need human review of the rendered media; a passing encode does not qualify camera quality.
