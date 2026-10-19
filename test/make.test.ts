@@ -399,6 +399,39 @@ test("per-beat camera answers reach plan.json and the camera; a user edit in pla
   }
 });
 
+test("a user shot=false in plan.json removes the camera zoom the planner gave every beat", async () => {
+  const dir = newLongTake();
+  const camera = { ...FAST, out_w: 160, out_h: 90 };
+  try {
+    // The planner asks for a shot on every beat: the camera zooms on the clicks.
+    const fetchImpl = (async (_url: string | URL | Request, init?: RequestInit) => {
+      const answers = chunkAnswers(String(init?.body), (names) => ({
+        ...firstZoneAnswers(names), new_subject: { noul: 0.9 }, shot: { noul: 0.9 }, idle: { noul: 0.1 }, follow: { noul: 0.1 },
+      }));
+      return new Response(JSON.stringify({ answers, usage: { input_tokens: 800 } }), { status: 200 });
+    }) as typeof fetch;
+    await fastTake(dir, { camera, apiKey: KEY, fetchImpl, log: () => {}, warn: () => {} });
+    const readPlanFile = (): Plan => JSON.parse(readFileSync(join(dir, "analysis", "plan.json"), "utf8")) as Plan;
+    assert.ok(readPlanFile().beats.some((b) => b.shot?.value === true && b.shot.by === "ai"), "the planner asked for no shot");
+    const zoomedFrames = (json: string): number => {
+      const frames = JSON.parse(json) as { w: number }[];
+      const full = Math.max(...frames.map((f) => f.w));
+      return frames.filter((f) => f.w < full - 0.5).length; // a settled frame can sit a float under full
+    };
+    const aiZoomed = zoomedFrames(readFileSync(join(dir, "camera.json"), "utf8"));
+    assert.ok(aiZoomed > 0, "the planner's shots did not zoom the camera, so the test proves nothing");
+
+    // The user takes every shot away: the render follows it and no beat zooms.
+    const userPlan: Plan = { version: 1, beats: readPlanFile().beats.map((b) => ({ ...b, shot: { value: false, by: "user" } })) };
+    writeFileSync(join(dir, "analysis", "plan.json"), JSON.stringify(userPlan));
+    await renderTake(dir, camera);
+    const userZoomed = zoomedFrames(readFileSync(join(dir, "camera.json"), "utf8"));
+    assert.equal(userZoomed, 0, `a user shot=false still zoomed the camera (${aiZoomed} zoomed frames before, ${userZoomed} after)`);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("make accepts video-only missing events and silent recorded streams", { skip: needsFfmpeg }, async () => {
   const dir = newTake();
   try {
