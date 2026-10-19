@@ -98,14 +98,14 @@ export function describePlanner(config: PlannerConfig): string {
   return `${(config as { backend: string }).backend}${(config as { via?: string }).via ? ` via ${(config as { via?: string }).via}` : ""} (${modelOf(config)})`;
 }
 
-/** The model id behind a planner config. The Jev default is the only
- * provider-specific value here; everything else comes from the config. */
 /** Whether the planner can return free text beside its choices (answerFields).
  * Jev answers only choices, so a film asks for a title and captions only of the others. */
 export function plannerAnswersText(config: PlannerConfig): boolean {
   return (config as { backend: string }).backend !== "jev";
 }
 
+/** The model id behind a planner config. The Jev default is the only
+ * provider-specific value here; everything else comes from the config. */
 export function modelOf(config: PlannerConfig): string {
   const c = config as { backend: string; model?: string };
   return c.model ?? (c.backend === "jev" ? "jev-latest" : "default");
