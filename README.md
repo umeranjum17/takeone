@@ -61,7 +61,7 @@ takeone doctor
 
 npm 12 refuses the tarball URL without `--allow-remote=all`. npm 11 may print `npm warn Unknown cli config "--allow-remote"` for the same flag; that warning is harmless and the install still succeeds.
 
-`takeone doctor` is the first check: it reports what this machine can record and render, and whether an AI planner key is set (the `ai-planner` row).
+`takeone doctor` is the first check: it reports what this machine can record and render, and whether the AI planner found an account or key (the `ai-planner` row).
 
 ### From source
 
