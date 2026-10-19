@@ -23,7 +23,7 @@ const CAMERA_STYLES: Record<string, { label: string; camera_path: CameraDefaults
   calm: { label: "hold each framing and move only between them", camera_path: "hold" },
   lively: { label: "the camera follows the action", camera_path: "solver" },
 };
-const THEME_NOTES: Record<ThemeName, string> = {
+export const THEME_NOTES: Record<ThemeName, string> = {
   midnight: "dark navy stage, the default look",
   paper: "warm paper with serif type, for light app screens",
   aurora: "deep blue and violet gradient, bold and techy",

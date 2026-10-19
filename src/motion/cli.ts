@@ -1,9 +1,12 @@
 // `takeone motion` argument parsing and the local planner: a complete storyboard from flags alone.
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, extname, join, resolve } from "node:path";
+import type { ImageInput } from "@byokit/decide";
+import { askChunk } from "../decide/planner.ts";
 import { renderMotion } from "./motion.ts";
 import { tourSegments } from "./camera.ts";
-import { validateStateNames } from "./ingest.ts";
+import { imageSize, validateStateNames } from "./ingest.ts";
+import { NO_CACHE, SHAPES, focusRect, screenAsk, screenDecision, screenPlanner, screenThumb, type ScreenInfo } from "./ai.ts";
 import { motionTokens } from "./theme.ts";
 import { installShell } from "./shell.ts";
 import { minSceneDuration, validateStoryboard } from "./storyboard.ts";
@@ -13,19 +16,20 @@ export const MOTION_USAGE = `takeone motion <image.png|page.html|https://url>...
   [--theme midnight|paper|aurora|mono|sand|editorial]
   [--title TEXT] [--subtitle TEXT] [--cta TEXT] [--url TEXT] [--logo WORD] [--device browser|phone|laptop|none]
   [--region x,y,w,h[:label][@SCREEN]]... [--state NAME='click #id; type #id "text"; drag #a #b; wait 300']...
-  [--workers N] [--blur 0|1] [--storyboard file.json] [--plan-only]
+  [--workers N] [--blur 0|1] [--storyboard file.json] [--plan-only] [--no-ai]
 takeone motion install-shell     download the pinned chrome-headless-shell (sha256 checked)
 
   motion writes a take-shaped directory (take.json, sources/, storyboard.json, out/<id>.mp4, render.json);
-  takeone render <dir> rerenders it. With no --pattern it plans hero-reveal, zoom-tour and end-card;
-  with three or more screens it plans a launch film instead: a kinetic-type title, each labelled
-  screen announced by its own full-type beat ahead of a clean tour, and the end card, with
-  black and cream beats alternating by scene order.`;
+  takeone render <dir> rerenders it. Screenshots are planned by the AI planner (theme, film shape, screen
+  order and each screen's focus); flags you pass stay fixed, and --no-ai or a planner that is off uses the
+  local rules. With no --pattern the local rules plan hero-reveal, zoom-tour and end-card; with three or
+  more screens they plan a launch film instead: a kinetic-type title, each labelled screen announced by its
+  own full-type beat ahead of a clean tour, and the end card, with black and cream beats alternating by scene order.`;
 
-interface MotionArgs {
+export interface MotionArgs {
   inputs: string[]; out?: string; patterns?: PatternName[]; theme?: string; title?: string;
   subtitle?: string; cta?: string; url?: string; logo?: string; device?: Device; regions: string[]; states: [string, string][];
-  workers?: number; blur?: number; storyboard?: string; planOnly: boolean;
+  workers?: number; blur?: number; storyboard?: string; planOnly: boolean; noAi?: boolean;
 }
 
 export function parseMotionArgs(argv: string[]): MotionArgs {
@@ -39,6 +43,7 @@ export function parseMotionArgs(argv: string[]): MotionArgs {
     const s = argv[i]!;
     if (!s.startsWith("--")) { a.inputs.push(s); continue; }
     if (s === "--plan-only") { a.planOnly = true; continue; }
+    if (s === "--no-ai") { a.noAi = true; continue; }
     const v = value(++i, s);
     if (s === "--out") a.out = v;
     else if (s === "--pattern") a.patterns = v.split(",") as PatternName[];
@@ -282,12 +287,59 @@ export function planStoryboard(a: MotionArgs, id: string): unknown {
   };
 }
 
+export interface PlanOptions {
+  /** Host-passed credential: null disables the planner, undefined loads the configured store. */
+  apiKey?: string | null;
+  /** Config dir holding planner.json and the sealed store; tests point it at a throwaway dir. */
+  configDir?: string;
+  fetchImpl?: typeof fetch;
+  warn?: (line: string) => void;
+}
+
+/** The storyboard for a motion run. Screenshots get one planner call for every decision no flag fixed;
+ *  html, URL and --no-ai runs, and runs whose planner is off, get the local plan. */
+export async function planMotion(a: MotionArgs, id: string, o: PlanOptions = {}): Promise<unknown> {
+  const screenshots = a.inputs.length > 0 && a.inputs.every((f) => !/^https?:\/\//.test(f) && !/\.html?$/i.test(f));
+  if (a.noAi || !screenshots) return planStoryboard(a, id);
+  const warn = o.warn ?? ((line: string) => console.error(line));
+  const ready = await screenPlanner(o);
+  if ("off" in ready) {
+    warn(`motion: AI planner is OFF (${ready.off}). This film uses fallback rules.`);
+    return planStoryboard(a, id);
+  }
+  const files = a.inputs.map((f) => resolve(f));
+  const infos: ScreenInfo[] = files.map((f, i) => ({ id: `S${i + 1}`, ...imageSize(f) }));
+  const pins = {
+    theme: a.theme !== undefined,
+    shape: a.patterns !== undefined,
+    // Region flags name screens by their order: keep that order, and leave those screens to the flags.
+    order: a.regions.length === 0,
+    focus: new Set(a.regions.map((r) => /@([A-Za-z0-9_-]+)$/.exec(r)?.[1] ?? "S1")),
+  };
+  const ask = screenAsk(infos, pins);
+  if (!Object.keys(ask.questions).length) return planStoryboard(a, id);
+  const images: ImageInput[] = infos.map((s, i) => ({ id: s.id, mime: "image/jpeg", bytes: screenThumb(files[i]!) }));
+  const r = await askChunk(ask.state, ask.questions, ready.planner, NO_CACHE, { fetchImpl: o.fetchImpl, images, keepAnswers: true });
+  if (!r.answers) warn("motion: AI planner gave no answers; this film uses fallback rules.");
+  const d = screenDecision(r.answers ?? {}, infos, pins);
+  const order = d.order.map((sid) => a.inputs[Number(sid.slice(1)) - 1]!);
+  const position = new Map(d.order.map((sid, k) => [sid, `S${k + 1}`]));
+  const focus = d.order.filter((sid) => sid in d.focus).map((sid) => {
+    const s = infos.find((x) => x.id === sid)!;
+    return `${focusRect(d.focus[sid]!, s.width, s.height).join(",")}@${position.get(sid)}`;
+  });
+  const planned = planStoryboard({ ...a, inputs: order, theme: d.theme ?? a.theme,
+    patterns: a.patterns ?? SHAPES[d.shape ?? "hero"]!.patterns, regions: [...a.regions, ...focus] }, id) as { planner: unknown };
+  planned.planner = { by: d.decided > 0 ? "ai" : "local", abstained: d.abstained };
+  return planned;
+}
+
 function stamp(): string {
   const d = new Date(), p = (n: number) => String(n).padStart(2, "0");
   return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
 }
 
-export async function runMotion(argv: string[], takesDir: string): Promise<number> {
+export async function runMotion(argv: string[], takesDir: string, o: PlanOptions = {}): Promise<number> {
   if (argv[0] === "install-shell") {
     const shell = await installShell();
     console.log(`chrome-headless-shell ${shell.version} sha256 ${shell.sha256}\n${shell.path}`);
@@ -304,7 +356,7 @@ export async function runMotion(argv: string[], takesDir: string): Promise<numbe
     if (!a.inputs.length) throw new Error("motion needs an input (image, .html or URL) or --storyboard");
     for (const f of a.inputs) if (!/^https?:\/\//.test(f) && !existsSync(f)) throw new Error(`no such input ${f}`);
     id = "motion";
-    storyboard = planStoryboard(a, id);
+    storyboard = await planMotion(a, id, o);
   }
   const sb = validateStoryboard(storyboard); // refuse bad plans before touching the disk
   let dir: string;
