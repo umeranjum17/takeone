@@ -15,7 +15,7 @@ import { frameRect } from "../src/decide/mapping.ts";
 import type { Plan } from "../src/decide/plan.ts";
 import { measureCaptions, renderTake } from "../src/render/render.ts";
 import { bandLayout, bandText, captionLayouts, takeCaptions } from "../src/render/stage.ts";
-import { mapFilm } from "../src/decide/film.ts";
+import { mapFilm, planFilm } from "../src/decide/film.ts";
 import type { Beat, Decision, TakeMeta } from "../src/types.ts";
 import { STREAM, hasFfmpeg, buildLongTake, beatViews, chunkAnswers, filmAnswers } from "./helpers.ts";
 import { DEFAULTS } from "../src/camera/defaults.ts";
@@ -977,6 +977,49 @@ test("a long take's film is planned in chunks under the cap and joined into one 
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+/** A take long enough for three film chunks, each beat's timeline line as long
+ * as a real one that carries a click, a typed line, a shortcut and a scroll. */
+function filmChunkBeats(count: number): Beat[] {
+  return Array.from({ length: count }, (_, i) => {
+    const t = i * 1000;
+    return {
+      id: `b${i + 1}`, t0: t, t1: t + 800, anchor_t: t + 400, window_cls: "chromium", kind: "type", zones: [],
+      actions: [
+        { k: "click", t: t + 100, x: 30, y: 20, window_cls: "chromium" },
+        { k: "type", t0: t + 200, t1: t + 300, window_cls: "chromium" },
+        { k: "shortcut", t: t + 400, combo: "ctrl+s", window_cls: "chromium" },
+        { k: "scroll", t0: t + 500, t1: t + 600, x: 30, y: 20, dx: 0, dy: 1, detents: 1, window_cls: "chromium" },
+      ],
+    } satisfies Beat;
+  });
+}
+
+test("a take of three film chunks asks no request that has nothing to ask", () => {
+  const beats = filmChunkBeats(200);
+  const ctx = { seconds: 200, source: "320x180", device: "desktop", brightness: "dark" as const, beats };
+  const quiet = planFilm({ ...ctx, text: false });
+  assert.ok(quiet, "a take this long got no film plan");
+  const asked = quiet.calls.map((call) => (call.state.timeline as string[]).map((line) => line.split(",")[0]!));
+  for (const call of quiet.calls) {
+    assert.ok(Object.keys(call.questions).length > 0, `a film call asks no question for beats ${(call.state.timeline as string[])[0]}`);
+  }
+  const covered = asked.flat();
+  assert.equal(asked[0]![0], "b1", "the film does not open on the take's first beat");
+  assert.equal(asked.at(-1)!.at(-1), "b200", "the film does not end on the take's last beat");
+  assert.ok(covered.length < beats.length, `the take fits two film calls, so no middle chunk was exercised: ${covered.length} beats asked`);
+  assert.ok("theme" in quiet.calls[0]!.questions && "ending" in quiet.calls.at(-1)!.questions, "the look and the ending were asked in the wrong call");
+  assert.ok(!quiet.calls.some((call) => "titled" in call.questions), "a planner that returns no text was asked for captions");
+  const skipped = beats.filter((b) => !covered.includes(b.id));
+  const summary = quiet.calls.at(-1)!.state.before_this_chunk as string;
+  assert.ok(summary.includes(`${skipped.at(-1)!.id}, `), `the last call is not told the beats before it: ${summary}`);
+  assert.equal(quiet.tokens, quiet.calls.reduce((n, c) => n + c.tokens, 0), "a chunk that was not asked is priced");
+  // The same take with a planner that captions every chunk covers every beat once.
+  const loud = planFilm({ ...ctx, text: true });
+  assert.ok(loud);
+  assert.deepEqual(loud.calls.flatMap((call) => (call.state.timeline as string[]).map((line) => line.split(",")[0]!)), beats.map((b) => b.id),
+    "the text take's chunks do not cover every beat once, in order");
 });
 
 test("live API shape: Android tap hints stay planner decisions", async () => {

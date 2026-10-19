@@ -87,7 +87,9 @@ export interface FilmPart {
   endings: string[];
 }
 
-/** The film calls for one take, in order, and their total estimated tokens. */
+/** The film calls for one take, in order, and their total estimated tokens. A
+ * chunk that asks nothing (a middle chunk for a planner that returns no text) is
+ * not a call: the next chunk's summary covers its beats instead. */
 export interface FilmPlan {
   calls: FilmPart[];
   tokens: number;
@@ -208,7 +210,7 @@ export function planFilm(ctx: FilmCtx): FilmPlan | null {
       end = j;
     }
     if (!part) return null;
-    calls.push(part);
+    if (Object.keys(part.questions).length > 0) calls.push(part);
     before = beforeChunk(ctx, ctx.beats.slice(i, end));
     i = end;
   }
