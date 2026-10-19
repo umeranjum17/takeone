@@ -41,6 +41,16 @@ test("gateUnusable refuses a beat whose required answer abstained", () => {
   assert.equal(cache.get("key"), undefined);
 });
 
+test("readPlan rejects a null camera choice with a clear error", () => {
+  const dir = planDir(JSON.stringify({ version: 1, beats: [{ id: "b1", shot: null }] }));
+  assert.throws(() => readPlan(dir), /b1\.shot\.by must be ai, rule or user/);
+});
+
+test("readPlan rejects a beat id that appears twice", () => {
+  const dir = planDir(JSON.stringify({ version: 1, beats: [{ id: "b1" }, { id: "b1", shot: { value: true, by: "user" } }] }));
+  assert.throws(() => readPlan(dir), /beat id b1 appears more than once/);
+});
+
 test("readPlan rejects beats that are not a list", () => {
   const dir = planDir(JSON.stringify({ version: 1, beats: {} }));
   assert.throws(() => readPlan(dir), /beats must be a list/);

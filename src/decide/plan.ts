@@ -17,16 +17,19 @@ export function readPlan(dir: string): Plan | null {
   if (!existsSync(path)) return null;
   const plan = JSON.parse(readFileSync(path, "utf8")) as Plan;
   if (!Array.isArray(plan.beats)) throw new Error("analysis/plan.json: beats must be a list");
+  const ids = new Set<string>();
   for (const beat of plan.beats) {
     if (typeof beat.id !== "string") throw new Error("analysis/plan.json: every beat needs a string id");
+    if (ids.has(beat.id)) throw new Error(`analysis/plan.json: beat id ${beat.id} appears more than once`);
+    ids.add(beat.id);
     for (const f of FIELDS) {
       const choice = beat[f];
       if (choice === undefined) continue;
+      if (!choice || !["ai", "rule", "user"].includes(choice.by)) {
+        throw new Error(`analysis/plan.json: ${beat.id}.${f}.by must be ai, rule or user`);
+      }
       if (choice.value !== undefined && typeof choice.value !== "boolean") {
         throw new Error(`analysis/plan.json: ${beat.id}.${f}.value must be true or false`);
-      }
-      if (!["ai", "rule", "user"].includes(choice.by)) {
-        throw new Error(`analysis/plan.json: ${beat.id}.${f}.by must be ai, rule or user`);
       }
     }
   }
