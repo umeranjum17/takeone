@@ -41,8 +41,12 @@ records every visible text line, editable field and the open dialog in
 (and `make`) project those boxes through the final camera and stage, exactly as the
 cursor overlay is placed, and exit 1 before encoding when any shown box crosses the
 5% inset of the output, naming the first box, output frame and rectangle; the full
-list is in `safe-area.json`. A push-in on this dense board always parks text in that
-band, so `max_upscale=0.5` keeps the 2× source at its rest framing. To prove camera
+list is in `safe-area.json`. A box is judged where the frame paints it: a push-in
+crops the screen card, so text the crop hides is not shown and not counted, and text
+the crop edge cuts is measured where its visible part lands. A titled 16:9 take keeps
+that card inside the inset, so its push-ins pass at the default 1920×1080; an untitled
+take fills the frame and a push-in then paints board text inside the outer 5%, so pass
+`max_upscale=0.5` to keep the 2× source at its rest framing. To prove camera
 motion on a scene take, delete `text-boxes.json` from a copy: that take then carries
 no safe-area acceptance.
 
