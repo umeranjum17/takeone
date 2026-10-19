@@ -21,7 +21,7 @@ function childEnv(extra: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
     "TAKEONE_TEST_NO_KEYRING", "TAKEONE_TEST_KEYRING_FAILURE", "TAKEONE_TEST_KEYRING_KEY", "XDG_CONFIG_HOME"]) {
     delete env[name];
   }
-  return { ...env, ...extra };
+  return { ...env, PATH: "", ...extra };
 }
 
 function run(args: string[], env: NodeJS.ProcessEnv, o: { keyFile?: string; input?: string } = {}) {

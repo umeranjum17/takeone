@@ -23,8 +23,9 @@ function childEnv(h: string): NodeJS.ProcessEnv {
     "TAKEONE_TEST_NO_KEYRING", "TAKEONE_TEST_KEYRING_FAILURE", "TAKEONE_TEST_KEYRING_KEY", "XDG_CONFIG_HOME"]) {
     delete env[name];
   }
-  // Sealed store only: no OS keyring is touched, and the store dir is throwaway.
-  return { ...env, HOME: h, XDG_CONFIG_HOME: join(h, ".config"), TAKEONE_NO_KEYRING: "1", TAKEONE_SECRETS_PASSPHRASE_FD: "3" };
+  // Sealed store only: no OS keyring is touched, the store dir is throwaway and
+  // no PATH means planner discovery cannot find the developer's own CLI sign-in.
+  return { ...env, HOME: h, XDG_CONFIG_HOME: join(h, ".config"), PATH: "", TAKEONE_NO_KEYRING: "1", TAKEONE_SECRETS_PASSPHRASE_FD: "3" };
 }
 
 function run(args: string[], h: { home: string; passphrase: string }, input?: string) {
