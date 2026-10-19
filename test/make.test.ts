@@ -876,6 +876,109 @@ test("an over-long AI title is dropped; a title at the 28-character bound fits t
   }
 });
 
+/** A three-minute take whose beats each carry a click, a typed line, a shortcut
+ * and a scroll: the recorder's 30 beats a minute, and a film request over the
+ * 4,000-token cap, so a take this long is planned in more than one film call. */
+function buildChunkFilmTake(dir: string): string {
+  execFileSync("ffmpeg", [
+    "-nostdin", "-f", "lavfi", "-i", "color=c=gray:s=320x180:d=180:r=10",
+    "-c:v", "mpeg4", "-q:v", "2", "-f", "matroska", "-frames:v", "1800", "-y", join(dir, "screen.webm"),
+  ], { stdio: "ignore" });
+  writeFileSync(join(dir, "frames.tsv"), Array.from({ length: 1800 }, (_, i) => `${i * 3000}\t${i * 100000000}\n`).join(""));
+  // Every burst stays one beat (over MERGE_SHORT_MS, and the pointer jumps more
+  // than the beat's spread keeps together), two seconds apart: 30 beats a minute.
+  const burst = (t: number, x: number): object[] => [
+    { t: t - 100, k: "ptr", x, y: 90 },
+    { t, k: "btn", b: "left", down: true },
+    { t: t + 50, k: "btn", b: "left", down: false },
+    { t: t + 80, k: "key", cls: "char", down: true },
+    { t: t + 140, k: "key", cls: "char", down: true },
+    { t: t + 200, k: "key", cls: "char", down: true },
+    { t: t + 280, k: "key", combo: "ctrl+s", down: true },
+    { t: t + 360, k: "wheel", dx: 0, dy: 1 },
+    { t: t + 420, k: "wheel", dx: 0, dy: 1 },
+    { t: t + 900, k: "btn", b: "left", down: true },
+    { t: t + 950, k: "btn", b: "left", down: false },
+  ];
+  const events = [
+    { t: 0, k: "win", cls: "chromium", title: "Quarterly board", rect: [0, 0, 280, 150] },
+    ...Array.from({ length: 89 }, (_, i) => 300 + i * 2000).flatMap((t, i) => burst(t, i % 2 === 0 ? 60 : 240)),
+  ];
+  writeFileSync(join(dir, "events.jsonl"), events.map((e) => JSON.stringify(e)).join("\n") + "\n");
+  writeFileSync(join(dir, "take.json"), JSON.stringify({ id: "t1", stream: { w: STREAM_W, h: STREAM_H }, scale: 1, offset_ms: 0, pointer: "hyprland" }));
+  return dir;
+}
+
+test("a long take's film is planned in chunks under the cap and joined into one film", async () => {
+  const dir = planned(mkdtempSync(join(tmpdir(), "takeone-take-")));
+  try {
+    buildChunkFilmTake(dir);
+    // The film calls, in order: their state and questions as the planner received them.
+    const parts: { state: { timeline: string[]; before_this_chunk?: string }; questions: Record<string, Record<string, unknown>> }[] = [];
+    const fetchImpl = (async (_url, init) => {
+      const { state, questions } = JSON.parse(JSON.parse(String(init?.body)).messages[0].content[0].text) as { state: { timeline?: string[] }; questions: Record<string, unknown> };
+      let input: Record<string, unknown>;
+      if (state.timeline === undefined) {
+        input = chunkAnswers(String(init?.body), firstZoneAnswers) as Record<string, unknown>;
+      } else {
+        parts.push({ state, questions } as (typeof parts)[number]);
+        const first = state.timeline[0]!.split(",")[0]!;
+        // The first call asks the film-wide questions; every call captions its own beats.
+        input = {
+          ...(questions.theme ? {
+            theme: { pick: "paper", probabilities: { midnight: 0, paper: 1, aurora: 0, mono: 0, sand: 0, editorial: 0 }, confidence: 1 },
+            pace: { probabilities: [0, 1, 0, 0], confidence: 1 },
+            opening: { pick: "establish", probabilities: { establish: 1, short: 0, straight: 0 }, confidence: 1 },
+            camera_style: { pick: "calm", probabilities: { calm: 1, lively: 0 }, confidence: 1 },
+            titled: { pick: "true", probabilities: { true: 1, false: 0 }, title: "Quarterly board", captions: [{ beat: first, text: `opens on ${first}` }] },
+          } : {
+            titled: { pick: "true", probabilities: { true: 1, false: 0 }, captions: [{ beat: first, text: `carries on at ${first}` }] },
+          }),
+          ...(questions.ending ? (() => {
+            const ends = Object.keys((questions.ending as { options: Record<string, string> }).options);
+            return { ending: { pick: ends[0], probabilities: Object.fromEntries(ends.map((id) => [id, id === ends[0] ? 1 : 0])), confidence: 1 } };
+          })() : {}),
+        };
+      }
+      return new Response(JSON.stringify({ content: [{ type: "tool_use", name: "decisions", input }], usage: { input_tokens: 500, output_tokens: 80 } }), { status: 200 });
+    }) as typeof fetch;
+    const r = await fastTake(dir, { apiKey: KEY, fetchImpl, camera: { ...FAST, fps: 6 }, log: () => {}, warn: () => {} });
+    const beats = JSON.parse(readFileSync(join(dir, "analysis", "beats.json"), "utf8")) as { id: string }[];
+    assert.ok(parts.length >= 2, `the take was planned in ${parts.length} film call(s)`);
+    for (const part of parts) {
+      // The planner's own estimate: the body it builds is this state and these questions.
+      const tokens = Math.ceil(JSON.stringify({ model: "jev-latest", state: part.state, questions: part.questions }).length / 3.5);
+      assert.ok(tokens <= 4000, `a film call is over the 4,000-token cap: ${tokens}`);
+    }
+    // Split, not trimmed: every beat is planned once, in order.
+    const planned = parts.flatMap((part) => part.state.timeline.map((line) => line.split(",")[0]!));
+    assert.deepEqual(planned, beats.map((b) => b.id), "the film calls cover every beat once, in order");
+    // Each call after the first is told what the call before it planned.
+    assert.equal(parts[0]!.state.before_this_chunk, undefined);
+    const lastOfFirst = parts[0]!.state.timeline.at(-1)!.split(",")[0]!;
+    assert.ok(parts[1]!.state.before_this_chunk!.includes(lastOfFirst), `no summary of the earlier beats: ${parts[1]!.state.before_this_chunk}`);
+    assert.ok(!parts[1]!.state.before_this_chunk!.includes(parts[0]!.state.timeline[0]!), "the summary repeats the whole previous chunk, not a short part of it");
+    assert.ok(parts[1]!.state.before_this_chunk!.length < 1000, `the summary of the chunk before is not short: ${parts[1]!.state.before_this_chunk!.length} characters`);
+    // The last call holds the take's last beats, so it is the one that picks the ending.
+    assert.deepEqual(Object.keys((parts.at(-1)!.questions.ending as { options: object }).options), beats.slice(-3).map((b) => b.id));
+    // The chunk plans join into one film: the first call's look and title, the
+    // last call's ending, and every call's captions.
+    const film = r.take.film!;
+    assert.equal(film.theme, "paper");
+    assert.equal(film.camera_path, "hold");
+    assert.equal(film.title, "Quarterly board");
+    assert.equal(film.end_beat, beats.at(-3)!.id);
+    assert.deepEqual(film.captions?.map((c) => c.text), [`opens on ${beats[0]!.id}`, `carries on at ${parts[1]!.state.timeline[0]!.split(",")[0]}`]);
+    assert.equal(film.by.titled, "ai");
+    // The render wrote the joined text: the title and a caption from each call.
+    const ass = readFileSync(join(dir, "captions.ass"), "utf8");
+    assert.ok(ass.includes("Quarterly board") && ass.includes(`opens on ${beats[0]!.id}`) && ass.includes(film.captions![1]!.text), "the joined film text was not drawn");
+    assert.equal(JSON.parse(readFileSync(join(dir, "take.json"), "utf8")).film.theme, "paper");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("live API shape: Android tap hints stay planner decisions", async () => {
   const dir = newTake();
   try {

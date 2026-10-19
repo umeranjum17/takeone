@@ -14,7 +14,9 @@ planner built for the slice-1 demo take (the 43.1 s Tidewater board take,
 answers. Tokens are the planner's estimate (body length / 3.5); no provider
 billed them. The live check waits for a cheap model route.
 
-These figures predate the film call, which adds one planner request per take (see [Plan and render](guide.md#plan-and-render)). They are not re-measured here, so the per-call counts above exclude it.
+These figures predate the film call, which adds one planner request per take, or one per chunk when the take is too long for one request (see [Plan and render](guide.md#plan-and-render)). They are not re-measured here, so the per-call counts above exclude it.
+
+**Film chunking, measured offline (slice 5).** The film request carries one timeline line per beat, about 31 estimated tokens a beat for a text-less take and about 42 for a take with a title and captions (the caption question adds its wording). A take therefore fills one request at roughly 120–130 beats; a longer one is planned in chunks, each grown to just under the 4,000-token cap. Every chunk after the first also carries up to 600 characters (about 170 tokens) of the chunk before it, so the split costs one extra request's questions per chunk and never drops a beat. A 99-beat board take (430.8 s) measured here: 2 film requests, 4,941 estimated tokens with a title and captions, against 1,032 for one 10-beat repeat of the same take and about 7,000 for the take planned as a single request. No provider billed these estimates.
 
 | Demo take, per minute of video | Before (slice 1, one call per beat) | After (slice 3, text-only model) | After (slice 3, model reads images) |
 |---|---|---|---|

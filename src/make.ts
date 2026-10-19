@@ -15,7 +15,7 @@ import { segmentBeats, actStart, resultTime, RESULT_MIN_AREA } from "./beats/seg
 import { actionVideoSeconds } from "./beats/clock.ts";
 import { zonesForBeat, OCR_MAX_AREA } from "./beats/zones.ts";
 import { beatAnswers, buildChunk, planChunks, TIGHTNESS_LEVELS, CHUNK_TOKEN_CAP, type BeatHint, type ChunkCtx } from "./decide/request.ts";
-import { appBrightness, appliedFilm, buildFilm, captionSpans, filmOverrides, mapFilm, type FilmDecision } from "./decide/film.ts";
+import { appBrightness, appliedFilm, captionSpans, filmOverrides, joinFilm, mapFilm, planFilm, type FilmDecision } from "./decide/film.ts";
 import type { Answer, DecideCache, ImageInput } from "@byokit/decide";
 import { ConfigError } from "@byokit/decide";
 import { KeystoreError } from "@byokit/secrets";
@@ -445,13 +445,15 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
     // Beats with one zone have nothing to choose; they keep the rules uncounted.
     const asked = beats.map((_, i) => i).filter((i) => beats[i]!.zones.length >= 2);
     const chunks = planChunks(asked, build(heuristics), () => failed++);
-    // The film call decides the whole take once; a take too long for one request keeps the base look.
-    const filmPlan = beats.length === 0 || opts.film === false ? null : buildFilm({
+    // The film calls decide the whole take: one call, or a chain of chunks when
+    // the take is over one request's cap. The film runs before the beat chunks.
+    const filmPlan = beats.length === 0 || opts.film === false ? null : planFilm({
       goal: opts.goal, style: opts.style, seconds: takeMs / 1000,
       source: `${take.stream.w}x${take.stream.h}`, device: take.device ?? "desktop",
       brightness: appBrightness(dec.frames), beats, text: plannerAnswersText(planner.config),
     });
-    if (!filmPlan && beats.length > 0 && opts.film !== false) warn(`film call: the take is over ${CHUNK_TOKEN_CAP} estimated tokens for one request; the film keeps the base look`);
+    const filmCalls = filmPlan?.calls.length ?? 0;
+    if (!filmPlan && beats.length > 0 && opts.film !== false) warn(`film call: one beat is over the ${CHUNK_TOKEN_CAP}-token request cap on its own; the film keeps the base look`);
     const plannedTokens = chunks.reduce((n, c) => n + c.chunk.tokens, 0) + (filmPlan?.tokens ?? 0);
     // One re-ask of the largest chunk is reserved for a malformed answer.
     const reservedTokens = plannedTokens + Math.max(0, ...chunks.map((c) => c.chunk.tokens));
@@ -467,13 +469,14 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
     }
     const thumbCount = vision ? chunks.flatMap((c) => c.items).reduce((n, i) => n + keyframes(beats[i]!).length, 0) : 0;
     log(
-      `AI planner: ${planner.label}. ${beats.length} beats, ${chunks.length + (filmPlan ? 1 : 0)} calls planned, ${planned.usd === null ? "cost unknown" : `about $${planned.usd.toFixed(4)}`}.` +
+      `AI planner: ${planner.label}. ${beats.length} beats, ${chunks.length + filmCalls} calls planned, ${planned.usd === null ? "cost unknown" : `about $${planned.usd.toFixed(4)}`}.` +
       (readScreenText ? " reading screen words (redacted; turn off with --no-screen-text)" : "") +
       (vision ? ` ${thumbCount} redacted keyframe thumbnails.` : ""),
     );
     log(
-      `preflight: ${beats.length} beats, ${chunks.length + (filmPlan ? 1 : 0)} calls (film included), ${reservedTokens} planned tokens, ${costText(planned.usd)} planned`,
+      `preflight: ${beats.length} beats, ${chunks.length + filmCalls} calls (film included), ${reservedTokens} planned tokens, ${costText(planned.usd)} planned`,
     );
+    if (filmCalls > 1) log(`film: this take is over one request's cap, so the film is planned in ${filmCalls} chunks, each under the ${CHUNK_TOKEN_CAP}-token cap`);
     // --plan-only stops here: the plan is priced but no planner call is made
     // and nothing is rendered.
     if (opts.planOnly) {
@@ -515,14 +518,18 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
       }
       if (r.outputTokens) outputTokens += r.outputTokens;
     };
-    // The film call runs first: its answers set the look, and its tokens are already reserved.
+    // The film calls run first: their answers set the look, and their tokens are already reserved.
     if (filmPlan) {
-      const r = await askChunk(filmPlan.state, filmPlan.questions, planner, cache, { fetchImpl: opts.fetchImpl, keepAnswers: true });
-      requests++;
-      requestTokens += filmPlan.tokens;
-      if (r.decisionSource === "cache") cachedRequests++;
-      takeOutcome(r);
-      filmDecision = mapFilm(r.answers ?? {}, filmPlan.endings, captionSpans(beats, seconds));
+      const replies: (Record<string, Answer> | undefined)[] = [];
+      for (const part of filmPlan.calls) {
+        const r = await askChunk(part.state, part.questions, planner, cache, { fetchImpl: opts.fetchImpl, keepAnswers: true });
+        requests++;
+        requestTokens += part.tokens;
+        if (r.decisionSource === "cache") cachedRequests++;
+        takeOutcome(r);
+        replies.push(r.answers);
+      }
+      filmDecision = mapFilm(joinFilm(replies), filmPlan.calls.at(-1)!.endings, captionSpans(beats, seconds));
     }
     let reasks = 1;
     let overReserve = 0;
