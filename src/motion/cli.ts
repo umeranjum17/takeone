@@ -303,11 +303,6 @@ export async function planMotion(a: MotionArgs, id: string, o: PlanOptions = {})
   if (a.noAi || !screenshots) return planStoryboard(a, id);
   const local = planStoryboard(a, id);
   const warn = o.warn ?? ((line: string) => console.error(line));
-  const ready = await screenPlanner(o);
-  if ("off" in ready) {
-    warn(`motion: AI planner is OFF (${ready.off}). This film uses fallback rules.`);
-    return local;
-  }
   const files = a.inputs.map((f) => resolve(f));
   const infos: ScreenInfo[] = files.map((f, i) => ({ id: `S${i + 1}`, ...imageSize(f) }));
   const pins = {
@@ -319,6 +314,11 @@ export async function planMotion(a: MotionArgs, id: string, o: PlanOptions = {})
   };
   const ask = screenAsk(infos, pins);
   if (!Object.keys(ask.questions).length) return local;
+  const ready = await screenPlanner(o);
+  if ("off" in ready) {
+    warn(`motion: AI planner is OFF (${ready.off}). This film uses fallback rules.`);
+    return local;
+  }
   const images: ImageInput[] = infos.map((s, i) => ({ id: s.id, mime: "image/jpeg", bytes: screenThumb(files[i]!) }));
   const r = await askChunk(ask.state, ask.questions, ready.planner, NO_CACHE, { fetchImpl: o.fetchImpl, images, keepAnswers: true });
   if (!r.answers) warn("motion: AI planner gave no answers; this film uses fallback rules.");

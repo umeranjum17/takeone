@@ -158,6 +158,25 @@ test("a flag the local rules reject fails before the billed planner call", { tim
   }
 });
 
+test("a run whose flags fix every decision never resolves the planner", { timeout: 120000 }, async () => {
+  const dir = mkdtempSync(join(tmpdir(), "takeone-screens-"));
+  try {
+    const files = screenshots(dir).slice(0, 1);
+    const configDir = join(dir, "broken-config");
+    mkdirSync(configDir, { recursive: true });
+    writeFileSync(join(configDir, "planner.json"), "{not json");
+    const args = parseMotionArgs([...files, "--theme", "paper", "--pattern", "hero-reveal", "--region", "120,80,800,500"]);
+    const warns: string[] = [];
+    const sb = validateStoryboard(await planMotion(args, "motion", { configDir, warn: (s) => warns.push(s) }));
+    assert.equal(sb.theme.name, "paper");
+    assert.deepEqual(sb.planner, { by: "local", abstained: [] });
+    assert.deepEqual(await planMotion(args, "motion", { configDir, warn: () => {} }), planStoryboard(args, "motion"));
+    assert.deepEqual(warns, []);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("a provider that cannot serve the run exits 3 before any take directory is written", { timeout: 120000 }, async () => {
   const dir = mkdtempSync(join(tmpdir(), "takeone-screens-"));
   const saved = [process.env.XDG_CONFIG_HOME, process.env.TAKEONE_DIR, process.env.TAKEONE_NO_KEYRING];
