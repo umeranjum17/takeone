@@ -4,6 +4,7 @@ Turn saved screens (images, HTML, or a URL) into a motion-design film without re
 
 ## Sub-features
 
+- Screenshot planning: image-only runs are planned by the local rules. AI image planning is off until screenshots can be redacted, so no screenshot is sent to any planner, an image-only run makes no planner call, and it warns that image planning is off. `--theme`, `--pattern` and `--region` fix the decisions they name, `--no-ai` silences that warning, and `storyboard.json` records `planner: {by: "local", abstained: []}`. Copy comes from `--title`, `--subtitle`, `--cta` and `--region` captions.
 - Pattern planning: `--pattern hero-reveal,zoom-tour,end-card,kinetic-type` (all three when omitted); zoom-tour stops via `--region x,y,w,h[:caption][@SCREEN]`. With no `--pattern` and 3+ screens the planner builds a launch film: a kinetic-type title, each labelled screen announced by a full-type beat (message subtitle/CTA included; first beat also mounts a phone frame over a region close-up crop) ahead of a clean tour, a bento recap grid of real cropped screen states with 3+ labels, end card, black/cream beats alternating.
 - Whole-UI framing: settled zoom-tour close-ups (render) and the phone/bento crops (ingest) keep a planned view that is already whole, else move to the tightest same-aspect framing that keeps every field, button and card whole or all but a sliver out (make's `detectUiBoxes`) and runs no edge through a word (`edgeCuts`). A stop or crop with no whole framing prints `motion: no framing of … keeps every word and control whole`; a snapped tour longer than its planned `d` prints `motion: whole-UI stops of scene N need …` and uses the planned stops. The bento's three state tiles each wear their label pill; the fourth tile has none.
 - Interactive page states: `--state NAME='click #id; type #id "text"; wait 100'` captures real HTML/URL states in one page, in order.
@@ -23,7 +24,7 @@ The user has screenshots or an HTML page and wants a launch film: `takeone motio
 node bin/takeone.mjs motion install-shell                      # once per machine; verify via doctor afterwards
 export TAKEONE_DIR="$PWD/tmp/verify-takes"
 node bin/takeone.mjs motion /abs/design.png --out "$TAKEONE_DIR/verify-motion" \
-  --pattern end-card --title "Ship your next idea" --device browser; echo "exit=$?"
+  --pattern end-card --title "Ship your next idea" --device browser --no-ai; echo "exit=$?"
 ```
 
 Proving end state: exit 0; the output take dir contains `storyboard.json`, `sources/`, `render.json` (workers, shell, encoder, timing) and `out/<id>.mp4` that `ffprobe` reports as 1920×1080 (default). `--plan-only` alone proves planning only — it writes no MP4, so it is not render proof.

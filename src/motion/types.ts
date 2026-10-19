@@ -142,5 +142,6 @@ export interface Storyboard {
   regions: Region[];
   layout: Layout;
   scenes: Scene[];
-  planner: { by: "local" | "user"; abstained: string[] };
+  /** `abstained` lists the planner decisions that fell back to the local defaults. */
+  planner: { by: "ai" | "local" | "user"; abstained: string[] };
 }

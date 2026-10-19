@@ -13,19 +13,20 @@ export const MOTION_USAGE = `takeone motion <image.png|page.html|https://url>...
   [--theme midnight|paper|aurora|mono|sand|editorial]
   [--title TEXT] [--subtitle TEXT] [--cta TEXT] [--url TEXT] [--logo WORD] [--device browser|phone|laptop|none]
   [--region x,y,w,h[:label][@SCREEN]]... [--state NAME='click #id; type #id "text"; drag #a #b; wait 300']...
-  [--workers N] [--blur 0|1] [--storyboard file.json] [--plan-only]
+  [--workers N] [--blur 0|1] [--storyboard file.json] [--plan-only] [--no-ai]
 takeone motion install-shell     download the pinned chrome-headless-shell (sha256 checked)
 
   motion writes a take-shaped directory (take.json, sources/, storyboard.json, out/<id>.mp4, render.json);
-  takeone render <dir> rerenders it. With no --pattern it plans hero-reveal, zoom-tour and end-card;
-  with three or more screens it plans a launch film instead: a kinetic-type title, each labelled
-  screen announced by its own full-type beat ahead of a clean tour, and the end card, with
-  black and cream beats alternating by scene order.`;
+  takeone render <dir> rerenders it. AI image planning is off until screenshots can be redacted, so every
+  run is planned by the local rules and no screenshot is sent to a planner. With no --pattern the local
+  rules plan hero-reveal, zoom-tour and end-card; with three or more screens they plan a launch film
+  instead: a kinetic-type title, each labelled screen announced by its own full-type beat ahead of a clean
+  tour, and the end card, with black and cream beats alternating by scene order.`;
 
-interface MotionArgs {
+export interface MotionArgs {
   inputs: string[]; out?: string; patterns?: PatternName[]; theme?: string; title?: string;
   subtitle?: string; cta?: string; url?: string; logo?: string; device?: Device; regions: string[]; states: [string, string][];
-  workers?: number; blur?: number; storyboard?: string; planOnly: boolean;
+  workers?: number; blur?: number; storyboard?: string; planOnly: boolean; noAi?: boolean;
 }
 
 export function parseMotionArgs(argv: string[]): MotionArgs {
@@ -39,6 +40,7 @@ export function parseMotionArgs(argv: string[]): MotionArgs {
     const s = argv[i]!;
     if (!s.startsWith("--")) { a.inputs.push(s); continue; }
     if (s === "--plan-only") { a.planOnly = true; continue; }
+    if (s === "--no-ai") { a.noAi = true; continue; }
     const v = value(++i, s);
     if (s === "--out") a.out = v;
     else if (s === "--pattern") a.patterns = v.split(",") as PatternName[];
@@ -104,11 +106,16 @@ function screenDims(kind: string): { width: number; height: number } | undefined
   return undefined;
 }
 
+/** The source kind an input names; the first input decides, since only image runs can carry several. */
+export function inputKind(first: string): "url" | "html" | "image" {
+  return /^https?:\/\//.test(first) ? "url" : /\.html?$/i.test(first) ? "html" : "image";
+}
+
 /** The local planner: pattern defaults, regions in the order given, copy from flags. */
 export function planStoryboard(a: MotionArgs, id: string): unknown {
   validateStateNames(a.states.map(([name]) => name));
   const first = a.inputs[0]!;
-  const kind = /^https?:\/\//.test(first) ? "url" : /\.html?$/i.test(first) ? "html" : "image";
+  const kind = inputKind(first);
   if (kind !== "image" && a.inputs.length > 1) throw new Error("html and url sources take one input; use --state for more screens");
   const screens = kind === "image" ? a.inputs.map((_, i) => `S${i + 1}`) : a.states.length ? a.states.map(([n]) => n) : ["S1"];
   const dsf = kind === "image" ? 1 : 2; // html/url capture at 2x so settled close-ups stay sharp
@@ -282,12 +289,28 @@ export function planStoryboard(a: MotionArgs, id: string): unknown {
   };
 }
 
+export interface PlanOptions {
+  /** Warning sink; defaults to stderr. */
+  warn?: (line: string) => void;
+}
+
+/** The storyboard for a motion run. AI image planning is off until screenshots can be redacted, so an
+ *  image-only run makes no planner call and every run gets the local plan. */
+export async function planMotion(a: MotionArgs, id: string, o: PlanOptions = {}): Promise<unknown> {
+  const local = planStoryboard(a, id);
+  if (a.noAi || !a.inputs.length || inputKind(a.inputs[0]!) !== "image") return local;
+  const warn = o.warn ?? ((line: string) => console.error(line));
+  warn("motion: AI image planning is OFF until screenshots can be redacted; this film uses the local rules " +
+    "and no screenshot is sent to a planner.");
+  return local;
+}
+
 function stamp(): string {
   const d = new Date(), p = (n: number) => String(n).padStart(2, "0");
   return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
 }
 
-export async function runMotion(argv: string[], takesDir: string): Promise<number> {
+export async function runMotion(argv: string[], takesDir: string, o: PlanOptions = {}): Promise<number> {
   if (argv[0] === "install-shell") {
     const shell = await installShell();
     console.log(`chrome-headless-shell ${shell.version} sha256 ${shell.sha256}\n${shell.path}`);
@@ -304,7 +327,7 @@ export async function runMotion(argv: string[], takesDir: string): Promise<numbe
     if (!a.inputs.length) throw new Error("motion needs an input (image, .html or URL) or --storyboard");
     for (const f of a.inputs) if (!/^https?:\/\//.test(f) && !existsSync(f)) throw new Error(`no such input ${f}`);
     id = "motion";
-    storyboard = planStoryboard(a, id);
+    storyboard = await planMotion(a, id, o);
   }
   const sb = validateStoryboard(storyboard); // refuse bad plans before touching the disk
   let dir: string;
