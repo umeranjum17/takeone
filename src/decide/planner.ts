@@ -1,12 +1,10 @@
 // Provider-agnostic AI planner over @byokit/decide: the decider is whatever
 // model the user picked through a stored BYOKit decide config
 // (`parseConfig` / `createDecider` shape: backend, auth, model, via).
-// Jev is only the default when the user picked nothing. Provider names appear
-// only in DEFAULT_PLANNER_CONFIG, modelOf (jev's default model),
-// loadPlannerConfig, plannerAnswersText and askChunk (opencode-go, openai and the
-// installed Claude/Codex CLIs are the only account-auth backends). The
-// provider is never switched automatically: limits, auth errors and timeouts
-// stop with PlannerUnavailable instead of silently falling back.
+// Jev is only the default when the user picked nothing; with no saved choice
+// an already-signed-in Claude or Codex CLI account is offered first. A saved
+// choice is never switched: limits, auth errors and timeouts stop with
+// PlannerUnavailable instead of silently falling back.
 //
 // Answer validation stays takeone's own mapping (mapAnswers): the kit floor is
 // set to 0 on our questions so a merely unsure answer still widens through the
@@ -76,10 +74,6 @@ export function loadPlannerConfig(o: KeyOptions = {}): { config: PlannerConfig; 
       config = value as CliPlannerConfig;
     } else {
       config = parseConfig(raw);
-      const c = config as { backend: string; auth: string };
-      if (c.auth === "account" && c.backend !== "opencode-go" && c.backend !== "openai") {
-        throw new ConfigError(`account authentication is only supported for opencode-go, openai and the installed Claude/Codex CLIs, not ${c.backend}`);
-      }
     }
   } catch (e) {
     if (e instanceof UnsupportedAccountError || e instanceof SyntaxError) throw new ConfigError(e.message);
@@ -95,8 +89,7 @@ export async function savePlannerConfig(config: PlannerConfig, o: KeyOptions = {
   await writeFileAtomic(plannerConfigPath(o), JSON.stringify(parsed, null, 1) + "\n");
 }
 
-/** "backend (model)" with the via route when the backend has one. Reads the
- * config; it never names a provider itself. */
+/** "backend (model)" with the via route when the backend has one. */
 export function describePlanner(config: PlannerConfig): string {
   const c = config as { backend: string; via?: string; auth?: string };
   const cli = c.backend === "claude-code" ? "Claude" : c.backend === "codex" ? "Codex" : null;

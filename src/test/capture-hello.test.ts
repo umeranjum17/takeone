@@ -27,7 +27,8 @@ function run(args: string[], extraEnv: NodeJS.ProcessEnv = {}) {
   return spawnSync(process.execPath, ["--import", join(here, "fake-secrets.js"), cli, ...args], {
     encoding: "utf8",
     timeout: 10_000,
-    env: { ...process.env, ...extraEnv },
+    // No PATH: planner discovery must not see the developer's installed Claude/Codex CLI.
+    env: { ...process.env, PATH: "", ...extraEnv },
   });
 }
 

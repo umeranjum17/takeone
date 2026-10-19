@@ -1,9 +1,9 @@
 /** `takeone capture make` over a tiny synthetic take, via the built CLI. */
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdtempSync, openSync, closeSync, readFileSync, rmSync, writeFileSync, existsSync, mkdirSync, chmodSync } from "node:fs";
+import { mkdtempSync, openSync, closeSync, readFileSync, rmSync, writeFileSync, existsSync, mkdirSync, chmodSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { delimiter, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 import { makeTake } from "../make.ts";
@@ -134,7 +134,19 @@ function withHome() {
   return { home, cleanup: () => rmSync(home, { recursive: true, force: true }) };
 }
 
-test("doctor and make use a signed-in installed Claude CLI without a planner key", async () => {
+/** A PATH with only the ffmpeg tools: planner discovery must not see the
+ * developer's installed Claude or Codex CLI. */
+function ffmpegToolsPath(home: string): string {
+  const dir = join(home, "bin");
+  mkdirSync(dir);
+  for (const name of ["ffmpeg", "ffprobe"]) {
+    const found = (process.env.PATH ?? "").split(delimiter).map((entry) => join(entry, name)).find((path) => existsSync(path));
+    if (found !== undefined) symlinkSync(found, join(dir, name));
+  }
+  return dir;
+}
+
+test("doctor and make use a signed-in installed Claude CLI without a planner key", { skip: needsFfmpeg }, async () => {
   const { home, cleanup } = withHome();
   const dir = mkdtempSync(join(tmpdir(), "takeone-cli-account-"));
   const binDir = join(dir, "bin");
@@ -159,27 +171,25 @@ if (args.includes("auth") && args.includes("status")) {
 } else process.exit(2);
 `);
   chmodSync(cli, 0o755);
-  const take = join(dir, "take");
-  writeFileSync(join(dir, "passphrase"), "fixture-only-passphrase");
+  const take = buildTake();
   try {
-    execFileSync(process.execPath, [join(here, "../../scripts/synth-take.ts"), take], { stdio: "ignore" });
     const env = {
       HOME: home,
       XDG_CONFIG_HOME: join(home, ".config"),
       PATH: `${binDir}:${process.env.PATH ?? "/usr/bin:/bin"}`,
       TAKEONE_NO_KEYRING: "1",
-      TAKEONE_SECRETS_PASSPHRASE_FD: "3",
     };
-    const doctor = run(["doctor"], { env, keyFile: join(dir, "passphrase") });
+    const doctor = run(["doctor"], { env });
     assert.equal(doctor.status, 0, doctor.stderr);
     assert.match(doctor.stdout, /ai-planner,true,planner,.*found and using signed-in Claude account/);
-    const made = run(["make", take, ...FAST_SET], { env, keyFile: join(dir, "passphrase") });
+    const made = run(["make", take, ...FAST_SET], { env });
     assert.equal(made.status, 0, made.stderr);
     assert.match(made.stdout, /AI planner: signed-in Claude account/);
     assert.match(made.stdout, /choices by AI/);
     assert.equal(JSON.parse(readFileSync(join(take, "take.json"), "utf8")).planner.mode, "ai");
     assert.ok(!/set a key|paste.*key/i.test(made.stdout + made.stderr));
   } finally {
+    rmSync(take, { recursive: true, force: true });
     rmSync(dir, { recursive: true, force: true });
     cleanup();
   }
@@ -230,10 +240,10 @@ test("capture make --plan-only prices the plan without network or render", { ski
   }
 });
 
-test("doctor, make and capture never read the planner key from the environment", async () => {
+test("doctor, make and capture never read the planner key from the environment", { skip: needsFfmpeg }, async () => {
   const { home, cleanup } = withHome();
   const dir = buildTake();
-  const env = { HOME: home, TYPESAFE_API_KEY: "bogus-env-key" };
+  const env = { HOME: home, PATH: ffmpegToolsPath(home), TYPESAFE_API_KEY: "bogus-env-key" };
   try {
     // All three read the key the same way: an env key is no key.
     const doctor = run(["doctor"], { env });
@@ -325,7 +335,7 @@ test("capture make render failure uses the envelope with exit 1", { skip: needsF
   }
 });
 
-test("capture make with an fd key stops loudly when planner.json names account auth", async () => {
+test("capture make with an fd key stops loudly when planner.json names account auth", { skip: needsFfmpeg }, async () => {
   const { home, cleanup } = withHome();
   const dir = buildTake();
   try {
