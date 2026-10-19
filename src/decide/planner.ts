@@ -12,6 +12,7 @@
 // abstention (malformed answers) and transport failures fall back per beat, as
 // before. Kit floors engage with per-field fallback in a later slice.
 
+import { spawnSync } from "node:child_process";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync, accessSync, constants } from "node:fs";
 import { homedir, userInfo } from "node:os";
 import { delimiter, dirname, isAbsolute, join } from "node:path";
@@ -48,7 +49,7 @@ export const DEFAULT_PLANNER_CONFIG: DecideConfig = {
   retryMaxMs: 3000,
 };
 
-type CliPlannerConfig = { backend: "claude-code" | "codex"; auth: "account"; account: "installed-claude" | "installed-codex"; bin: string; model: string };
+type CliPlannerConfig = { backend: "claude-code" | "codex"; auth: "account"; account: "installed-claude" | "installed-codex"; bin: string; model?: string };
 type PlannerConfig = DecideConfig | CliPlannerConfig;
 
 export function plannerConfigPath(o: KeyOptions = {}): string {
@@ -68,8 +69,8 @@ export function loadPlannerConfig(o: KeyOptions = {}): { config: PlannerConfig; 
     const value = JSON.parse(raw) as Record<string, unknown>;
     if (value?.backend === "claude-code" || value?.backend === "codex") {
       const provider = value.backend === "claude-code" ? "claude" : "codex";
-      if (value.auth !== "account" || value.account !== `installed-${provider}` || typeof value.bin !== "string" || !isAbsolute(value.bin) || typeof value.model !== "string" || !value.model.trim() || Object.keys(value).some((key) => !["backend", "auth", "account", "bin", "model"].includes(key))) {
-        throw new ConfigError(`${provider} planner requires its installed account, an absolute bin, and a model`);
+      if (value.auth !== "account" || value.account !== `installed-${provider}` || typeof value.bin !== "string" || !isAbsolute(value.bin) || (value.model !== undefined && (typeof value.model !== "string" || !value.model.trim())) || Object.keys(value).some((key) => !["backend", "auth", "account", "bin", "model"].includes(key))) {
+        throw new ConfigError(`${provider} planner requires its installed account and an absolute bin`);
       }
       config = value as CliPlannerConfig;
     } else {
@@ -89,11 +90,24 @@ export async function savePlannerConfig(config: PlannerConfig, o: KeyOptions = {
   await writeFileAtomic(plannerConfigPath(o), JSON.stringify(parsed, null, 1) + "\n");
 }
 
-/** "backend (model)" with the via route when the backend has one. */
+/** "backend (model)" with the via route when the backend has one. A saved
+ * installed CLI only names its provider; the resolved planner decides whether
+ * its sign-in can actually serve the backend. */
 export function describePlanner(config: PlannerConfig): string {
+  const c = config as { auth?: string };
+  return plannerLabel(config, c.auth === "account");
+}
+
+function plannerLabel(config: PlannerConfig, accountPresent: boolean): string {
   const c = config as { backend: string; via?: string; auth?: string };
-  const cli = c.backend === "claude-code" ? "Claude" : c.backend === "codex" ? "Codex" : null;
-  return `${cli && c.auth === "account" ? `signed-in ${cli} account` : c.backend}${c.via ? ` via ${c.via}` : ""} (${modelOf(config)})`;
+  const account = c.backend === "claude-code" ? "Claude" : c.backend === "codex" ? "Codex" : c.backend === "openai" ? "ChatGPT" : c.backend === "opencode-go" ? "OpenCode Go" : null;
+  const cli = c.backend === "claude-code" || c.backend === "codex";
+  const name = account && c.auth === "account"
+    ? cli
+      ? accountPresent ? `signed-in ${account} account` : `installed ${account} CLI`
+      : accountPresent ? `signed-in ${account} account` : account
+    : c.backend;
+  return `${name}${c.via ? ` via ${c.via}` : ""} (${modelOf(config)})`;
 }
 
 /** Whether the planner can return free text beside its choices (answerFields).
@@ -120,6 +134,8 @@ export interface ResolvedPlanner {
   accountPresent: boolean;
   /** True when the planner may be called (not opted out and credentialed). */
   active: boolean;
+  /** Why the resolved account sign-in cannot serve the backend, in plain words. */
+  refusal: string | null;
 }
 
 /** Person id for the shared BYOKit machine store: the sanitized OS username
@@ -147,9 +163,12 @@ export async function resolvePlanner(o: ResolvePlannerOptions = {}): Promise<Res
   const loaded = loadPlannerConfig(o);
   let config = loaded.config;
   const { defaulted } = loaded;
+  const env = o.env ?? process.env;
+  let refusal: string | null = null;
   if (defaulted && o.apiKeyOverride === undefined) {
-    const account = await discoverInstalledAccount(o.env ?? process.env);
-    if (account) config = account;
+    const discovered = await discoverAccount(plannerMember(o), env);
+    if (discovered.config) config = discovered.config;
+    else refusal = discovered.refusal;
   }
   const c = config as { backend: string; auth: string };
   let member: string | null = null;
@@ -162,11 +181,15 @@ export async function resolvePlanner(o: ResolvePlannerOptions = {}): Promise<Res
       throw new ConfigError(`${describePlanner(config)} plans through an account sign-in, which a supplied key cannot drive; fix planner.json or drop --planner-key-fd`);
     }
     member = plannerMember(o);
-    accountPresent = c.backend === "claude-code" || c.backend === "codex"
-      ? await cliAccountPresent(config as CliPlannerConfig, o.env)
-      : c.backend === "openai"
-        ? await openAIAccountPresent(member, o.env)
-        : await goAccountPresent(member, o.env);
+    if (c.backend === "claude-code" || c.backend === "codex") {
+      const ready = await cliReady(config as CliPlannerConfig, env);
+      accountPresent = ready.ok;
+      if (!ready.ok) refusal = ready.message;
+    } else {
+      accountPresent = c.backend === "openai"
+        ? await openAIAccountPresent(member, env)
+        : await goAccountPresent(member, env);
+    }
   } else if (o.apiKeyOverride !== undefined) {
     key = o.apiKeyOverride;
   } else {
@@ -175,10 +198,11 @@ export async function resolvePlanner(o: ResolvePlannerOptions = {}): Promise<Res
   return {
     config,
     defaulted,
-    label: describePlanner(config),
+    label: plannerLabel(config, accountPresent),
     member,
     key,
     accountPresent,
+    refusal,
     active: c.auth === "account" ? accountPresent : key !== null,
   };
 }
@@ -220,8 +244,61 @@ async function loadCliLaunch(config: CliPlannerConfig, env: NodeJS.ProcessEnv = 
   return cliAccounts({ stateDir, bins: { [provider]: config.bin }, env: cliEnv, installed: true }).launch(config.account);
 }
 
-async function cliAccountPresent(config: CliPlannerConfig, env: NodeJS.ProcessEnv = process.env): Promise<boolean> {
-  try { return (await loadCliLaunch(config, env)).ok; } catch { return false; }
+const CLAUDE_BILLING_ROUTES = new Set([
+  "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX", "CLAUDE_CODE_USE_FOUNDRY", "CLAUDE_CODE_USE_ANTHROPIC_AWS",
+  "CLAUDE_CODE_USE_MANTLE", "ANTHROPIC_PROFILE", "ANTHROPIC_FEDERATION_RULE_ID", "ANTHROPIC_BASE_URL",
+]);
+
+/** The environment the Claude backend builds: the person's own values minus
+ * API-billed keys and billing routes, keeping the subscription OAuth token. */
+function claudeProbeEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  return Object.fromEntries(Object.entries(env).filter(([key]) => key === "CLAUDE_CODE_OAUTH_TOKEN"
+    || (!/KEY|TOKEN|SECRET|^NODE_OPTIONS$/i.test(key) && !CLAUDE_BILLING_ROUTES.has(key))));
+}
+
+function claudeRefusal(bin: string, env: NodeJS.ProcessEnv): string | null {
+  let status: unknown = null;
+  try {
+    const out = spawnSync(bin, ["--safe-mode", "--setting-sources", "", "auth", "status"], {
+      env: claudeProbeEnv(env), encoding: "utf8", timeout: 30_000,
+    });
+    status = JSON.parse(out.stdout);
+  } catch {
+    return "the installed Claude CLI did not report its sign-in, so the planner cannot use it";
+  }
+  const s = status as Record<string, unknown> | null;
+  if (s && s.loggedIn === true && s.authMethod === "claude.ai" && s.apiProvider === "firstParty") return null;
+  return "the installed Claude CLI is signed in with an API key, Bedrock or Vertex, not a claude.ai subscription, so the planner cannot use it";
+}
+
+function codexHome(env: NodeJS.ProcessEnv): string {
+  return env.CODEX_HOME && isAbsolute(env.CODEX_HOME) ? env.CODEX_HOME : join(env.HOME ?? homedir(), ".codex");
+}
+
+function codexRefusal(env: NodeJS.ProcessEnv): string | null {
+  try {
+    const config = readFileSync(join(codexHome(env), "config.toml"), "utf8");
+    if (/^\s*cli_auth_credentials_store\s*=\s*["']keyring["']/m.test(config)) {
+      return "the installed Codex CLI keeps its sign-in in the OS keyring, which the planner's Codex run does not read; set cli_auth_credentials_store = \"file\" in its config.toml";
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+type CliLaunch = Awaited<ReturnType<typeof loadCliLaunch>>;
+type CliServed = { ok: true; launch: Extract<CliLaunch, { ok: true }> } | { ok: false; message: string };
+
+/** One 'this installed CLI can actually serve this backend' boundary: an
+ * installed sign-in the roster calls ready, and the two launch-time refusals
+ * the decide backends apply (Codex drops the user config, Claude needs a
+ * claude.ai subscription). */
+async function cliReady(config: CliPlannerConfig, env: NodeJS.ProcessEnv = process.env): Promise<CliServed> {
+  const launch = await loadCliLaunch(config, env);
+  if (!launch.ok) return { ok: false, message: launch.message };
+  const refusal = config.backend === "claude-code" ? claudeRefusal(config.bin, env) : codexRefusal(env);
+  return refusal === null ? { ok: true, launch } : { ok: false, message: refusal };
 }
 
 function executable(name: string, env: NodeJS.ProcessEnv): string | undefined {
@@ -233,23 +310,61 @@ function executable(name: string, env: NodeJS.ProcessEnv): string | undefined {
   return undefined;
 }
 
-async function discoverInstalledAccount(env: NodeJS.ProcessEnv): Promise<PlannerConfig | null> {
+async function kitModel(provider: "chatgpt" | "opencode"): Promise<string | null> {
+  try {
+    const { PROVIDERS } = await import("@byokit/accounts");
+    const model = PROVIDERS[provider]?.models.strong;
+    return typeof model === "string" && model.trim() ? model : null;
+  } catch {
+    return null;
+  }
+}
+
+interface Discovered {
+  config: PlannerConfig | null;
+  refusal: string | null;
+}
+
+async function discoverCliAccount(env: NodeJS.ProcessEnv): Promise<Discovered> {
   try {
     const bins = { claude: executable("claude", env), codex: executable("codex", env) };
-    if (!bins.claude && !bins.codex) return null;
+    if (!bins.claude && !bins.codex) return { config: null, refusal: null };
     const { cliAccounts } = await import("@byokit/accounts/cli");
     const stateDir = join(takeoneConfigDir({ env }), "cli-accounts");
     mkdirSync(dirname(stateDir), { recursive: true });
     const roster = cliAccounts({ stateDir, bins: Object.fromEntries(Object.entries(bins).filter((entry): entry is ["claude" | "codex", string] => Boolean(entry[1]))), env: { HOME: env.HOME ?? homedir(), PATH: env.PATH ?? "", ...(env.CODEX_HOME ? { CODEX_HOME: env.CODEX_HOME } : {}) }, installed: true });
     const rows = await roster.list();
+    let refusal: string | null = null;
     for (const provider of ["claude", "codex"] as const) {
-      const row = rows.find((item) => item.id === `installed-${provider}` && item.state === "ready");
-      if (row && bins[provider]) return { backend: provider === "claude" ? "claude-code" : "codex", auth: "account", account: `installed-${provider}`, bin: bins[provider]!, model: provider === "claude" ? "sonnet" : "gpt-5-codex" };
+      const bin = bins[provider];
+      if (!bin || !rows.some((item) => item.id === `installed-${provider}` && item.state === "ready")) continue;
+      const config: CliPlannerConfig = { backend: provider === "claude" ? "claude-code" : "codex", auth: "account", account: `installed-${provider}`, bin };
+      const ready = await cliReady(config, env);
+      if (ready.ok) return { config, refusal: null };
+      refusal ??= ready.message;
     }
-    return null;
+    return { config: null, refusal };
   } catch {
-    return null;
+    return { config: null, refusal: null };
   }
+}
+
+/** The user picked nothing: a signed-in installed CLI, then a signed-in BYOKit
+ * subscription account, then the stored key and local rules below. The model of
+ * a discovered CLI comes from the backend's own default; a subscription account
+ * takes the model the kit catalogue lists for it. */
+async function discoverAccount(member: string, env: NodeJS.ProcessEnv): Promise<Discovered> {
+  const cli = await discoverCliAccount(env);
+  if (cli.config) return cli;
+  const chatgptModel = await kitModel("chatgpt");
+  if (chatgptModel && await openAIAccountPresent(member, env)) {
+    return { config: { backend: "openai", auth: "account", model: chatgptModel }, refusal: cli.refusal };
+  }
+  const goModel = await kitModel("opencode");
+  if (goModel && await goAccountPresent(member, env)) {
+    return { config: { backend: "opencode-go", auth: "account", model: goModel }, refusal: cli.refusal };
+  }
+  return { config: null, refusal: cli.refusal };
 }
 
 /** Presence of the member's Go plan login. Reads the stored key into memory
@@ -281,14 +396,18 @@ export async function plannerStatus(o: ResolvePlannerOptions = {}): Promise<{
     if (r.defaulted) {
       return {
         available: false,
-        detail: "AI planner off: no signed-in account or stored key was found; films use fallback rules (set a key: read -rs k; printf %s \"$k\" | takeone key set)",
+        detail: r.refusal
+          ? `AI planner off: ${r.refusal}; films use fallback rules (set a key: read -rs k; printf %s "$k" | takeone key set)`
+          : "AI planner off: no signed-in account or stored key was found; films use fallback rules (set a key: read -rs k; printf %s \"$k\" | takeone key set)",
         config: r.config,
         label: r.label,
       };
     }
     return {
       available: false,
-      detail: `AI planner off: films use fallback rules (no ${c.auth === "account" ? "sign-in" : "key"} for ${r.label})`,
+      detail: r.refusal
+        ? `AI planner off: ${r.refusal}`
+        : `AI planner off: films use fallback rules (no ${c.auth === "account" ? "sign-in" : "key"} for ${r.label})`,
       config: r.config,
       label: r.label,
     };
@@ -559,14 +678,14 @@ export async function askChunk(
   if (c.backend === "codex" || c.backend === "claude-code") {
     if (planner.member === null) throw new Error("account planner resolved without a member");
     const config = planner.config as CliPlannerConfig;
-    const launch = await loadCliLaunch(config);
-    if (!launch.ok) throw new PlannerUnavailable(planner.label, launch.message);
+    const ready = await cliReady(config);
+    if (!ready.ok) throw new PlannerUnavailable(planner.label, ready.message);
     const backend = config.backend === "codex"
-      ? codex({ bin: config.bin, account: launch, model: config.model, timeoutMs: 120_000 })
-      : claudeCode({ bin: config.bin, account: launch, model: config.model, timeoutMs: 120_000 });
+      ? codex({ bin: config.bin, account: ready.launch, model: config.model, timeoutMs: 120_000 })
+      : claudeCode({ bin: config.bin, account: ready.launch, model: config.model, timeoutMs: 120_000 });
     const scopedCache: DecideCache = {
-      get: (key) => cache.get(`${config.backend}:${config.model}:${config.account}:${key}`),
-      set: (key, value) => cache.set(`${config.backend}:${config.model}:${config.account}:${key}`, value),
+      get: (key) => cache.get(`${config.backend}:${modelOf(config)}:${config.account}:${key}`),
+      set: (key, value) => cache.set(`${config.backend}:${modelOf(config)}:${config.account}:${key}`, value),
     };
     runDecider = () => decide(state, questions, {
       backends: [backend],
