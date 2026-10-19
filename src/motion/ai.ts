@@ -1,6 +1,7 @@
 // The screenshot planner's decision vocabulary: the film shapes it picks between, the focus third of a
 // screen, the questions it would be asked and the answers mapped back onto them. Image planning is off
-// until screenshots can be redacted, so nothing here reads a user image or calls a provider.
+// until screenshots can be redacted, so nothing here reads a user image or calls a provider, and the
+// image-off plan path in cli.ts does not call this module; t1-ai-s7b reuses it once redaction exists.
 import type { Answer, Question } from "@byokit/decide";
 import { THEME_NOTES } from "../decide/film.ts";
 import type { PatternName } from "./types.ts";
