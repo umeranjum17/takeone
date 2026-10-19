@@ -378,27 +378,17 @@ interface Discovered {
 }
 
 async function discoverCliAccount(env: NodeJS.ProcessEnv): Promise<Discovered> {
-  try {
-    const bins = { claude: executable("claude", env), codex: executable("codex", env) };
-    if (!bins.claude && !bins.codex) return { config: null, refusal: null, cli: null };
-    const { cliAccounts } = await import("@byokit/accounts/cli");
-    const stateDir = join(takeoneConfigDir({ env }), "cli-accounts");
-    mkdirSync(dirname(stateDir), { recursive: true });
-    const roster = cliAccounts({ stateDir, bins: Object.fromEntries(Object.entries(bins).filter((entry): entry is ["claude" | "codex", string] => Boolean(entry[1]))), env: { HOME: env.HOME ?? homedir(), PATH: env.PATH ?? "", ...(env.CODEX_HOME ? { CODEX_HOME: env.CODEX_HOME } : {}) }, installed: true });
-    const rows = await roster.list();
-    let refusal: string | null = null;
-    for (const provider of ["claude", "codex"] as const) {
-      const bin = bins[provider];
-      if (!bin || !rows.some((item) => item.id === `installed-${provider}` && item.state === "ready")) continue;
-      const config: CliPlannerConfig = { backend: provider === "claude" ? "claude-code" : "codex", auth: "account", account: `installed-${provider}`, bin };
-      const ready = await cliReady(config, env);
-      if (ready.ok) return { config, refusal: null, cli: ready.launch };
-      refusal ??= ready.message;
-    }
-    return { config: null, refusal, cli: null };
-  } catch {
-    return { config: null, refusal: null, cli: null };
+  const bins = { claude: executable("claude", env), codex: executable("codex", env) };
+  let refusal: string | null = null;
+  for (const provider of ["claude", "codex"] as const) {
+    const bin = bins[provider];
+    if (!bin) continue;
+    const config: CliPlannerConfig = { backend: provider === "claude" ? "claude-code" : "codex", auth: "account", account: `installed-${provider}`, bin };
+    const ready = await cliReady(config, env);
+    if (ready.ok) return { config, refusal: null, cli: ready.launch };
+    refusal ??= ready.message;
   }
+  return { config: null, refusal, cli: null };
 }
 
 /** The user picked nothing: a signed-in installed CLI, then a signed-in BYOKit
