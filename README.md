@@ -86,7 +86,7 @@ Isolated installs (CI, throwaway test HOMEs) can set `TAKEONE_NO_KEYRING=1` so t
 - **Looks finished out of the box.** A rounded screen card on a stage, in six themes from dark `midnight` to cream `paper`.
 - **Titles and captions.** In 16:9 videos they sit in a band below the screen, never over your app ([how](docs/look.md)).
 - **Paces itself.** Idle stretches play faster, typing can too, and spotlight and blur boxes follow the content.
-- **Private and cheap.** Works fully offline with `--no-ai`. The AI planner is on by default with any configured provider (Jev by default) and its cost is in [docs/cost.md](docs/cost.md). `takeone key set --backend <name> --model <model> [--via typesafe|openrouter]` stores your key and records the choice in `planner.json` (Jev is the default when nothing is picked; takeone never switches providers automatically).
+- **Private and cheap.** Works fully offline with `--no-ai`. The AI planner is on by default: with no saved choice it offers an already-signed-in Claude or Codex CLI account first, then any configured provider (Jev by default), and its cost is in [docs/cost.md](docs/cost.md). `takeone key set --backend <name> --model <model> [--via typesafe|openrouter]` stores your key and records the choice in `planner.json` (Jev is the default when nothing is picked; takeone never switches providers automatically).
 - **Exports what you need.** MP4 by default, plus GIF, WebM and ProRes 4444, in landscape, portrait, square or 4:5.
 - **Motion films from screens.** `takeone motion` turns screenshots, HTML or a URL into a short film.
 

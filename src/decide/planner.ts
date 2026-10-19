@@ -3,8 +3,9 @@
 // (`parseConfig` / `createDecider` shape: backend, auth, model, via).
 // Jev is only the default when the user picked nothing. Provider names appear
 // only in DEFAULT_PLANNER_CONFIG, modelOf (jev's default model),
-// loadPlannerConfig, plannerAnswersText and askChunk (opencode-go is the only account-auth backend;
-// codex and pi are CLI seams that run the person's own installed, signed-in binary). The
+// loadPlannerConfig, plannerAnswersText and askChunk (opencode-go, openai and the
+// installed Claude/Codex CLIs are the only account-auth backends; pi is a CLI
+// seam that runs the person's own installed, signed-in binary). The
 // provider is never switched automatically: limits, auth errors and timeouts
 // stop with PlannerUnavailable instead of silently falling back.
 //
@@ -86,14 +87,14 @@ export function loadPlannerConfig(o: KeyOptions = {}): { config: PlannerConfig; 
       config = value as CliPlannerConfig;
     } else {
       config = parseConfig(raw);
+      const c = config as { backend: string; auth: string };
+      if (c.auth === "account" && c.backend !== "opencode-go" && c.backend !== "openai") {
+        throw new ConfigError(`account authentication is only supported for opencode-go, openai and the installed Claude/Codex CLIs, not ${c.backend}`);
+      }
     }
   } catch (e) {
     if (e instanceof UnsupportedAccountError || e instanceof SyntaxError) throw new ConfigError(e.message);
     throw e;
-  }
-  const c = config as { backend: string; auth: string };
-  if (c.auth === "account" && c.backend !== "opencode-go" && c.backend !== "openai") {
-    throw new ConfigError(`account authentication is only supported for opencode-go, openai and the installed Claude/Codex CLIs, not ${c.backend}`);
   }
   return { config, defaulted: false };
 }
@@ -285,20 +286,23 @@ function executable(name: string, env: NodeJS.ProcessEnv): string | undefined {
 }
 
 async function discoverInstalledAccount(env: NodeJS.ProcessEnv): Promise<PlannerConfig | null> {
-  const bins = { claude: executable("claude", env), codex: executable("codex", env) };
-  if (!bins.claude && !bins.codex) return null;
-  const { cliAccounts } = await import("@byokit/accounts/cli");
-  const stateDir = join(takeoneConfigDir({ env }), "cli-accounts");
-  mkdirSync(dirname(stateDir), { recursive: true });
-  const roster = cliAccounts({ stateDir, bins: Object.fromEntries(Object.entries(bins).filter((entry): entry is ["claude" | "codex", string] => Boolean(entry[1]))), env: { HOME: env.HOME ?? homedir(), PATH: env.PATH ?? "", ...(env.CODEX_HOME ? { CODEX_HOME: env.CODEX_HOME } : {}) }, installed: true });
-  const rows = await roster.list();
-  for (const provider of ["claude", "codex"] as const) {
-    const row = rows.find((item) => item.id === `installed-${provider}` && item.state === "ready");
-    if (row && bins[provider]) return { backend: provider === "claude" ? "claude-code" : "codex", auth: "account", account: `installed-${provider}`, bin: bins[provider]!, model: provider === "claude" ? "sonnet" : "gpt-5-codex" };
+  try {
+    const bins = { claude: executable("claude", env), codex: executable("codex", env) };
+    if (!bins.claude && !bins.codex) return null;
+    const { cliAccounts } = await import("@byokit/accounts/cli");
+    const stateDir = join(takeoneConfigDir({ env }), "cli-accounts");
+    mkdirSync(dirname(stateDir), { recursive: true });
+    const roster = cliAccounts({ stateDir, bins: Object.fromEntries(Object.entries(bins).filter((entry): entry is ["claude" | "codex", string] => Boolean(entry[1]))), env: { HOME: env.HOME ?? homedir(), PATH: env.PATH ?? "", ...(env.CODEX_HOME ? { CODEX_HOME: env.CODEX_HOME } : {}) }, installed: true });
+    const rows = await roster.list();
+    for (const provider of ["claude", "codex"] as const) {
+      const row = rows.find((item) => item.id === `installed-${provider}` && item.state === "ready");
+      if (row && bins[provider]) return { backend: provider === "claude" ? "claude-code" : "codex", auth: "account", account: `installed-${provider}`, bin: bins[provider]!, model: provider === "claude" ? "sonnet" : "gpt-5-codex" };
+    }
+    return null;
+  } catch {
+    return null;
   }
-  return null;
 }
-
 
 /** Presence of the member's Go plan login. Reads the stored key into memory
  * only to check it exists; never prints or returns it, never touches network. */
