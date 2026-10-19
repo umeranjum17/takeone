@@ -9,11 +9,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { makeTake, PreflightRefusal, TakeInputError, type MakeOptions, type MakeResult } from "../src/make.ts";
 import { PlannerUnavailable } from "../src/decide/planner.ts";
-import { ConfigError } from "@byokit/decide";
+import { ConfigError, type Answer } from "@byokit/decide";
 import { main, resolveCamera } from "../src/cli.ts";
 import { frameRect } from "../src/decide/mapping.ts";
 import type { Plan } from "../src/decide/plan.ts";
-import { renderTake } from "../src/render/render.ts";
+import { measureCaptions, renderTake } from "../src/render/render.ts";
+import { bandLayout, bandText, captionLayouts, takeCaptions } from "../src/render/stage.ts";
+import { mapFilm } from "../src/decide/film.ts";
 import type { Beat, Decision, TakeMeta } from "../src/types.ts";
 import { STREAM, hasFfmpeg, buildLongTake, beatViews, chunkAnswers, filmAnswers } from "./helpers.ts";
 import { DEFAULTS } from "../src/camera/defaults.ts";
@@ -804,30 +806,39 @@ test("the film's AI title and captions render; the take's own title and captions
   }
 });
 
-test("an over-long AI title is dropped before render; the widest accepted title renders at 1080p", async () => {
-  const titled = (title: string) => anthropicFilmFetch((timeline) => ({
+/** A film answer carrying this AI title and one caption for the first timeline beat. */
+function titled(title: string): typeof fetch {
+  return anthropicFilmFetch((timeline) => ({
     titled: { pick: "true", probabilities: { true: 1, false: 0 }, rationale: "the steps need naming", title,
       captions: [{ beat: timeline[0]!.split(",")[0], text: "Open the File menu" }] },
   }));
-  const hd = { ...FAST, out_w: 1920, out_h: 1080 };
-  const planned = (dir: string) => {
-    mkdirSync(join(dir, "test-config", "takeone"), { recursive: true });
-    writeFileSync(join(dir, "test-config", "takeone", "planner.json"), JSON.stringify({ backend: "anthropic", auth: "apiKey", model: "claude-opus-5-5" }));
-    return dir;
-  };
-  const longDir = planned(newLongTake());
-  const wideDir = planned(newLongTake());
+}
+
+/** The take with an Anthropic planner, the backend that returns text fields. */
+function planned(dir: string): string {
+  mkdirSync(join(dir, "test-config", "takeone"), { recursive: true });
+  writeFileSync(join(dir, "test-config", "takeone", "planner.json"), JSON.stringify({ backend: "anthropic", auth: "apiKey", model: "claude-opus-5-5" }));
+  return dir;
+}
+
+test("an over-long AI title is dropped; a title at the bound fits the 1080p stage band row", async () => {
+  const dir = planned(newLongTake());
   try {
-    const long = await fastTake(longDir, { apiKey: KEY, camera: hd, fetchImpl: titled("W".repeat(41)), log: () => {}, warn: () => {} });
+    const long = await fastTake(dir, { apiKey: KEY, fetchImpl: titled("W".repeat(41)), log: () => {}, warn: () => {} });
     assert.equal(long.take.film?.title, undefined, "a title over the bound was kept");
     assert.deepEqual(long.take.film?.captions?.map((c) => c.text), ["Open the File menu"]);
-    // Widest letters at the bound: must not throw in the stage band render.
-    const wide = await fastTake(wideDir, { apiKey: KEY, camera: hd, fetchImpl: titled("MW".repeat(20)), log: () => {}, warn: () => {} });
-    assert.equal(wide.take.film?.title, "MW".repeat(20));
-    assert.ok(readFileSync(join(wideDir, "captions.ass"), "utf8").includes("MW".repeat(20)), "widest title not drawn");
+    const atBound = mapFilm({ titled: { answer: true, abstained: false, confidence: 1, by: "anthropic", ms: 0, title: "MW".repeat(20) } as Answer }, [], {}).title;
+    assert.equal(atBound, "MW".repeat(20), "the planner dropped a title at the bound");
+    // The band geometry the 1080p render measures: ink over out_w * 0.9 makes captionLayouts throw.
+    const d = { ...DEFAULTS, out_w: 1920, out_h: 1080 };
+    const captions = takeCaptions({ width: STREAM_W, height: STREAM_H, title: atBound, duration: 4 }, (t) => t, 4);
+    const text = bandText(captions, [], d);
+    const ink = await measureCaptions(dir, captions, text, true);
+    const band = bandLayout(STREAM_W, STREAM_H, text, captions, ink);
+    assert.ok(band, "the 1080p stage is not band-eligible");
+    assert.doesNotThrow(() => captionLayouts(captions, ink, text, false, band), "a title at the bound does not fit the 1080p band row");
   } finally {
-    rmSync(longDir, { recursive: true, force: true });
-    rmSync(wideDir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true });
   }
 });
 
