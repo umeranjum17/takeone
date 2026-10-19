@@ -1,6 +1,6 @@
 # Tweak the look and rerender (`render --theme` / `--set`)
 
-Guide (docs/guide.md) Quickstart 4: re-render an already-planned take with new look settings without planning again. `render` reads `screen.webm`, `take.json`, `analysis/beats.json` and `analysis/decisions.jsonl` from the take directory, resolves a fresh camera path from the `--set`/`--theme` overrides, and encodes a new MP4. It never calls the planner — rerendering is free, offline and deterministic given the same inputs.
+Guide (docs/guide.md) Quickstart 4: re-render an already-planned take with new look settings without planning again. `render` reads the saved analysis from the take directory (the inputs are listed under [Render an existing take](../guide.md#render-an-existing-take)), resolves a fresh camera path from the `--set`/`--theme` overrides, and encodes a new MP4. It never calls the planner — rerendering is free, offline and deterministic given the same inputs.
 
 ## Sub-features
 
