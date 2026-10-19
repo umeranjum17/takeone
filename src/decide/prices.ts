@@ -15,6 +15,9 @@ export const PROVIDER_PRICES: Record<string, ProviderPrice> = {
   "opencode-go": { inputPerMtok: 0 },
   openai: { inputPerMtok: 2 },
   anthropic: { inputPerMtok: null },
+  // pi reports tokens but no price, and the model behind it is the user's own
+  // choice: cost stays unknown rather than guessed.
+  pi: { inputPerMtok: null },
 };
 
 /** Input-only cost estimate for planned/reported tokens, matching the

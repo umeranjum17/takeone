@@ -295,6 +295,30 @@ test("a chosen provider without its credential stops instead of falling back", a
   }
 });
 
+test("a chosen pi planner that cannot run stops with pi's own check instead of falling back", async () => {
+  const dir = newTake();
+  try {
+    const configDir = join(dir, "test-config");
+    mkdirSync(join(configDir, "takeone"), { recursive: true });
+    writeFileSync(join(configDir, "takeone", "planner.json"), JSON.stringify({
+      backend: "pi", bin: join(dir, "no-such-pi"), model: "deepseek/deepseek-flash",
+    }));
+    await assert.rejects(
+      fastTake(dir, { apiKey: undefined, log: () => {}, warn: () => {} }),
+      (e: unknown) => {
+        assert.ok(e instanceof PlannerUnavailable);
+        assert.ok(e.message.includes("deepseek/deepseek-flash"), `model not named: ${e.message}`);
+        assert.ok(e.message.includes("not installed at"), `missing pi not named: ${e.message}`);
+        assert.ok(e.message.includes("--no-ai"), `fallback choice missing: ${e.message}`);
+        return true;
+      },
+    );
+    assert.ok(!existsSync(join(dir, "out", "t1.mp4")), "rendered despite PlannerUnavailable");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("a rate-limited provider stops before render instead of falling back", async () => {
   const dir = newTake();
   try {
