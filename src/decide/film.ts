@@ -34,9 +34,10 @@ const THEME_NOTES: Record<ThemeName, string> = {
 /** The film's ending can be any of the last few beats. */
 const ENDING_CANDIDATES = 3;
 /** AI title and caption text limits; longer text is dropped, not cut. The title
- * is drawn at 1.6x caption size with no shrink-to-fit, so it stays short enough
- * to sit inside the 1920x1080 stage band without wrapping or clipping. */
-const TITLE_MAX = 40;
+ * is drawn at 1.6x caption size with no shrink-to-fit: 61 px at caption_size 38,
+ * so 28 characters of the widest glyph (a full 1em ideograph, 28 x 61 = 1708 px)
+ * still fit the 1728 px the 1920x1080 stage band allows. */
+const TITLE_MAX = 28;
 const CAPTION_MAX = 80;
 /** A caption stays on screen for its beat, within these bounds, in seconds. */
 const CAPTION_SECONDS = { min: 1, max: 6 };
