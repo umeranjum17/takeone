@@ -87,9 +87,8 @@ export interface FilmPart {
   endings: string[];
 }
 
-/** The film calls for one take, in order, and their total estimated tokens. A
- * chunk that asks nothing (a middle chunk for a planner that returns no text) is
- * not a call: the next chunk's summary covers its beats instead. */
+/** The film calls for one take, in order, and their total estimated tokens.
+ * Every chunk that holds beats is a call: no beat may be skipped between chunks. */
 export interface FilmPlan {
   calls: FilmPart[];
   tokens: number;
@@ -161,8 +160,12 @@ function buildFilmPart(ctx: FilmCtx, beats: Beat[], before: string | undefined, 
   };
   const captions = `captions: a list of {beat, text} for the beats worth a line, each text in at most ${CAPTION_MAX} characters, ` +
     "plain words, with beat set to an id from the timeline.";
+  // A middle chunk of a text-less planner has no caption question, so it would
+  // ask nothing. Ask the film-wide questions there too: every beat must be
+  // planned by a request, and the first chunk's answer still wins in joinFilm.
+  const askFilmWide = first || (!ctx.text && !last);
   const questions: Record<string, Question> = {
-    ...(first ? filmWide : {}),
+    ...(askFilmWide ? filmWide : {}),
     ...(last ? { ending: {
       kind: "choice",
       options: Object.fromEntries(endings.map((b) => [b.id, whatHappened(b)])),
@@ -210,7 +213,7 @@ export function planFilm(ctx: FilmCtx): FilmPlan | null {
       end = j;
     }
     if (!part) return null;
-    if (Object.keys(part.questions).length > 0) calls.push(part);
+    calls.push(part);
     before = beforeChunk(ctx, ctx.beats.slice(i, end));
     i = end;
   }

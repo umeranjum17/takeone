@@ -876,15 +876,15 @@ test("an over-long AI title is dropped; a title at the 28-character bound fits t
   }
 });
 
-/** A three-minute take whose beats each carry a click, a typed line, a shortcut
- * and a scroll: the recorder's 30 beats a minute, and a film request over the
- * 4,000-token cap, so a take this long is planned in more than one film call. */
+/** A 6.7-minute take whose beats each carry a click, a typed line, a shortcut
+ * and a scroll: the recorder's 30 beats a minute, and enough beats for three
+ * film calls on a planner that returns no text, so a middle chunk is exercised. */
 function buildChunkFilmTake(dir: string): string {
   execFileSync("ffmpeg", [
-    "-nostdin", "-f", "lavfi", "-i", "color=c=gray:s=320x180:d=180:r=10",
-    "-c:v", "mpeg4", "-q:v", "2", "-f", "matroska", "-frames:v", "1800", "-y", join(dir, "screen.webm"),
+    "-nostdin", "-f", "lavfi", "-i", "color=c=gray:s=320x180:d=400:r=10",
+    "-c:v", "mpeg4", "-q:v", "2", "-f", "matroska", "-frames:v", "4000", "-y", join(dir, "screen.webm"),
   ], { stdio: "ignore" });
-  writeFileSync(join(dir, "frames.tsv"), Array.from({ length: 1800 }, (_, i) => `${i * 3000}\t${i * 100000000}\n`).join(""));
+  writeFileSync(join(dir, "frames.tsv"), Array.from({ length: 4000 }, (_, i) => `${i * 3000}\t${i * 100000000}\n`).join(""));
   // Every burst stays one beat (over MERGE_SHORT_MS, and the pointer jumps more
   // than the beat's spread keeps together), two seconds apart: 30 beats a minute.
   const burst = (t: number, x: number): object[] => [
@@ -902,7 +902,7 @@ function buildChunkFilmTake(dir: string): string {
   ];
   const events = [
     { t: 0, k: "win", cls: "chromium", title: "Quarterly board", rect: [0, 0, 280, 150] },
-    ...Array.from({ length: 89 }, (_, i) => 300 + i * 2000).flatMap((t, i) => burst(t, i % 2 === 0 ? 60 : 240)),
+    ...Array.from({ length: 199 }, (_, i) => 300 + i * 2000).flatMap((t, i) => burst(t, i % 2 === 0 ? 60 : 240)),
   ];
   writeFileSync(join(dir, "events.jsonl"), events.map((e) => JSON.stringify(e)).join("\n") + "\n");
   writeFileSync(join(dir, "take.json"), JSON.stringify({ id: "t1", stream: { w: STREAM_W, h: STREAM_H }, scale: 1, offset_ms: 0, pointer: "hyprland" }));
@@ -910,9 +910,46 @@ function buildChunkFilmTake(dir: string): string {
 }
 
 test("a long take's film is planned in chunks under the cap and joined into one film", async () => {
-  const dir = planned(mkdtempSync(join(tmpdir(), "takeone-take-")));
+  const dir = mkdtempSync(join(tmpdir(), "takeone-take-"));
   try {
     buildChunkFilmTake(dir);
+    // First the default, text-less planner: its middle chunk must still plan its
+    // beats, so no beat is skipped between the film calls.
+    mkdirSync(join(dir, "test-config", "takeone"), { recursive: true });
+    writeFileSync(join(dir, "test-config", "takeone", "planner.json"), JSON.stringify({ backend: "jev", auth: "apiKey", model: "jev-latest" }));
+    const quietParts: { state: { timeline: string[] }; questions: Record<string, any> }[] = [];
+    const quietFetch = (async (_url, init) => {
+      const { state, questions } = JSON.parse(String(init?.body)) as { state: { timeline?: string[] }; questions: Record<string, any> };
+      let answers: Record<string, unknown>;
+      if (state.timeline === undefined) {
+        answers = chunkAnswers(String(init?.body), firstZoneAnswers) as Record<string, unknown>;
+      } else {
+        quietParts.push({ state: state as { timeline: string[] }, questions });
+        const ends = questions.ending ? Object.keys((questions.ending as { criteria: Record<string, string> }).criteria) : [];
+        answers = {
+          ...(questions.theme ? filmAnswers() : {}),
+          ...(questions.ending ? { ending: { pick: ends[0], probabilities: Object.fromEntries(ends.map((id) => [id, id === ends[0] ? 1 : 0])), confidence: 1 } } : {}),
+        };
+      }
+      return new Response(JSON.stringify({ answers, usage: { input_tokens: 800 } }), { status: 200 });
+    }) as typeof fetch;
+    const quiet = await fastTake(dir, { apiKey: KEY, fetchImpl: quietFetch, camera: { ...FAST, fps: 6 }, log: () => {}, warn: () => {} });
+    const beats = JSON.parse(readFileSync(join(dir, "analysis", "beats.json"), "utf8")) as { id: string }[];
+    assert.ok(quietParts.length >= 3, `the text-less take was planned in ${quietParts.length} film call(s), so no middle chunk was exercised`);
+    const quietPlanned = quietParts.flatMap((part) => part.state.timeline.map((line) => line.split(",")[0]!));
+    assert.deepEqual(quietPlanned, beats.map((b) => b.id), "the text-less film calls skip beats in a middle chunk");
+    for (const part of quietParts) {
+      assert.ok(Object.keys(part.questions).length > 0, "a film call asks nothing");
+      const tokens = Math.ceil(JSON.stringify({ model: "jev-latest", state: part.state, questions: part.questions }).length / 3.5);
+      assert.ok(tokens <= 4000, `a text-less film call is over the 4,000-token cap: ${tokens}`);
+    }
+    assert.ok(!quietParts.some((part) => "titled" in part.questions), "the text-less planner was asked for captions");
+    assert.ok("theme" in quietParts[0]!.questions && "theme" in quietParts[1]!.questions, "the middle chunk does not ask the film-wide questions");
+    assert.ok("ending" in quietParts.at(-1)!.questions, "the last chunk does not ask the ending");
+    assert.equal(quiet.take.film?.by.titled, undefined, "a text-less planner returned a title");
+
+    // Then the text-returning planner: same coverage, and its captions join.
+    writeFileSync(join(dir, "test-config", "takeone", "planner.json"), JSON.stringify({ backend: "anthropic", auth: "apiKey", model: "claude-opus-5-5" }));
     // The film calls, in order: their state and questions as the planner received them.
     const parts: { state: { timeline: string[]; before_this_chunk?: string }; questions: Record<string, Record<string, unknown>> }[] = [];
     const fetchImpl = (async (_url, init) => {
@@ -943,8 +980,7 @@ test("a long take's film is planned in chunks under the cap and joined into one 
       return new Response(JSON.stringify({ content: [{ type: "tool_use", name: "decisions", input }], usage: { input_tokens: 500, output_tokens: 80 } }), { status: 200 });
     }) as typeof fetch;
     const r = await fastTake(dir, { apiKey: KEY, fetchImpl, camera: { ...FAST, fps: 6 }, log: () => {}, warn: () => {} });
-    const beats = JSON.parse(readFileSync(join(dir, "analysis", "beats.json"), "utf8")) as { id: string }[];
-    assert.ok(parts.length >= 2, `the take was planned in ${parts.length} film call(s)`);
+    assert.ok(parts.length >= 3, `the take was planned in ${parts.length} film call(s)`);
     for (const part of parts) {
       // The planner's own estimate: the body it builds is this state and these questions.
       const tokens = Math.ceil(JSON.stringify({ model: "jev-latest", state: part.state, questions: part.questions }).length / 3.5);
@@ -968,7 +1004,8 @@ test("a long take's film is planned in chunks under the cap and joined into one 
     assert.equal(film.camera_path, "hold");
     assert.equal(film.title, "Quarterly board");
     assert.equal(film.end_beat, beats.at(-3)!.id);
-    assert.deepEqual(film.captions?.map((c) => c.text), [`opens on ${beats[0]!.id}`, `carries on at ${parts[1]!.state.timeline[0]!.split(",")[0]}`]);
+    assert.deepEqual(film.captions?.map((c) => c.text), parts.map((part, i) =>
+      `${i === 0 ? "opens on" : "carries on at"} ${part.state.timeline[0]!.split(",")[0]}`));
     assert.equal(film.by.titled, "ai");
     // The render wrote the joined text: the title and a caption from each call.
     const ass = readFileSync(join(dir, "captions.ass"), "utf8");
@@ -1006,14 +1043,21 @@ test("a take of three film chunks asks no request that has nothing to ask", () =
     assert.ok(Object.keys(call.questions).length > 0, `a film call asks no question for beats ${(call.state.timeline as string[])[0]}`);
   }
   const covered = asked.flat();
-  assert.equal(asked[0]![0], "b1", "the film does not open on the take's first beat");
-  assert.equal(asked.at(-1)!.at(-1), "b200", "the film does not end on the take's last beat");
-  assert.ok(covered.length < beats.length, `the take fits two film calls, so no middle chunk was exercised: ${covered.length} beats asked`);
+  assert.ok(quiet.calls.length >= 3, `the take was planned in ${quiet.calls.length} film call(s), so no middle chunk was exercised`);
+  assert.deepEqual(covered, beats.map((b) => b.id), "a middle chunk was skipped: the film calls do not cover every beat once, in order");
   assert.ok("theme" in quiet.calls[0]!.questions && "ending" in quiet.calls.at(-1)!.questions, "the look and the ending were asked in the wrong call");
+  // A middle chunk of a text-less planner asks the film-wide questions instead of
+  // nothing: it must still plan its beats.
+  for (const middle of quiet.calls.slice(1, -1)) {
+    assert.ok(Object.keys(middle.questions).length > 0);
+    assert.ok("theme" in middle.questions, "a middle chunk asks nothing about the take");
+  }
   assert.ok(!quiet.calls.some((call) => "titled" in call.questions), "a planner that returns no text was asked for captions");
-  const skipped = beats.filter((b) => !covered.includes(b.id));
-  const summary = quiet.calls.at(-1)!.state.before_this_chunk as string;
-  assert.ok(summary.includes(`${skipped.at(-1)!.id}, `), `the last call is not told the beats before it: ${summary}`);
+  for (let k = 1; k < quiet.calls.length; k++) {
+    const previous = quiet.calls[k - 1]!.state.timeline as string[];
+    const summary = quiet.calls[k]!.state.before_this_chunk as string;
+    assert.ok(summary.includes(`${previous.at(-1)!.split(",")[0]!}, `), `call ${k + 1} is not told the beat before it: ${summary}`);
+  }
   assert.equal(quiet.tokens, quiet.calls.reduce((n, c) => n + c.tokens, 0), "a chunk that was not asked is priced");
   // The same take with a planner that captions every chunk covers every beat once.
   const loud = planFilm({ ...ctx, text: true });
