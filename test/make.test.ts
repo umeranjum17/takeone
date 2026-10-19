@@ -3,7 +3,7 @@
 
 import test from "node:test";
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -400,7 +400,7 @@ test("per-beat camera answers reach plan.json and the camera; a user edit in pla
       }));
       return new Response(JSON.stringify({ answers, usage: { input_tokens: 800 } }), { status: 200 });
     }) as typeof fetch;
-    await fastTake(dir, { camera, apiKey: KEY, fetchImpl, log: () => {}, warn: () => {} });
+    const first = await fastTake(dir, { camera, apiKey: KEY, fetchImpl, log: () => {}, warn: () => {} });
     const readPlanFile = (): Plan => JSON.parse(readFileSync(join(dir, "analysis", "plan.json"), "utf8")) as Plan;
     const asked = readPlanFile().beats.filter((b) => b.shot?.by === "ai");
     assert.ok(asked.length > 0, "no beat took the planner's camera answers");
@@ -413,14 +413,33 @@ test("per-beat camera answers reach plan.json and the camera; a user edit in pla
     };
     const aiZoomed = zoomedFrames(readFileSync(join(dir, "camera.json"), "utf8"));
 
-    // The user keeps the shot on every beat by hand: the render follows it, and a rerun of make keeps it.
-    const userPlan: Plan = { version: 1, beats: readPlanFile().beats.map((b) => ({ ...b, shot: { value: true, by: "user" } })) };
+    const baseline = readPlanFile();
+    // A user shot on every beat is preserved in plan.json even while make
+    // refuses the beats that cannot take one.
+    writeFileSync(join(dir, "analysis", "plan.json"), JSON.stringify({ version: 1,
+      beats: baseline.beats.map((b) => ({ ...b, shot: { value: true, by: "user" } })) }));
+    await assert.rejects(fastTake(dir, { camera, apiKey: KEY, fetchImpl, log: () => {}, warn: () => {} }),
+      /analysis\/plan\.json: beat b\d+ \([a-z]+\): shot=true cannot be honoured/);
+    assert.ok(readPlanFile().beats.every((b) => b.shot?.by === "user" && b.shot.value === true), "make overwrote the user's edit");
+
+    // The user keeps the shot by hand on every beat that can take one (a
+    // scroll beat never gets a camera move and now refuses shot=true): the
+    // render follows it, and a rerun of make keeps it.
+    const clickIds = new Set(first.beats.filter((b) => b.kind === "click").map((b) => b.id));
+    assert.ok(clickIds.size > 0, "the take has no click beat to edit");
+    const userPlan: Plan = { version: 1, beats: baseline.beats.map((b) =>
+      clickIds.has(b.id) ? { ...b, shot: { value: true, by: "user" } } : b) };
     writeFileSync(join(dir, "analysis", "plan.json"), JSON.stringify(userPlan));
     await renderTake(dir, camera);
     const userZoomed = zoomedFrames(readFileSync(join(dir, "camera.json"), "utf8"));
     assert.ok(userZoomed > aiZoomed, `the user's shot edit did not zoom the camera (${aiZoomed} zoomed frames before, ${userZoomed} after)`);
     await fastTake(dir, { camera, apiKey: KEY, fetchImpl, log: () => {}, warn: () => {} });
-    assert.ok(readPlanFile().beats.every((b) => b.shot?.by === "user" && b.shot.value === true), "make overwrote the user's edit");
+    assert.ok(readPlanFile().beats.every((b) => {
+      const written = userPlan.beats.find((u) => u.id === b.id)!;
+      return clickIds.has(b.id)
+        ? b.shot?.by === "user" && b.shot.value === true
+        : b.shot?.value === written.shot?.value;
+    }), "make overwrote the user's edit or changed a beat the user left alone");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -454,6 +473,95 @@ test("a user shot=false in plan.json removes the camera zoom the planner gave ev
     await renderTake(dir, camera);
     const userZoomed = zoomedFrames(readFileSync(join(dir, "camera.json"), "utf8"));
     assert.equal(userZoomed, 0, `a user shot=false still zoomed the camera (${aiZoomed} zoomed frames before, ${userZoomed} after)`);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+/** One take with a click, a pointer-only travel, a scroll, typing, a hard cut
+ * and an idle gap, so every plan value the render cannot honour has a beat. */
+function buildKindsTake(dir: string): string {
+  execFileSync("ffmpeg", [
+    "-nostdin", "-f", "lavfi", "-i", `color=c=gray:s=${STREAM_W}x${STREAM_H}:d=9:r=30`,
+    "-f", "lavfi", "-i", `color=c=white:s=${STREAM_W}x${STREAM_H}:d=4:r=30`,
+    "-filter_complex", "[0:v][1:v]concat=n=2:v=1:a=0",
+    "-c:v", "mpeg4", "-q:v", "2", "-f", "matroska", "-frames:v", "390", "-y", join(dir, "screen.webm"),
+  ], { stdio: "ignore" });
+  writeFileSync(join(dir, "frames.tsv"), Array.from({ length: 390 }, (_, i) => `${i * 3000}\t${i * 33333333}`).join("\n") + "\n");
+  writeFileSync(join(dir, "events.jsonl"), [
+    { t: 100, k: "win", cls: "browser", title: "Board", rect: [0, 0, STREAM_W, STREAM_H] },
+    { t: 300, k: "ptr", x: 200, y: 90 },
+    { t: 500, k: "btn", b: "left", down: true }, { t: 560, k: "btn", b: "left", down: false },
+    { t: 700, k: "ptr", x: 200, y: 90 }, { t: 1100, k: "ptr", x: 200, y: 90 }, { t: 1500, k: "ptr", x: 202, y: 90 },
+    { t: 3000, k: "ptr", x: 40, y: 40 }, { t: 3500, k: "ptr", x: 150, y: 150 }, { t: 3900, k: "ptr", x: 280, y: 150 },
+    ...Array.from({ length: 7 }, (_, i) => ({ t: 5500 + i * 150, k: "wheel", dx: 0, dy: 1 })),
+    ...Array.from({ length: 10 }, (_, i) => ({ t: 7700 + i * 100, k: "key", cls: "char", down: i % 2 === 0 })),
+  ].map((e) => JSON.stringify(e)).join("\n") + "\n");
+  writeFileSync(join(dir, "take.json"), JSON.stringify({ id: "kinds", stream: { w: STREAM_W, h: STREAM_H }, scale: 1, offset_ms: 0, pointer: "hyprland" }));
+  return dir;
+}
+
+test("plan edits the render cannot honour stop the CLI with a clear error", { skip: needsFfmpeg }, async () => {
+  const dir = buildKindsTake(mkdtempSync(join(tmpdir(), "takeone-kinds-")));
+  const fast = ["out_w=160", "out_h=90", "preset=veryfast", "ripple_ms=0", "fade_s=0", "idle_speed=1"];
+  // --no-ai: this journey must never ask a model, and the fallback rules are the point.
+  const cli = (command: string) => spawnSync(process.execPath,
+    ["bin/takeone.mjs", command, dir, "--no-ai", ...fast.flatMap((value) => ["--set", value])],
+    { encoding: "utf8", env: { ...process.env, TAKEONE_DIR: dir, TAKEONE_STATE_DIR: join(dir, "state") } });
+  const planFile = join(dir, "analysis", "plan.json");
+  const baseline = (): Plan => JSON.parse(readFileSync(planFile, "utf8")) as Plan;
+  const writePlanFile = (plan: Plan) => writeFileSync(planFile, JSON.stringify(plan));
+  try {
+    const made = cli("make");
+    assert.equal(made.status, 0, made.stderr);
+    assert.deepEqual(baseline().beats.map((b) => b.id), ["b1", "b2", "b3", "b4", "b5", "b6"]);
+    // make keeps every user edit, including a refused one, so each case starts clean.
+    const clean = JSON.stringify(baseline());
+
+    // Every value the render cannot honour names the beat, its kind and the combination.
+    const cases: [string, "shot" | "idle" | "follow", string][] = [
+      ["b2", "shot", "travel"],
+      ["b3", "shot", "scroll"],
+      ["b1", "follow", "click"],
+      ["b4", "follow", "type"],
+      ["b3", "follow", "scroll"],
+      ["b5", "follow", "cut"],
+      ["b1", "idle", "click"],
+    ];
+    for (const [id, field, kind] of cases) {
+      const plan = JSON.parse(clean) as Plan;
+      plan.beats.find((beat) => beat.id === id)![field] = { value: true, by: "user" };
+      writePlanFile(plan);
+      const run = cli("make");
+      assert.equal(run.status, 2, `${id}.${field}=true rendered instead of refusing:\n${run.stderr}`);
+      assert.match(run.stderr, new RegExp(
+        `takeone make: analysis/plan\\.json: beat ${id} \\(${kind}\\): ${field}=true cannot be honoured`));
+    }
+
+    // Values that match what these beats already do stay valid, and a supported
+    // edit still renders: shot on the click, follow off it, shot off the scroll.
+    const valid = JSON.parse(clean) as Plan;
+    const click = valid.beats.find((beat) => beat.id === "b1")!;
+    click.shot = { value: true, by: "user" };
+    click.follow = { value: false, by: "user" };
+    click.idle = { value: false, by: "user" };
+    valid.beats.find((beat) => beat.id === "b3")!.shot = { value: false, by: "user" };
+    writePlanFile(valid);
+    const rendered = cli("make");
+    assert.equal(rendered.status, 0, rendered.stderr);
+    assert.ok(existsSync(join(dir, "out", "kinds.mp4")), "a valid edited plan stopped rendering");
+    const kept = baseline();
+    assert.equal(kept.beats.find((beat) => beat.id === "b1")?.shot?.by, "user");
+
+    // The Android tap fallback builds its own beats: no user edit reaches it.
+    const meta = JSON.parse(readFileSync(join(dir, "take.json"), "utf8"));
+    writeFileSync(join(dir, "take.json"), JSON.stringify({ ...meta, device: "android", planner: { ...meta.planner, mode: "fallback" } }));
+    const android = JSON.parse(clean) as Plan;
+    android.beats.find((beat) => beat.id === "b1")!.shot = { value: false, by: "user" };
+    writePlanFile(android);
+    const refused = cli("make");
+    assert.equal(refused.status, 2, refused.stderr);
+    assert.match(refused.stderr, /beat b1 \(click\): shot cannot be honoured - this Android take renders the rule-only tap fallback/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

@@ -29,6 +29,13 @@ Review diffs for multiline stubs, arbitrary credentials, rewritten assertions an
 wording-only policy relaxation; don't infer safety from a clean guard alone.
 Documentation and regex declarations are not suppression comments.
 
+A new test declaration whose only skip field is the project's prerequisite sentinel
+is not a new skip: the sentinel is a local `const`, `let` or `var` bound to
+`condition ? undefined : "reason"`, so the test runs whenever the prerequisite is
+present and skips only when it is missing. Any truthy skip, any additional skip
+field, and any sentinel whose declaration cannot be read or lacks that shape are
+still reported.
+
 Only intentional test-diet deletions can use the accepted exception. The deletion
 commit must name its test-diet task AND the affected journey must stay covered by
 an existing integration/e2e test; generic reasons or task mentions alone fail.

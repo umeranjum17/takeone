@@ -10,6 +10,7 @@ import { savePlannerConfig, describePlanner } from "./decide/planner.ts";
 import { runCapture } from "./capture.ts";
 import { makeTake, PreflightRefusal, TakeInputError } from "./make.ts";
 import { PlannerUnavailable } from "./decide/planner.ts";
+import { PlanError } from "./decide/plan.ts";
 import { renderTake, renderThreads } from "./render/render.ts";
 import { THEMES, resolveTheme } from "./themes.ts";
 import { isMotionTake, MOTION_USAGE, runMotion } from "./motion/cli.ts";
@@ -318,7 +319,7 @@ export async function main(argv: string[]): Promise<number> {
     await makeTake(dir, a);
     return 0;
   } catch (e) {
-    if (e instanceof PreflightRefusal || e instanceof TakeInputError || e instanceof ConfigError) {
+    if (e instanceof PreflightRefusal || e instanceof TakeInputError || e instanceof PlanError || e instanceof ConfigError) {
       console.error(`takeone make: ${e.message}`);
       return 2;
     }

@@ -20,7 +20,7 @@ import { phoneTapShots } from "./phone.ts";
 import { edgeCuts, cutCount, holdPath, lastFrameSecond, videoFrames } from "./framing.ts";
 import { SAFE_INSET, safeAreaReport, type Rect } from "./safe-area.ts";
 import { typingBursts, editBeats, editTimeline, validateEdits, validateZooms } from "./edits.ts";
-import { applyPlan, readPlan } from "../decide/plan.ts";
+import { applyPlan, readPlan, validatePlan } from "../decide/plan.ts";
 import { withFilmText } from "../decide/film.ts";
 import {
   bandEligible, bandFrames, bandLayout, bandText, beatClicks, captionAss, captionLayouts, cardFilter, clickAss, measureAss, sourceViewport, stageFrames, stageGeometry, stageImageFilter,
@@ -151,8 +151,11 @@ export async function renderTake(dir: string, d?: CameraDefaults): Promise<{ out
   if ("stream" in meta) for (const beat of beats) beat.actions = beat.actions.map(actionCameraMilliseconds);
   const decisionLines = await readFile(join(dir, "analysis/decisions.jsonl"), "utf8");
   // plan.json holds the camera choices the user may have edited; they win over decisions.jsonl.
+  // Refuse an edit this take cannot honour before any camera path is built.
+  const plan = readPlan(dir);
+  validatePlan(plan, beats, { androidFallback: meta.device === "android" && meta.planner?.mode === "fallback" });
   const decisions = applyPlan(decisionLines.split(/\r?\n/).filter(Boolean)
-    .map((line) => JSON.parse(line) as Decision), readPlan(dir));
+    .map((line) => JSON.parse(line) as Decision), plan);
 
   const trimStart = meta.trim_start ?? 0;
   const wide = d.out_w > d.out_h;
