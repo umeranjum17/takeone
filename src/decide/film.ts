@@ -1,7 +1,8 @@
 // The film call: one planner call per take picks the theme, pace, opening,
-// ending and camera style from the whole take, before the beat chunks. These
-// are the pure builders and the answer mapping; make.ts asks and applies.
-// A field the planner abstains on keeps the base look (no override).
+// ending and camera style from the whole take, before the beat chunks, plus the
+// title and per-beat captions when the backend returns text. These are the pure
+// builders and the answer mapping; make.ts asks and applies. A field the
+// planner abstains on keeps the base look (no override).
 
 import type { Answer, Question } from "@byokit/decide";
 import { type Overrides, type CameraDefaults } from "../camera/defaults.ts";
