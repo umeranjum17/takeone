@@ -602,7 +602,7 @@ test("make with a key decides via the planner and accounts usage; cache hit cost
   }
 });
 
-test("the film call sets the look and ending; a --set key stays pinned", { skip: needsFfmpeg }, async () => {
+test("the film call sets the look and ending; a --set key stays pinned", async () => {
   const dir = newLongTake();
   try {
     let filmRequest: { state: { style?: string; timeline: string[] }; questions: { ending: { criteria: Record<string, string> } } } | null = null;
@@ -661,7 +661,7 @@ function setTakeFields(dir: string, fields: object): void {
   writeFileSync(join(dir, "take.json"), JSON.stringify({ ...take, ...fields }));
 }
 
-test("a recorder-set trim end is never cut by the film ending", { skip: needsFfmpeg }, async () => {
+test("a recorder-set trim end is never cut by the film ending", async () => {
   const dir = newLongTake();
   try {
     setTakeFields(dir, { trim: { start: 0, end: 24000 }, auto_trim: true, duration_ms: 24000 });
@@ -673,7 +673,7 @@ test("a recorder-set trim end is never cut by the film ending", { skip: needsFfm
   }
 });
 
-test("a user-set trim end is kept and the film ending does not replace it", { skip: needsFfmpeg }, async () => {
+test("a user-set trim end is kept and the film ending does not replace it", async () => {
   const dir = newLongTake();
   try {
     setTakeFields(dir, { trim: { start: 0, end: 12000 } });
@@ -788,16 +788,14 @@ test("a single-chunk take reserves every request twice", async () => {
     writeFileSync(path, events.map((e) => JSON.stringify(e)).join("\n") + "\n");
     const bodies: string[] = [];
     const logs: string[] = [];
-    await fastTake(dir, { apiKey: KEY, maxTokens: 100000, log: (s) => logs.push(s), warn: () => {}, fetchImpl: (async (_url, init) => {
+    await fastTake(dir, { apiKey: KEY, film: false, maxTokens: 100000, log: (s) => logs.push(s), warn: () => {}, fetchImpl: (async (_url, init) => {
       bodies.push(String(init?.body));
       return firstZoneReply(String(init?.body));
     }) as typeof fetch });
     const planned = Number(logs.find((s) => s.startsWith("preflight:"))!.match(/(\d+) planned tokens/)![1]);
-    // One chunk is the largest chunk, so its re-ask is reserved alongside it. The film call is the other request.
-    const chunks = bodies.filter((body) => JSON.parse(body).state.current_shot !== undefined);
-    assert.equal(bodies.length, 2);
-    assert.equal(chunks.length, 1);
-    assert.ok(planned >= chunks.reduce((sum, body) => sum + Math.ceil(body.length / 3.5), 0) * 2 - 1200);
+    // One chunk is the largest chunk, so its re-ask is reserved alongside it.
+    assert.equal(bodies.length, 1);
+    assert.ok(planned >= bodies.reduce((sum, body) => sum + Math.ceil(body.length / 3.5), 0) * 2 - 1200);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -808,19 +806,17 @@ test("preflight reserves re-asks and current shots distinguish viewport position
   try {
     const bodies: string[] = [];
     const logs: string[] = [];
-    await fastTake(dir, { apiKey: KEY, maxTokens: 100000, log: (s) => logs.push(s), warn: () => {}, fetchImpl: (async (_url, init) => {
+    await fastTake(dir, { apiKey: KEY, film: false, maxTokens: 100000, log: (s) => logs.push(s), warn: () => {}, fetchImpl: (async (_url, init) => {
       bodies.push(String(init?.body));
       return new Response("boom", { status: 500 });
     }) as typeof fetch });
     const planned = Number(logs.find((s) => s.startsWith("preflight:"))!.match(/(\d+) planned tokens/)![1]);
-    // The film call comes first and fails too. Two chunks fail: the first is asked once more, the second keeps the rules.
-    const chunks = bodies.filter((body) => JSON.parse(body).state.current_shot !== undefined);
-    assert.equal(bodies.length, 4);
-    assert.equal(chunks.length, 3);
-    assert.equal(chunks[1], chunks[0], "the re-ask repeats the first chunk");
+    // Two chunks fail: the first is asked once more, the second keeps the rules.
+    assert.equal(bodies.length, 3);
+    assert.equal(bodies[1], bodies[0], "the re-ask repeats the first chunk");
     const tokens = (body: string) => Math.ceil(body.length / 3.5);
-    assert.ok(planned >= tokens(chunks[0]!) + tokens(chunks[2]!) + Math.max(tokens(chunks[0]!), tokens(chunks[2]!)));
-    const shots = chunks.map((body) => JSON.parse(body).state.current_shot);
+    assert.ok(planned >= tokens(bodies[0]!) + tokens(bodies[2]!) + Math.max(tokens(bodies[0]!), tokens(bodies[2]!)));
+    const shots = bodies.map((body) => JSON.parse(body).state.current_shot);
     assert.ok(new Set(shots).size > 1);
     assert.ok(bodies.every((body) => tokens(body) <= 4000), "every chunk stays under the 4,000-token cap");
     await assert.rejects(fastTake(dir, { apiKey: KEY, maxTokens: planned - 1, log: () => {}, warn: () => {}, fetchImpl: (async () => { throw new Error("called"); }) as typeof fetch }), PreflightRefusal);
