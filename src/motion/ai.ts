@@ -1,16 +1,11 @@
-// AI-first screenshot films: the planner picks the theme, the film's shape, the screen order and the
-// part of each screen the film zooms into. A decision it abstains on keeps the local default.
-// Screens reach the planner as small JPEG thumbnails; file names stay out of the planner state.
-import { execFileSync } from "node:child_process";
-import type { Answer, DecideCache, Question } from "@byokit/decide";
-import { ConfigError } from "@byokit/decide";
-import { KeystoreError } from "@byokit/secrets";
-import { PlannerUnavailable, plannerConfigPath, resolvePlanner, seesImages, type ResolvedPlanner } from "../decide/planner.ts";
+// The screenshot planner's decision vocabulary: the film shapes it picks between, the focus third of a
+// screen, the questions it would be asked and the answers mapped back onto them. Image planning is off
+// until screenshots can be redacted, so nothing here reads a user image or calls a provider.
+import type { Answer, Question } from "@byokit/decide";
 import { THEME_NOTES } from "../decide/film.ts";
-import { SecretStoreUnavailable } from "../secrets.ts";
 import type { PatternName } from "./types.ts";
 
-/** The film shapes the planner picks between. `hero` is the local default. */
+/** The film shapes the planner picks between: the patterns each one plans. */
 export const SHAPES: Record<string, { label: string; patterns: PatternName[] }> = {
   hero: { label: "open on a title over the first screen, tour each screen, then the end card", patterns: ["hero-reveal", "zoom-tour", "end-card"] },
   tour: { label: "tour each screen straight into the end card, no title", patterns: ["zoom-tour", "end-card"] },
@@ -30,7 +25,7 @@ export interface ScreenDecision {
   theme?: string;
   shape?: string;
   order: string[];
-  /** Focus key per screen the planner was asked about. */
+  /** Focus key per screen the planner decided; a screen it abstained on keeps the local framing, with no region of its own. */
   focus: Record<string, string>;
   abstained: string[];
   /** How many fields the planner decided; zero means the film is the local plan. */
@@ -86,47 +81,10 @@ export function screenDecision(answers: Record<string, Answer>, screens: ScreenI
     } else abstained.push("order");
   }
   const focus: Record<string, string> = {};
-  for (const s of screens) if (!pins.focus.has(s.id)) focus[s.id] = choice(`focus_${s.id}`, FOCUS) ?? "whole";
+  for (const s of screens) {
+    if (pins.focus.has(s.id)) continue;
+    const key = choice(`focus_${s.id}`, FOCUS);
+    if (key !== undefined) focus[s.id] = key;
+  }
   return { theme, shape, order, focus, abstained, decided };
-}
-
-/** The part of a w x h screen that a focus key names, as [x, y, w, h] in image px. */
-export function focusRect(key: string, w: number, h: number): [number, number, number, number] {
-  const i = FOCUS.indexOf(key);
-  if (i < 0 || key === "whole") return [0, 0, w, h];
-  return [Math.round((i % 3) * w / 3), Math.round(Math.floor(i / 3) * h / 3), Math.round(w / 3), Math.round(h / 3)];
-}
-
-/** A 512 px JPEG of the screen: enough to read its layout, small enough to keep one call cheap. */
-export function screenThumb(file: string): Uint8Array {
-  return execFileSync("ffmpeg", ["-nostdin", "-v", "error", "-i", file, "-frames:v", "1", "-vf", "scale=512:512:force_original_aspect_ratio=decrease",
-    "-f", "image2pipe", "-c:v", "mjpeg", "-q:v", "4", "pipe:1"], { maxBuffer: 16 * 1024 * 1024, timeout: 60000 });
-}
-
-/** Screens are never cached across runs: each film is planned from its own screenshots. */
-export const NO_CACHE: DecideCache = { get: async () => undefined, set: async () => {} };
-
-/** The planner that plans screens, or why it is off. Mirrors make's resolution: a corrupt config fails,
- *  a chosen provider without its credential stops, and an unreadable secret store falls back. */
-export async function screenPlanner(o: { apiKey?: string | null; configDir?: string }): Promise<{ planner: ResolvedPlanner } | { off: string }> {
-  if (o.apiKey === null) return { off: "no credential is set" };
-  let planner: ResolvedPlanner;
-  try {
-    planner = await resolvePlanner({ apiKeyOverride: o.apiKey, ...(o.configDir === undefined ? {} : { configDir: o.configDir }) });
-  } catch (e) {
-    if (e instanceof ConfigError) throw e;
-    if (!(e instanceof SecretStoreUnavailable) && !(e instanceof KeystoreError && ["unavailable", "unsupported"].includes(e.code))) throw e;
-    return { off: "the secret store cannot be read" };
-  }
-  if (!planner.active) {
-    if (!planner.defaulted && o.apiKey === undefined) {
-      const auth = (planner.config as { auth: string }).auth;
-      throw new PlannerUnavailable(planner.label, `no ${auth === "account" ? "sign-in" : "key"} for ${planner.label}`);
-    }
-    return { off: "no credential is set" };
-  }
-  if (!(await seesImages(planner))) {
-    return { off: `${planner.label} cannot read images; mark a vision model with "supportsImages": true in ${plannerConfigPath()}` };
-  }
-  return { planner };
 }

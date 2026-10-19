@@ -1,12 +1,9 @@
 // `takeone motion` argument parsing and the local planner: a complete storyboard from flags alone.
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, extname, join, resolve } from "node:path";
-import type { ImageInput } from "@byokit/decide";
-import { askChunk } from "../decide/planner.ts";
 import { renderMotion } from "./motion.ts";
 import { tourSegments } from "./camera.ts";
-import { imageSize, validateStateNames } from "./ingest.ts";
-import { NO_CACHE, SHAPES, focusRect, screenAsk, screenDecision, screenPlanner, screenThumb, type ScreenInfo } from "./ai.ts";
+import { validateStateNames } from "./ingest.ts";
 import { motionTokens } from "./theme.ts";
 import { installShell } from "./shell.ts";
 import { minSceneDuration, validateStoryboard } from "./storyboard.ts";
@@ -20,11 +17,11 @@ export const MOTION_USAGE = `takeone motion <image.png|page.html|https://url>...
 takeone motion install-shell     download the pinned chrome-headless-shell (sha256 checked)
 
   motion writes a take-shaped directory (take.json, sources/, storyboard.json, out/<id>.mp4, render.json);
-  takeone render <dir> rerenders it. Screenshots are planned by the AI planner (theme, film shape, screen
-  order and each screen's focus); flags you pass stay fixed, and --no-ai or a planner that is off uses the
-  local rules. With no --pattern the local rules plan hero-reveal, zoom-tour and end-card; with three or
-  more screens they plan a launch film instead: a kinetic-type title, each labelled screen announced by its
-  own full-type beat ahead of a clean tour, and the end card, with black and cream beats alternating by scene order.`;
+  takeone render <dir> rerenders it. AI image planning is off until screenshots can be redacted, so every
+  run is planned by the local rules and no screenshot is sent to a planner. With no --pattern the local
+  rules plan hero-reveal, zoom-tour and end-card; with three or more screens they plan a launch film
+  instead: a kinetic-type title, each labelled screen announced by its own full-type beat ahead of a clean
+  tour, and the end card, with black and cream beats alternating by scene order.`;
 
 export interface MotionArgs {
   inputs: string[]; out?: string; patterns?: PatternName[]; theme?: string; title?: string;
@@ -109,11 +106,16 @@ function screenDims(kind: string): { width: number; height: number } | undefined
   return undefined;
 }
 
+/** The source kind an input names; the first input decides, since only image runs can carry several. */
+export function inputKind(first: string): "url" | "html" | "image" {
+  return /^https?:\/\//.test(first) ? "url" : /\.html?$/i.test(first) ? "html" : "image";
+}
+
 /** The local planner: pattern defaults, regions in the order given, copy from flags. */
 export function planStoryboard(a: MotionArgs, id: string): unknown {
   validateStateNames(a.states.map(([name]) => name));
   const first = a.inputs[0]!;
-  const kind = /^https?:\/\//.test(first) ? "url" : /\.html?$/i.test(first) ? "html" : "image";
+  const kind = inputKind(first);
   if (kind !== "image" && a.inputs.length > 1) throw new Error("html and url sources take one input; use --state for more screens");
   const screens = kind === "image" ? a.inputs.map((_, i) => `S${i + 1}`) : a.states.length ? a.states.map(([n]) => n) : ["S1"];
   const dsf = kind === "image" ? 1 : 2; // html/url capture at 2x so settled close-ups stay sharp
@@ -288,51 +290,19 @@ export function planStoryboard(a: MotionArgs, id: string): unknown {
 }
 
 export interface PlanOptions {
-  /** Host-passed credential: null disables the planner, undefined loads the configured store. */
-  apiKey?: string | null;
-  /** Config dir holding planner.json and the sealed store; tests point it at a throwaway dir. */
-  configDir?: string;
-  fetchImpl?: typeof fetch;
+  /** Warning sink; defaults to stderr. */
   warn?: (line: string) => void;
 }
 
-/** The storyboard for a motion run. Screenshots get one planner call for every decision no flag fixed;
- *  html, URL and --no-ai runs, and runs whose planner is off, get the local plan. */
+/** The storyboard for a motion run. AI image planning is off until screenshots can be redacted, so an
+ *  image-only run makes no planner call and every run gets the local plan. */
 export async function planMotion(a: MotionArgs, id: string, o: PlanOptions = {}): Promise<unknown> {
-  const screenshots = a.inputs.length > 0 && a.inputs.every((f) => !/^https?:\/\//.test(f) && !/\.html?$/i.test(f));
-  if (a.noAi || !screenshots) return planStoryboard(a, id);
   const local = planStoryboard(a, id);
+  if (a.noAi || !a.inputs.length || inputKind(a.inputs[0]!) !== "image") return local;
   const warn = o.warn ?? ((line: string) => console.error(line));
-  const files = a.inputs.map((f) => resolve(f));
-  const infos: ScreenInfo[] = files.map((f, i) => ({ id: `S${i + 1}`, ...imageSize(f) }));
-  const pins = {
-    theme: a.theme !== undefined,
-    shape: a.patterns !== undefined,
-    // Region flags name screens by their order: keep that order, and leave those screens to the flags.
-    orderFree: a.regions.length === 0,
-    focus: new Set(a.regions.map((r) => /@([A-Za-z0-9_-]+)$/.exec(r)?.[1] ?? "S1")),
-  };
-  const ask = screenAsk(infos, pins);
-  if (!Object.keys(ask.questions).length) return local;
-  const ready = await screenPlanner(o);
-  if ("off" in ready) {
-    warn(`motion: AI planner is OFF (${ready.off}). This film uses fallback rules.`);
-    return local;
-  }
-  const images: ImageInput[] = infos.map((s, i) => ({ id: s.id, mime: "image/jpeg", bytes: screenThumb(files[i]!) }));
-  const r = await askChunk(ask.state, ask.questions, ready.planner, NO_CACHE, { fetchImpl: o.fetchImpl, images, keepAnswers: true });
-  if (!r.answers) warn("motion: AI planner gave no answers; this film uses fallback rules.");
-  const d = screenDecision(r.answers ?? {}, infos, pins);
-  const order = d.order.map((sid) => a.inputs[Number(sid.slice(1)) - 1]!);
-  const position = new Map(d.order.map((sid, k) => [sid, `S${k + 1}`]));
-  const focus = d.order.filter((sid) => sid in d.focus).map((sid) => {
-    const s = infos.find((x) => x.id === sid)!;
-    return `${focusRect(d.focus[sid]!, s.width, s.height).join(",")}@${position.get(sid)}`;
-  });
-  const planned = planStoryboard({ ...a, inputs: order, theme: d.theme ?? a.theme,
-    patterns: a.patterns ?? SHAPES[d.shape ?? "hero"]!.patterns, regions: [...a.regions, ...focus] }, id) as { planner: unknown };
-  planned.planner = { by: d.decided > 0 ? "ai" : "local", abstained: d.abstained };
-  return planned;
+  warn("motion: AI image planning is OFF until screenshots can be redacted; this film uses the local rules " +
+    "and no screenshot is sent to a planner.");
+  return local;
 }
 
 function stamp(): string {
