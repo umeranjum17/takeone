@@ -182,7 +182,7 @@ export function beatAnswers(answers: Record<string, Answer>, id: string): Record
 /** Mirror of @byokit/decide's internal wire(): Question -> planner JSON, used
  *  only for the token estimate. The kit floors (floor: 0 here) stay kit-side
  *  and never enter the body. */
-function toWire(questions: Record<string, Question>): Record<string, unknown> {
+export function toWire(questions: Record<string, Question>): Record<string, unknown> {
   return Object.fromEntries(
     Object.entries(questions).map(([k, q]) => {
       if (q.kind === "choice")

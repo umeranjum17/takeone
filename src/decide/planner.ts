@@ -344,6 +344,19 @@ export function gateUnusable(cache: DecideCache): DecideCache {
   };
 }
 
+/** Refuse only requests with no usable answer at all: a partly answered request
+ * keeps its good fields, and the caller maps each field on its own. */
+export function gateEmpty(cache: DecideCache): DecideCache {
+  return {
+    get: (key) => cache.get(key),
+    set: (key, value) => {
+      if (Object.values(value).some((a) => a && typeof a === "object" && !a.abstained)) {
+        return cache.set(key, value);
+      }
+    },
+  };
+}
+
 export interface AskOutcome {
   decisionSource: "cache" | "api" | "failed";
   answers?: Record<string, Answer>;
@@ -503,6 +516,8 @@ export async function askChunk(
     timeoutMs?: number;
     usable?: (answers: Record<string, Answer>) => boolean;
     images?: ImageInput[];
+    /** Cache partly answered requests too: the caller maps each field and falls back per field. */
+    keepAnswers?: boolean;
   } = {},
 ): Promise<AskOutcome> {
   const c = planner.config as { backend: string; model?: string };
@@ -521,7 +536,7 @@ export async function askChunk(
       backends: [backend],
       privacy: "may-leave",
       timeoutMs: o.timeoutMs ?? 120_000,
-      cache: gateUnusable(scopedCache),
+      cache: o.keepAnswers ? gateEmpty(scopedCache) : gateUnusable(scopedCache),
       ...(o.images?.length ? { images: o.images } : {}),
     });
   } else {
@@ -531,7 +546,7 @@ export async function askChunk(
       host,
       privacy: "may-leave",
       timeoutMs: o.timeoutMs ?? DECIDE_TIMEOUT_MS,
-      cache: gateUnusable(cache),
+      cache: o.keepAnswers ? gateEmpty(cache) : gateUnusable(cache),
       ...(o.images?.length ? { images: o.images } : {}),
     });
   }
