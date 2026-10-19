@@ -3,10 +3,8 @@
 // (`parseConfig` / `createDecider` shape: backend, auth, model, via).
 // Jev is only the default when the user picked nothing; with no saved choice
 // an already-signed-in Claude or Codex CLI account is offered first. Provider
-// names appear only in DEFAULT_PLANNER_CONFIG, modelOf (jev's default model),
-// loadPlannerConfig, plannerAnswersText and askChunk (opencode-go, openai and
-// the installed Claude/Codex CLIs are the only account-auth backends; pi is a
-// CLI seam that runs the person's own installed, signed-in binary). A saved
+// names live in this module's config, label and installed-CLI account paths;
+// there is no model list here (pi's model comes from planner.json). A saved
 // choice is never switched: limits, auth errors and timeouts stop with
 // PlannerUnavailable instead of silently falling back.
 //
@@ -19,7 +17,7 @@
 import { execFile, spawnSync } from "node:child_process";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync, accessSync, constants } from "node:fs";
 import { homedir, userInfo } from "node:os";
-import { delimiter, dirname, isAbsolute, join } from "node:path";
+import { delimiter, dirname, isAbsolute, join, resolve } from "node:path";
 import {
   decide,
   parseConfig,
@@ -357,7 +355,7 @@ async function cliReady(config: CliPlannerConfig, env: NodeJS.ProcessEnv = proce
 function executable(name: string, env: NodeJS.ProcessEnv): string | undefined {
   for (const dir of (env.PATH ?? "").split(delimiter)) {
     if (!dir) continue;
-    const candidate = join(dir, name);
+    const candidate = resolve(dir, name);
     try { accessSync(candidate, constants.X_OK); return candidate; } catch { /* try next PATH entry */ }
   }
   return undefined;

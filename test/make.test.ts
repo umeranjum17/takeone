@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync, existsSync, chmodSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import { makeTake, PreflightRefusal, TakeInputError, type MakeOptions, type MakeResult } from "../src/make.ts";
 import { PlannerUnavailable, loadPlannerConfig, resolvePlanner } from "../src/decide/planner.ts";
 import { ConfigError, type Answer } from "@byokit/decide";
@@ -302,6 +302,37 @@ test("a signed-in CLI probe that cannot run leaves the planner on local rules in
     assert.equal(resolved.config.backend, "jev");
     assert.equal(resolved.defaulted, true);
     assert.equal(resolved.active, false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a signed-in CLI found through a relative PATH entry is still offered", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "takeone-cli-relative-"));
+  try {
+    const configDir = join(dir, "config");
+    const binDir = join(dir, "bin");
+    mkdirSync(join(configDir, "takeone"), { recursive: true });
+    mkdirSync(binDir);
+    const claude = join(binDir, "claude");
+    writeFileSync(claude, `#!${process.execPath}
+const args = process.argv.slice(2);
+if (args.includes("auth") && args.includes("status")) {
+  process.stdout.write(JSON.stringify({ loggedIn: true, authMethod: "claude.ai", apiProvider: "firstParty" }) + "\\n");
+  process.exit(0);
+}
+process.exit(2);
+`);
+    chmodSync(claude, 0o755);
+    const empty = { get: async () => null, set: async () => {}, delete: async () => {} };
+    const resolved = await resolvePlanner({
+      configDir,
+      env: { HOME: dir, XDG_CONFIG_HOME: configDir, PATH: relative(process.cwd(), binDir), TAKEONE_NO_KEYRING: "1" },
+      store: empty as unknown as Keystore,
+    });
+    assert.equal(resolved.defaulted, true);
+    assert.equal(resolved.config.backend, "claude-code", resolved.refusal ?? "no discovered account");
+    assert.equal(resolved.active, true);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
