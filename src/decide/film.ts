@@ -33,8 +33,10 @@ const THEME_NOTES: Record<ThemeName, string> = {
 };
 /** The film's ending can be any of the last few beats. */
 const ENDING_CANDIDATES = 3;
-/** AI title and caption text limits; longer text is dropped, not cut. */
-const TITLE_MAX = 60;
+/** AI title and caption text limits; longer text is dropped, not cut. The title
+ * is drawn at 1.6x caption size with no shrink-to-fit, so it stays short enough
+ * to sit inside the 1920x1080 stage band without wrapping or clipping. */
+const TITLE_MAX = 40;
 const CAPTION_MAX = 80;
 /** A caption stays on screen for its beat, within these bounds, in seconds. */
 const CAPTION_SECONDS = { min: 1, max: 6 };

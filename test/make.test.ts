@@ -804,6 +804,33 @@ test("the film's AI title and captions render; the take's own title and captions
   }
 });
 
+test("an over-long AI title is dropped before render; the widest accepted title renders at 1080p", async () => {
+  const titled = (title: string) => anthropicFilmFetch((timeline) => ({
+    titled: { pick: "true", probabilities: { true: 1, false: 0 }, rationale: "the steps need naming", title,
+      captions: [{ beat: timeline[0]!.split(",")[0], text: "Open the File menu" }] },
+  }));
+  const hd = { ...FAST, out_w: 1920, out_h: 1080 };
+  const planned = (dir: string) => {
+    mkdirSync(join(dir, "test-config", "takeone"), { recursive: true });
+    writeFileSync(join(dir, "test-config", "takeone", "planner.json"), JSON.stringify({ backend: "anthropic", auth: "apiKey", model: "claude-opus-5-5" }));
+    return dir;
+  };
+  const longDir = planned(newLongTake());
+  const wideDir = planned(newLongTake());
+  try {
+    const long = await fastTake(longDir, { apiKey: KEY, camera: hd, fetchImpl: titled("W".repeat(41)), log: () => {}, warn: () => {} });
+    assert.equal(long.take.film?.title, undefined, "a title over the bound was kept");
+    assert.deepEqual(long.take.film?.captions?.map((c) => c.text), ["Open the File menu"]);
+    // Widest letters at the bound: must not throw in the stage band render.
+    const wide = await fastTake(wideDir, { apiKey: KEY, camera: hd, fetchImpl: titled("MW".repeat(20)), log: () => {}, warn: () => {} });
+    assert.equal(wide.take.film?.title, "MW".repeat(20));
+    assert.ok(readFileSync(join(wideDir, "captions.ass"), "utf8").includes("MW".repeat(20)), "widest title not drawn");
+  } finally {
+    rmSync(longDir, { recursive: true, force: true });
+    rmSync(wideDir, { recursive: true, force: true });
+  }
+});
+
 test("live API shape: Android tap hints stay planner decisions", async () => {
   const dir = newTake();
   try {
