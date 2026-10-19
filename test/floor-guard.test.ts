@@ -50,6 +50,14 @@ test("floor guard passes renamed assertions, still flags real removals and new s
     assert.equal(guard(BASE.replace("r.jev.failed, 0", "true, true")), 1, "a subject rewritten into another shape still fails");
     assert.equal(guard(renamed + `test("new", ${SKIP}, async () => {});\n`), 1, "a new skipped test still fails");
     assert.equal(guard(renamed.replace('renders", async', `renders", ${SKIP}, async`)), 1, "a renamed test that gains a skip still fails");
+    // The prerequisite sentinel is undefined whenever the tool is present, so a
+    // new declaration using it still runs on CI. A truthy skip is never exempt.
+    const sentinel = 'const needsFfmpeg = hasFfmpeg() ? undefined : "requires ffmpeg";\n';
+    assert.equal(guard(sentinel + BASE + `test("new", ${SKIP}, async () => {});\n`), 0, "a new test may declare the prerequisite sentinel");
+    const truthy = 'const needsFfmpeg = hasFfmpeg() ? "present" : "missing";\n';
+    const REAL_SKIP = "{ skip" + ': "always" }';
+    assert.equal(guard(truthy + BASE + `test("new", ${SKIP}, async () => {});\n`), 1, "a sentinel-shaped binding that can resolve truthy still fails");
+    assert.equal(guard(sentinel + BASE + `test("new", ${REAL_SKIP}, async () => {});\n`), 1, "a genuinely skipped new test still fails");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

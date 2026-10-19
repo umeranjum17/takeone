@@ -389,20 +389,33 @@ test("per-beat camera answers reach plan.json and the camera; a user edit in pla
     };
     const aiZoomed = zoomedFrames(readFileSync(join(dir, "camera.json"), "utf8"));
 
+    const baseline = readPlanFile();
+    // A user shot on every beat is preserved in plan.json even while make
+    // refuses the beats that cannot take one.
+    writeFileSync(join(dir, "analysis", "plan.json"), JSON.stringify({ version: 1,
+      beats: baseline.beats.map((b) => ({ ...b, shot: { value: true, by: "user" } })) }));
+    await assert.rejects(fastTake(dir, { camera, apiKey: KEY, fetchImpl, log: () => {}, warn: () => {} }),
+      /analysis\/plan\.json: beat b\d+ \([a-z]+\): shot=true cannot be honoured/);
+    assert.ok(readPlanFile().beats.every((b) => b.shot?.by === "user" && b.shot.value === true), "make overwrote the user's edit");
+
     // The user keeps the shot by hand on every beat that can take one (a
     // scroll beat never gets a camera move and now refuses shot=true): the
     // render follows it, and a rerun of make keeps it.
     const clickIds = new Set(first.beats.filter((b) => b.kind === "click").map((b) => b.id));
     assert.ok(clickIds.size > 0, "the take has no click beat to edit");
-    const userPlan: Plan = { version: 1, beats: readPlanFile().beats.map((b) =>
+    const userPlan: Plan = { version: 1, beats: baseline.beats.map((b) =>
       clickIds.has(b.id) ? { ...b, shot: { value: true, by: "user" } } : b) };
     writeFileSync(join(dir, "analysis", "plan.json"), JSON.stringify(userPlan));
     await renderTake(dir, camera);
     const userZoomed = zoomedFrames(readFileSync(join(dir, "camera.json"), "utf8"));
     assert.ok(userZoomed > aiZoomed, `the user's shot edit did not zoom the camera (${aiZoomed} zoomed frames before, ${userZoomed} after)`);
     await fastTake(dir, { camera, apiKey: KEY, fetchImpl, log: () => {}, warn: () => {} });
-    assert.ok(readPlanFile().beats.filter((b) => clickIds.has(b.id))
-      .every((b) => b.shot?.by === "user" && b.shot.value === true), "make overwrote the user's edit");
+    assert.ok(readPlanFile().beats.every((b) => {
+      const written = userPlan.beats.find((u) => u.id === b.id)!;
+      return clickIds.has(b.id)
+        ? b.shot?.by === "user" && b.shot.value === true
+        : b.shot?.value === written.shot?.value;
+    }), "make overwrote the user's edit or changed a beat the user left alone");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

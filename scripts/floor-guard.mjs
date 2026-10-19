@@ -4,6 +4,7 @@
 // Usage: node floor-guard.mjs [--base <ref>]   (default base: origin/main)
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 const base = (() => {
   const i = process.argv.indexOf('--base');
@@ -93,13 +94,29 @@ const SKIPS = /\.(skip|todo)\b|\b(skip|todo)["']?\s*:(?!\s*false\s*(?:[,}]|$))|\
 // A changed timeout re-adds the declaration's existing ffmpeg prerequisite.
 // Compare simple skip fields only within the same BASE declaration; uncertain
 // expressions and other skip forms remain findings rather than gaining an exemption.
+// A NEW declaration may also declare the project's prerequisite sentinel: a local
+// binding whose value is `condition ? undefined : "reason"`, so the test runs
+// whenever the prerequisite is present. Any other skip field still counts.
 const TEST_DECLARATION = /\b(?:test|it|describe)\s*\(\s*("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`)/;
 const SKIP_FIELD = /\b(skip|todo)["']?\s*:\s*("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*)\s*(?=[,}]|$)/g;
+const identifier = (name) => /^[A-Za-z_$][\w$]*$/.test(name) ? name : null;
+function prerequisiteSentinel(file, name) {
+  if (!identifier(name)) return false;
+  let source;
+  try { source = readFileSync(join(top, file), 'utf8'); } catch { return false; }
+  const declaration = new RegExp(`\\b(?:const|let|var)\\s+${identifier(name).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`
+    + `\\s*=\\s*[^;\\n]*\\?\\s*undefined\\s*:`);
+  return declaration.test(source);
+}
+function prerequisiteSkip(file, text) {
+  const fields = [...text.matchAll(SKIP_FIELD)].filter(f => f[1] === 'skip' || f[1] === 'todo');
+  return fields.length === 1 && prerequisiteSentinel(file, fields[0][2]);
+}
 function addedSkip(file, text) {
   const declaration = TEST_DECLARATION.exec(text)?.[0];
   const before = declaration && removed.find(r => r.file === file
     && TEST_DECLARATION.exec(r.text)?.[0] === declaration)?.text;
-  if (!before) return SKIPS.test(text);
+  if (!before) return prerequisiteSkip(file, text) ? false : SKIPS.test(text);
   const fields = [...before.matchAll(SKIP_FIELD)];
   const changed = text.replace(SKIP_FIELD, (token, key, value) =>
     fields.some(f => f[1] === key && f[2] === value) ? '' : token);
