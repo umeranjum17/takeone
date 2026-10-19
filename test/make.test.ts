@@ -4,12 +4,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync, existsSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync, existsSync, chmodSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { makeTake, PreflightRefusal, TakeInputError, type MakeOptions, type MakeResult } from "../src/make.ts";
-import { PlannerUnavailable } from "../src/decide/planner.ts";
+import { PlannerUnavailable, loadPlannerConfig, resolvePlanner } from "../src/decide/planner.ts";
 import { ConfigError, type Answer } from "@byokit/decide";
+import type { Keystore } from "@byokit/secrets";
 import { main, resolveCamera } from "../src/cli.ts";
 import { frameRect } from "../src/decide/mapping.ts";
 import type { Plan } from "../src/decide/plan.ts";
@@ -243,6 +244,64 @@ test("a corrupt planner.json fails fast instead of falling back silently", async
       fastTake(dir, { log: () => {}, warn: () => {} }),
       (e: unknown) => e instanceof ConfigError,
     );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a saved installed-CLI planner config loads instead of failing the account guard", () => {
+  const dir = mkdtempSync(join(tmpdir(), "takeone-cli-config-"));
+  try {
+    const configDir = join(dir, "test-config");
+    mkdirSync(join(configDir, "takeone"), { recursive: true });
+    const cases = [
+      { backend: "codex", account: "installed-codex", bin: "/usr/bin/codex" },
+      { backend: "claude-code", account: "installed-claude", bin: "/usr/bin/claude" },
+    ] as const;
+    for (const { backend, account, bin } of cases) {
+      writeFileSync(join(configDir, "takeone", "planner.json"), JSON.stringify({ backend, auth: "account", account, bin, model: "fixture-model" }));
+      const loaded = loadPlannerConfig({ configDir });
+      assert.equal(loaded.defaulted, false, `${backend} config read as defaulted`);
+      assert.equal(loaded.config.backend, backend);
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a planner.json whose wrong account name is rejected as user error", () => {
+  const dir = mkdtempSync(join(tmpdir(), "takeone-cli-config-"));
+  try {
+    const configDir = join(dir, "test-config");
+    mkdirSync(join(configDir, "takeone"), { recursive: true });
+    writeFileSync(join(configDir, "takeone", "planner.json"), JSON.stringify({ backend: "codex", auth: "account", account: "installed-claude", bin: "/usr/bin/codex", model: "fixture-model" }));
+    assert.throws(() => loadPlannerConfig({ configDir }), (e: unknown) => e instanceof ConfigError);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a signed-in CLI probe that cannot run leaves the planner on local rules instead of failing the take", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "takeone-cli-probe-"));
+  try {
+    const configDir = join(dir, "config");
+    const binDir = join(dir, "bin");
+    mkdirSync(join(configDir, "takeone"), { recursive: true });
+    mkdirSync(binDir);
+    const claude = join(binDir, "claude");
+    writeFileSync(claude, "#!/bin/sh\nexit 9\n");
+    chmodSync(claude, 0o755);
+    writeFileSync(join(configDir, "takeone", "cli-accounts"), "not a directory");
+    const empty = { get: async () => null, set: async () => {}, delete: async () => {} };
+    const resolved = await resolvePlanner({
+      configDir,
+      probe: true,
+      env: { HOME: dir, XDG_CONFIG_HOME: configDir, PATH: `${binDir}:${process.env.PATH ?? "/usr/bin:/bin"}` },
+      store: empty as unknown as Keystore,
+    });
+    assert.equal(resolved.config.backend, "jev");
+    assert.equal(resolved.defaulted, true);
+    assert.equal(resolved.active, false);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
