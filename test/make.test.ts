@@ -379,13 +379,19 @@ test("per-beat camera answers reach plan.json and the camera; a user edit in pla
     assert.ok(asked.length > 0, "no beat took the planner's camera answers");
     assert.ok(asked.every((b) => b.shot?.value === false && b.idle?.value === true && b.follow?.value === false),
       JSON.stringify(asked));
-    const aiCamera = readFileSync(join(dir, "camera.json"), "utf8");
+    const zoomedFrames = (json: string): number => {
+      const frames = JSON.parse(json) as { w: number }[];
+      const full = Math.max(...frames.map((f) => f.w));
+      return frames.filter((f) => f.w < full).length;
+    };
+    const aiZoomed = zoomedFrames(readFileSync(join(dir, "camera.json"), "utf8"));
 
     // The user keeps the shot on every beat by hand: the render follows it, and a rerun of make keeps it.
     const userPlan: Plan = { version: 1, beats: readPlanFile().beats.map((b) => ({ ...b, shot: { value: true, by: "user" } })) };
     writeFileSync(join(dir, "analysis", "plan.json"), JSON.stringify(userPlan));
     await renderTake(dir, camera);
-    assert.notEqual(readFileSync(join(dir, "camera.json"), "utf8"), aiCamera, "the user's shot edit did not reach the camera");
+    const userZoomed = zoomedFrames(readFileSync(join(dir, "camera.json"), "utf8"));
+    assert.ok(userZoomed > aiZoomed, `the user's shot edit did not zoom the camera (${aiZoomed} zoomed frames before, ${userZoomed} after)`);
     await fastTake(dir, { camera, apiKey: KEY, fetchImpl, log: () => {}, warn: () => {} });
     assert.ok(readPlanFile().beats.every((b) => b.shot?.by === "user" && b.shot.value === true), "make overwrote the user's edit");
   } finally {
