@@ -3,7 +3,7 @@
 // (`parseConfig` / `createDecider` shape: backend, auth, model, via).
 // Jev is only the default when the user picked nothing. Provider names appear
 // only in DEFAULT_PLANNER_CONFIG, modelOf (jev's default model),
-// loadPlannerConfig and askChunk (opencode-go is the only account-auth backend). The
+// loadPlannerConfig, plannerAnswersText and askChunk (opencode-go is the only account-auth backend). The
 // provider is never switched automatically: limits, auth errors and timeouts
 // stop with PlannerUnavailable instead of silently falling back.
 //
@@ -96,6 +96,12 @@ export async function savePlannerConfig(config: PlannerConfig, o: KeyOptions = {
  * config; it never names a provider itself. */
 export function describePlanner(config: PlannerConfig): string {
   return `${(config as { backend: string }).backend}${(config as { via?: string }).via ? ` via ${(config as { via?: string }).via}` : ""} (${modelOf(config)})`;
+}
+
+/** Whether the planner can return free text beside its choices (answerFields).
+ * Jev answers only choices, so a film asks for a title and captions only of the others. */
+export function plannerAnswersText(config: PlannerConfig): boolean {
+  return (config as { backend: string }).backend !== "jev";
 }
 
 /** The model id behind a planner config. The Jev default is the only

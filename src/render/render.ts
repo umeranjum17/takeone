@@ -21,6 +21,7 @@ import { edgeCuts, cutCount, holdPath, lastFrameSecond, videoFrames } from "./fr
 import { SAFE_INSET, safeAreaReport } from "./safe-area.ts";
 import { typingBursts, editBeats, editTimeline, validateEdits, validateZooms } from "./edits.ts";
 import { applyPlan, readPlan } from "../decide/plan.ts";
+import { withFilmText } from "../decide/film.ts";
 import {
   bandEligible, bandFrames, bandLayout, bandText, beatClicks, captionAss, captionLayouts, cardFilter, clickAss, measureAss, sourceViewport, stageFrames, stageGeometry, stageImageFilter,
   takeCaptions, type Caption, type CaptionInk,
@@ -188,7 +189,8 @@ export async function renderTake(dir: string, d?: CameraDefaults): Promise<{ out
   }) : decisions;
   const tapShots = meta.device === "android" && meta.planner?.mode === "fallback"
     ? phoneTapShots(outBeats, meta.width, meta.height) : null;
-  const captions = takeCaptions(clock ? { ...meta, captions: meta.captions?.filter(c => clock.contains(c.t)) } : meta, outTime, duration);
+  const shown = withFilmText(meta);
+  const captions = takeCaptions(clock ? { ...shown, captions: shown.captions?.filter(c => clock.contains(c.t)) } : shown, outTime, duration);
   const banded = captions.length > 0 && bandEligible(meta.width, meta.height, d);
   let text = banded ? bandText(captions, [], d) : d;
   let captionInk = await measureCaptions(dir, captions, text, banded);
