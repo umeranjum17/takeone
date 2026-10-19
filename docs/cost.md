@@ -57,6 +57,7 @@ planner usage. Current measured usage and caps are in [Slice 3](#slice-3-batched
 | OpenCode Go plan | `opencode-go/glm-5.3` (GLM) | $0 marginal (subscription) | ~15,800 tok ≈ $0.00 | 40,000 tok ≈ $0.00 | same subscription route |
 | OpenAI API | `gpt-6.1-sol` | $2 / Mtok input, $10 / Mtok output | ~15,800 tok ≈ $0.032 in | 40,000 tok ≈ $0.08 in | **unverified**: example price from the `@byokit/decide` README (2026-09-30); re-check the provider pricing page |
 | Local | on-device model | $0 (own hardware) | ~15,800 tok ≈ $0.00 | 40,000 tok ≈ $0.00 | no per-token billing |
+| pi (the person's installed CLI) | any model that pi can reach, e.g. `deepseek/deepseek-flash` | not reported by pi | 6,409 tok in / 33,741 tok out for a 41.15 s film (≈ 9,344 in tok ≈ 8,599 request tokens a minute) | same preflight cap; the model's own limits apply | live run 2026-10-19: pi reports usage but no price, so `planner.usd` stays `null` and no dollar figure is computed |
 
 Notes:
 
@@ -74,6 +75,11 @@ Notes:
   time of writing, so the cost shows as unknown rather than a number.
 - Responses are cached per request hash (`analysis/planner-cache.jsonl`), so
   replanning an unchanged take costs nothing on every provider.
+- The pi route cannot be priced by TakeOne: pi reports token usage but not the
+  model's price, and the model is whichever one the user's pi is signed in for.
+  `take.json` therefore records `planner.input_tokens`/`output_tokens` and
+  `planner.usd: null`, and `capture` warns `cost unknown` rather than sending a
+  $0. Cost per output minute for this route is unknown by design, not zero.
 - With `--no-ai` the cost is exactly zero tokens on every provider.
 
 ## Historical measured take (Jev, pre-slice-1 shape)
