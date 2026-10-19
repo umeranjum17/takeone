@@ -52,6 +52,11 @@ test("readPlan rejects a beat id that appears twice", () => {
   assert.throws(() => readPlan(dir), /beat id b1 appears more than once/);
 });
 
+test("readPlan names the file for malformed JSON and for a beat that is not an object", () => {
+  assert.throws(() => readPlan(planDir("{ beats: [ }")), /analysis\/plan\.json: is not valid JSON/);
+  assert.throws(() => readPlan(planDir(JSON.stringify({ version: 1, beats: [{ id: "b1" }, null] }))), /analysis\/plan\.json: every beat needs a string id/);
+});
+
 test("readPlan rejects beats that are not a list", () => {
   const dir = planDir(JSON.stringify({ version: 1, beats: {} }));
   assert.throws(() => readPlan(dir), /beats must be a list/);
