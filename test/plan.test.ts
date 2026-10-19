@@ -27,8 +27,8 @@ test("gateUnusable caches a beat whose optional camera answer abstained", () => 
   const store = new Map();
   const cache = gateUnusable({ get: (k) => store.get(k), set: (k, v) => void store.set(k, v) });
   const answers = {
-    focus_start: { answer: "a", abstained: false },
-    shot: { abstained: true },
+    focus_start: { answer: "a", confidence: 1, abstained: false },
+    b1_shot: { answer: null, confidence: 0, abstained: true },
   };
   cache.set("key", answers);
   assert.deepEqual(cache.get("key"), answers);
@@ -37,7 +37,7 @@ test("gateUnusable caches a beat whose optional camera answer abstained", () => 
 test("gateUnusable refuses a beat whose required answer abstained", () => {
   const store = new Map();
   const cache = gateUnusable({ get: (k) => store.get(k), set: (k, v) => void store.set(k, v) });
-  cache.set("key", { focus_start: { abstained: true }, shot: { answer: true, abstained: false } });
+  cache.set("key", { focus_start: { answer: null, confidence: 0, abstained: true }, b1_shot: { answer: true, confidence: 1, abstained: false } });
   assert.equal(cache.get("key"), undefined);
 });
 

@@ -360,7 +360,7 @@ test("--replan ignores saved answers and asks again", async () => {
   }
 });
 
-test("per-beat camera answers reach plan.json and the camera; a user edit in plan.json wins", { skip: needsFfmpeg }, async () => {
+test("per-beat camera answers reach plan.json and the camera; a user edit in plan.json wins", async () => {
   const dir = newLongTake();
   // A smaller output than the 320x180 source, so a shot can zoom: at source size every shot frames the whole screen.
   const camera = { ...FAST, out_w: 160, out_h: 90 };

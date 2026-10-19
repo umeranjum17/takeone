@@ -327,7 +327,7 @@ export class PlannerFileCache implements DecideCache {
   }
 }
 
-const OPTIONAL_CAMERA_KEYS = new Set(["shot", "idle", "follow"]);
+const OPTIONAL_CAMERA_KEY = /_(shot|idle|follow)$/;
 
 /** Refuse to store beats the mapping cannot use: an abstained or missing
  * field means the whole beat falls back, so caching it would only replay the
@@ -337,7 +337,7 @@ export function gateUnusable(cache: DecideCache): DecideCache {
   return {
     get: (key) => cache.get(key),
     set: (key, value) => {
-      if (Object.entries(value).every(([k, a]) => OPTIONAL_CAMERA_KEYS.has(k) || (a && typeof a === "object" && !a.abstained))) {
+      if (Object.entries(value).every(([k, a]) => OPTIONAL_CAMERA_KEY.test(k) || (a && typeof a === "object" && !a.abstained))) {
         return cache.set(key, value);
       }
     },
