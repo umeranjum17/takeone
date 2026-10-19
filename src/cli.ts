@@ -15,6 +15,7 @@ import { THEMES, resolveTheme } from "./themes.ts";
 import { isMotionTake, MOTION_USAGE, runMotion } from "./motion/cli.ts";
 import { renderMotion } from "./motion/motion.ts";
 import { applyOverrides, type CameraDefaults, type Overrides } from "./camera/defaults.ts";
+import { filmOverrides, type FilmDecision } from "./decide/film.ts";
 
 export function takesDir(): string {
   return process.env["TAKEONE_DIR"] ?? join(homedir(), "Videos", "takeone");
@@ -47,17 +48,19 @@ export function parseSet(pairs: string[]): Overrides {
   return overrides as Overrides;
 }
 
-/** Resolve a take look from its saved theme, CLI selection and `--set` pairs.
- * Throws on malformed pairs. Portrait takes default to portrait output. */
-export function resolveCamera(dir: string, pairs: string[], theme?: string): CameraDefaults {
+/** Resolve a take look from its saved theme, the film `make` decided, CLI selection and `--set` pairs.
+ * Throws on malformed pairs. Portrait takes default to portrait output. `make` passes
+ * withFilm false: it applies its own film decision after this. */
+export function resolveCamera(dir: string, pairs: string[], theme?: string, withFilm = true): CameraDefaults {
   const raw = parseSet(pairs);
-  const meta = JSON.parse(readFileSync(join(dir, "take.json"), "utf8")) as { theme?: unknown };
+  const meta = JSON.parse(readFileSync(join(dir, "take.json"), "utf8")) as { theme?: unknown; film?: FilmDecision };
   const selected = theme ?? meta.theme;
   if (!("out_w" in raw) && !("out_h" in raw) && isPortraitTake(dir)) {
     raw.out_w = 1080;
     raw.out_h = 1920;
   }
-  return resolveTheme(selected, raw);
+  const film = withFilm && meta.film ? filmOverrides(meta.film, selected === undefined, Object.keys(raw)) : {};
+  return resolveTheme(selected, { ...film, ...raw });
 }
 
 function sourceAspect(dir: string): "landscape" | "portrait" | "square" {
@@ -306,7 +309,7 @@ export async function main(argv: string[]): Promise<number> {
     return 2;
   }
   try {
-    a.camera = resolveCamera(dir, a.set, a.theme);
+    a.camera = resolveCamera(dir, a.set, a.theme, false);
   } catch (e) {
     console.error(`takeone make: ${e instanceof Error ? e.message : e}`);
     return 2;

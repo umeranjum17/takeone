@@ -212,7 +212,7 @@ async function runCaptureMake(argv: string[]): Promise<number> {
 
   let camera;
   try {
-    camera = resolveCamera(dir, a.set);
+    camera = resolveCamera(dir, a.set, undefined, false);
   } catch (e) {
     captureFail({
       code: "invalid-arguments",
@@ -231,6 +231,7 @@ async function runCaptureMake(argv: string[]): Promise<number> {
       ...(key === null ? { noAi: true } : { apiKey: key }),
       ...(a.maxTokens === undefined ? {} : { maxTokens: a.maxTokens }),
       ...(camera === undefined ? {} : { camera }),
+      set: a.set,
       ...(a.planOnly ? { planOnly: true } : {}),
       log: (line: string) => console.error(line),
       warn: (line: string) => {

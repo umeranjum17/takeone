@@ -10,11 +10,12 @@ import { join } from "node:path";
 import { makeTake, PreflightRefusal, TakeInputError, type MakeOptions, type MakeResult } from "../src/make.ts";
 import { PlannerUnavailable } from "../src/decide/planner.ts";
 import { ConfigError } from "@byokit/decide";
-import { main } from "../src/cli.ts";
+import { main, resolveCamera } from "../src/cli.ts";
 import { frameRect } from "../src/decide/mapping.ts";
 import type { Beat, Decision, TakeMeta } from "../src/types.ts";
-import { STREAM, hasFfmpeg, buildLongTake, beatViews, chunkAnswers } from "./helpers.ts";
+import { STREAM, hasFfmpeg, buildLongTake, beatViews, chunkAnswers, filmAnswers } from "./helpers.ts";
 import { DEFAULTS } from "../src/camera/defaults.ts";
+import { THEMES } from "../src/themes.ts";
 
 const STREAM_W = 320;
 const STREAM_H = 180;
@@ -601,6 +602,90 @@ test("make with a key decides via the planner and accounts usage; cache hit cost
   }
 });
 
+test("the film call sets the look and ending; a --set key stays pinned", async () => {
+  const dir = newLongTake();
+  try {
+    let filmRequest: { state: { style?: string; timeline: string[] }; questions: { ending: { criteria: Record<string, string> } } } | null = null;
+    const r = await fastTake(dir, { apiKey: KEY, style: "calm", set: ["pace=0.9"], log: () => {}, warn: () => {}, fetchImpl: (async (_url, init) => {
+      const body = String(init?.body);
+      if (JSON.parse(body).state.current_shot !== undefined) return firstZoneReply(body);
+      filmRequest = JSON.parse(body);
+      const endings = Object.keys(filmRequest!.questions.ending.criteria);
+      const last = endings.at(-1)!;
+      const answers = {
+        theme: { choice: "paper", probabilities: { midnight: 0, paper: 1, aurora: 0, mono: 0, sand: 0, editorial: 0 }, confidence: 1 },
+        pace: { probabilities: [0, 0, 0, 1], confidence: 1 },
+        opening: { choice: "straight", probabilities: { establish: 0, short: 0, straight: 1 }, confidence: 1 },
+        camera_style: { choice: "calm", probabilities: { calm: 1, lively: 0 }, confidence: 1 },
+        ending: { choice: last, probabilities: Object.fromEntries(endings.map((id) => [id, id === last ? 1 : 0])), confidence: 1 },
+      };
+      return new Response(JSON.stringify({ answers, usage: { input_tokens: 500 } }), { status: 200 });
+    }) as typeof fetch });
+    assert.equal(filmRequest!.state.style, "calm");
+    assert.ok(filmRequest!.state.timeline.length >= 2);
+    const film = r.take.film!;
+    assert.equal(film.theme, "paper");
+    assert.equal(film.camera_path, "hold");
+    assert.equal(film.establish_s, 0);
+    assert.equal(film.pace, undefined);
+    assert.deepEqual(film.by, { theme: "ai", opening: "ai", ending: "ai", camera_style: "ai" });
+    // The ending is the last beat; the take keeps the outro after it, clamped to the recording's end.
+    const beats = JSON.parse(readFileSync(join(dir, "analysis", "beats.json"), "utf8")) as { id: string; t1: number }[];
+    const end = beats.find((b) => b.id === film.end_beat)!;
+    assert.equal(end.id, beats.at(-1)!.id);
+    const saved = JSON.parse(readFileSync(join(dir, "take.json"), "utf8"));
+    assert.ok(Math.abs(saved.trim_end - Math.min(saved.duration, end.t1 + DEFAULTS.outro_s)) < 1e-6, `trim_end ${saved.trim_end} for beat end ${end.t1}`);
+    assert.equal(saved.film.theme, "paper");
+    // A re-render reads the same look from take.json; a --set pin still wins over the film.
+    assert.equal(resolveCamera(dir, []).accent, "#e2522f");
+    assert.equal(resolveCamera(dir, []).pace, THEMES.paper.pace);
+    assert.equal(resolveCamera(dir, ["pace=0.9"]).pace, 0.9);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+function filmEndingFetch(pickEnding: (endings: string[]) => string): typeof fetch {
+  return (async (_url, init) => {
+    const body = String(init?.body);
+    if (JSON.parse(body).state.current_shot !== undefined) return firstZoneReply(body);
+    const endings = Object.keys(JSON.parse(body).questions.ending.criteria);
+    const choice = pickEnding(endings);
+    const answers = { ...filmAnswers(), ending: { choice, probabilities: Object.fromEntries(endings.map((id) => [id, id === choice ? 1 : 0])), confidence: 1 } };
+    return new Response(JSON.stringify({ answers, usage: { input_tokens: 500 } }), { status: 200 });
+  }) as typeof fetch;
+}
+
+function setTakeFields(dir: string, fields: object): void {
+  const take = JSON.parse(readFileSync(join(dir, "take.json"), "utf8"));
+  writeFileSync(join(dir, "take.json"), JSON.stringify({ ...take, ...fields }));
+}
+
+test("a recorder-set trim end is never cut by the film ending", async () => {
+  const dir = newLongTake();
+  try {
+    setTakeFields(dir, { trim: { start: 0, end: 24000 }, auto_trim: true, duration_ms: 24000 });
+    const r = await fastTake(dir, { apiKey: KEY, log: () => {}, warn: () => {}, fetchImpl: filmEndingFetch((ends) => ends[0]!) });
+    assert.equal(r.take.film?.end_beat, undefined);
+    assert.equal(JSON.parse(readFileSync(join(dir, "take.json"), "utf8")).trim_end, undefined);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a user-set trim end is kept and the film ending does not replace it", async () => {
+  const dir = newLongTake();
+  try {
+    setTakeFields(dir, { trim: { start: 0, end: 12000 } });
+    const r = await fastTake(dir, { apiKey: KEY, log: () => {}, warn: () => {}, fetchImpl: filmEndingFetch((ends) => ends[0]!) });
+    assert.equal(r.take.film?.end_beat, undefined);
+    const trimEnd = JSON.parse(readFileSync(join(dir, "take.json"), "utf8")).trim_end;
+    assert.ok(Math.abs(trimEnd - 12) < 0.15, `trim_end ${trimEnd}`);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("live API shape: Android tap hints stay planner decisions", async () => {
   const dir = newTake();
   try {
@@ -703,7 +788,7 @@ test("a single-chunk take reserves every request twice", async () => {
     writeFileSync(path, events.map((e) => JSON.stringify(e)).join("\n") + "\n");
     const bodies: string[] = [];
     const logs: string[] = [];
-    await fastTake(dir, { apiKey: KEY, maxTokens: 100000, log: (s) => logs.push(s), warn: () => {}, fetchImpl: (async (_url, init) => {
+    await fastTake(dir, { apiKey: KEY, film: false, maxTokens: 100000, log: (s) => logs.push(s), warn: () => {}, fetchImpl: (async (_url, init) => {
       bodies.push(String(init?.body));
       return firstZoneReply(String(init?.body));
     }) as typeof fetch });
@@ -721,7 +806,7 @@ test("preflight reserves re-asks and current shots distinguish viewport position
   try {
     const bodies: string[] = [];
     const logs: string[] = [];
-    await fastTake(dir, { apiKey: KEY, maxTokens: 100000, log: (s) => logs.push(s), warn: () => {}, fetchImpl: (async (_url, init) => {
+    await fastTake(dir, { apiKey: KEY, film: false, maxTokens: 100000, log: (s) => logs.push(s), warn: () => {}, fetchImpl: (async (_url, init) => {
       bodies.push(String(init?.body));
       return new Response("boom", { status: 500 });
     }) as typeof fetch });

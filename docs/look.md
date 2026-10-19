@@ -18,7 +18,7 @@ Every recording render uses the same stage, all local ffmpeg/libass work at zero
 ```
 
 Both `make` and recording `render` accept `--theme NAME`; the supported names are defined in [the shared theme registry](../src/themes.ts), including the new `editorial` theme.
-`midnight` is the default and keeps the existing look. A saved `"theme": "paper"`
+`midnight` is the default and keeps the existing look, unless the AI film call picks a theme (see [Plan and render](guide.md#plan-and-render)). A saved `"theme": "paper"`
 in `take.json` applies on every rerender; an explicit `--theme` takes precedence,
 and `--set` overrides the selected theme's tokens. `make --theme` saves the
 selection in the take; `render --theme` previews a different look without

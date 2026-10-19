@@ -14,7 +14,8 @@ import { decodeAnalysisFrames, firstFrameTimeMs, readEvents } from "./perceive/d
 import { segmentBeats, actStart, resultTime, RESULT_MIN_AREA } from "./beats/segment.ts";
 import { actionVideoSeconds } from "./beats/clock.ts";
 import { zonesForBeat, OCR_MAX_AREA } from "./beats/zones.ts";
-import { beatAnswers, buildChunk, planChunks, TIGHTNESS_LEVELS, type BeatHint, type ChunkCtx } from "./decide/request.ts";
+import { beatAnswers, buildChunk, planChunks, TIGHTNESS_LEVELS, CHUNK_TOKEN_CAP, type BeatHint, type ChunkCtx } from "./decide/request.ts";
+import { appBrightness, appliedFilm, buildFilm, filmOverrides, mapFilm, type FilmDecision } from "./decide/film.ts";
 import type { Answer, DecideCache, ImageInput } from "@byokit/decide";
 import { ConfigError } from "@byokit/decide";
 import { KeystoreError } from "@byokit/secrets";
@@ -38,7 +39,7 @@ import { keyframeThumb, ocrZone } from "./decide/ocr.ts";
 import { redactText } from "./decide/redact.ts";
 import { renderTake } from "./render/render.ts";
 import { resolveTheme } from "./themes.ts";
-import { DEFAULTS, type CameraDefaults } from "./camera/defaults.ts";
+import { DEFAULTS, applyOverrides, type CameraDefaults } from "./camera/defaults.ts";
 import type { Beat as RenderBeat, Decision as RenderDecision, TakeMeta as RenderMeta } from "./camera/types.ts";
 import { clampBBox, type BBox } from "./types.ts";
 
@@ -54,7 +55,7 @@ export interface MakeOptions {
   noAi?: boolean;
   /** What the demo is for; sharpens key moments. Alias --about. */
   goal?: string;
-  /** Style hint for the film call (slice 5); recorded, not yet decided on. */
+  /** Style hint for the film call. */
   style?: string;
   /** Opt out of screen words (on by default when the planner runs). */
   noScreenText?: boolean;
@@ -75,6 +76,10 @@ export interface MakeOptions {
   camera?: CameraDefaults;
   /** Named look; explicit make selections are saved with the take. */
   theme?: string;
+  /** The raw `--set key=value` pairs; a key set here is never replaced by the film call. */
+  set?: string[];
+  /** false skips the film call; the chunk requests are unchanged. */
+  film?: boolean;
   /** stop after the preflight: no planner calls, no render; returns planned tokens */
   planOnly?: boolean;
   log?: (line: string) => void;
@@ -179,11 +184,12 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
     }
   };
   const take = readTakeMeta(dir);
+  delete take.film; // a film from an earlier make stays only if this make decides one
   // Portrait takes (phone footage) default to a portrait output unless the
   // caller overrode the output size; desktop behaviour is unchanged.
   const themed = resolveTheme(opts.theme ?? take.theme);
   if (opts.theme !== undefined) take.theme = opts.theme;
-  const camera = opts.camera
+  let camera = opts.camera
     ?? (take.stream.h > take.stream.w ? { ...themed, out_w: 1080, out_h: 1920 } : themed);
   const { out_w, out_h } = camera ?? DEFAULTS;
   const aspect = out_w / out_h; // the decide-side frame estimate shares the render's aspect
@@ -373,6 +379,7 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
   }
 
   const decisions: Decision[] = [...heuristics];
+  let filmDecision: FilmDecision | null = null;
   let inputTokens = 0;
   let outputTokens = 0;
   let failed = 0;
@@ -436,7 +443,14 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
     // Beats with one zone have nothing to choose; they keep the rules uncounted.
     const asked = beats.map((_, i) => i).filter((i) => beats[i]!.zones.length >= 2);
     const chunks = planChunks(asked, build(heuristics), () => failed++);
-    const plannedTokens = chunks.reduce((n, c) => n + c.chunk.tokens, 0);
+    // The film call decides the whole take once; a take too long for one request keeps the base look.
+    const filmPlan = beats.length === 0 || opts.film === false ? null : buildFilm({
+      goal: opts.goal, style: opts.style, seconds: takeMs / 1000,
+      source: `${take.stream.w}x${take.stream.h}`, device: take.device ?? "desktop",
+      brightness: appBrightness(dec.frames), beats,
+    });
+    if (!filmPlan && beats.length > 0 && opts.film !== false) warn(`film call: the take is over ${CHUNK_TOKEN_CAP} estimated tokens for one request; the film keeps the base look`);
+    const plannedTokens = chunks.reduce((n, c) => n + c.chunk.tokens, 0) + (filmPlan?.tokens ?? 0);
     // One re-ask of the largest chunk is reserved for a malformed answer.
     const reservedTokens = plannedTokens + Math.max(0, ...chunks.map((c) => c.chunk.tokens));
     // The ceiling is estimated in the default request shape; other backends
@@ -451,12 +465,12 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
     }
     const thumbCount = vision ? chunks.flatMap((c) => c.items).reduce((n, i) => n + keyframes(beats[i]!).length, 0) : 0;
     log(
-      `AI planner: ${planner.label}. ${beats.length} beats, ${chunks.length} calls planned, ${planned.usd === null ? "cost unknown" : `about $${planned.usd.toFixed(4)}`}.` +
+      `AI planner: ${planner.label}. ${beats.length} beats, ${chunks.length + (filmPlan ? 1 : 0)} calls planned, ${planned.usd === null ? "cost unknown" : `about $${planned.usd.toFixed(4)}`}.` +
       (readScreenText ? " reading screen words (redacted; turn off with --no-screen-text)" : "") +
       (vision ? ` ${thumbCount} redacted keyframe thumbnails.` : ""),
     );
     log(
-      `preflight: ${beats.length} beats, ${chunks.length} chunks, ${reservedTokens} planned tokens, ${costText(planned.usd)} planned`,
+      `preflight: ${beats.length} beats, ${chunks.length + (filmPlan ? 1 : 0)} calls (film included), ${reservedTokens} planned tokens, ${costText(planned.usd)} planned`,
     );
     // --plan-only stops here: the plan is priced but no planner call is made
     // and nothing is rendered.
@@ -499,6 +513,15 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
       }
       if (r.outputTokens) outputTokens += r.outputTokens;
     };
+    // The film call runs first: its answers set the look, and its tokens are already reserved.
+    if (filmPlan) {
+      const r = await askChunk(filmPlan.state, filmPlan.questions, planner, cache, { fetchImpl: opts.fetchImpl, keepAnswers: true });
+      requests++;
+      requestTokens += filmPlan.tokens;
+      if (r.decisionSource === "cache") cachedRequests++;
+      takeOutcome(r);
+      filmDecision = mapFilm(r.answers ?? {}, filmPlan.endings);
+    }
     let reasks = 1;
     let overReserve = 0;
     // Chunks run in order: each one starts from the shot the previous chunk decided.
@@ -556,6 +579,16 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
     }
     if (overReserve) warn(`planner: ${overReserve} beats keep the rules; their rebuilt chunk no longer fit the preflight reserve`);
   }
+  if (filmDecision) {
+    // Theme tokens, then the film's choices, then the user's --set pairs (never replaced) and a picked theme.
+    const pinned = (opts.set ?? []).map((pair) => pair.split("=")[0]!);
+    const f = appliedFilm(filmDecision, { pinned, themeFree: take.theme === undefined, endFree: take.trim?.end === undefined });
+    camera = applyOverrides(filmOverrides(f, take.theme === undefined, pinned), camera);
+    take.film = f;
+    const theme = take.theme !== undefined ? `kept (${take.theme} picked)` : f.theme ?? "unchanged";
+    log(`film: theme ${theme}, pace ${f.pace ?? "unchanged"}, camera ${f.camera_path ?? "unchanged"}, ` +
+      `opening ${f.establish_s ?? "unchanged"} s, ends on ${f.end_beat ?? "unchanged"} (${Object.values(f.by).filter((v) => v === "ai").length} of ${Object.keys(f.by).length} by AI)`);
+  }
 
   // --plan-only without a planner credential: nothing planned, nothing rendered.
   if (opts.planOnly) {
@@ -598,6 +631,12 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
   const autoTrim = take.auto_trim === true ? trimEnd === take.duration_ms : recorderOwned;
   if (take.trim?.end !== undefined && !autoTrim) meta.trim_end = seconds(endMs);
   else delete meta.trim_end;
+  // The film's ending keeps an outro after its beat.
+  const filmEnd = take.film?.end_beat;
+  if (filmEnd !== undefined) {
+    const end = renderBeats.find((b) => b.id === filmEnd)!;
+    meta.trim_end = Math.min(seconds(videoEndMs), end.t1 + camera.outro_s);
+  }
   writeFileSync(join(dir, "take.json"), JSON.stringify(meta, null, 1) + "\n");
   const { out, seconds: renderSeconds } = await renderTake(dir, camera);
 

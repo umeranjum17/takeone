@@ -91,18 +91,31 @@ export function buildLongTake(dir: string, title = "App"): string {
  * zones and hint with its questions under their bare names, and current_shot
  * on the chunk's first beat (later beats start from the shot before them). */
 export function beatViews(body: string): string[] {
-  const { state, questions } = JSON.parse(body) as { state: { current_shot: string; beats: Record<string, object> }; questions: Record<string, unknown> };
-  return Object.entries(state.beats).map(([id, beat], k) => JSON.stringify({
+  const { state, questions } = JSON.parse(body) as { state: { current_shot: string; beats?: Record<string, object> }; questions: Record<string, unknown> };
+  return Object.entries(state.beats ?? {}).map(([id, beat], k) => JSON.stringify({
     state: { ...(k === 0 ? { current_shot: state.current_shot } : {}), ...beat },
     questions: Object.fromEntries(Object.entries(questions)
       .filter(([q]) => q.startsWith(`${id}_`)).map(([q, v]) => [q.slice(id.length + 1), v])),
   }));
 }
 
+/** Film answers that keep the base look: midnight theme, pace 1 (quick), the
+ * establish hold and the lively camera. No ending is answered, so the take
+ * keeps its last beat. */
+export function filmAnswers(): Record<string, unknown> {
+  return {
+    theme: { choice: "midnight", probabilities: { midnight: 1, paper: 0, aurora: 0, mono: 0, sand: 0, editorial: 0 }, confidence: 1 },
+    pace: { probabilities: [0, 1, 0, 0], confidence: 1 },
+    opening: { choice: "establish", probabilities: { establish: 1, short: 0, straight: 0 }, confidence: 1 },
+    camera_style: { choice: "lively", probabilities: { calm: 0, lively: 1 }, confidence: 1 },
+  };
+}
+
 /** Jev wire answers for a planner chunk request: `perBeat` answers one beat
  * under bare question names, given its zone names; keys get the beat prefix. */
 export function chunkAnswers(body: string, perBeat: (names: string[], k: number) => Record<string, unknown>): Record<string, unknown> {
-  const beats = (JSON.parse(body) as { state: { beats: Record<string, { zones: Record<string, unknown> }> } }).state.beats;
-  return Object.fromEntries(Object.entries(beats).flatMap(([id, beat], k) =>
+  const beats = (JSON.parse(body) as { state: { beats?: Record<string, { zones: Record<string, unknown> }> } }).state.beats;
+  if (beats === undefined) return filmAnswers();
+  return Object.fromEntries(Object.entries(beats ?? {}).flatMap(([id, beat], k) =>
     Object.entries(perBeat(Object.keys(beat.zones), k)).map(([q, a]) => [`${id}_${q}`, a])));
 }
