@@ -829,18 +829,22 @@ test("an over-long AI title is dropped; a title at the 28-character bound fits t
     const long = await fastTake(dir, { apiKey: KEY, fetchImpl: titled("W".repeat(29)), log: () => {}, warn: () => {} });
     assert.equal(long.take.film?.title, undefined, "a title over the bound was kept");
     assert.deepEqual(long.take.film?.captions?.map((c) => c.text), ["Open the File menu"]);
-    // 28 characters is the accepted maximum, and a character advances at most one em (61 px) at this size.
     const widest = "汉".repeat(28);
     const atBound = mapFilm({ titled: { answer: true, abstained: false, confidence: 1, by: "anthropic", ms: 0, title: widest } as Answer }, [], {}).title;
     assert.equal(atBound, widest, "the planner dropped a title at the bound");
     // The band geometry the 1080p render measures: ink over out_w * 0.9 makes captionLayouts throw.
+    // A character advances one em at most, and the bundled faces draw the em dash at exactly one em,
+    // so this measures the widest accepted title without depending on a system CJK fallback.
     const d = { ...DEFAULTS, out_w: 1920, out_h: 1080 };
-    const captions = takeCaptions({ width: STREAM_W, height: STREAM_H, title: atBound, duration: 4 }, (t) => t, 4);
-    assert.deepEqual(captions.filter((c) => c.title).map((c) => c.text), [widest], "the title accepted at the bound is not drawn");
+    const oneEmTitle = "—".repeat(widest.length);
+    const captions = takeCaptions({ width: STREAM_W, height: STREAM_H, title: oneEmTitle, duration: 4 }, (t) => t, 4);
+    assert.deepEqual(captions.filter((c) => c.title).map((c) => c.text), [oneEmTitle], "the title at the bound is not drawn");
     const text = bandText(captions, [], d);
     const ink = await measureCaptions(dir, captions, text, true);
     const band = bandLayout(STREAM_W, STREAM_H, text, captions, ink);
     assert.ok(band, "the 1080p stage is not band-eligible");
+    assert.ok(ink[0]!.w > 28 * Math.round(text.caption_size * 1.6) * 0.5,
+      `the widest title rendered no ink (w=${ink[0]!.w}); the bundled face did not draw it`);
     assert.doesNotThrow(() => captionLayouts(captions, ink, text, false, band), "a title at the bound does not fit the 1080p band row");
   } finally {
     rmSync(dir, { recursive: true, force: true });
