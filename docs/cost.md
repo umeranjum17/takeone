@@ -14,6 +14,8 @@ planner built for the slice-1 demo take (the 43.1 s Tidewater board take,
 answers. Tokens are the planner's estimate (body length / 3.5); no provider
 billed them. The live check waits for a cheap model route.
 
+These figures predate the film call, which adds one planner request per take (see [Plan and render](guide.md#plan-and-render)). They are not re-measured here, so the per-call counts above exclude it.
+
 | Demo take, per minute of video | Before (slice 1, one call per beat) | After (slice 3, text-only model) | After (slice 3, model reads images) |
 |---|---|---|---|
 | Planner calls | 7 (9.7 a minute) | 1 (1.4 a minute) | 2 (2.8 a minute) |
