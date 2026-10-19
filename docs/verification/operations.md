@@ -58,8 +58,9 @@ test -s "$TAKEONE_DIR/synth-demo/out/synth-demo.mp4"     # the proof artifact
 When capture or planning is not authorized, use `docs/verification/rerender-look-tweaks.md`
 with an explicitly approved saved demo take. Inventory/hash every copied input,
 verify the approved source hash, and copy only into task-local scratch. Preserve
-`screen.webm`, `take.json`, `analysis/beats.json`, original `analysis/decisions.jsonl`
-and any supplied events/metadata byte-for-byte. Drive `node bin/takeone.mjs render
+`screen.webm`, `take.json`, `analysis/beats.json`, original `analysis/decisions.jsonl`,
+any `analysis/plan.json` the render resolves camera choices from, and any supplied
+events/metadata byte-for-byte. Drive `node bin/takeone.mjs render
 <absolute-copy-path>`; don't run `make`, which replaces analysis and decisions.
 Record whether saved beats were refreshed rather than original planner output.
 Name the real typing/dialog/drag intervals and their limits; boundary hints are not
