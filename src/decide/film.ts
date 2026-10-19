@@ -33,6 +33,11 @@ const THEME_NOTES: Record<ThemeName, string> = {
 };
 /** The film's ending can be any of the last few beats. */
 const ENDING_CANDIDATES = 3;
+/** AI title and caption text limits; longer text is dropped, not cut. */
+const TITLE_MAX = 60;
+const CAPTION_MAX = 80;
+/** A caption stays on screen for its beat, within these bounds, in seconds. */
+const CAPTION_SECONDS = { min: 1, max: 6 };
 
 export interface FilmDecision {
   /** Theme tokens, applied under --set; absent keeps the base look. */
@@ -42,6 +47,10 @@ export interface FilmDecision {
   camera_path?: CameraDefaults["camera_path"];
   /** The beat the take ends on; the film keeps outro_s after it. */
   end_beat?: string;
+  /** The film's title, drawn over the opening; absent when the planner gave none. */
+  title?: string;
+  /** Captions in video-relative seconds, one per beat the planner chose. */
+  captions?: { t: number; d: number; text: string }[];
   /** Per field: the planner's own choice, or the rule (base look) when it abstained. */
   by: Record<string, "ai" | "rule">;
 }
@@ -54,6 +63,8 @@ export interface FilmCtx {
   device: string;
   brightness: "light" | "dark";
   beats: Beat[];
+  /** Whether the planner can return text; only then is the title and caption question asked. */
+  text: boolean;
 }
 
 /** The film request, or null when even the whole take is too long for one call. */
@@ -91,15 +102,58 @@ export function buildFilm(ctx: FilmCtx): { state: Record<string, unknown>; quest
       options: Object.fromEntries(Object.entries(CAMERA_STYLES).map(([k, v]) => [k, v.label])),
       instructions: "Calm: hold each framing and move only between them. Lively: the camera follows the action.",
     },
+    ...(ctx.text ? { titled: {
+      kind: "yesno",
+      question: "Does a viewer need a title and captions to follow this film? Answer yes when the subject or a step is not clear from the screen alone. " +
+        `When yes, also give title: the film's subject in at most ${TITLE_MAX} characters; and captions: a list of {beat, text} for the beats worth a line, ` +
+        `each text in at most ${CAPTION_MAX} characters, plain words, with beat set to an id from the timeline.`,
+      answerFields: ["title", "captions"],
+    } as Question } : {}),
   };
   const tokens = estimateTokens(JSON.stringify({ model: JEV_MODEL, state, questions: toWire(questions) }));
   const endingIds = endings.map((b) => b.id);
   return tokens > CHUNK_TOKEN_CAP ? null : { state, questions, tokens, endings: endingIds };
 }
 
+/** Caption timing for each beat, in video-relative seconds. `seconds` maps a
+ * timeline ms to video-relative seconds, as make does for the take. */
+export function captionSpans(beats: Beat[], seconds: (ms: number) => number): Record<string, { t: number; d: number }> {
+  return Object.fromEntries(beats.map((b) => [b.id, {
+    t: seconds(b.t0),
+    d: Math.min(CAPTION_SECONDS.max, Math.max(CAPTION_SECONDS.min, (b.t1 - b.t0) / 1000)),
+  }]));
+}
+
+/** Trimmed text within the limit, or undefined. */
+function line(value: unknown, max: number): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const text = value.replace(/\s+/g, " ").trim();
+  return text !== "" && text.length <= max ? text : undefined;
+}
+
+/** The title and captions of a yes answer. A caption for a beat outside the
+ * timeline, a repeat for a beat, or text over its limit is left out. */
+function filmText(answer: Answer | undefined, spans: Record<string, { t: number; d: number }>): { title?: string; captions: { t: number; d: number; text: string }[] } {
+  if (!answer || answer.abstained || answer.answer !== true) return { captions: [] };
+  const fields = answer as unknown as Record<string, unknown>;
+  const title = line(fields.title, TITLE_MAX);
+  const beats = new Set<string>();
+  const captions: { t: number; d: number; text: string }[] = [];
+  for (const c of Array.isArray(fields.captions) ? fields.captions : []) {
+    const entry = c && typeof c === "object" ? c as Record<string, unknown> : {};
+    const beat = typeof entry.beat === "string" && Object.hasOwn(spans, entry.beat) && !beats.has(entry.beat) ? entry.beat : undefined;
+    const text = line(entry.text, CAPTION_MAX);
+    if (beat === undefined || text === undefined) continue;
+    beats.add(beat);
+    captions.push({ ...spans[beat]!, text });
+  }
+  return { ...(title !== undefined ? { title } : {}), captions: captions.sort((a, b) => a.t - b.t) };
+}
+
 /** Map the film answers to bounded values. Anything missing, abstained or outside
- * its choices is left out (the base look) and marked "rule". */
-export function mapFilm(answers: Record<string, Answer>, endings: string[]): FilmDecision {
+ * its choices is left out (the base look) and marked "rule". The title and
+ * captions come from the planner's own text, timed by `spans`. */
+export function mapFilm(answers: Record<string, Answer>, endings: string[], spans: Record<string, { t: number; d: number }>): FilmDecision {
   const by: FilmDecision["by"] = {};
   const pick = <T>(key: string, valid: (answer: unknown) => T | undefined): T | undefined => {
     const a = answers[key];
@@ -116,18 +170,22 @@ export function mapFilm(answers: Record<string, Answer>, endings: string[]): Fil
   const opening = pick("opening", oneOf(Object.keys(OPENINGS)));
   const end = pick("ending", oneOf(endings));
   const style = pick("camera_style", oneOf(Object.keys(CAMERA_STYLES)));
+  const text = filmText(answers.titled, spans);
+  if (answers.titled !== undefined) by.titled = text.title !== undefined || text.captions.length > 0 ? "ai" : "rule";
   return {
     ...(theme !== undefined ? { theme } : {}),
     ...(pace !== undefined ? { pace: PACE_VALUES[pace]! } : {}),
     ...(opening !== undefined ? { establish_s: OPENINGS[opening]!.establish_s } : {}),
     ...(end !== undefined ? { end_beat: end } : {}),
     ...(style !== undefined ? { camera_path: CAMERA_STYLES[style]!.camera_path } : {}),
+    ...(text.title !== undefined ? { title: text.title } : {}),
+    ...(text.captions.length > 0 ? { captions: text.captions } : {}),
     by,
   };
 }
 
 /** The camera field or saved key each film question sets. */
-const FIELD_OF_QUESTION: Record<string, string> = { theme: "theme", pace: "pace", opening: "establish_s", ending: "end_beat", camera_style: "camera_path" };
+const FIELD_OF_QUESTION: Record<string, string> = { theme: "theme", pace: "pace", opening: "establish_s", ending: "end_beat", camera_style: "camera_path", titled: "titled" };
 
 /** The choices make applies. A field the user pinned with --set, a theme the user
  * picked, and an ending a trim already bounds are left out, so the saved film and
@@ -140,6 +198,8 @@ export function appliedFilm(film: FilmDecision, skip: { pinned: string[]; themeF
     ...(film.establish_s !== undefined && !dropped("establish_s") ? { establish_s: film.establish_s } : {}),
     ...(film.end_beat !== undefined && !dropped("end_beat") ? { end_beat: film.end_beat } : {}),
     ...(film.camera_path !== undefined && !dropped("camera_path") ? { camera_path: film.camera_path } : {}),
+    ...(film.title !== undefined ? { title: film.title } : {}),
+    ...(film.captions !== undefined ? { captions: film.captions } : {}),
     by: Object.fromEntries(Object.entries(film.by).filter(([question]) => !dropped(FIELD_OF_QUESTION[question]!))),
   };
 }
@@ -156,6 +216,14 @@ export function filmOverrides(film: FilmDecision, themeFree: boolean, pinned: st
   };
   for (const key of pinned) delete (o as Record<string, unknown>)[key];
   return o;
+}
+
+/** The take's text for a render: its own title and captions when it sets them
+ * (an empty title keeps none), else the film's AI text. */
+export function withFilmText<T extends { title?: string; captions?: { t: number; d?: number; text: string; position?: "top" | "bottom" }[]; film?: FilmDecision }>(meta: T): T {
+  const film = meta.film;
+  if (film?.title === undefined && film?.captions === undefined) return meta;
+  return { ...meta, title: meta.title ?? film.title, captions: meta.captions ?? film.captions };
 }
 
 /** Mean luma of the grey analysis frames, sampled every tenth frame: "light" or "dark". */

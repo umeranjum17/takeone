@@ -703,6 +703,7 @@ test("the film call sets the look and ending; a --set key stays pinned", async (
     assert.equal(film.establish_s, 0);
     assert.equal(film.pace, undefined);
     assert.deepEqual(film.by, { theme: "ai", opening: "ai", ending: "ai", camera_style: "ai" });
+    assert.equal(film.title, undefined, "jev answers carry no text, so the film has no title");
     // The ending is the last beat; the take keeps the outro after it, clamped to the recording's end.
     const beats = JSON.parse(readFileSync(join(dir, "analysis", "beats.json"), "utf8")) as { id: string; t1: number }[];
     const end = beats.find((b) => b.id === film.end_beat)!;
@@ -755,6 +756,49 @@ test("a user-set trim end is kept and the film ending does not replace it", asyn
     assert.equal(r.take.film?.end_beat, undefined);
     const trimEnd = JSON.parse(readFileSync(join(dir, "take.json"), "utf8")).trim_end;
     assert.ok(Math.abs(trimEnd - 12) < 0.15, `trim_end ${trimEnd}`);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+/** Anthropic answers: the film's forced `decisions` tool input. Beat calls get no
+ * answers, so the rules keep them. Text fields only come back on this wire shape. */
+function anthropicFilmFetch(film: (timeline: string[]) => Record<string, unknown>): typeof fetch {
+  return (async (_url, init) => {
+    const { state } = JSON.parse(JSON.parse(String(init?.body)).messages[0].content[0].text) as { state: { timeline?: string[] } };
+    const input = state.timeline === undefined ? {} : film(state.timeline);
+    return new Response(JSON.stringify({ content: [{ type: "tool_use", name: "decisions", input }], usage: { input_tokens: 500, output_tokens: 80 } }), { status: 200 });
+  }) as typeof fetch;
+}
+
+test("the film's AI title and captions render; the take's own title and captions win", async () => {
+  const dir = newLongTake();
+  try {
+    const fetchImpl = anthropicFilmFetch((timeline) => ({
+      titled: {
+        pick: "true", probabilities: { true: 1, false: 0 }, rationale: "the steps need naming",
+        title: "Save a report",
+        captions: [{ beat: timeline[0]!.split(",")[0], text: "Open the File menu" }, { beat: "no-such-beat", text: "never shown" }],
+      },
+    }));
+    mkdirSync(join(dir, "test-config", "takeone"), { recursive: true });
+    writeFileSync(join(dir, "test-config", "takeone", "planner.json"), JSON.stringify({ backend: "anthropic", auth: "apiKey", model: "claude-opus-5-5" }));
+    const r = await fastTake(dir, { apiKey: KEY, fetchImpl, log: () => {}, warn: () => {} });
+    assert.equal(r.take.film?.by.titled, "ai");
+    assert.equal(r.take.film?.title, "Save a report");
+    assert.deepEqual(r.take.film?.captions?.map((c) => c.text), ["Open the File menu"]);
+    const duration = JSON.parse(readFileSync(join(dir, "take.json"), "utf8")).duration;
+    assert.ok(r.take.film!.captions![0]!.t >= 0 && r.take.film!.captions![0]!.t < duration, "caption outside the take");
+    const ass = readFileSync(join(dir, "captions.ass"), "utf8");
+    assert.ok(ass.includes("Save a report") && ass.includes("Open the File menu"), "AI title or caption not drawn");
+    assert.ok(!ass.includes("never shown"), "caption for a beat outside the timeline was drawn");
+
+    // The take's own title replaces the film's on the next render; the film keeps its text.
+    setTakeFields(dir, { title: "My demo" });
+    await fastTake(dir, { apiKey: KEY, fetchImpl, log: () => {}, warn: () => {} });
+    const own = readFileSync(join(dir, "captions.ass"), "utf8");
+    assert.ok(own.includes("My demo") && !own.includes("Save a report"), "take title did not win");
+    assert.ok(own.includes("Open the File menu"), "film caption dropped when the take sets a title");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

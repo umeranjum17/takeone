@@ -15,7 +15,7 @@ import { segmentBeats, actStart, resultTime, RESULT_MIN_AREA } from "./beats/seg
 import { actionVideoSeconds } from "./beats/clock.ts";
 import { zonesForBeat, OCR_MAX_AREA } from "./beats/zones.ts";
 import { beatAnswers, buildChunk, planChunks, TIGHTNESS_LEVELS, CHUNK_TOKEN_CAP, type BeatHint, type ChunkCtx } from "./decide/request.ts";
-import { appBrightness, appliedFilm, buildFilm, filmOverrides, mapFilm, type FilmDecision } from "./decide/film.ts";
+import { appBrightness, appliedFilm, buildFilm, captionSpans, filmOverrides, mapFilm, type FilmDecision } from "./decide/film.ts";
 import type { Answer, DecideCache, ImageInput } from "@byokit/decide";
 import { ConfigError } from "@byokit/decide";
 import { KeystoreError } from "@byokit/secrets";
@@ -31,6 +31,7 @@ import {
   PlannerFileCache,
   seesImages,
   modelOf,
+  plannerAnswersText,
   pooled,
   type ResolvedPlanner,
   type AskOutcome,
@@ -448,7 +449,7 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
     const filmPlan = beats.length === 0 || opts.film === false ? null : buildFilm({
       goal: opts.goal, style: opts.style, seconds: takeMs / 1000,
       source: `${take.stream.w}x${take.stream.h}`, device: take.device ?? "desktop",
-      brightness: appBrightness(dec.frames), beats,
+      brightness: appBrightness(dec.frames), beats, text: plannerAnswersText(planner.config),
     });
     if (!filmPlan && beats.length > 0 && opts.film !== false) warn(`film call: the take is over ${CHUNK_TOKEN_CAP} estimated tokens for one request; the film keeps the base look`);
     const plannedTokens = chunks.reduce((n, c) => n + c.chunk.tokens, 0) + (filmPlan?.tokens ?? 0);
@@ -521,7 +522,7 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
       requestTokens += filmPlan.tokens;
       if (r.decisionSource === "cache") cachedRequests++;
       takeOutcome(r);
-      filmDecision = mapFilm(r.answers ?? {}, filmPlan.endings);
+      filmDecision = mapFilm(r.answers ?? {}, filmPlan.endings, captionSpans(beats, seconds));
     }
     let reasks = 1;
     let overReserve = 0;
@@ -588,7 +589,9 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
     take.film = f;
     const theme = take.theme !== undefined ? `kept (${take.theme} picked)` : f.theme ?? "unchanged";
     log(`film: theme ${theme}, pace ${f.pace ?? "unchanged"}, camera ${f.camera_path ?? "unchanged"}, ` +
-      `opening ${f.establish_s ?? "unchanged"} s, ends on ${f.end_beat ?? "unchanged"} (${Object.values(f.by).filter((v) => v === "ai").length} of ${Object.keys(f.by).length} by AI)`);
+      `opening ${f.establish_s ?? "unchanged"} s, ends on ${f.end_beat ?? "unchanged"}, ` +
+      `title ${f.title === undefined ? "none" : `"${f.title}"`}, ${f.captions?.length ?? 0} captions ` +
+      `(${Object.values(f.by).filter((v) => v === "ai").length} of ${Object.keys(f.by).length} by AI)`);
   }
 
   // --plan-only without a planner credential: nothing planned, nothing rendered.
