@@ -376,41 +376,23 @@ process.exit(2);
   }
 });
 
-test("an installed Codex CLI whose sign-in lives in the OS keyring is not offered", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "takeone-codex-keyring-"));
+test("a saved installed-CLI account whose state folder cannot be created is refused, not thrown", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "takeone-cli-unusable-"));
   try {
     const configDir = join(dir, "config");
-    const binDir = join(dir, "bin");
-    const codexHome = join(dir, ".codex");
     mkdirSync(join(configDir, "takeone"), { recursive: true });
-    mkdirSync(binDir);
-    mkdirSync(codexHome);
-    writeFileSync(join(codexHome, "config.toml"), 'cli_auth_credentials_store = "keyring"\n');
-    const codexBin = join(binDir, "codex");
-    writeFileSync(codexBin, `#!/usr/bin/env node
-let buffer = "";
-process.stdin.on("data", (chunk) => {
-  buffer += chunk;
-  for (let i; (i = buffer.indexOf("\\n")) >= 0;) {
-    const line = buffer.slice(0, i);
-    buffer = buffer.slice(i + 1);
-    const message = JSON.parse(line);
-    if (message.id === 1) process.stdout.write(JSON.stringify({ id: 1 }) + "\\n");
-    else if (message.id === 2) process.stdout.write(JSON.stringify({ id: 2, result: { account: { type: "chatgpt", email: "fixture@example.com", planType: "plus" } } }) + "\\n");
-  }
-});
-`);
-    chmodSync(codexBin, 0o755);
+    writeFileSync(join(configDir, "takeone", "cli-accounts"), "not a directory");
+    writeFileSync(join(configDir, "takeone", "planner.json"), JSON.stringify({ backend: "claude-code", auth: "account", account: "installed-claude", bin: join(dir, "bin", "claude") }));
     const empty = { get: async () => null, set: async () => {}, delete: async () => {} };
     const resolved = await resolvePlanner({
       configDir,
       probe: true,
-      env: { HOME: dir, XDG_CONFIG_HOME: configDir, CODEX_HOME: codexHome, PATH: `${binDir}:${process.env.PATH ?? "/usr/bin:/bin"}`, TAKEONE_NO_KEYRING: "1" },
+      env: { HOME: dir, XDG_CONFIG_HOME: configDir, PATH: `${join(dir, "bin")}:${process.env.PATH ?? "/usr/bin:/bin"}`, TAKEONE_NO_KEYRING: "1" },
       store: empty as unknown as Keystore,
     });
-    assert.equal(resolved.config.backend, "jev", "a keyring-only Codex login was offered");
+    assert.equal(resolved.defaulted, false);
     assert.equal(resolved.active, false);
-    assert.match(resolved.refusal ?? "", /keyring/);
+    assert.match(resolved.refusal ?? "", /installed Claude CLI account could not be started/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
