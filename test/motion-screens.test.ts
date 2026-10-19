@@ -1,12 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { PlannerUnavailable, savePlannerConfig } from "../src/decide/planner.ts";
 import { THEME_NOTES } from "../src/decide/film.ts";
 import { parseMotionArgs, planMotion, planStoryboard } from "../src/motion/cli.ts";
+import { main } from "../src/cli.ts";
 import { FOCUS, SHAPES } from "../src/motion/ai.ts";
 import { validateStoryboard } from "../src/motion/storyboard.ts";
 
@@ -122,6 +123,63 @@ test("a planner that is rate limited stops the run instead of silently falling b
     const limited = (async () => new Response("limited", { status: 429 })) as typeof fetch;
     await assert.rejects(planMotion(parseMotionArgs(files), "motion", { apiKey: KEY, configDir, fetchImpl: limited, warn: () => {} }), PlannerUnavailable);
   } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a malformed screen order falls back to the order given, never doubling a screen", { timeout: 120000 }, async () => {
+  const dir = mkdtempSync(join(tmpdir(), "takeone-screens-"));
+  try {
+    const files = screenshots(dir);
+    const configDir = await visionConfig(dir);
+    const answer = (name: string) => name === "order" ? { ranking: ["S1", "S1", "S2"], confidence: 1 } : answerFor(name);
+    const sb = validateStoryboard(await planMotion(parseMotionArgs(files), "motion",
+      { apiKey: KEY, configDir, fetchImpl: plannerFetch([], answer), warn: () => {} }));
+    assert.ok(sb.planner.abstained.includes("order"), sb.planner.abstained.join(","));
+    assert.deepEqual((sb.source as { files: string[] }).files, files.map((f) => resolve(f!)));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a flag the local rules reject fails before the billed planner call", { timeout: 120000 }, async () => {
+  const dir = mkdtempSync(join(tmpdir(), "takeone-screens-"));
+  try {
+    const files = screenshots(dir);
+    const configDir = await visionConfig(dir);
+    for (const bad of [["--region", "0,0,abc"], ["--theme", "neon"], ["--pattern", "bento"]]) {
+      const calls: string[][] = [];
+      await assert.rejects(planMotion(parseMotionArgs([...files, ...bad]), "motion",
+        { apiKey: KEY, configDir, fetchImpl: plannerFetch(calls), warn: () => {} }));
+      assert.deepEqual(calls, [], `${bad.join(" ")} called the planner first`);
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a provider that cannot serve the run exits 3 before any take directory is written", { timeout: 120000 }, async () => {
+  const dir = mkdtempSync(join(tmpdir(), "takeone-screens-"));
+  const saved = [process.env.XDG_CONFIG_HOME, process.env.TAKEONE_DIR, process.env.TAKEONE_NO_KEYRING];
+  process.env.XDG_CONFIG_HOME = join(dir, "config");
+  process.env.TAKEONE_DIR = join(dir, "takes");
+  process.env.TAKEONE_NO_KEYRING = "1";
+  const error = console.error;
+  console.error = () => {};
+  try {
+    const files = screenshots(dir);
+    mkdirSync(join(dir, "config", "takeone"), { recursive: true });
+    writeFileSync(join(dir, "config", "takeone", "planner.json"), JSON.stringify({
+      backend: "opencode-go", auth: "account", model: "opencode-go/muse-spark-1.3-contributor",
+    }));
+    assert.equal(await main(["motion", ...files]), 3);
+    assert.equal(existsSync(join(dir, "takes")), false);
+  } finally {
+    console.error = error;
+    for (const [k, v] of [["XDG_CONFIG_HOME", saved[0]], ["TAKEONE_DIR", saved[1]], ["TAKEONE_NO_KEYRING", saved[2]]] as const) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
     rmSync(dir, { recursive: true, force: true });
   }
 });

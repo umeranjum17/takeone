@@ -21,8 +21,8 @@ export const FOCUS = ["top-left", "top-centre", "top-right", "middle-left", "mid
 
 export interface ScreenInfo { id: string; width: number; height: number }
 
-/** Fields the caller fixed (flags or regions): the planner is not asked about them. */
-export interface Pins { theme: boolean; shape: boolean; order: boolean; focus: ReadonlySet<string> }
+/** Fields a flag fixed: the planner is not asked about them. `orderFree` is true when no region flag fixed the screen order. */
+export interface Pins { theme: boolean; shape: boolean; orderFree: boolean; focus: ReadonlySet<string> }
 
 export interface ScreenAsk { state: Record<string, unknown>; questions: Record<string, Question> }
 
@@ -49,7 +49,7 @@ export function screenAsk(screens: ScreenInfo[], pins: Pins): ScreenAsk {
     questions.shape = { kind: "choice", options: Object.fromEntries(Object.entries(SHAPES).map(([k, v]) => [k, v.label])), images: ids,
       instructions: "Which film shape tells this product's story best? hero opens on a title; tour goes straight to the screens." };
   }
-  if (pins.order && screens.length > 1) {
+  if (pins.orderFree && screens.length > 1) {
     questions.order = { kind: "rank", candidates: Object.fromEntries(screens.map((s, i) => [s.id, `screenshot ${i + 1} of ${screens.length}`])), images: ids,
       instructions: "Order the screens for the film: the first opens the story, the last is the result to leave the viewer with." };
   }
@@ -77,10 +77,10 @@ export function screenDecision(answers: Record<string, Answer>, screens: ScreenI
   const shape = pins.shape ? undefined : choice("shape", Object.keys(SHAPES));
   const ids = screens.map((s) => s.id);
   let order = ids;
-  if (pins.order && ids.length > 1) {
+  if (pins.orderFree && ids.length > 1) {
     const a = answers["order"];
     const ranking = a && !a.abstained && Array.isArray(a.answer) ? a.answer : undefined;
-    if (ranking && ranking.length === ids.length && ids.every((id) => ranking.includes(id))) {
+    if (ranking && ranking.length === ids.length && new Set(ranking).size === ids.length && ids.every((id) => ranking.includes(id))) {
       order = ranking;
       decided++;
     } else abstained.push("order");
