@@ -793,6 +793,8 @@ test("the film's AI title and captions render; the take's own title and captions
     const beats = JSON.parse(readFileSync(join(dir, "analysis", "beats.json"), "utf8")) as { id: string; t0: number }[];
     const caption = r.take.film!.captions![0]!;
     assert.equal(caption.t, beats.at(-1)!.t0, `caption t ${caption.t} is not the captioned beat's start ${beats.at(-1)!.t0}`);
+    // Its length is reading time on the output clock, not the beat's video-clock span.
+    assert.equal(caption.d, 3, `caption d ${caption.d} is not the 3 s reading time`);
     const ass = readFileSync(join(dir, "captions.ass"), "utf8");
     assert.ok(ass.includes("Save a report") && ass.includes("Open the File menu"), "AI title or caption not drawn");
     assert.ok(!ass.includes("never shown"), "caption for a beat outside the timeline was drawn");

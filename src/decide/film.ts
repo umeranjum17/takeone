@@ -35,12 +35,15 @@ const THEME_NOTES: Record<ThemeName, string> = {
 const ENDING_CANDIDATES = 3;
 /** AI title and caption text limits; longer text is dropped, not cut. The title
  * is drawn at 1.6x caption size with no shrink-to-fit: 61 px at caption_size 38,
- * so 28 characters of the widest glyph (a full 1em ideograph, 28 x 61 = 1708 px)
- * still fit the 1728 px the 1920x1080 stage band allows. */
+ * where 28 of the widest glyphs ink 1236 px (W), 1174 px (ideographs) and
+ * 1194 px (em dashes), inside the 1728 px the 1920x1080 stage band allows. */
+// ponytail: the bound is calibrated to the default 1080p band; a smaller out_w or
+// a larger caption_size can still overflow it and throw. Upgrade path: a title
+// that shrinks to fit, in a separate slice.
 const TITLE_MAX = 28;
 const CAPTION_MAX = 80;
-/** A caption stays on screen for its beat, within these bounds, in seconds. */
-const CAPTION_SECONDS = { min: 1, max: 6 };
+/** On-screen seconds per AI caption: the documented reading time. */
+const CAPTION_SECONDS = 3;
 
 export interface FilmDecision {
   /** Theme tokens, applied under --set; absent keeps the base look. */
@@ -118,13 +121,11 @@ export function buildFilm(ctx: FilmCtx): { state: Record<string, unknown>; quest
   return tokens > CHUNK_TOKEN_CAP ? null : { state, questions, tokens, endings: endingIds };
 }
 
-/** Caption timing for each beat, in video-relative seconds. `seconds` maps a
- * timeline ms to video-relative seconds, as make does for the take. */
+/** Caption timing for each beat: the start in video-relative seconds (`seconds`
+ * maps a timeline ms to video seconds, as make does for the take) and a fixed
+ * on-screen reading time, in output seconds. */
 export function captionSpans(beats: Beat[], seconds: (ms: number) => number): Record<string, { t: number; d: number }> {
-  return Object.fromEntries(beats.map((b) => [b.id, {
-    t: seconds(b.t0),
-    d: Math.min(CAPTION_SECONDS.max, Math.max(CAPTION_SECONDS.min, (b.t1 - b.t0) / 1000)),
-  }]));
+  return Object.fromEntries(beats.map((b) => [b.id, { t: seconds(b.t0), d: CAPTION_SECONDS }]));
 }
 
 /** Trimmed text within the limit, or undefined. */
