@@ -342,6 +342,41 @@ process.exit(2);
   }
 });
 
+test("an ambient subscription token does not make a signed-out Claude CLI look ready", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "takeone-cli-token-"));
+  try {
+    const configDir = join(dir, "config");
+    const binDir = join(dir, "bin");
+    mkdirSync(join(configDir, "takeone"), { recursive: true });
+    mkdirSync(binDir);
+    const claude = join(binDir, "claude");
+    writeFileSync(claude, `#!/usr/bin/env node
+const args = process.argv.slice(2);
+if (args.includes("auth") && args.includes("status")) {
+  const sub = Boolean(process.env.CLAUDE_CODE_OAUTH_TOKEN);
+  process.stdout.write(JSON.stringify({ loggedIn: true, authMethod: sub ? "claude.ai" : "api_key", apiProvider: "firstParty" }) + "\\n");
+  process.exit(0);
+}
+process.exit(2);
+`);
+    chmodSync(claude, 0o755);
+    const store = {
+      get: async (name: string) => (name === "jev" ? "stored-key" : null),
+      set: async () => {}, delete: async () => {},
+    };
+    const resolved = await resolvePlanner({
+      configDir,
+      env: { HOME: dir, XDG_CONFIG_HOME: configDir, PATH: `${binDir}:${process.env.PATH ?? "/usr/bin:/bin"}`, TAKEONE_NO_KEYRING: "1", CLAUDE_CODE_OAUTH_TOKEN: "ambient-token" },
+      store: store as unknown as Keystore,
+    });
+    assert.equal(resolved.config.backend, "jev", "the probe used a token the Claude backend unsets");
+    assert.equal(resolved.active, true);
+    assert.match(resolved.refusal ?? "", /API key/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("a saved installed-CLI account that cannot serve names the refusal instead of claiming a sign-in", async () => {
   const dir = mkdtempSync(join(tmpdir(), "takeone-cli-refusal-"));
   try {

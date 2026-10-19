@@ -393,6 +393,7 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
   let usd: number | null = 0;
   let planned: MakeResult["planned"] = { planned_tokens: 0, usd: 0 };
   const plannerBackend = planner ? (planner.config as { backend: string }).backend : null;
+  const plannerPricing = planner ? { backend: plannerBackend!, auth: (planner.config as { auth?: string }).auth } : null;
   const plannerModel = planner ? modelOf(planner.config) : null;
 
   if (planner) {
@@ -458,7 +459,7 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
     const reservedTokens = plannedTokens + Math.max(0, ...chunks.map((c) => c.chunk.tokens));
     // The ceiling is estimated in the default request shape; other backends
     // answer the same questions, so the bound still holds within its margin.
-    planned = { planned_tokens: reservedTokens, usd: estimateUsd(plannerBackend!, reservedTokens) ?? null };
+    planned = { planned_tokens: reservedTokens, usd: estimateUsd(plannerPricing!, reservedTokens) ?? null };
     if (reservedTokens > maxTokens) {
       throw new PreflightRefusal(
         `planned ${reservedTokens} tokens exceeds the cap of ${maxTokens} (--max-tokens); ` +
@@ -511,7 +512,7 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
     const takeOutcome = (r: AskOutcome): void => {
       if (r.inputTokens) {
         inputTokens += r.inputTokens;
-        const cost = estimateUsd(plannerBackend!, r.inputTokens);
+        const cost = estimateUsd(plannerPricing!, r.inputTokens);
         usd = usd === null || cost === undefined ? null : usd + cost;
       }
       if (r.outputTokens) outputTokens += r.outputTokens;

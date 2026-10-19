@@ -308,10 +308,10 @@ const CLAUDE_BILLING_ROUTES = new Set([
 ]);
 
 /** The environment the Claude backend builds: the person's own values minus
- * API-billed keys and billing routes, keeping the subscription OAuth token. */
+ * API-billed keys and billing routes, so the probe reads the same sign-in the
+ * backend will. */
 function claudeProbeEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
-  return Object.fromEntries(Object.entries(env).filter(([key]) => key === "CLAUDE_CODE_OAUTH_TOKEN"
-    || (!/KEY|TOKEN|SECRET|^NODE_OPTIONS$/i.test(key) && !CLAUDE_BILLING_ROUTES.has(key))));
+  return Object.fromEntries(Object.entries(env).filter(([key]) => !/KEY|TOKEN|SECRET|^NODE_OPTIONS$/i.test(key) && !CLAUDE_BILLING_ROUTES.has(key)));
 }
 
 function claudeRefusal(bin: string, env: NodeJS.ProcessEnv): string | null {
