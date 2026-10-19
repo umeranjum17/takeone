@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { applyPlan, readPlan, type Plan } from "../src/decide/plan.ts";
 import { gateUnusable } from "../src/decide/planner.ts";
+import type { Answer } from "@byokit/decide";
 
 function planDir(json: string): string {
   const dir = mkdtempSync(join(tmpdir(), "plan-"));
@@ -27,9 +28,9 @@ test("gateUnusable caches a beat whose optional camera answer abstained", () => 
   const store = new Map();
   const cache = gateUnusable({ get: (k) => store.get(k), set: (k, v) => void store.set(k, v) });
   const answers = {
-    focus_start: { answer: "a", confidence: 1, abstained: false },
-    b1_shot: { answer: null, confidence: 0, abstained: true },
-  };
+    focus_start: { answer: "a", confidence: 1, abstained: false, by: "ai", ms: 0 },
+    b1_shot: { answer: null, confidence: 0, abstained: true, by: "ai", ms: 0 },
+  } as Record<string, Answer>;
   cache.set("key", answers);
   assert.deepEqual(cache.get("key"), answers);
 });
@@ -37,7 +38,7 @@ test("gateUnusable caches a beat whose optional camera answer abstained", () => 
 test("gateUnusable refuses a beat whose required answer abstained", () => {
   const store = new Map();
   const cache = gateUnusable({ get: (k) => store.get(k), set: (k, v) => void store.set(k, v) });
-  cache.set("key", { focus_start: { answer: null, confidence: 0, abstained: true }, b1_shot: { answer: true, confidence: 1, abstained: false } });
+  cache.set("key", { focus_start: { answer: null, confidence: 0, abstained: true, by: "ai", ms: 0 }, b1_shot: { answer: true, confidence: 1, abstained: false, by: "ai", ms: 0 } });
   assert.equal(cache.get("key"), undefined);
 });
 

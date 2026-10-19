@@ -1071,3 +1071,13 @@ test("text guard samples the last frame of a recording that ends before the take
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+test("a planner shot=false on a click beat removes its camera move", () => {
+  const click: Beat = { id: "b1", t0: 3, t1: 6, anchor_t: 4, kind: "click", zones: [zone("z1", [1500, 900, 300, 200])],
+    actions: [{ k: "click", t: 4000, x: 1650, y: 1000, window_cls: "x" } as Action] };
+  const take = { width: 3840, height: 2160, trim_end: 9 } as Parameters<typeof solveCamera>[2];
+  const moves = (decided: Decision) => solveCamera([click], [decided], take, DEFAULTS)
+    .filter((f) => f.w < take.width - 1).length;
+  assert.ok(moves(decision(click)) > 0, "the rules move the camera for a click");
+  assert.equal(moves({ ...decision(click), shot: false }), 0);
+});
