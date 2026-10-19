@@ -780,7 +780,7 @@ test("the film's AI title and captions render; the take's own title and captions
       titled: {
         pick: "true", probabilities: { true: 1, false: 0 }, rationale: "the steps need naming",
         title: "Save a report",
-        captions: [{ beat: timeline[0]!.split(",")[0], text: "Open the File menu" }, { beat: "no-such-beat", text: "never shown" }],
+        captions: [{ beat: timeline.at(-1)!.split(",")[0], text: "Open the File menu" }, { beat: "no-such-beat", text: "never shown" }],
       },
     }));
     mkdirSync(join(dir, "test-config", "takeone"), { recursive: true });
@@ -789,8 +789,10 @@ test("the film's AI title and captions render; the take's own title and captions
     assert.equal(r.take.film?.by.titled, "ai");
     assert.equal(r.take.film?.title, "Save a report");
     assert.deepEqual(r.take.film?.captions?.map((c) => c.text), ["Open the File menu"]);
-    const duration = JSON.parse(readFileSync(join(dir, "take.json"), "utf8")).duration;
-    assert.ok(r.take.film!.captions![0]!.t >= 0 && r.take.film!.captions![0]!.t < duration, "caption outside the take");
+    // The caption starts on the take's clock: the captioned beat's video-relative start.
+    const beats = JSON.parse(readFileSync(join(dir, "analysis", "beats.json"), "utf8")) as { id: string; t0: number }[];
+    const caption = r.take.film!.captions![0]!;
+    assert.equal(caption.t, beats.at(-1)!.t0, `caption t ${caption.t} is not the captioned beat's start ${beats.at(-1)!.t0}`);
     const ass = readFileSync(join(dir, "captions.ass"), "utf8");
     assert.ok(ass.includes("Save a report") && ass.includes("Open the File menu"), "AI title or caption not drawn");
     assert.ok(!ass.includes("never shown"), "caption for a beat outside the timeline was drawn");
