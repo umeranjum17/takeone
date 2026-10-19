@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { validateStoryboard } from "../src/motion/storyboard.ts";
 import { pageData, writePage } from "../src/motion/motion.ts";
@@ -37,7 +38,7 @@ test("end-card defaults and explicit logos reach display coverage on every timel
 });
 
 test("hero and end-card reveals seek eased outgoing segments",async()=>{
-  const dir=mkdtempSync(resolve(".motion-easing-test-"));
+  const dir=mkdtempSync(resolve(tmpdir(),"takeone-motion-easing-"));
   try {
     const sb=validateStoryboard({version:1,theme:{name:"editorial"},source:{kind:"image"},screens:{S1:{file:resolve("resources/demo/tidewater-board.png"),width:2560,height:1440}},regions:[],scenes:[
       {pattern:"hero-reveal",title:"Launch now",subtitle:"Made for you",d:6,screen:"S1"},
@@ -72,7 +73,7 @@ test("hero and end-card reveals seek eased outgoing segments",async()=>{
 });
 
 test("emitted motion glyphs use bundled faces with default and serif roles", async()=>{
-  const dir=mkdtempSync(resolve(".motion-glyph-test-"));
+  const dir=mkdtempSync(resolve(tmpdir(),"takeone-motion-glyph-"));
   try {
     for(const overrides of [{},{caption_font:"Instrument Serif",mono_font:"Instrument Serif"},{display_font:"Geist SemiBold"}]) {
       const scenes=[
@@ -145,7 +146,7 @@ test("emitted motion glyphs use bundled faces with default and serif roles", asy
 });
 
 test("launch-film close-ups and bento crops show whole words, fields and buttons",{timeout:240_000},async()=>{
-  const dir=mkdtempSync(resolve(".motion-whole-test-"));
+  const dir=mkdtempSync(resolve(tmpdir(),"takeone-motion-whole-"));
   try {
     const a=parseMotionArgs([resolve("scripts/e2e/scene.html"),"--title","Tidewater","--device","browser",
       "--state","board=wait 200","--state",'newtask=click #newTask; type #title "Book demo room"; type #notes "Friday 10am, room 4"; wait 400',
@@ -199,7 +200,7 @@ test("demo film storyboard: clips, cuts and statements validate; short label win
   assert.throws(()=>validateStoryboard(bare),/one frame set per file/);
   assert.throws(()=>validateStoryboard({...raw,scenes:[{pattern:"statement",d:3}]}),/scenes\[0\]\.title.*non-empty title/);
   assert.throws(()=>validateStoryboard({...raw,scenes:[{pattern:"statement",d:3,title:"  ",subtitle:"sub"}]}),/non-empty title/);
-  const dir=mkdtempSync(resolve(".motion-stale-test-"));
+  const dir=mkdtempSync(resolve(tmpdir(),"takeone-motion-stale-"));
   try {
     const clip={files:["a.mp4"],start:3.5,d:1.5,crop:[null],frames:[{dir:"sources/clips/open-1",count:90,width:1920,height:1080,aspect:16/9}],framesSource:{files:["a.mp4"],start:3.5,d:1.5,crop:[null]}};
     mkdirSync(resolve(dir,clip.frames[0]!.dir),{recursive:true});
@@ -217,7 +218,7 @@ test("demo film journey: stills render inside the 5% safe area; a window that cr
   const {existsSync,readFileSync,writeFileSync}=await import("node:fs");
   const {renderMotion}=await import("../src/motion/motion.ts");
   const film=JSON.parse(readFileSync("resources/demo/film/storyboard.json","utf8"));
-  const dir=mkdtempSync(resolve(".motion-safe-test-"));
+  const dir=mkdtempSync(resolve(tmpdir(),"takeone-motion-safe-"));
   try {
     execFileSync("ffmpeg",["-nostdin","-v","error","-loop","1","-i",resolve("resources/demo/tidewater-board.png"),"-t","3.5","-r","60","-vf","scale=960:-2","-pix_fmt","yuv420p",resolve(dir,"board.mp4")]);
     const write=(from?:number)=>writeFileSync(resolve(dir,"storyboard.json"),JSON.stringify({...film,clips:{board:{files:["board.mp4"],start:0,d:3}},

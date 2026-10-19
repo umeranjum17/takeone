@@ -22,6 +22,7 @@ import { KeystoreError } from "@byokit/secrets";
 import { SecretStoreUnavailable } from "./secrets.ts";
 import { heuristicDecision, RULE_WORDS } from "./decide/heuristics.ts";
 import { mapAnswers, frameRect } from "./decide/mapping.ts";
+import { writePlan } from "./decide/plan.ts";
 import {
   askChunk,
   toPlannerAnswers,
@@ -599,6 +600,7 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
     ...d, conf: Math.max(0, Math.min(1, d.conf.A ?? d.conf.B ?? d.conf.L ?? 0)),
   }));
   writeFileSync(join(analysisDir, "decisions.jsonl"), renderDecisions.map((d) => JSON.stringify(d)).join("\n") + "\n");
+  writePlan(dir, decisions);
   const byAi = decisions.filter((d) => d.decided_by === "ai").length;
   const byRule = decisions.length - byAi;
   const plannerStats: PlannerStats = {

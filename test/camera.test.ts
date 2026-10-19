@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { DEFAULTS } from "../src/camera/defaults.ts";
@@ -72,7 +73,7 @@ test("render CLI rejects unknown and malformed override arguments", () => {
 // The added portrait and drop renders need a 360s journey budget (the drop journey's
 // real 4K capture plus its guarded portrait solve measured 249s on a loaded two-CPU runner).
 test("render without trim_end uses the latest beat end", { timeout: 360_000, skip: needsFfmpeg }, async () => {
-  const dir = await mkdtemp(join(process.cwd(), "takeone:duration-"));
+  const dir = await mkdtemp(join(tmpdir(), "takeone:duration-"));
   try {
     await mkdir(join(dir, "analysis"));
     // mpeg4, not VP9: software VP9 stalls weak CI runners; input codec is
@@ -373,7 +374,7 @@ test("render without trim_end uses the latest beat end", { timeout: 360_000, ski
 test("synthetic source renders silent H.264 at the configured size and 60fps", {
   timeout: 120_000, skip: needsFfmpeg,
 }, async () => {
-  const dir = await mkdtemp(join(process.cwd(), "takeone:render-"));
+  const dir = await mkdtemp(join(tmpdir(), "takeone:render-"));
   try {
     await mkdir(join(dir, "analysis"));
     // Tiny fixtures: a 4K source stalled a weak CI runner past the test
@@ -428,7 +429,7 @@ test("a render split into parallel segments matches the single pass", { timeout:
   // New tests cannot declare the needsFfmpeg skip (the floor guard blocks
   // new skips), so the prerequisite fails loudly here instead of with ENOENT.
   if (!hasFfmpeg()) throw new Error("requires system ffmpeg and ffprobe on PATH");
-  const dir = await mkdtemp(join(process.cwd(), "takeone:segments-"));
+  const dir = await mkdtemp(join(tmpdir(), "takeone:segments-"));
   const previous = process.env["TAKEONE_RENDER_SEGMENTS"];
   try {
     await mkdir(join(dir, "analysis"));
@@ -470,7 +471,7 @@ test("a render split into parallel segments matches the single pass", { timeout:
 // keep the export aspect (one d_fov per zoom step, not h_fov plus v_fov).
 test("a blurred wide zoom rebuilds the warp only for camera parameters that change", { timeout: 120_000 }, async () => {
   if (!hasFfmpeg()) throw new Error("requires system ffmpeg and ffprobe on PATH");
-  const dir = await mkdtemp(join(process.cwd(), "takeone:rebuilds-"));
+  const dir = await mkdtemp(join(tmpdir(), "takeone:rebuilds-"));
   try {
     await mkdir(join(dir, "analysis"));
     execFileSync("ffmpeg", ["-v", "error", "-f", "lavfi", "-i", "testsrc2=s=640x480:r=30:d=4",
@@ -513,7 +514,7 @@ test("a blurred wide zoom rebuilds the warp only for camera parameters that chan
 
 test("a blurred zoom blends only the moving exposures, leaving holds as sharp as an unblurred render", { timeout: 240_000 }, async () => {
   if (!hasFfmpeg()) throw new Error("requires system ffmpeg and ffprobe on PATH");
-  const dir = await mkdtemp(join(process.cwd(), "takeone:blend-"));
+  const dir = await mkdtemp(join(tmpdir(), "takeone:blend-"));
   try {
     await mkdir(join(dir, "analysis"));
     execFileSync("ffmpeg", ["-v", "error", "-f", "lavfi", "-i", "testsrc2=s=640x480:r=30:d=4",
@@ -557,7 +558,7 @@ test("a blurred zoom blends only the moving exposures, leaving holds as sharp as
 });
 
 test("master blur preserves full-resolution chroma through production rendering", { skip: needsFfmpeg }, async () => {
-  const dir = await mkdtemp(join(process.cwd(), "takeone-chroma-"));
+  const dir = await mkdtemp(join(tmpdir(), "takeone-chroma-"));
   try {
     const width = 160, height = 90, plane = width * height;
     const source = Buffer.alloc(plane * 3, 128);
@@ -1053,7 +1054,7 @@ test("a crop with no zoom headroom and no clean edge settles instead of hanging"
 // A variable-rate screen recording ends at its last change, but the take's clock runs on past it:
 // the text guard must sample the last frame there, not warn that the source would not decode.
 test("text guard samples the last frame of a recording that ends before the take", { timeout: 60_000 }, async () => {
-  const dir = await mkdtemp(join(process.cwd(), "takeone:guard-tail-"));
+  const dir = await mkdtemp(join(tmpdir(), "takeone:guard-tail-"));
   const warnings: string[] = [];
   const warn = console.warn;
   try {
@@ -1069,4 +1070,14 @@ test("text guard samples the last frame of a recording that ends before the take
     console.warn = warn;
     await rm(dir, { recursive: true, force: true });
   }
+});
+
+test("a planner shot=false on a click beat removes its camera move", () => {
+  const click: Beat = { id: "b1", t0: 3, t1: 6, anchor_t: 4, kind: "click", zones: [zone("z1", [1500, 900, 300, 200])],
+    actions: [{ k: "click", t: 4000, x: 1650, y: 1000, window_cls: "x" } as Action] };
+  const take = { width: 3840, height: 2160, trim_end: 9 } as Parameters<typeof solveCamera>[2];
+  const moves = (decided: Decision) => solveCamera([click], [decided], take, DEFAULTS)
+    .filter((f) => f.w < take.width - 1).length;
+  assert.ok(moves(decision(click)) > 0, "the rules move the camera for a click");
+  assert.equal(moves({ ...decision(click), shot: false }), 0);
 });

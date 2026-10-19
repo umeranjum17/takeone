@@ -12,6 +12,8 @@ import { PlannerUnavailable } from "../src/decide/planner.ts";
 import { ConfigError } from "@byokit/decide";
 import { main, resolveCamera } from "../src/cli.ts";
 import { frameRect } from "../src/decide/mapping.ts";
+import type { Plan } from "../src/decide/plan.ts";
+import { renderTake } from "../src/render/render.ts";
 import type { Beat, Decision, TakeMeta } from "../src/types.ts";
 import { STREAM, hasFfmpeg, buildLongTake, beatViews, chunkAnswers, filmAnswers } from "./helpers.ts";
 import { DEFAULTS } from "../src/camera/defaults.ts";
@@ -354,6 +356,78 @@ test("--replan ignores saved answers and asks again", async () => {
     assert.equal(calls, afterFirst, "second run should be all cache hits");
     await fastTake(dir, { apiKey: KEY, fetchImpl, replan: true, log: () => {}, warn: () => {} });
     assert.ok(calls > afterFirst, "replan asked again instead of hitting the cache");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("per-beat camera answers reach plan.json and the camera; a user edit in plan.json wins", async () => {
+  const dir = newLongTake();
+  // A smaller output than the 320x180 source, so a shot can zoom: at source size every shot frames the whole screen.
+  const camera = { ...FAST, out_w: 160, out_h: 90 };
+  try {
+    // The planner says no shot and no follow on every beat, and a breathe on idle.
+    const fetchImpl = (async (_url: string | URL | Request, init?: RequestInit) => {
+      // new_subject is yes: below 0.35 the solver holds the shot, and the shot answer would not show.
+      const answers = chunkAnswers(String(init?.body), (names) => ({
+        ...firstZoneAnswers(names), new_subject: { noul: 0.9 }, shot: { noul: 0.1 }, idle: { noul: 0.9 }, follow: { noul: 0.1 },
+      }));
+      return new Response(JSON.stringify({ answers, usage: { input_tokens: 800 } }), { status: 200 });
+    }) as typeof fetch;
+    await fastTake(dir, { camera, apiKey: KEY, fetchImpl, log: () => {}, warn: () => {} });
+    const readPlanFile = (): Plan => JSON.parse(readFileSync(join(dir, "analysis", "plan.json"), "utf8")) as Plan;
+    const asked = readPlanFile().beats.filter((b) => b.shot?.by === "ai");
+    assert.ok(asked.length > 0, "no beat took the planner's camera answers");
+    assert.ok(asked.every((b) => b.shot?.value === false && b.idle?.value === true && b.follow?.value === false),
+      JSON.stringify(asked));
+    const zoomedFrames = (json: string): number => {
+      const frames = JSON.parse(json) as { w: number }[];
+      const full = Math.max(...frames.map((f) => f.w));
+      return frames.filter((f) => f.w < full).length;
+    };
+    const aiZoomed = zoomedFrames(readFileSync(join(dir, "camera.json"), "utf8"));
+
+    // The user keeps the shot on every beat by hand: the render follows it, and a rerun of make keeps it.
+    const userPlan: Plan = { version: 1, beats: readPlanFile().beats.map((b) => ({ ...b, shot: { value: true, by: "user" } })) };
+    writeFileSync(join(dir, "analysis", "plan.json"), JSON.stringify(userPlan));
+    await renderTake(dir, camera);
+    const userZoomed = zoomedFrames(readFileSync(join(dir, "camera.json"), "utf8"));
+    assert.ok(userZoomed > aiZoomed, `the user's shot edit did not zoom the camera (${aiZoomed} zoomed frames before, ${userZoomed} after)`);
+    await fastTake(dir, { camera, apiKey: KEY, fetchImpl, log: () => {}, warn: () => {} });
+    assert.ok(readPlanFile().beats.every((b) => b.shot?.by === "user" && b.shot.value === true), "make overwrote the user's edit");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a user shot=false in plan.json removes the camera zoom the planner gave every beat", async () => {
+  const dir = newLongTake();
+  const camera = { ...FAST, out_w: 160, out_h: 90 };
+  try {
+    // The planner asks for a shot on every beat: the camera zooms on the clicks.
+    const fetchImpl = (async (_url: string | URL | Request, init?: RequestInit) => {
+      const answers = chunkAnswers(String(init?.body), (names) => ({
+        ...firstZoneAnswers(names), new_subject: { noul: 0.9 }, shot: { noul: 0.9 }, idle: { noul: 0.1 }, follow: { noul: 0.1 },
+      }));
+      return new Response(JSON.stringify({ answers, usage: { input_tokens: 800 } }), { status: 200 });
+    }) as typeof fetch;
+    await fastTake(dir, { camera, apiKey: KEY, fetchImpl, log: () => {}, warn: () => {} });
+    const readPlanFile = (): Plan => JSON.parse(readFileSync(join(dir, "analysis", "plan.json"), "utf8")) as Plan;
+    assert.ok(readPlanFile().beats.some((b) => b.shot?.value === true && b.shot.by === "ai"), "the planner asked for no shot");
+    const zoomedFrames = (json: string): number => {
+      const frames = JSON.parse(json) as { w: number }[];
+      const full = Math.max(...frames.map((f) => f.w));
+      return frames.filter((f) => f.w < full - 0.5).length; // a settled frame can sit a float under full
+    };
+    const aiZoomed = zoomedFrames(readFileSync(join(dir, "camera.json"), "utf8"));
+    assert.ok(aiZoomed > 0, "the planner's shots did not zoom the camera, so the test proves nothing");
+
+    // The user takes every shot away: the render follows it and no beat zooms.
+    const userPlan: Plan = { version: 1, beats: readPlanFile().beats.map((b) => ({ ...b, shot: { value: false, by: "user" } })) };
+    writeFileSync(join(dir, "analysis", "plan.json"), JSON.stringify(userPlan));
+    await renderTake(dir, camera);
+    const userZoomed = zoomedFrames(readFileSync(join(dir, "camera.json"), "utf8"));
+    assert.equal(userZoomed, 0, `a user shot=false still zoomed the camera (${aiZoomed} zoomed frames before, ${userZoomed} after)`);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

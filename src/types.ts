@@ -140,6 +140,10 @@ export interface PlannerAnswers {
   tightness?: { score?: number; probabilities?: number[]; confidence?: number };
   new_subject?: { p?: number };
   key_moment?: { score?: number; probabilities?: number[]; confidence?: number };
+  /** Per-beat camera choices; absent when the planner abstained, and the rules keep their default. */
+  shot?: boolean;
+  idle?: boolean;
+  follow?: boolean;
 }
 
 /** Framing tightness levels, whole screen (0) to tight (3). */
@@ -156,6 +160,10 @@ export interface Decision {
   decided_by: "ai" | "heuristic";
   model?: string;
   input_tokens?: number;
+  /** Camera choices for this beat (plan.json may override them); absent means the rules decide. */
+  shot?: boolean;
+  idle?: boolean;
+  follow?: boolean;
 }
 
 /** Take metadata (take.json), the subset the planner reads. */

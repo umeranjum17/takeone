@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DEFAULTS, applyOverrides } from "../src/camera/defaults.ts";
 import { resolveTheme, THEMES } from "../src/themes.ts";
@@ -9,10 +10,8 @@ import { renderTake } from "../src/render/render.ts";
 import { resolveCamera, parseSet } from "../src/cli.ts";
 import { hasFfmpeg } from "./helpers.ts";
 
-mkdirSync(join(process.cwd(), "tmp"), {recursive:true});
-
 test("theme precedence and validation, including saved portrait takes", () => {
-  const dir = mkdtempSync(join(process.cwd(), "tmp/theme-config-"));
+  const dir = mkdtempSync(join(tmpdir(), "takeone-theme-config-"));
   try {
     writeFileSync(join(dir,"take.json"), JSON.stringify({theme:"paper",stream:{w:360,h:640}}));
     assert.equal(resolveCamera(dir, [])!.display_font, "Instrument Serif");
@@ -31,7 +30,7 @@ test("theme precedence and validation, including saved portrait takes", () => {
 });
 
 test("all bundled themes render with bundled faces; midnight decoded frames equal the default", {skip:!hasFfmpeg(),timeout:120000}, async () => {
-  const dir=mkdtempSync(join(process.cwd(),"tmp/theme-render-"));
+  const dir=mkdtempSync(join(tmpdir(),"takeone-theme-render-"));
   const previousConfig = process.env["FONTCONFIG_FILE"];
   const config = join(dir,"fonts.conf");
   writeFileSync(config, "<fontconfig></fontconfig>");

@@ -137,6 +137,12 @@ function rubric(goal: string | undefined, withImages: boolean): Record<string, s
     key_moment:
       `How important is the beat ${goal ? "to the story of `goal`" : "to the demo as a whole"}? ` +
       "routine: navigation or setup a viewer can skim; useful step: a normal step of the workflow; key moment: the payoff or the step the demo exists to show.",
+    shot:
+      "Should the camera move for this beat at all? No for routine scrolling, pointer drift or pauses that show nothing new.",
+    idle:
+      "Should the camera pull back during this beat's pause, before a distant next beat? Yes for a long wait with nothing to read; no to keep the shot still.",
+    follow:
+      "Should the camera follow the pointer through this beat? Yes for a drag or pointer travel the viewer must track; no when the pointer's path is not the point.",
     hints:
       "Each beat's hint is what the fallback rules would pick: suggest_shot names the rule's start zone, end zone and tightness, and fits_current_shot says whether that start zone already fits the shot before the beat (current_shot for the first beat, the rule's shot for the previous beat after it). " +
       "fits_current_shot assumes the previous beat took its suggest_shot; if you chose differently for it, judge new_subject against the shot you chose. " +
@@ -161,6 +167,9 @@ function beatQuestions(id: string, zones: ZoneNotes, images: string[] | undefine
     [`${id}_tightness`]: { kind: "score", floor: QUESTION_FLOOR, levels: TIGHTNESS_LEVELS, instructions: pointer("tightness"), ...seen },
     [`${id}_new_subject`]: { kind: "yesno", floor: QUESTION_FLOOR, question: pointer("new_subject") },
     [`${id}_key_moment`]: { kind: "score", floor: QUESTION_FLOOR, levels: KEY_LEVELS, instructions: pointer("key_moment") },
+    [`${id}_shot`]: { kind: "yesno", floor: QUESTION_FLOOR, question: pointer("shot") },
+    [`${id}_idle`]: { kind: "yesno", floor: QUESTION_FLOOR, question: pointer("idle") },
+    [`${id}_follow`]: { kind: "yesno", floor: QUESTION_FLOOR, question: pointer("follow") },
   };
 }
 

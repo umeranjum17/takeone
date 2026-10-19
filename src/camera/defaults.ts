@@ -41,7 +41,7 @@ export interface CameraDefaults {
   rate_max: number; // max moves per window
   cut_settle_ms: number; // changed_frac must stay under cut_max for this long
   cut_max: number;
-  idle_s: number; // idle beat length for BREATHE
+  idle_s: number; // idle beat length for BREATHE when the planner gave no idle answer
   next_beat_s: number; // next beat must be this far away for BREATHE
   breathe_s: number; // eased widen duration
   move_t_min: number;
