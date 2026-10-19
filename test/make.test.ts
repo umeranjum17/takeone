@@ -307,6 +307,115 @@ test("a signed-in CLI probe that cannot run leaves the planner on local rules in
   }
 });
 
+test("an installed Claude CLI signed in with an API key is not offered, so a stored key still plans", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "takeone-cli-apikey-"));
+  try {
+    const configDir = join(dir, "config");
+    const binDir = join(dir, "bin");
+    mkdirSync(join(configDir, "takeone"), { recursive: true });
+    mkdirSync(binDir);
+    const claude = join(binDir, "claude");
+    writeFileSync(claude, `#!/usr/bin/env node
+const args = process.argv.slice(2);
+if (args.includes("auth") && args.includes("status")) {
+  process.stdout.write(JSON.stringify({ loggedIn: true, authMethod: "api_key", apiProvider: "firstParty" }) + "\\n");
+  process.exit(0);
+}
+process.exit(2);
+`);
+    chmodSync(claude, 0o755);
+    const store = {
+      get: async (name: string) => (name === "jev" ? "stored-key" : null),
+      set: async () => {}, delete: async () => {},
+    };
+    const resolved = await resolvePlanner({
+      configDir,
+      env: { HOME: dir, XDG_CONFIG_HOME: configDir, PATH: `${binDir}:${process.env.PATH ?? "/usr/bin:/bin"}`, TAKEONE_NO_KEYRING: "1" },
+      store: store as unknown as Keystore,
+    });
+    assert.equal(resolved.config.backend, "jev", "a sign-in the Claude backend refuses was offered");
+    assert.equal(resolved.key, "stored-key");
+    assert.equal(resolved.active, true);
+    assert.match(resolved.refusal ?? "", /API key/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a saved installed-CLI account that cannot serve names the refusal instead of claiming a sign-in", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "takeone-cli-refusal-"));
+  try {
+    const configDir = join(dir, "config");
+    const binDir = join(dir, "bin");
+    mkdirSync(join(configDir, "takeone"), { recursive: true });
+    mkdirSync(binDir);
+    const claude = join(binDir, "claude");
+    writeFileSync(claude, `#!/usr/bin/env node
+const args = process.argv.slice(2);
+if (args.includes("auth") && args.includes("status")) {
+  process.stdout.write(JSON.stringify({ loggedIn: true, authMethod: "api_key", apiProvider: "firstParty" }) + "\\n");
+  process.exit(0);
+}
+process.exit(2);
+`);
+    chmodSync(claude, 0o755);
+    writeFileSync(join(configDir, "takeone", "planner.json"), JSON.stringify({ backend: "claude-code", auth: "account", account: "installed-claude", bin: claude }));
+    const empty = { get: async () => null, set: async () => {}, delete: async () => {} };
+    const resolved = await resolvePlanner({
+      configDir,
+      probe: true,
+      env: { HOME: dir, XDG_CONFIG_HOME: configDir, PATH: `${binDir}:${process.env.PATH ?? "/usr/bin:/bin"}`, TAKEONE_NO_KEYRING: "1" },
+      store: empty as unknown as Keystore,
+    });
+    assert.equal(resolved.defaulted, false);
+    assert.equal(resolved.active, false);
+    assert.doesNotMatch(resolved.label, /signed-in/);
+    assert.match(resolved.refusal ?? "", /API key/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("an installed Codex CLI whose sign-in lives in the OS keyring is not offered", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "takeone-codex-keyring-"));
+  try {
+    const configDir = join(dir, "config");
+    const binDir = join(dir, "bin");
+    const codexHome = join(dir, ".codex");
+    mkdirSync(join(configDir, "takeone"), { recursive: true });
+    mkdirSync(binDir);
+    mkdirSync(codexHome);
+    writeFileSync(join(codexHome, "config.toml"), 'cli_auth_credentials_store = "keyring"\n');
+    const codexBin = join(binDir, "codex");
+    writeFileSync(codexBin, `#!/usr/bin/env node
+let buffer = "";
+process.stdin.on("data", (chunk) => {
+  buffer += chunk;
+  for (let i; (i = buffer.indexOf("\\n")) >= 0;) {
+    const line = buffer.slice(0, i);
+    buffer = buffer.slice(i + 1);
+    const message = JSON.parse(line);
+    if (message.id === 1) process.stdout.write(JSON.stringify({ id: 1 }) + "\\n");
+    else if (message.id === 2) process.stdout.write(JSON.stringify({ id: 2, result: { account: { type: "chatgpt", email: "fixture@example.com", planType: "plus" } } }) + "\\n");
+  }
+});
+`);
+    chmodSync(codexBin, 0o755);
+    const empty = { get: async () => null, set: async () => {}, delete: async () => {} };
+    const resolved = await resolvePlanner({
+      configDir,
+      probe: true,
+      env: { HOME: dir, XDG_CONFIG_HOME: configDir, CODEX_HOME: codexHome, PATH: `${binDir}:${process.env.PATH ?? "/usr/bin:/bin"}`, TAKEONE_NO_KEYRING: "1" },
+      store: empty as unknown as Keystore,
+    });
+    assert.equal(resolved.config.backend, "jev", "a keyring-only Codex login was offered");
+    assert.equal(resolved.active, false);
+    assert.match(resolved.refusal ?? "", /keyring/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("a provider with no known price shows cost unknown, never $0", async () => {
   const dir = newTake();
   try {
