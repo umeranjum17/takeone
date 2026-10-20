@@ -756,13 +756,22 @@ export async function askChunk(
       get: (key) => cache.get(`${config.backend}:${modelOf(config)}:${config.account}:${key}`),
       set: (key, value) => cache.set(`${config.backend}:${modelOf(config)}:${config.account}:${key}`, value),
     };
-    runDecider = () => decide(state, questions, {
-      backends: [backend],
-      privacy: "may-leave",
-      timeoutMs: o.timeoutMs ?? 120_000,
-      cache: o.keepAnswers ? gateEmpty(scopedCache) : gateUnusable(scopedCache),
-      ...(o.images?.length ? { images: o.images } : {}),
-    });
+    runDecider = async () => {
+      const answered = await decide(state, questions, {
+        backends: [backend],
+        privacy: "may-leave",
+        timeoutMs: o.timeoutMs ?? 120_000,
+        cache: o.keepAnswers ? gateEmpty(scopedCache) : gateUnusable(scopedCache),
+        ...(o.images?.length ? { images: o.images } : {}),
+      });
+      // The signed-in CLI refused at call time (sign-in lapsed, quota, timeout): stop
+      // the run as unavailable rather than falling back per beat while claiming the account.
+      const all = Object.values(answered);
+      if (all.length > 0 && all.every((a) => a && a.abstained && (a.reason === "codex failed" || a.reason === "claude-code failed"))) {
+        throw new PlannerUnavailable(planner.label, `${config.backend === "codex" ? "codex" : "claude"} could not answer for ${config.model ?? "its default model"}: check its sign-in with \`${config.backend === "codex" ? "codex login status" : "claude auth status"}\``);
+      }
+      return answered;
+    };
   } else {
     const host = await plannerHost(planner, o.fetchImpl);
     runDecider = () => decide(state, questions, {
