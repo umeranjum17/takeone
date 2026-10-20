@@ -50,22 +50,12 @@ jobs:
           path: .cache/headless-shell
           key: headless-shell-linux-x64-151.0.7922.34-3cfc2bd0
       - run: node scripts/install-headless-shell.mjs
-      - name: Static checks through done-done
-        env:
-          DONE_DONE_HOME: ${{ github.workspace }}/tmp/done-done-home
-        run: |
-          npx -y done-done-axi run checks
-          RUN_DIR=$(ls -dt "$DONE_DONE_HOME/evidence/takeone/"*/ | head -1)
-          npx -y done-done-axi check --outcome "takeone static checks pass on this commit" --claim-id "ci-checks" "${RUN_DIR}"*.log
-      - name: Attach done-done check evidence
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: done-done-checks-${{ github.sha }}
-          path: |
-            tmp/done-done-home/evidence/takeone/
-            .done-done/runs/
-          if-no-files-found: error
+      - name: Floor guard
+        run: node scripts/floor-guard.mjs --base "${{ github.event.pull_request.base.sha }}"
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Tests
+        run: npm test
       - name: Synthetic output quality gates
         if: always()
         run: npm run quality

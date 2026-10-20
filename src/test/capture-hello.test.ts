@@ -27,7 +27,8 @@ function run(args: string[], extraEnv: NodeJS.ProcessEnv = {}) {
   return spawnSync(process.execPath, ["--import", join(here, "fake-secrets.js"), cli, ...args], {
     encoding: "utf8",
     timeout: 10_000,
-    env: { ...process.env, ...extraEnv },
+    // No PATH: planner discovery must not see the developer's installed Claude/Codex CLI.
+    env: { ...process.env, PATH: "", ...extraEnv },
   });
 }
 
@@ -42,7 +43,7 @@ test("capture hello prints the protocol v1 shape and exits 0", async () => {
       sources: ["screen", "x11"],
       android: false,
       events: ["own", "none"],
-      planner: { available: true, needsKey: true },
+      planner: { available: true, needsKey: false },
     });
   } finally {
     await rm(home, { recursive: true, force: true });
@@ -56,7 +57,7 @@ test("capture hello sees a legacy TYPESAFE env file key, as doctor does", async 
     await writeFile(join(home, ".config", "takeone", "env"), "TYPESAFE_API_KEY=test-key\n");
     const r = run(["capture", "hello"], { HOME: home });
     assert.equal(r.status, 0, r.stderr);
-    assert.deepEqual(JSON.parse(r.stdout).planner, { available: true, needsKey: true });
+    assert.deepEqual(JSON.parse(r.stdout).planner, { available: true, needsKey: false });
   } finally {
     await rm(home, { recursive: true, force: true });
   }

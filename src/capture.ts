@@ -449,6 +449,7 @@ async function runCaptureStop(args: string[]): Promise<number> {
 export async function runCapture(argv: string[], keys: KeyOptions = {}): Promise<number> {
   const [verb, ...rest] = argv;
   if (verb === "hello" && rest.length === 0) {
+    const planner = await plannerStatus(keys);
     console.log(
       JSON.stringify({
         protocol: 1,
@@ -457,7 +458,7 @@ export async function runCapture(argv: string[], keys: KeyOptions = {}): Promise
         android: false,
         events: ["own", "none"],
         // presence only; the key itself is never printed
-        planner: { available: (await plannerStatus(keys)).available, needsKey: true },
+        planner: { available: planner.available, needsKey: !planner.available && (planner.config as { auth?: string }).auth === "apiKey" },
       }),
     );
     return 0;

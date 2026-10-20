@@ -57,7 +57,8 @@ planner usage. Current measured usage and caps are in [Slice 3](#slice-3-batched
 | OpenCode Go plan | `opencode-go/muse-spark-1.3-contributor` | $0 marginal (subscription) | ~15,800 tok ≈ $0.00 | 40,000 tok ≈ $0.00 | billing route is the OpenCode Go subscription (`auth: account`) |
 | OpenCode Go plan | `opencode-go/deepseek-v4.1-flash` | $0 marginal (subscription) | ~15,800 tok ≈ $0.00 | 40,000 tok ≈ $0.00 | same subscription route |
 | OpenCode Go plan | `opencode-go/glm-5.3` (GLM) | $0 marginal (subscription) | ~15,800 tok ≈ $0.00 | 40,000 tok ≈ $0.00 | same subscription route |
-| OpenAI API | `gpt-6.1-sol` | $2 / Mtok input, $10 / Mtok output | ~15,800 tok ≈ $0.032 in | 40,000 tok ≈ $0.08 in | **unverified**: example price from the `@byokit/decide` README (2026-09-30); re-check the provider pricing page |
+| ChatGPT plan | `openai` account model (kit catalogue `strong`) | $0 marginal (subscription) | ~15,800 tok ≈ $0.00 | 40,000 tok ≈ $0.00 | billing route is the ChatGPT subscription (`auth: account`), not the OpenAI API |
+| OpenAI API | `gpt-6.1-sol` | $2 / Mtok input, $10 / Mtok output | ~15,800 tok ≈ $0.032 in | 40,000 tok ≈ $0.08 in | **unverified**: example price from the `@byokit/decide` README (2026-09-30); re-check the provider pricing page; applies to an `auth: apiKey` config only |
 | Local | on-device model | $0 (own hardware) | ~15,800 tok ≈ $0.00 | 40,000 tok ≈ $0.00 | no per-token billing |
 | pi (the person's installed CLI) | any model that pi can reach, e.g. `deepseek/deepseek-flash` | not reported by pi | 6,409 tok in / 33,741 tok out for a 41.15 s film (≈ 9,344 in tok ≈ 8,599 request tokens a minute) | same preflight cap; the model's own limits apply | live run 2026-10-19: pi reports usage but no price, so `planner.usd` stays `null` and no dollar figure is computed |
 
@@ -82,6 +83,7 @@ Notes:
   `take.json` therefore records `planner.input_tokens`/`output_tokens` and
   `planner.usd: null`, and `capture` warns `cost unknown` rather than sending a
   $0. Cost per output minute for this route is unknown by design, not zero.
+- Any `auth: account` config (ChatGPT, OpenCode Go, an installed Claude or Codex CLI) is subscription-billed, so its marginal token cost is $0, and so is an OpenCode Go plan key (`auth: apiKey`); the OpenAI API list price applies only to an OpenAI `auth: apiKey` config, which never falls back to subscription billing.
 - With `--no-ai` the cost is exactly zero tokens on every provider.
 
 ## Historical measured take (Jev, pre-slice-1 shape)

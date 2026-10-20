@@ -1,9 +1,9 @@
 /** `takeone capture make` over a tiny synthetic take, via the built CLI. */
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdtempSync, openSync, closeSync, readFileSync, rmSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
+import { mkdtempSync, openSync, closeSync, readFileSync, rmSync, writeFileSync, existsSync, mkdirSync, chmodSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { delimiter, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 import { makeTake } from "../make.ts";
@@ -134,6 +134,67 @@ function withHome() {
   return { home, cleanup: () => rmSync(home, { recursive: true, force: true }) };
 }
 
+/** A PATH with only the ffmpeg tools: planner discovery must not see the
+ * developer's installed Claude or Codex CLI. */
+function ffmpegToolsPath(home: string): string {
+  const dir = join(home, "bin");
+  mkdirSync(dir);
+  for (const name of ["ffmpeg", "ffprobe"]) {
+    const found = (process.env.PATH ?? "").split(delimiter).map((entry) => join(entry, name)).find((path) => existsSync(path));
+    if (found !== undefined) symlinkSync(found, join(dir, name));
+  }
+  return dir;
+}
+
+test("doctor and make use a signed-in installed Claude CLI without a planner key", { skip: needsFfmpeg }, async () => {
+  const { home, cleanup } = withHome();
+  const dir = mkdtempSync(join(tmpdir(), "takeone-cli-account-"));
+  const binDir = join(dir, "bin");
+  mkdirSync(binDir);
+  const cli = join(binDir, "claude");
+  writeFileSync(cli, `#!/usr/bin/env node
+const args = process.argv.slice(2);
+if (args.includes("auth") && args.includes("status")) {
+  process.stdout.write(JSON.stringify({ loggedIn: true, authMethod: "claude.ai", apiProvider: "firstParty" }) + "\\n");
+} else if (args[0] === "-p") {
+  const schema = JSON.parse(args[args.indexOf("--json-schema") + 1]);
+  const answers = {};
+  for (const [name, property] of Object.entries(schema.properties)) {
+    if (property.properties?.ranking) answers[name] = { ranking: property.properties.ranking.items.enum, confidence: 0.9 };
+    else {
+      const keys = Object.keys(property.properties.probabilities.properties);
+      answers[name] = { probabilities: Object.fromEntries(keys.map((key, index) => [key, keys.length === 1 ? 1 : index === 0 ? 0.9 : 0.1 / (keys.length - 1)])), pick: keys[0] };
+      for (const key of property.required) if (!(key in answers[name])) answers[name][key] = "fixture";
+    }
+  }
+  process.stdout.write(JSON.stringify({ type: "result", subtype: "success", is_error: false, stop_reason: "end_turn", result: "fixture", structured_output: answers, usage: { input_tokens: 1, output_tokens: 1 } }) + "\\n");
+} else process.exit(2);
+`);
+  chmodSync(cli, 0o755);
+  const take = buildTake();
+  try {
+    const env = {
+      HOME: home,
+      XDG_CONFIG_HOME: join(home, ".config"),
+      PATH: `${binDir}:${process.env.PATH ?? "/usr/bin:/bin"}`,
+      TAKEONE_NO_KEYRING: "1",
+    };
+    const doctor = run(["doctor"], { env });
+    assert.equal(doctor.status, 0, doctor.stderr);
+    assert.match(doctor.stdout, /ai-planner,true,planner,.*found and using signed-in Claude account/);
+    const made = run(["make", take, ...FAST_SET], { env });
+    assert.equal(made.status, 0, made.stderr);
+    assert.match(made.stdout, /AI planner: signed-in Claude account/);
+    assert.match(made.stdout, /choices by AI/);
+    assert.equal(JSON.parse(readFileSync(join(take, "take.json"), "utf8")).planner.mode, "ai");
+    assert.ok(!/set a key|paste.*key/i.test(made.stdout + made.stderr));
+  } finally {
+    rmSync(take, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true });
+    cleanup();
+  }
+});
+
 test("capture make --no-planner renders and prints one JSON object", { skip: needsFfmpeg }, async () => {
   const { home, cleanup } = withHome();
   const dir = buildTake();
@@ -182,7 +243,7 @@ test("capture make --plan-only prices the plan without network or render", { ski
 test("doctor, make and capture never read the planner key from the environment", async () => {
   const { home, cleanup } = withHome();
   const dir = buildTake();
-  const env = { HOME: home, TYPESAFE_API_KEY: "bogus-env-key" };
+  const env = { HOME: home, PATH: ffmpegToolsPath(home), TYPESAFE_API_KEY: "bogus-env-key" };
   try {
     // All three read the key the same way: an env key is no key.
     const doctor = run(["doctor"], { env });
