@@ -71,6 +71,71 @@ export function writePlan(dir: string, decisions: BeatChoices[]): void {
   writeFileSync(join(dir, "analysis/plan.json"), JSON.stringify({ version: 1, beats }, null, 1) + "\n");
 }
 
+export class PlanError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "PlanError";
+  }
+}
+
+/** The render's view of a beat, for checking that a user edit can be honoured. */
+interface PlanBeat { id: string; kind: string; actions?: unknown[] }
+interface PlanCheck { androidFallback?: boolean }
+
+const ACTION_KINDS = new Set(["click", "type", "drag", "shortcut"]);
+
+function hasAction(beat: PlanBeat): boolean {
+  return (beat.actions ?? []).some((action) => ACTION_KINDS.has((action as { k?: string })?.k ?? ""));
+}
+
+/**
+ * Refuse a user plan edit the render cannot honour, instead of rendering a
+ * silently different film. Only by:"user" values count. Values that match what
+ * the render already does stay valid: shot=false on a scroll beat, follow=false
+ * on a click beat and idle=false on a non-idle beat are no-ops, not disputes.
+ */
+export function validatePlan(plan: Plan | null, beats: PlanBeat[], check: PlanCheck = {}): void {
+  const byId = new Map(beats.map((beat) => [beat.id, beat]));
+  for (const planBeat of plan?.beats ?? []) {
+    const edits = FIELDS.filter((field) => planBeat[field]?.by === "user" && planBeat[field]!.value !== undefined);
+    if (edits.length === 0) continue;
+    const beat = byId.get(planBeat.id);
+    if (!beat) continue; // applyPlan reports a user edit that matches no beat
+    const where = `analysis/plan.json: beat ${beat.id} (${beat.kind}):`;
+    if (check.androidFallback) {
+      throw new PlanError(`${where} ${edits.join(", ")} cannot be honoured - this Android take renders the `
+        + `rule-only tap fallback, which builds its beats from the taps and ignores plan.json; remove the user edit`);
+    }
+    for (const field of edits) {
+      if (planBeat[field]!.value !== true) continue; // false matches the render's rule on these beats
+      if (field === "shot" && !shotSupported(beat)) {
+        throw new PlanError(`${where} shot=true cannot be honoured - the render gives no camera move to `
+          + `${noShotReason(beat)}; remove the edit or set shot=false`);
+      }
+      if (field === "idle" && beat.kind !== "idle") {
+        throw new PlanError(`${where} idle=true cannot be honoured - only an idle beat can pull back to the window; `
+          + `remove the edit or set idle=false`);
+      }
+      if (field === "follow" && beat.kind !== "drag" && beat.kind !== "travel") {
+        throw new PlanError(`${where} follow=true cannot be honoured - the camera only follows a drag or a pointer-travel `
+          + `beat, not this one; remove the edit or set follow=false`);
+      }
+    }
+  }
+}
+
+/** Why a shot beat gets no camera move, in the render's own terms. */
+function noShotReason(beat: PlanBeat): string {
+  if (beat.kind === "scroll") return "a scroll beat";
+  if (beat.kind === "idle") return "an idle beat";
+  return "a pointer-only travel beat";
+}
+
+function shotSupported(beat: PlanBeat): boolean {
+  if (beat.kind === "scroll" || beat.kind === "idle") return false;
+  return beat.kind !== "travel" || hasAction(beat);
+}
+
 /** Decisions with every user-set value applied. A choice without a value keeps the rule. */
 export function applyPlan<T extends BeatChoices>(decisions: T[], plan: Plan | null): T[] {
   assertUserEditsKnown(plan?.beats ?? [], new Set(decisions.map((d) => d.beat)));

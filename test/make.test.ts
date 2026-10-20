@@ -3,7 +3,7 @@
 
 import test from "node:test";
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync, existsSync, chmodSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
@@ -16,7 +16,7 @@ import { frameRect } from "../src/decide/mapping.ts";
 import type { Plan } from "../src/decide/plan.ts";
 import { measureCaptions, renderTake } from "../src/render/render.ts";
 import { bandLayout, bandText, captionLayouts, takeCaptions } from "../src/render/stage.ts";
-import { mapFilm } from "../src/decide/film.ts";
+import { mapFilm, planFilm } from "../src/decide/film.ts";
 import type { Beat, Decision, TakeMeta } from "../src/types.ts";
 import { STREAM, hasFfmpeg, buildLongTake, beatViews, chunkAnswers, filmAnswers } from "./helpers.ts";
 import { DEFAULTS } from "../src/camera/defaults.ts";
@@ -683,7 +683,7 @@ test("per-beat camera answers reach plan.json and the camera; a user edit in pla
       }));
       return new Response(JSON.stringify({ answers, usage: { input_tokens: 800 } }), { status: 200 });
     }) as typeof fetch;
-    await fastTake(dir, { camera, apiKey: KEY, fetchImpl, log: () => {}, warn: () => {} });
+    const first = await fastTake(dir, { camera, apiKey: KEY, fetchImpl, log: () => {}, warn: () => {} });
     const readPlanFile = (): Plan => JSON.parse(readFileSync(join(dir, "analysis", "plan.json"), "utf8")) as Plan;
     const asked = readPlanFile().beats.filter((b) => b.shot?.by === "ai");
     assert.ok(asked.length > 0, "no beat took the planner's camera answers");
@@ -696,14 +696,33 @@ test("per-beat camera answers reach plan.json and the camera; a user edit in pla
     };
     const aiZoomed = zoomedFrames(readFileSync(join(dir, "camera.json"), "utf8"));
 
-    // The user keeps the shot on every beat by hand: the render follows it, and a rerun of make keeps it.
-    const userPlan: Plan = { version: 1, beats: readPlanFile().beats.map((b) => ({ ...b, shot: { value: true, by: "user" } })) };
+    const baseline = readPlanFile();
+    // A user shot on every beat is preserved in plan.json even while make
+    // refuses the beats that cannot take one.
+    writeFileSync(join(dir, "analysis", "plan.json"), JSON.stringify({ version: 1,
+      beats: baseline.beats.map((b) => ({ ...b, shot: { value: true, by: "user" } })) }));
+    await assert.rejects(fastTake(dir, { camera, apiKey: KEY, fetchImpl, log: () => {}, warn: () => {} }),
+      /analysis\/plan\.json: beat b\d+ \([a-z]+\): shot=true cannot be honoured/);
+    assert.ok(readPlanFile().beats.every((b) => b.shot?.by === "user" && b.shot.value === true), "make overwrote the user's edit");
+
+    // The user keeps the shot by hand on every beat that can take one (a
+    // scroll beat never gets a camera move and now refuses shot=true): the
+    // render follows it, and a rerun of make keeps it.
+    const clickIds = new Set(first.beats.filter((b) => b.kind === "click").map((b) => b.id));
+    assert.ok(clickIds.size > 0, "the take has no click beat to edit");
+    const userPlan: Plan = { version: 1, beats: baseline.beats.map((b) =>
+      clickIds.has(b.id) ? { ...b, shot: { value: true, by: "user" } } : b) };
     writeFileSync(join(dir, "analysis", "plan.json"), JSON.stringify(userPlan));
     await renderTake(dir, camera);
     const userZoomed = zoomedFrames(readFileSync(join(dir, "camera.json"), "utf8"));
     assert.ok(userZoomed > aiZoomed, `the user's shot edit did not zoom the camera (${aiZoomed} zoomed frames before, ${userZoomed} after)`);
     await fastTake(dir, { camera, apiKey: KEY, fetchImpl, log: () => {}, warn: () => {} });
-    assert.ok(readPlanFile().beats.every((b) => b.shot?.by === "user" && b.shot.value === true), "make overwrote the user's edit");
+    assert.ok(readPlanFile().beats.every((b) => {
+      const written = userPlan.beats.find((u) => u.id === b.id)!;
+      return clickIds.has(b.id)
+        ? b.shot?.by === "user" && b.shot.value === true
+        : b.shot?.value === written.shot?.value;
+    }), "make overwrote the user's edit or changed a beat the user left alone");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -737,6 +756,95 @@ test("a user shot=false in plan.json removes the camera zoom the planner gave ev
     await renderTake(dir, camera);
     const userZoomed = zoomedFrames(readFileSync(join(dir, "camera.json"), "utf8"));
     assert.equal(userZoomed, 0, `a user shot=false still zoomed the camera (${aiZoomed} zoomed frames before, ${userZoomed} after)`);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+/** One take with a click, a pointer-only travel, a scroll, typing, a hard cut
+ * and an idle gap, so every plan value the render cannot honour has a beat. */
+function buildKindsTake(dir: string): string {
+  execFileSync("ffmpeg", [
+    "-nostdin", "-f", "lavfi", "-i", `color=c=gray:s=${STREAM_W}x${STREAM_H}:d=9:r=30`,
+    "-f", "lavfi", "-i", `color=c=white:s=${STREAM_W}x${STREAM_H}:d=4:r=30`,
+    "-filter_complex", "[0:v][1:v]concat=n=2:v=1:a=0",
+    "-c:v", "mpeg4", "-q:v", "2", "-f", "matroska", "-frames:v", "390", "-y", join(dir, "screen.webm"),
+  ], { stdio: "ignore" });
+  writeFileSync(join(dir, "frames.tsv"), Array.from({ length: 390 }, (_, i) => `${i * 3000}\t${i * 33333333}`).join("\n") + "\n");
+  writeFileSync(join(dir, "events.jsonl"), [
+    { t: 100, k: "win", cls: "browser", title: "Board", rect: [0, 0, STREAM_W, STREAM_H] },
+    { t: 300, k: "ptr", x: 200, y: 90 },
+    { t: 500, k: "btn", b: "left", down: true }, { t: 560, k: "btn", b: "left", down: false },
+    { t: 700, k: "ptr", x: 200, y: 90 }, { t: 1100, k: "ptr", x: 200, y: 90 }, { t: 1500, k: "ptr", x: 202, y: 90 },
+    { t: 3000, k: "ptr", x: 40, y: 40 }, { t: 3500, k: "ptr", x: 150, y: 150 }, { t: 3900, k: "ptr", x: 280, y: 150 },
+    ...Array.from({ length: 7 }, (_, i) => ({ t: 5500 + i * 150, k: "wheel", dx: 0, dy: 1 })),
+    ...Array.from({ length: 10 }, (_, i) => ({ t: 7700 + i * 100, k: "key", cls: "char", down: i % 2 === 0 })),
+  ].map((e) => JSON.stringify(e)).join("\n") + "\n");
+  writeFileSync(join(dir, "take.json"), JSON.stringify({ id: "kinds", stream: { w: STREAM_W, h: STREAM_H }, scale: 1, offset_ms: 0, pointer: "hyprland" }));
+  return dir;
+}
+
+test("plan edits the render cannot honour stop the CLI with a clear error", { skip: needsFfmpeg }, async () => {
+  const dir = buildKindsTake(mkdtempSync(join(tmpdir(), "takeone-kinds-")));
+  const fast = ["out_w=160", "out_h=90", "preset=veryfast", "ripple_ms=0", "fade_s=0", "idle_speed=1"];
+  // --no-ai: this journey must never ask a model, and the fallback rules are the point.
+  const cli = (command: string) => spawnSync(process.execPath,
+    ["bin/takeone.mjs", command, dir, "--no-ai", ...fast.flatMap((value) => ["--set", value])],
+    { encoding: "utf8", env: { ...process.env, TAKEONE_DIR: dir, TAKEONE_STATE_DIR: join(dir, "state") } });
+  const planFile = join(dir, "analysis", "plan.json");
+  const baseline = (): Plan => JSON.parse(readFileSync(planFile, "utf8")) as Plan;
+  const writePlanFile = (plan: Plan) => writeFileSync(planFile, JSON.stringify(plan));
+  try {
+    const made = cli("make");
+    assert.equal(made.status, 0, made.stderr);
+    assert.deepEqual(baseline().beats.map((b) => b.id), ["b1", "b2", "b3", "b4", "b5", "b6"]);
+    // make keeps every user edit, including a refused one, so each case starts clean.
+    const clean = JSON.stringify(baseline());
+
+    // Every value the render cannot honour names the beat, its kind and the combination.
+    const cases: [string, "shot" | "idle" | "follow", string][] = [
+      ["b2", "shot", "travel"],
+      ["b3", "shot", "scroll"],
+      ["b1", "follow", "click"],
+      ["b4", "follow", "type"],
+      ["b3", "follow", "scroll"],
+      ["b5", "follow", "cut"],
+      ["b1", "idle", "click"],
+    ];
+    for (const [id, field, kind] of cases) {
+      const plan = JSON.parse(clean) as Plan;
+      plan.beats.find((beat) => beat.id === id)![field] = { value: true, by: "user" };
+      writePlanFile(plan);
+      const run = cli("make");
+      assert.equal(run.status, 2, `${id}.${field}=true rendered instead of refusing:\n${run.stderr}`);
+      assert.match(run.stderr, new RegExp(
+        `takeone make: analysis/plan\\.json: beat ${id} \\(${kind}\\): ${field}=true cannot be honoured`));
+    }
+
+    // Values that match what these beats already do stay valid, and a supported
+    // edit still renders: shot on the click, follow off it, shot off the scroll.
+    const valid = JSON.parse(clean) as Plan;
+    const click = valid.beats.find((beat) => beat.id === "b1")!;
+    click.shot = { value: true, by: "user" };
+    click.follow = { value: false, by: "user" };
+    click.idle = { value: false, by: "user" };
+    valid.beats.find((beat) => beat.id === "b3")!.shot = { value: false, by: "user" };
+    writePlanFile(valid);
+    const rendered = cli("make");
+    assert.equal(rendered.status, 0, rendered.stderr);
+    assert.ok(existsSync(join(dir, "out", "kinds.mp4")), "a valid edited plan stopped rendering");
+    const kept = baseline();
+    assert.equal(kept.beats.find((beat) => beat.id === "b1")?.shot?.by, "user");
+
+    // The Android tap fallback builds its own beats: no user edit reaches it.
+    const meta = JSON.parse(readFileSync(join(dir, "take.json"), "utf8"));
+    writeFileSync(join(dir, "take.json"), JSON.stringify({ ...meta, device: "android", planner: { ...meta.planner, mode: "fallback" } }));
+    const android = JSON.parse(clean) as Plan;
+    android.beats.find((beat) => beat.id === "b1")!.shot = { value: false, by: "user" };
+    writePlanFile(android);
+    const refused = cli("make");
+    assert.equal(refused.status, 2, refused.stderr);
+    assert.match(refused.stderr, /beat b1 \(click\): shot cannot be honoured - this Android take renders the rule-only tap fallback/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -1157,6 +1265,196 @@ test("an over-long AI title is dropped; a title at the 28-character bound fits t
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+/** A 6.7-minute take whose beats each carry a click, a typed line, a shortcut
+ * and a scroll: the recorder's 30 beats a minute, and enough beats for three
+ * film calls on a planner that returns no text, so a middle chunk is exercised. */
+function buildChunkFilmTake(dir: string): string {
+  execFileSync("ffmpeg", [
+    "-nostdin", "-f", "lavfi", "-i", "color=c=gray:s=320x180:d=400:r=10",
+    "-c:v", "mpeg4", "-q:v", "2", "-f", "matroska", "-frames:v", "4000", "-y", join(dir, "screen.webm"),
+  ], { stdio: "ignore" });
+  writeFileSync(join(dir, "frames.tsv"), Array.from({ length: 4000 }, (_, i) => `${i * 3000}\t${i * 100000000}\n`).join(""));
+  // Every burst stays one beat (over MERGE_SHORT_MS, and the pointer jumps more
+  // than the beat's spread keeps together), two seconds apart: 30 beats a minute.
+  const burst = (t: number, x: number): object[] => [
+    { t: t - 100, k: "ptr", x, y: 90 },
+    { t, k: "btn", b: "left", down: true },
+    { t: t + 50, k: "btn", b: "left", down: false },
+    { t: t + 80, k: "key", cls: "char", down: true },
+    { t: t + 140, k: "key", cls: "char", down: true },
+    { t: t + 200, k: "key", cls: "char", down: true },
+    { t: t + 280, k: "key", combo: "ctrl+s", down: true },
+    { t: t + 360, k: "wheel", dx: 0, dy: 1 },
+    { t: t + 420, k: "wheel", dx: 0, dy: 1 },
+    { t: t + 900, k: "btn", b: "left", down: true },
+    { t: t + 950, k: "btn", b: "left", down: false },
+  ];
+  const events = [
+    { t: 0, k: "win", cls: "chromium", title: "Quarterly board", rect: [0, 0, 280, 150] },
+    ...Array.from({ length: 199 }, (_, i) => 300 + i * 2000).flatMap((t, i) => burst(t, i % 2 === 0 ? 60 : 240)),
+  ];
+  writeFileSync(join(dir, "events.jsonl"), events.map((e) => JSON.stringify(e)).join("\n") + "\n");
+  writeFileSync(join(dir, "take.json"), JSON.stringify({ id: "t1", stream: { w: STREAM_W, h: STREAM_H }, scale: 1, offset_ms: 0, pointer: "hyprland" }));
+  return dir;
+}
+
+test("a long take's film is planned in chunks under the cap and joined into one film", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "takeone-take-"));
+  try {
+    buildChunkFilmTake(dir);
+    // First the default, text-less planner: its middle chunk must still plan its
+    // beats, so no beat is skipped between the film calls.
+    mkdirSync(join(dir, "test-config", "takeone"), { recursive: true });
+    writeFileSync(join(dir, "test-config", "takeone", "planner.json"), JSON.stringify({ backend: "jev", auth: "apiKey", model: "jev-latest" }));
+    const quietParts: { state: { timeline: string[] }; questions: Record<string, any> }[] = [];
+    const quietFetch = (async (_url, init) => {
+      const { state, questions } = JSON.parse(String(init?.body)) as { state: { timeline?: string[] }; questions: Record<string, any> };
+      let answers: Record<string, unknown>;
+      if (state.timeline === undefined) {
+        answers = chunkAnswers(String(init?.body), firstZoneAnswers) as Record<string, unknown>;
+      } else {
+        quietParts.push({ state: state as { timeline: string[] }, questions });
+        const ends = questions.ending ? Object.keys((questions.ending as { criteria: Record<string, string> }).criteria) : [];
+        answers = {
+          ...(questions.theme ? filmAnswers() : {}),
+          ...(questions.ending ? { ending: { pick: ends[0], probabilities: Object.fromEntries(ends.map((id) => [id, id === ends[0] ? 1 : 0])), confidence: 1 } } : {}),
+        };
+      }
+      return new Response(JSON.stringify({ answers, usage: { input_tokens: 800 } }), { status: 200 });
+    }) as typeof fetch;
+    const quiet = await fastTake(dir, { apiKey: KEY, fetchImpl: quietFetch, camera: { ...FAST, fps: 6 }, log: () => {}, warn: () => {} });
+    const beats = JSON.parse(readFileSync(join(dir, "analysis", "beats.json"), "utf8")) as { id: string }[];
+    assert.ok(quietParts.length >= 3, `the text-less take was planned in ${quietParts.length} film call(s), so no middle chunk was exercised`);
+    const quietPlanned = quietParts.flatMap((part) => part.state.timeline.map((line) => line.split(",")[0]!));
+    assert.deepEqual(quietPlanned, beats.map((b) => b.id), "the text-less film calls skip beats in a middle chunk");
+    for (const part of quietParts) {
+      assert.ok(Object.keys(part.questions).length > 0, "a film call asks nothing");
+      const tokens = Math.ceil(JSON.stringify({ model: "jev-latest", state: part.state, questions: part.questions }).length / 3.5);
+      assert.ok(tokens <= 4000, `a text-less film call is over the 4,000-token cap: ${tokens}`);
+    }
+    assert.ok(!quietParts.some((part) => "titled" in part.questions), "the text-less planner was asked for captions");
+    assert.ok("theme" in quietParts[0]!.questions && "theme" in quietParts[1]!.questions, "the middle chunk does not ask the film-wide questions");
+    assert.ok("ending" in quietParts.at(-1)!.questions, "the last chunk does not ask the ending");
+    assert.equal(quiet.take.film?.by.titled, undefined, "a text-less planner returned a title");
+
+    // Then the text-returning planner: same coverage, and its captions join.
+    writeFileSync(join(dir, "test-config", "takeone", "planner.json"), JSON.stringify({ backend: "anthropic", auth: "apiKey", model: "claude-opus-5-5" }));
+    // The film calls, in order: their state and questions as the planner received them.
+    const parts: { state: { timeline: string[]; before_this_chunk?: string }; questions: Record<string, Record<string, unknown>> }[] = [];
+    const fetchImpl = (async (_url, init) => {
+      const { state, questions } = JSON.parse(JSON.parse(String(init?.body)).messages[0].content[0].text) as { state: { timeline?: string[] }; questions: Record<string, unknown> };
+      let input: Record<string, unknown>;
+      if (state.timeline === undefined) {
+        input = chunkAnswers(String(init?.body), firstZoneAnswers) as Record<string, unknown>;
+      } else {
+        parts.push({ state, questions } as (typeof parts)[number]);
+        const first = state.timeline[0]!.split(",")[0]!;
+        // The first call asks the film-wide questions; every call captions its own beats.
+        input = {
+          ...(questions.theme ? {
+            theme: { pick: "paper", probabilities: { midnight: 0, paper: 1, aurora: 0, mono: 0, sand: 0, editorial: 0 }, confidence: 1 },
+            pace: { probabilities: [0, 1, 0, 0], confidence: 1 },
+            opening: { pick: "establish", probabilities: { establish: 1, short: 0, straight: 0 }, confidence: 1 },
+            camera_style: { pick: "calm", probabilities: { calm: 1, lively: 0 }, confidence: 1 },
+            titled: { pick: "true", probabilities: { true: 1, false: 0 }, title: "Quarterly board", captions: [{ beat: first, text: `opens on ${first}` }] },
+          } : {
+            titled: { pick: "true", probabilities: { true: 1, false: 0 }, captions: [{ beat: first, text: `carries on at ${first}` }] },
+          }),
+          ...(questions.ending ? (() => {
+            const ends = Object.keys((questions.ending as { options: Record<string, string> }).options);
+            return { ending: { pick: ends[0], probabilities: Object.fromEntries(ends.map((id) => [id, id === ends[0] ? 1 : 0])), confidence: 1 } };
+          })() : {}),
+        };
+      }
+      return new Response(JSON.stringify({ content: [{ type: "tool_use", name: "decisions", input }], usage: { input_tokens: 500, output_tokens: 80 } }), { status: 200 });
+    }) as typeof fetch;
+    const r = await fastTake(dir, { apiKey: KEY, fetchImpl, camera: { ...FAST, fps: 6 }, log: () => {}, warn: () => {} });
+    assert.ok(parts.length >= 3, `the take was planned in ${parts.length} film call(s)`);
+    for (const part of parts) {
+      // The planner's own estimate: the body it builds is this state and these questions.
+      const tokens = Math.ceil(JSON.stringify({ model: "jev-latest", state: part.state, questions: part.questions }).length / 3.5);
+      assert.ok(tokens <= 4000, `a film call is over the 4,000-token cap: ${tokens}`);
+    }
+    // Split, not trimmed: every beat is planned once, in order.
+    const planned = parts.flatMap((part) => part.state.timeline.map((line) => line.split(",")[0]!));
+    assert.deepEqual(planned, beats.map((b) => b.id), "the film calls cover every beat once, in order");
+    // Each call after the first is told what the call before it planned.
+    assert.equal(parts[0]!.state.before_this_chunk, undefined);
+    const lastOfFirst = parts[0]!.state.timeline.at(-1)!.split(",")[0]!;
+    assert.ok(parts[1]!.state.before_this_chunk!.includes(lastOfFirst), `no summary of the earlier beats: ${parts[1]!.state.before_this_chunk}`);
+    assert.ok(!parts[1]!.state.before_this_chunk!.includes(parts[0]!.state.timeline[0]!), "the summary repeats the whole previous chunk, not a short part of it");
+    assert.ok(parts[1]!.state.before_this_chunk!.length < 1000, `the summary of the chunk before is not short: ${parts[1]!.state.before_this_chunk!.length} characters`);
+    // The last call holds the take's last beats, so it is the one that picks the ending.
+    assert.deepEqual(Object.keys((parts.at(-1)!.questions.ending as { options: object }).options), beats.slice(-3).map((b) => b.id));
+    // The chunk plans join into one film: the first call's look and title, the
+    // last call's ending, and every call's captions.
+    const film = r.take.film!;
+    assert.equal(film.theme, "paper");
+    assert.equal(film.camera_path, "hold");
+    assert.equal(film.title, "Quarterly board");
+    assert.equal(film.end_beat, beats.at(-3)!.id);
+    assert.deepEqual(film.captions?.map((c) => c.text), parts.map((part, i) =>
+      `${i === 0 ? "opens on" : "carries on at"} ${part.state.timeline[0]!.split(",")[0]}`));
+    assert.equal(film.by.titled, "ai");
+    // The render wrote the joined text: the title and a caption from each call.
+    const ass = readFileSync(join(dir, "captions.ass"), "utf8");
+    assert.ok(ass.includes("Quarterly board") && ass.includes(`opens on ${beats[0]!.id}`) && ass.includes(film.captions![1]!.text), "the joined film text was not drawn");
+    assert.equal(JSON.parse(readFileSync(join(dir, "take.json"), "utf8")).film.theme, "paper");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+/** A take long enough for three film chunks, each beat's timeline line as long
+ * as a real one that carries a click, a typed line, a shortcut and a scroll. */
+function filmChunkBeats(count: number): Beat[] {
+  return Array.from({ length: count }, (_, i) => {
+    const t = i * 1000;
+    return {
+      id: `b${i + 1}`, t0: t, t1: t + 800, anchor_t: t + 400, window_cls: "chromium", kind: "type", zones: [],
+      actions: [
+        { k: "click", t: t + 100, x: 30, y: 20, window_cls: "chromium" },
+        { k: "type", t0: t + 200, t1: t + 300, window_cls: "chromium" },
+        { k: "shortcut", t: t + 400, combo: "ctrl+s", window_cls: "chromium" },
+        { k: "scroll", t0: t + 500, t1: t + 600, x: 30, y: 20, dx: 0, dy: 1, detents: 1, window_cls: "chromium" },
+      ],
+    } satisfies Beat;
+  });
+}
+
+test("a take of three film chunks asks no request that has nothing to ask", () => {
+  const beats = filmChunkBeats(200);
+  const ctx = { seconds: 200, source: "320x180", device: "desktop", brightness: "dark" as const, beats };
+  const quiet = planFilm({ ...ctx, text: false });
+  assert.ok(quiet, "a take this long got no film plan");
+  const asked = quiet.calls.map((call) => (call.state.timeline as string[]).map((line) => line.split(",")[0]!));
+  for (const call of quiet.calls) {
+    assert.ok(Object.keys(call.questions).length > 0, `a film call asks no question for beats ${(call.state.timeline as string[])[0]}`);
+  }
+  const covered = asked.flat();
+  assert.ok(quiet.calls.length >= 3, `the take was planned in ${quiet.calls.length} film call(s), so no middle chunk was exercised`);
+  assert.deepEqual(covered, beats.map((b) => b.id), "a middle chunk was skipped: the film calls do not cover every beat once, in order");
+  assert.ok("theme" in quiet.calls[0]!.questions && "ending" in quiet.calls.at(-1)!.questions, "the look and the ending were asked in the wrong call");
+  // A middle chunk of a text-less planner asks the film-wide questions instead of
+  // nothing: it must still plan its beats.
+  for (const middle of quiet.calls.slice(1, -1)) {
+    assert.ok(Object.keys(middle.questions).length > 0);
+    assert.ok("theme" in middle.questions, "a middle chunk asks nothing about the take");
+  }
+  assert.ok(!quiet.calls.some((call) => "titled" in call.questions), "a planner that returns no text was asked for captions");
+  for (let k = 1; k < quiet.calls.length; k++) {
+    const previous = quiet.calls[k - 1]!.state.timeline as string[];
+    const summary = quiet.calls[k]!.state.before_this_chunk as string;
+    assert.ok(summary.includes(`${previous.at(-1)!.split(",")[0]!}, `), `call ${k + 1} is not told the beat before it: ${summary}`);
+  }
+  assert.equal(quiet.tokens, quiet.calls.reduce((n, c) => n + c.tokens, 0), "a chunk that was not asked is priced");
+  // The same take with a planner that captions every chunk covers every beat once.
+  const loud = planFilm({ ...ctx, text: true });
+  assert.ok(loud);
+  assert.deepEqual(loud.calls.flatMap((call) => (call.state.timeline as string[]).map((line) => line.split(",")[0]!)), beats.map((b) => b.id),
+    "the text take's chunks do not cover every beat once, in order");
 });
 
 test("live API shape: Android tap hints stay planner decisions", async () => {
