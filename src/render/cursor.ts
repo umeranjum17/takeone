@@ -8,16 +8,14 @@
 // It is used only when take.json says cursor_free, so takes with a baked system
 // cursor render exactly as before.
 import type { CameraDefaults } from "../camera/defaults.ts";
-import type { CameraFrame, TakeMeta } from "../camera/types.ts";
+import type { CameraFrame } from "../camera/types.ts";
 import type { Event } from "../types.ts";
-import { assHeader, assTime } from "./stage.ts";
+import { assHeader, assTime, roundRect } from "./stage.ts";
 
 /** Art in its own 24x32 box (headless-scene's arrow), hotspot at (2, 2). */
 const ART: [number, number][] = [[2, 2], [2, 23], [7, 18.5], [10.5, 26.5], [14, 25], [10.5, 17.5], [17, 17.5]];
-const ART_W = 24;
-const ART_H = 32;
-/** Output-pixel height of the arrow at a whole-screen (wide) shot. */
-const REST_H = 32;
+/** Arrow height at 1080p; a close-up grows it gently rather than obscuring the field. */
+const REST_H = 48;
 /** Idle seconds before the cursor begins to fade, and the fade length. */
 const IDLE_START = 1.8;
 const IDLE_FADE = 0.5;
@@ -51,6 +49,8 @@ export interface CursorOptions {
   /** Source-space origin of the composited frame, matching keycap projection. */
   originX: number;
   originY: number;
+  /** Fixed output px for a band; otherwise the screen's rectangle in stage px. */
+  card: { x: number; y: number; w: number; h: number; radius: number; fixed: boolean };
 }
 
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
@@ -61,8 +61,8 @@ export function cursorAss(o: CursorOptions): string {
   if (samples.length === 0 || o.frames.length === 0) return "";
   const fps = o.d.fps;
 
-  // Output-clock samples, then a symmetric moving average that removes tremor
-  // without introducing lag (jitter lives inside the window, real motion does not).
+  // Output-clock samples, then a symmetric cosine window: eased arrivals and
+  // departures without the lag of a trailing filter.
   const track = samples.map((s) => {
     const vt = clamp(s.t, o.trimStart, o.trimEnd);
     return { t: o.outTime(vt), x: s.x, y: s.y };
@@ -88,7 +88,8 @@ export function cursorAss(o: CursorOptions): string {
     let sx = 0, sy = 0, n = 0;
     for (let j = i - window; j <= i + window; j++) {
       const p = raw[clamp(j, 0, count - 1)]!;
-      sx += p.x; sy += p.y; n++;
+      const weight = 1 + Math.cos(Math.PI * (j - i) / (window + 1));
+      sx += p.x * weight; sy += p.y * weight; n += weight;
     }
     return { x: sx / n, y: sy / n };
   });
@@ -116,15 +117,24 @@ export function cursorAss(o: CursorOptions): string {
     const opacity = idle <= IDLE_START ? 1 : clamp(1 - (idle - IDLE_START) / IDLE_FADE, 0, 1);
     if (opacity <= 0.002) continue;
     const f = o.frames[Math.min(i, o.frames.length - 1)]!;
-    const zoom = maxW / f.w;
+    const scale = REST_H / 24.5 * o.d.out_h / 1080 * Math.sqrt(maxW / f.w);
     const ox = (pos[i]!.x + o.originX - f.x) * o.d.out_w / f.w;
     const oy = (pos[i]!.y + o.originY - f.y) * o.d.out_h / f.h;
+    const c = o.card, kx = c.fixed ? 1 : o.d.out_w / f.w, ky = c.fixed ? 1 : o.d.out_h / f.h;
+    const x = (c.x - (c.fixed ? 0 : f.x)) * kx, y = (c.y - (c.fixed ? 0 : f.y)) * ky;
+    const w = c.w * kx, h = c.h * ky, r = c.radius * kx;
+    const dx = Math.max(Math.abs(ox - x - w / 2) - (w / 2 - r), 0);
+    const dy = Math.max(Math.abs(oy - y - h / 2) - (h / 2 - r), 0);
+    // A pointer outside the shown screen is invisible, not floating over the
+    // wallpaper. Clip the remaining arrow ink with the same rounded-card shape.
+    if (Math.hypot(dx, dy) > r) continue;
+    const clip = `\\clip(1,${roundRect(x, y, w, h, r)})`;
     const clear = Math.round((1 - opacity) * 255).toString(16).padStart(2, "0").toUpperCase();
     const path = ART.map(([px, py], k) =>
-      `${k === 0 ? "m" : "l"} ${(ox + (px - 2) * zoom).toFixed(1)} ${(oy + (py - 2) * zoom).toFixed(1)}`).join(" ");
+      `${k === 0 ? "m" : "l"} ${(ox + (px - 2) * scale).toFixed(1)} ${(oy + (py - 2) * scale).toFixed(1)}`).join(" ");
     const end = assTime((i + 1) / fps);
     body.push(`Dialogue: 1,${assTime(i / fps)},${end},Default,,0,0,0,,`
-      + `{\\an7\\pos(0,0)\\p1\\bord${(1.5 * zoom).toFixed(2)}\\3c${outline}\\3a&H${clear}&\\1c${fill}\\1a&H${clear}&\\shad0}${path}\n`);
+      + `{\\an7\\pos(0,0)\\p1${clip}\\bord${(1.5 * scale).toFixed(2)}\\3c${outline}\\3a&H${clear}&\\1c${fill}\\1a&H${clear}&\\shad0}${path}\n`);
   }
   if (body.length === 0) return "";
   return header + body.join("");

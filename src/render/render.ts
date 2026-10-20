@@ -14,7 +14,7 @@ import type { FrameRegions } from "../types.ts";
 import { blurGraph, keycapAss, keycapBackdropGraph, keycapMaskAss, keycapObstacles, overlayRegions, spotlightAss, spotlightGraph, toastWindows } from "./overlays.ts";
 import { motionBlurGraph, shutterPlan } from "./motion-blur.ts";
 import { idleSqueezes, purposefulEnd, setptsExpr, warp, warpBeats } from "./pace.ts";
-import { cursorAss } from "./cursor.ts";
+import { cursorAss, pointerSamples } from "./cursor.ts";
 import { firstFrameTimeMs, readEvents } from "../perceive/decode.ts";
 import { phoneTapShots } from "./phone.ts";
 import { edgeCuts, cutCount, holdPath, lastFrameSecond, videoFrames } from "./framing.ts";
@@ -277,18 +277,23 @@ export async function renderTake(dir: string, d?: CameraDefaults): Promise<{ out
   const cursorFile = join(dir, "cursor.ass");
   let cursorOverlay = "";
   if (meta.cursor_free === true) {
-    // A cursor-free take must carry its pointer track; a missing or invalid
-    // events.jsonl is a real input error, so it surfaces rather than rendering
-    // a silently cursor-less video.
-    const events = await readEvents(join(dir, "events.jsonl"));
+    // Old cursor-free takes may lack a track. Keep the footage usable, but say
+    // why there is no drawn cursor. Event-file read errors still surface.
+    const eventsPath = join(dir, "events.jsonl");
+    const events = existsSync(eventsPath) ? await readEvents(eventsPath) : [];
+    const startMs = videoStartMs(dir, meta);
     const drawn = cursorAss({
-      events, videoStartMs: firstFrameTimeMs(join(dir, "frames.tsv"), meta),
+      events, videoStartMs: startMs,
       trimStart, trimEnd, outTime, frames: stageCamera, d, duration,
       originX: band ? 0 : stage.screenX, originY: band ? 0 : stage.screenY,
+      card: { x: stage.screenX, y: stage.screenY, w: band ? stage.baseW : meta.width,
+        h: band ? stage.baseH : meta.height, radius: d.corner_radius / stage.restScale, fixed: Boolean(band) },
     });
     if (hasDialogue(drawn)) {
       await writeFile(cursorFile, drawn);
       cursorOverlay = `,ass=${filterPath(cursorFile)}:fontsdir=${filterPath(FONTS_DIR)}`;
+    } else if (pointerSamples(events, startMs).length === 0) {
+      console.warn("No usable pointer samples in this cursor-free take; rendering without a drawn cursor.");
     }
   }
 

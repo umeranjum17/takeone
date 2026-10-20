@@ -26,6 +26,19 @@ node bin/takeone.mjs render /abs/path/to/planned-take --theme paper --set idle_s
 
 Proving end state: exit 0 and stdout ends in `out/<id>.mp4`; that file's mtime/hash changed vs the pre-existing render (capture a before/after still pair at the same timestamp — the theme change midnight→paper is clearly visible); `camera.json` reflects the override (e.g. non-default theme/background values); `render.log` lists the selected libass fonts. A before/after pair of stills named `takeone-rerender-before.png` / `takeone-rerender-after.png` is the standard evidence.
 
+## Default frame and cursor proof
+
+Render the same planned fictional board takes before and after the look change.
+Keep the planner decisions and baseline camera policy unchanged. On cursor-free
+companions, inspect the full MP4s and a side-by-side motion comparison, including
+push-in, typing, popup arrival and pull-back frames. The default padded gradient,
+rounded card and soft shadow use the existing theme tokens. Check all bundled
+themes at wide, portrait and 4:5 sizes, with no new containment regressions.
+Verify the larger drawn cursor with [vector-cursor.md](vector-cursor.md), including
+baked-cursor compatibility and the warning/playable-film fallback without samples.
+Report camera measurements and cost/output minute without claiming a depth or
+trajectory improvement from a frame/cursor-only change.
+
 ## Aspect/format proof on a saved demo take
 
 ```sh
