@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, unlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DEFAULTS, applyOverrides } from "../src/camera/defaults.ts";
@@ -44,6 +44,29 @@ test("all bundled themes render with bundled faces; midnight decoded frames equa
     const small={out_w:640,out_h:360,caption_size:22,preset:"ultrafast",fade_s:0};
     const hashes = (file:string)=>execFileSync("ffmpeg",["-v","error","-i",file,"-f","framemd5","-"],{encoding:"utf8"});
     const base=hashes((await renderTake(dir,applyOverrides(small))).out);
+    // The actual renderer must add one cursor only to a cursor-free take,
+    // and keep old footage usable when its pointer track is absent.
+    const meta = JSON.parse(readFileSync(join(dir,"take.json"),"utf8"));
+    writeFileSync(join(dir,"frames.tsv"),"0\t0\n");
+    writeFileSync(join(dir,"events.jsonl"),'{"k":"ptr","t":0,"x":320,"y":180}\n');
+    writeFileSync(join(dir,"take.json"),JSON.stringify({...meta,cursor_free:true}));
+    const cursor = hashes((await renderTake(dir,applyOverrides(small))).out);
+    assert.notEqual(cursor,base,"the encoded film contains the drawn pointer");
+    writeFileSync(join(dir,"events.jsonl"),'{"k":"ptr","t":0,"x":639,"y":180}\n');
+    const edge = (await renderTake(dir,applyOverrides(small))).out;
+    const pixels = (file:string, filter:string) => execFileSync("ffmpeg",["-v","error","-i",file,
+      "-frames:v","1","-vf",filter,"-pix_fmt","gray","-f","rawvideo","-"],{maxBuffer:640*360+4096});
+    const ink = pixels(edge,"format=gray"), holes = pixels(join(dir,"stage-holes.png"),"alphaextract");
+    const spilled = ink.reduce((n,v,i)=>n+Number(holes[i]!>=254 && v>230),0);
+    assert.equal(spilled,0,"pointer ink stays inside the rendered screen card, not on the wallpaper");
+    writeFileSync(join(dir,"take.json"),JSON.stringify({...meta,cursor_free:false}));
+    assert.equal(hashes((await renderTake(dir,applyOverrides(small))).out),base,
+      "a baked-cursor take never receives a second arrow");
+    unlinkSync(join(dir,"events.jsonl"));
+    writeFileSync(join(dir,"take.json"),JSON.stringify({...meta,cursor_free:true}));
+    assert.equal(hashes((await renderTake(dir,applyOverrides(small))).out),base,
+      "missing pointer samples do not break the footage");
+    writeFileSync(join(dir,"take.json"),JSON.stringify(meta));
     const selected: Record<string,string>={};
     for (const name of Object.keys(THEMES)) {
       const d=resolveTheme(name,small);

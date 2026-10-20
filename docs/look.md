@@ -2,12 +2,12 @@
 
 Every recording render uses the same stage, all local ffmpeg/libass work at zero token cost:
 
-- **Stage**: the selected theme sets the screen card, background, and typography; see the theme preview below. The stage margin (`stage_margin`, fraction of stage size) eases away as the camera zooms, so close-ups are all screen. When the text band described below is active, the card stays fixed and the camera zooms inside it.
+- **Stage**: the default screen card has a padded blue-to-violet gradient, rounded corners and a soft 40 px shadow. The selected theme sets these same shared tokens, background, and typography; see the theme preview below. The stage margin (`stage_margin`, fraction of stage size) eases away as the camera zooms, so close-ups are all screen. When the text band described below is active, the card stays fixed and the camera zooms inside it.
 - **Zoom**: shots never upscale source pixels more than `max_upscale` (1.0 by default): a 4K capture can push into native 1080p detail; a 1080p capture exported at 1080p stays wide. Upscaling remains an explicit setting. A value below 1 keeps a HiDPI capture wide (0.5 holds a 2× capture at its rest framing). The camera path runs through a critically damped spring (`lowpass_omega`), so moves ease in and out without overshoot. See [Plan and render](guide.md#plan-and-render) for whole-element framing and static UI detection. Per-level padding never widens a shot past `frame_max` (0.8) of the screen, and the zone itself always keeps `hold_pad` (1.08x) around it.
 - **Camera path**: the default `solver` chooses each shot; `--set camera_path=hold` instead keeps the solver's settled framings, checked on the frame actually shown, holds each one, and joins them with single eased moves, widening any hold that would clip its subject. `camera-holds.json` beside `camera.json` lists each hold and why. See [edit controls](edit-controls.md).
 - **Bookends**: the whole stage holds until the first move, at least `establish_s` in, and the camera eases back to the whole stage before the final `outro_s` (0 keeps the last shot and still ends on the last activity). The video fades in from and out to `background_to` over `fade_s`.
 - **Clicks**: every click and drag press gets a thin translucent expanding `accent` ring with a faint white halo and no filled press dot, lasting `ripple_ms` (0 turns it off) and growing to `ripple_r` output px at rest, clamped so the full ring stays inside the frame (edge presses with too little room are skipped). The ripple is drawn in source space, so it zooms with the content.
-- **Cursor**: desktop captures are cursor-free when the engine can hide the system cursor; takeone draws a smooth vector cursor from the recorded pointer track, crisp at any zoom and faded out after the pointer rests. A source that keeps its system cursor renders as before.
+- **Cursor**: desktop captures are cursor-free when the engine can hide the system cursor; takeone draws a 48 px vector cursor at 1080p from the recorded pointer track, with cosine-eased smoothing, gentle square-root zoom scaling and an idle fade. A source that keeps its system cursor renders as before.
 - **Pacing**: idle stretches between actions play `idle_speed` times faster (1 turns it off), keeping `idle_keep` seconds of real time around every action. The camera is solved on the output clock, so moves keep their natural speed. A single untimed `speed` entry `{ "kind": "type_speed", "rate": 3 }` in `take.json` speeds every detected typing burst, and timed `speed` regions set an explicit playback rate from 0.1 to 16; see [edit controls](edit-controls.md).
 - **Shortcut keycaps and regions**: validated Ctrl/Alt/Meta shortcuts display as keycap pills. Timed `spotlight` and `blur` rectangles in `take.json` follow source pixels through camera motion. See [recording overlays](overlays.md) for the schema and a synthetic proof generator.
 - **Titles and captions**: when both source and output are 16:9, optional `title` and `captions` in `take.json` render in the band below the card, never over the app: the title as bare display type 1.6× `caption_size`, captions as single-line pills in the caption font that shrink to fit rather than wrap. Text size, row padding and caption border scale down proportionally when needed to keep the band within a third of the output height. Captions keep their original timestamps, and each caption ends when the next one starts if they overlap. When a title and caption are on screen together, they occupy separate measured rows in the band below the card. Other source or output aspect ratios keep the older overlay placement (title 1.4×). Caption times are source-video seconds; `d` (default 3) is on-screen seconds, so reading time survives idle squeezing.
@@ -18,7 +18,7 @@ Every recording render uses the same stage, all local ffmpeg/libass work at zero
 ```
 
 Both `make` and recording `render` accept `--theme NAME`; the supported names are defined in [the shared theme registry](../src/themes.ts), including the new `editorial` theme.
-`midnight` is the default and keeps the existing look, unless the AI film call picks a theme (see [Plan and render](guide.md#plan-and-render)). A saved `"theme": "paper"`
+`midnight` is the default padded gradient look, unless the AI film call picks a theme (see [Plan and render](guide.md#plan-and-render)). A saved `"theme": "paper"`
 in `take.json` applies on every rerender; an explicit `--theme` takes precedence,
 and `--set` overrides the selected theme's tokens. `make --theme` saves the
 selection in the take; `render --theme` previews a different look without
@@ -49,9 +49,9 @@ Overlay spring tokens adjust caption arrival time only; the recording camera
 remains critically damped. Recording `pace` scales camera holds (`dwell`,
 `dwell_k2`, `min_shot`) while keeping move durations and caption reading time.
 
-The committed theme preview assets are real-take stills at 1080p60: one full-resolution frame per kept theme plus the grid above. [Provenance](assets/themes/provenance.json)
+The committed theme preview assets are historical real-take stills at 1080p60: one full-resolution frame per kept theme plus the grid above. They predate the padded blue-to-violet default and are not current-candidate acceptance evidence. [Provenance](assets/themes/provenance.json)
 records the source take, generator, proof status per theme and output hashes.
-All six are proven on the real take: worst fade CAMBI 0.279 (mono) and worst
+That historical qualification covered all six on the real take: worst fade CAMBI 0.279 (mono) and worst
 whole-take CAMBI 0.043, measured on every frame of both fade windows.
 Regenerate with `node scripts/theme-proof.ts tmp/theme-proof`.
 For a real 1080p60 take, use `node scripts/theme-proof.ts tmp/theme-real --take path/to/take`;

@@ -15,11 +15,13 @@ from the output-review scorecard (J4 P1).
 
 ## Sub-features
 
-- Smoothing: a symmetric moving average over the output clock removes input jitter
-  without adding lag.
-- Camera-locked scale: the cursor scales with the camera zoom (content-locked), so
-  its tip stays on the UI it points at and it is redrawn at output resolution at
-  every zoom level.
+- Smoothing: a symmetric cosine-weighted window over the output clock eases arrivals
+  and departures without adding trailing-filter lag.
+- Size: 48 px arrow height at 1080p, scaled by output height and the square root of
+  camera zoom. Its hotspot stays projected onto the recorded UI point; it is redrawn
+  at output resolution at every zoom level.
+- Screen boundary: a hotspot outside the visible screen hides; remaining arrow ink
+  is clipped to the existing rounded screen card, never drawn on the backdrop.
 - Idle hide: no pointer movement for ~1.8 s starts a short fade; the cursor is gone
   by ~2.3 s and returns on the next movement.
 
@@ -41,6 +43,11 @@ node bin/takeone.mjs render "$TAKEONE_DIR/cursor-free" --set motion_blur=0
 ```
 
 The render writes `cursor.ass` (the drawn cursor) next to `camera.json`.
+Inspect decoded motion frames, not just that file: a single large arrow glides
+onto the field and fades while idle. Check card-edge motion too: no pointer ink
+may spill onto the decorative background. Compare a baked-cursor take: no second arrow
+is drawn. Remove the pointer samples from a disposable copy and rerender: it must
+warn `No usable pointer samples` and still produce a playable MP4.
 
 ### Real desktop capture (`takeone capture record`, X11)
 
