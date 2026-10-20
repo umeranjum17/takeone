@@ -14,7 +14,7 @@
 // abstention (malformed answers) and transport failures fall back per beat, as
 // before. Kit floors engage with per-field fallback in a later slice.
 
-import { execFile, spawnSync } from "node:child_process";
+import { execFile } from "node:child_process";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync, accessSync, constants } from "node:fs";
 import { homedir, userInfo } from "node:os";
 import { delimiter, dirname, isAbsolute, join, resolve } from "node:path";
@@ -40,9 +40,8 @@ import { takeoneConfigDir, loadPlannerKey, readPlannerKey, noKeyring, type KeyOp
 /** Whole-call budget per chunk of beats (attempts plus bounded 429 waits). */
 export const DECIDE_TIMEOUT_MS = 30000;
 
-/** The planner default: Jev, used only when the user picked nothing. This is
- * the one place takeone names a provider; everything else reads the config.
- * One 429 retry per call. */
+/** The planner default: Jev, used only when the user picked nothing and no
+ * installed or signed-in account is found. One 429 retry per call. */
 export const DEFAULT_PLANNER_CONFIG: DecideConfig = {
   backend: "jev",
   auth: "apiKey",
@@ -78,10 +77,9 @@ export function loadPlannerConfig(o: KeyOptions = {}): { config: PlannerConfig; 
         throw new ConfigError("pi planner requires an absolute bin and a model");
       }
       config = value as PiPlannerConfig;
-    } else if (value?.backend === "claude-code" || value?.backend === "codex") {
-      const provider = value.backend === "claude-code" ? "claude" : "codex";
-      if (value.auth !== "account" || value.account !== `installed-${provider}` || typeof value.bin !== "string" || !isAbsolute(value.bin) || (value.model !== undefined && (typeof value.model !== "string" || !value.model.trim())) || Object.keys(value).some((key) => !["backend", "auth", "account", "bin", "model"].includes(key))) {
-        throw new ConfigError(`${provider} planner requires its installed account and an absolute bin`);
+    } else if (value?.backend === "codex") {
+      if (value.auth !== "account" || value.account !== "installed-codex" || typeof value.bin !== "string" || !isAbsolute(value.bin) || (value.model !== undefined && (typeof value.model !== "string" || !value.model.trim())) || Object.keys(value).some((key) => !["backend", "auth", "account", "bin", "model"].includes(key))) {
+        throw new ConfigError("codex planner requires its installed account and an absolute bin");
       }
       config = value as CliPlannerConfig;
     } else {
@@ -96,7 +94,7 @@ export function loadPlannerConfig(o: KeyOptions = {}): { config: PlannerConfig; 
 
 /** Record the user's planner choice after validating its backend-specific config. */
 export async function savePlannerConfig(config: PlannerConfig, o: KeyOptions = {}): Promise<void> {
-  const parsed = config.backend === "codex" || config.backend === "claude-code" || config.backend === "pi" ? config : parseConfig(config);
+  const parsed = config.backend === "codex" || config.backend === "pi" ? config : parseConfig(config);
   mkdirSync(dirname(plannerConfigPath(o)), { recursive: true });
   await writeFileAtomic(plannerConfigPath(o), JSON.stringify(parsed, null, 1) + "\n");
 }
@@ -211,7 +209,7 @@ export async function resolvePlanner(o: ResolvePlannerOptions = {}): Promise<Res
     }
     member = plannerMember(o);
     if (!found) {
-      if (c.backend === "claude-code" || c.backend === "codex") {
+      if (c.backend === "codex") {
         const ready = await cliReady(config as CliPlannerConfig, env, o.configDir);
         accountPresent = ready.ok;
         if (ready.ok) cliLaunch = ready.launch;
@@ -308,41 +306,19 @@ async function loadCliLaunch(config: CliPlannerConfig, env: NodeJS.ProcessEnv, c
   return cliAccounts({ stateDir, bins: { [provider]: config.bin }, env: cliLaunchEnv(env), installed: true }).launch(config.account);
 }
 
-function claudeRefusal(bin: string, env: NodeJS.ProcessEnv): string | null {
-  let status: unknown = null;
-  try {
-    const out = spawnSync(bin, ["--safe-mode", "--setting-sources", "", "auth", "status"], {
-      env: cliLaunchEnv(env), encoding: "utf8", timeout: 30_000,
-    });
-    status = JSON.parse(out.stdout);
-  } catch {
-    return "the installed Claude CLI did not report its sign-in, so the planner cannot use it";
-  }
-  const s = status as Record<string, unknown> | null;
-  if (s && s.loggedIn === true) {
-    if (s.authMethod === "claude.ai" && s.apiProvider === "firstParty") return null;
-    return "the installed Claude CLI is signed in with an API key, Bedrock or Vertex, not a claude.ai subscription, so the planner cannot use it";
-  }
-  return "the installed Claude CLI does not report a claude.ai subscription sign-in, so the planner cannot use it";
-}
-
 type CliLaunch = Awaited<ReturnType<typeof loadCliLaunch>>;
 type CliAccount = Extract<CliLaunch, { ok: true }>;
 type CliServed = { ok: true; launch: CliAccount } | { ok: false; message: string };
 
-/** One 'this installed CLI can actually serve this backend' boundary: an
- * installed sign-in the roster calls ready, plus the claude.ai subscription
- * check the decide backend applies. Codex decides its own sign-in inside the
- * kit's backend (a keyring-stored login is refused there as `process`); that
- * kit gap is tracked outside takeone, so it is not reimplemented here. A probe
+/** The installed CLI's own sign-in as the kit's roster reports it. Whether the
+ * backend can serve the run (claude.ai subscription, keyring-stored Codex login)
+ * is decided by the kit's backend at call time, not reimplemented here. A probe
  * that throws only means the found account cannot serve, never a raw error. */
 async function cliReady(config: CliPlannerConfig, env: NodeJS.ProcessEnv, configDir: string | undefined): Promise<CliServed> {
   const name = config.backend === "claude-code" ? "Claude" : "Codex";
   try {
     const launch = await loadCliLaunch(config, env, configDir);
-    if (!launch.ok) return { ok: false, message: launch.message };
-    const refusal = config.backend === "claude-code" ? claudeRefusal(config.bin, env) : null;
-    return refusal === null ? { ok: true, launch } : { ok: false, message: refusal };
+    return launch.ok ? { ok: true, launch } : { ok: false, message: launch.message };
   } catch (e) {
     return { ok: false, message: `the installed ${name} CLI account could not be started (${e instanceof Error ? e.message : String(e)})` };
   }

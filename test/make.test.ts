@@ -256,7 +256,6 @@ test("a saved installed-CLI planner config loads instead of failing the account 
     mkdirSync(join(configDir, "takeone"), { recursive: true });
     const cases = [
       { backend: "codex", account: "installed-codex", bin: "/usr/bin/codex" },
-      { backend: "claude-code", account: "installed-claude", bin: "/usr/bin/claude" },
     ] as const;
     for (const { backend, account, bin } of cases) {
       writeFileSync(join(configDir, "takeone", "planner.json"), JSON.stringify({ backend, auth: "account", account, bin, model: "fixture-model" }));
@@ -338,152 +337,13 @@ process.exit(2);
   }
 });
 
-test("an installed Claude CLI signed in with an API key is not offered, so a stored key still plans", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "takeone-cli-apikey-"));
-  try {
-    const configDir = join(dir, "config");
-    const binDir = join(dir, "bin");
-    mkdirSync(join(configDir, "takeone"), { recursive: true });
-    mkdirSync(binDir);
-    const claude = join(binDir, "claude");
-    writeFileSync(claude, `#!${process.execPath}
-const args = process.argv.slice(2);
-if (args.includes("auth") && args.includes("status")) {
-  process.stdout.write(JSON.stringify({ loggedIn: true, authMethod: "api_key", apiProvider: "firstParty" }) + "\\n");
-  process.exit(0);
-}
-process.exit(2);
-`);
-    chmodSync(claude, 0o755);
-    const store = {
-      get: async (name: string) => (name === "jev" ? "stored-key" : null),
-      set: async () => {}, delete: async () => {},
-    };
-    const resolved = await resolvePlanner({
-      configDir,
-      env: { HOME: dir, XDG_CONFIG_HOME: configDir, PATH: binDir, TAKEONE_NO_KEYRING: "1" },
-      store: store as unknown as Keystore,
-    });
-    assert.equal(resolved.config.backend, "jev", "a sign-in the Claude backend refuses was offered");
-    assert.equal(resolved.key, "stored-key");
-    assert.equal(resolved.active, true);
-    assert.match(resolved.refusal ?? "", /API key/);
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
-});
-
-test("an ambient subscription token does not make a signed-out Claude CLI look ready", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "takeone-cli-token-"));
-  try {
-    const configDir = join(dir, "config");
-    const binDir = join(dir, "bin");
-    mkdirSync(join(configDir, "takeone"), { recursive: true });
-    mkdirSync(binDir);
-    const claude = join(binDir, "claude");
-    writeFileSync(claude, `#!${process.execPath}
-const args = process.argv.slice(2);
-if (args.includes("auth") && args.includes("status")) {
-  const sub = Boolean(process.env.CLAUDE_CODE_OAUTH_TOKEN);
-  process.stdout.write(JSON.stringify({ loggedIn: true, authMethod: sub ? "claude.ai" : "api_key", apiProvider: "firstParty" }) + "\\n");
-  process.exit(0);
-}
-process.exit(2);
-`);
-    chmodSync(claude, 0o755);
-    const store = {
-      get: async (name: string) => (name === "jev" ? "stored-key" : null),
-      set: async () => {}, delete: async () => {},
-    };
-    const resolved = await resolvePlanner({
-      configDir,
-      env: { HOME: dir, XDG_CONFIG_HOME: configDir, PATH: binDir, TAKEONE_NO_KEYRING: "1", CLAUDE_CODE_OAUTH_TOKEN: "ambient-token" },
-      store: store as unknown as Keystore,
-    });
-    assert.equal(resolved.config.backend, "jev", "the probe used a token the Claude backend unsets");
-    assert.equal(resolved.active, true);
-    assert.match(resolved.refusal ?? "", /API key/);
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
-});
-
-test("a Claude CLI that reports signed out is not described as an API-key sign-in", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "takeone-cli-signedout-"));
-  try {
-    const configDir = join(dir, "config");
-    const binDir = join(dir, "bin");
-    mkdirSync(join(configDir, "takeone"), { recursive: true });
-    mkdirSync(binDir);
-    const signedOutHome = join(dir, "signed-out-home");
-    const claude = join(binDir, "claude");
-    writeFileSync(claude, `#!${process.execPath}
-const args = process.argv.slice(2);
-if (args.includes("auth") && args.includes("status")) {
-  const signedOut = process.env.HOME === ${JSON.stringify(signedOutHome)};
-  process.stdout.write(JSON.stringify(signedOut ? { loggedIn: false } : { loggedIn: true, authMethod: "claude.ai", apiProvider: "firstParty" }) + "\\n");
-  process.exit(0);
-}
-process.exit(2);
-`);
-    chmodSync(claude, 0o755);
-    writeFileSync(join(configDir, "takeone", "planner.json"), JSON.stringify({ backend: "claude-code", auth: "account", account: "installed-claude", bin: claude }));
-    const empty = { get: async () => null, set: async () => {}, delete: async () => {} };
-    const resolved = await resolvePlanner({
-      configDir,
-      probe: true,
-      env: { HOME: signedOutHome, XDG_CONFIG_HOME: configDir, PATH: binDir, TAKEONE_NO_KEYRING: "1" },
-      store: empty as unknown as Keystore,
-    });
-    assert.equal(resolved.active, false);
-    assert.doesNotMatch(resolved.refusal ?? "", /API key/);
-    assert.match(resolved.refusal ?? "", /not signed in/);
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
-});
-
-test("a saved installed-CLI account that cannot serve names the refusal instead of claiming a sign-in", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "takeone-cli-refusal-"));
-  try {
-    const configDir = join(dir, "config");
-    const binDir = join(dir, "bin");
-    mkdirSync(join(configDir, "takeone"), { recursive: true });
-    mkdirSync(binDir);
-    const claude = join(binDir, "claude");
-    writeFileSync(claude, `#!${process.execPath}
-const args = process.argv.slice(2);
-if (args.includes("auth") && args.includes("status")) {
-  process.stdout.write(JSON.stringify({ loggedIn: true, authMethod: "api_key", apiProvider: "firstParty" }) + "\\n");
-  process.exit(0);
-}
-process.exit(2);
-`);
-    chmodSync(claude, 0o755);
-    writeFileSync(join(configDir, "takeone", "planner.json"), JSON.stringify({ backend: "claude-code", auth: "account", account: "installed-claude", bin: claude }));
-    const empty = { get: async () => null, set: async () => {}, delete: async () => {} };
-    const resolved = await resolvePlanner({
-      configDir,
-      probe: true,
-      env: { HOME: dir, XDG_CONFIG_HOME: configDir, PATH: binDir, TAKEONE_NO_KEYRING: "1" },
-      store: empty as unknown as Keystore,
-    });
-    assert.equal(resolved.defaulted, false);
-    assert.equal(resolved.active, false);
-    assert.doesNotMatch(resolved.label, /signed-in/);
-    assert.match(resolved.refusal ?? "", /API key/);
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
-});
-
 test("a saved installed-CLI account whose state folder cannot be created is refused, not thrown", async () => {
   const dir = mkdtempSync(join(tmpdir(), "takeone-cli-unusable-"));
   try {
     const configDir = join(dir, "config");
     mkdirSync(join(configDir, "takeone"), { recursive: true });
     writeFileSync(join(configDir, "takeone", "cli-accounts"), "not a directory");
-    writeFileSync(join(configDir, "takeone", "planner.json"), JSON.stringify({ backend: "claude-code", auth: "account", account: "installed-claude", bin: join(dir, "bin", "claude") }));
+    writeFileSync(join(configDir, "takeone", "planner.json"), JSON.stringify({ backend: "codex", auth: "account", account: "installed-codex", bin: join(dir, "bin", "codex") }));
     const empty = { get: async () => null, set: async () => {}, delete: async () => {} };
     const resolved = await resolvePlanner({
       configDir,
@@ -493,7 +353,7 @@ test("a saved installed-CLI account whose state folder cannot be created is refu
     });
     assert.equal(resolved.defaulted, false);
     assert.equal(resolved.active, false);
-    assert.match(resolved.refusal ?? "", /installed Claude CLI account could not be started/);
+    assert.match(resolved.refusal ?? "", /installed Codex CLI account could not be started/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -572,6 +432,7 @@ test("a chosen pi planner that cannot run stops with pi's own check instead of f
 
 test("a signed-in CLI that refuses at call time stops as unavailable, not a silent heuristic render", async () => {
   const dir = newTake();
+  const savedPath = process.env.PATH;
   try {
     const configDir = join(dir, "test-config");
     const binDir = join(dir, "bin");
@@ -587,7 +448,7 @@ if (args.includes("auth") && args.includes("status")) {
 process.exit(2);
 `);
     chmodSync(claude, 0o755);
-    writeFileSync(join(configDir, "takeone", "planner.json"), JSON.stringify({ backend: "claude-code", auth: "account", account: "installed-claude", bin: claude }));
+    process.env.PATH = `${binDir}:${savedPath ?? ""}`;
     await assert.rejects(
       fastTake(dir, { apiKey: undefined, log: () => {}, warn: () => {} }),
       (e: unknown) => {
@@ -599,6 +460,7 @@ process.exit(2);
     );
     assert.ok(!existsSync(join(dir, "out", "t1.mp4")), "rendered despite PlannerUnavailable");
   } finally {
+    process.env.PATH = savedPath;
     rmSync(dir, { recursive: true, force: true });
   }
 });
