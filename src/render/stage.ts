@@ -52,7 +52,8 @@ function bandRows(captions: Caption[], widths: (number | CaptionInk)[], d: Camer
   const titleH = Math.max(0, ...layouts.map((l, i) => captions[i]!.title ? l.h + 2 * l.rise : 0));
   const captionH = Math.max(0, ...layouts.map((l, i) => !captions[i]!.title ? l.h + 2 * l.rise + 2 * d.caption_border : 0));
   const gap = titleH && captionH ? d.caption_size * 0.35 : 0;
-  const padding = d.caption_size * 0.6;
+  // Reserve measured text/rise and title-safe space, not a second large gutter.
+  const padding = d.caption_size * 0.05;
   return { titleH, captionH, gap, padding, band: Math.ceil(titleH + captionH + gap + 2 * padding) };
 }
 
@@ -73,7 +74,8 @@ export function bandLayout(width: number, height: number, d: CameraDefaults, cap
   widths: (number | CaptionInk)[] = []): Band | null {
   if (!bandEligible(width, height, d)) return null;
   const { titleH, captionH, gap, padding, band } = bandRows(captions, widths, d);
-  const top = Math.round(d.out_h * d.stage_margin / (1 + 2 * d.stage_margin));
+  // At 1080p the default card occupies about 85% width; text size stays intact.
+  const top = Math.round(d.out_h * d.stage_margin / (1 + 2 * d.stage_margin) / 4);
   // Band text keeps the bottom 5% of the frame clear, like captions without a band (title safe).
   const safe = Math.max(0, Math.ceil(d.out_h * 0.05 - padding));
   const h = Math.floor((d.out_h - top - band - safe) / 2) * 2;
