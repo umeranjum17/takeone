@@ -183,7 +183,7 @@ export async function resolvePlanner(o: ResolvePlannerOptions = {}): Promise<Res
   // never probed a second time here or per chunk.
   let found = false;
   if (defaulted && o.apiKeyOverride === undefined) {
-    const discovered = await discoverAccount(plannerMember(o), env);
+    const discovered = await discoverAccount(plannerMember(o), env, o.configDir);
     if (discovered.config) {
       config = discovered.config;
       cliLaunch = discovered.cli;
@@ -212,7 +212,7 @@ export async function resolvePlanner(o: ResolvePlannerOptions = {}): Promise<Res
     member = plannerMember(o);
     if (!found) {
       if (c.backend === "claude-code" || c.backend === "codex") {
-        const ready = await cliReady(config as CliPlannerConfig, env);
+        const ready = await cliReady(config as CliPlannerConfig, env, o.configDir);
         accountPresent = ready.ok;
         if (ready.ok) cliLaunch = ready.launch;
         else refusal = ready.message;
@@ -295,10 +295,10 @@ function cliLaunchEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   return { HOME: env.HOME ?? homedir(), PATH: env.PATH ?? "", ...(env.CODEX_HOME ? { CODEX_HOME: env.CODEX_HOME } : {}) };
 }
 
-async function loadCliLaunch(config: CliPlannerConfig, env: NodeJS.ProcessEnv = process.env) {
+async function loadCliLaunch(config: CliPlannerConfig, env: NodeJS.ProcessEnv, configDir: string | undefined) {
   const { cliAccounts } = await import("@byokit/accounts/cli");
   const provider = config.backend === "claude-code" ? "claude" : "codex";
-  const stateDir = join(takeoneConfigDir({ env }), "cli-accounts");
+  const stateDir = join(takeoneConfigDir({ env, configDir }), "cli-accounts");
   mkdirSync(dirname(stateDir), { recursive: true });
   return cliAccounts({ stateDir, bins: { [provider]: config.bin }, env: cliLaunchEnv(env), installed: true }).launch(config.account);
 }
@@ -331,10 +331,10 @@ type CliServed = { ok: true; launch: CliAccount } | { ok: false; message: string
  * kit's backend (a keyring-stored login is refused there as `process`); that
  * kit gap is tracked outside takeone, so it is not reimplemented here. A probe
  * that throws only means the found account cannot serve, never a raw error. */
-async function cliReady(config: CliPlannerConfig, env: NodeJS.ProcessEnv = process.env): Promise<CliServed> {
+async function cliReady(config: CliPlannerConfig, env: NodeJS.ProcessEnv, configDir: string | undefined): Promise<CliServed> {
   const name = config.backend === "claude-code" ? "Claude" : "Codex";
   try {
-    const launch = await loadCliLaunch(config, env);
+    const launch = await loadCliLaunch(config, env, configDir);
     if (!launch.ok) return { ok: false, message: launch.message };
     const refusal = config.backend === "claude-code" ? claudeRefusal(config.bin, env) : null;
     return refusal === null ? { ok: true, launch } : { ok: false, message: refusal };
@@ -369,14 +369,14 @@ interface Discovered {
   cli: CliAccount | null;
 }
 
-async function discoverCliAccount(env: NodeJS.ProcessEnv): Promise<Discovered> {
+async function discoverCliAccount(env: NodeJS.ProcessEnv, configDir: string | undefined): Promise<Discovered> {
   const bins = { claude: executable("claude", env), codex: executable("codex", env) };
   let refusal: string | null = null;
   for (const provider of ["claude", "codex"] as const) {
     const bin = bins[provider];
     if (!bin) continue;
     const config: CliPlannerConfig = { backend: provider === "claude" ? "claude-code" : "codex", auth: "account", account: `installed-${provider}`, bin };
-    const ready = await cliReady(config, env);
+    const ready = await cliReady(config, env, configDir);
     if (ready.ok) return { config, refusal: null, cli: ready.launch };
     refusal ??= ready.message;
   }
@@ -387,8 +387,8 @@ async function discoverCliAccount(env: NodeJS.ProcessEnv): Promise<Discovered> {
  * subscription account, then the stored key and local rules below. The model of
  * a discovered CLI comes from the backend's own default; a subscription account
  * takes the model the kit catalogue lists for it. */
-async function discoverAccount(member: string, env: NodeJS.ProcessEnv): Promise<Discovered> {
-  const cli = await discoverCliAccount(env);
+async function discoverAccount(member: string, env: NodeJS.ProcessEnv, configDir: string | undefined): Promise<Discovered> {
+  const cli = await discoverCliAccount(env, configDir);
   if (cli.config) return cli;
   const chatgptModel = await kitModel("chatgpt");
   if (chatgptModel && await openAIAccountPresent(member, env)) {

@@ -415,12 +415,13 @@ test("a Claude CLI that reports signed out is not described as an API-key sign-i
     const binDir = join(dir, "bin");
     mkdirSync(join(configDir, "takeone"), { recursive: true });
     mkdirSync(binDir);
+    const signedOutHome = join(dir, "signed-out-home");
     const claude = join(binDir, "claude");
     writeFileSync(claude, `#!${process.execPath}
 const args = process.argv.slice(2);
 if (args.includes("auth") && args.includes("status")) {
-  const other = Boolean(process.env.CLAUDE_CONFIG_DIR);
-  process.stdout.write(JSON.stringify(other ? { loggedIn: false } : { loggedIn: true, authMethod: "claude.ai", apiProvider: "firstParty" }) + "\\n");
+  const signedOut = process.env.HOME === ${JSON.stringify(signedOutHome)};
+  process.stdout.write(JSON.stringify(signedOut ? { loggedIn: false } : { loggedIn: true, authMethod: "claude.ai", apiProvider: "firstParty" }) + "\\n");
   process.exit(0);
 }
 process.exit(2);
@@ -431,12 +432,12 @@ process.exit(2);
     const resolved = await resolvePlanner({
       configDir,
       probe: true,
-      env: { HOME: dir, XDG_CONFIG_HOME: configDir, PATH: binDir, TAKEONE_NO_KEYRING: "1", CLAUDE_CONFIG_DIR: join(dir, "other-claude") },
+      env: { HOME: signedOutHome, XDG_CONFIG_HOME: configDir, PATH: binDir, TAKEONE_NO_KEYRING: "1" },
       store: empty as unknown as Keystore,
     });
     assert.equal(resolved.active, false);
     assert.doesNotMatch(resolved.refusal ?? "", /API key/);
-    assert.match(resolved.refusal ?? "", /does not report a claude\.ai subscription sign-in/);
+    assert.match(resolved.refusal ?? "", /not signed in/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
