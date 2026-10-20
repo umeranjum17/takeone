@@ -12,17 +12,23 @@ export interface ProviderPrice {
  * accounting shown to the user. */
 export const PROVIDER_PRICES: Record<string, ProviderPrice> = {
   jev: { inputPerMtok: 0.042 },
+  // An OpenCode Go plan key is billed to the subscription, never API rates.
   "opencode-go": { inputPerMtok: 0 },
   openai: { inputPerMtok: 2 },
   anthropic: { inputPerMtok: null },
+  // pi reports tokens but no price, and the model behind it is the user's own
+  // choice: cost stays unknown rather than guessed.
+  pi: { inputPerMtok: null },
 };
 
 /** Input-only cost estimate for planned/reported tokens, matching the
  * long-standing input-only accounting (output pricing is unverified).
- * Undefined when the backend or its input price is unknown: no estimate is
- * never a fabricated $0. */
-export function estimateUsd(backend: string, inputTokens: number): number | undefined {
-  const price = PROVIDER_PRICES[backend]?.inputPerMtok;
+ * An account-auth config is subscription-billed, so its marginal token cost is
+ * $0 whatever the provider's API list price. Undefined when an apiKey backend
+ * or its input price is unknown: an unknown price is never a fabricated $0. */
+export function estimateUsd(config: { backend: string; auth?: string }, inputTokens: number): number | undefined {
+  if (config.auth === "account") return 0;
+  const price = PROVIDER_PRICES[config.backend]?.inputPerMtok;
   if (typeof price !== "number" || !Number.isFinite(price)) return undefined;
   return (inputTokens * price) / 1e6;
 }
