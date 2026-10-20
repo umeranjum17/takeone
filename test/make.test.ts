@@ -1074,8 +1074,8 @@ test("an over-long AI title is dropped; a title at the 28-character bound fits t
     const long = await fastTake(dir, { apiKey: KEY, fetchImpl: titled("W".repeat(29)), log: () => {}, warn: () => {} });
     assert.equal(long.take.film?.title, undefined, "a title over the bound was kept");
     assert.deepEqual(long.take.film?.captions?.map((c) => c.text), ["Open the File menu"]);
-    // W in Inter Bold is the widest glyph this bound measured: 28 of them ink 1236 px,
-    // inside the 1728 px the 1080p band allows, so this is the widest accepted title.
+    // W in Inter Bold is the widest glyph this bound measured: the compact 43 px title
+    // inks 872 px for 28 of them, inside the 1728 px the 1080p band allows.
     const widest = "W".repeat(28);
     const atBound = mapFilm({ titled: { answer: true, abstained: false, confidence: 1, by: "anthropic", ms: 0, title: widest } as Answer }, [], {}).title;
     assert.equal(atBound, widest, "the planner dropped a title at the bound");

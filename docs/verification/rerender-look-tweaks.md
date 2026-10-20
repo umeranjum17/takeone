@@ -7,6 +7,7 @@ Guide (docs/guide.md) Quickstart 4: re-render an already-planned take with new l
 - Camera/theme overrides at render time: `--theme midnight|paper|aurora|mono|sand|editorial` and `--set key=value` for any token in `src/camera/defaults.ts` (colours like `background=#0B1220`, pacing like `idle_speed=3`, `quality=draft|standard|master`, `max_upscale`, fonts, grain, borders…).
 - Saved theme precedence: a `"theme"` saved in `take.json` by `make --theme` applies on rerender; an explicit `--theme` flag wins; `--set` overrides both.
 - Sidecar outputs: `camera.json`, `camera.cmd`, `render.log` (including libass font selection) and `motion-blur.json` when `motion_blur` sampling runs.
+- Compact landscape title band: the default title is 43 px at 1080p, with body-caption size unchanged. The app card and band text retain the 5% output-safe inset; a default title-only 16:9 export uses about 83.3% of the output width. Captions or larger theme gutters can require a smaller card. See the layout-only proof below; this does not change camera depth or timing.
 - Output aspect and format: `--aspect landscape|portrait|square|4:5` (1920×1080, 1080×1920, 1080×1080, 1080×1350; `16:9`/`9:16`/`1:1` are aliases), `--resolution 4k` (long edge 3840; `4:5` is 3072×3840), and `--format mp4|gif|webm|prores4444`. `--aspect`/`--resolution` re-solve the camera path so every shot re-frames around the action at the chosen ratio. When the output is narrower than the source (9:16/1:1/4:5 from 16:9) the camera crops in to fill — no letterboxed strip, the app fills the frame. GIF/WebM/ProRes transcode from the retained MP4 at the chosen dimensions. Explicit `--set out_w`/`out_h` are overridden by these presets. See `docs/edit-controls.md`.
 - Saved `take.json` cuts: `"cuts":[{"t0":12,"t1":15}]` removes half-open source-second intervals within `trim_start`/`trim_end`. Footage, camera events, clicks and caption starts use the same output clock; surviving captions retain their reading duration. Overlapping, reversed or non-finite cuts and invalid trims reject before writing render artifacts. Manual zooms are not part of this cut/trim control.
 - Saved `take.json` speed: timed regions `"speed":[{"t0":8,"t1":12,"rate":2}]` (rates `0.1..16`) and one untimed `"speed":[{"kind":"type_speed","rate":3}]` that speeds every typing burst detected from the take's own key events (`events.jsonl`, `k:"key"`, `cls:"char"`). Precedence is cuts, timed speed, typing speed, then idle speed; a timed region overrides a typing burst it overlaps. `type_speed` with no typing events has no effect and `render` says so once. Bad entries reject with their field and index (`speed[0].rate (0.1..16)`). See `docs/edit-controls.md`.
@@ -38,6 +39,29 @@ Verify the larger drawn cursor with [vector-cursor.md](vector-cursor.md), includ
 baked-cursor compatibility and the warning/playable-film fallback without samples.
 Report camera measurements and cost/output minute without claiming a depth or
 trajectory improvement from a frame/cursor-only change.
+
+## Compact title-band layout proof
+
+Use the same saved fictional board takes and model decisions on the base and candidate;
+render each copy with `node bin/takeone.mjs render <take> --theme midnight`. Keep the
+real MP4s and whole decoded frames while the title is visible. Measure the resting
+app-card width at 1080p (default title-only layout: 1600/1920 = 83.3333%), confirm the
+title is readable below the card, and check that neither covers the app. Keep source,
+model choices, camera defaults and motion policy unchanged; do not infer a camera
+improvement or uncropped transition text from a resting layout frame.
+
+Run the existing safe-area positive/negative renderer journey, the widest 28-character
+AI-title journey and the bundled-theme/font renderer journey:
+
+```sh
+node --test --test-concurrency=1 --test-name-pattern='the safe-area gate|an over-long AI title|all bundled themes|caption ink meets' test/camera.test.ts test/make.test.ts test/themes.test.ts
+```
+
+The 320x180 push-in is the extreme inset case: source text can touch the fixed card's
+top boundary, so the card itself must remain inside the unchanged 5% inset. Preserve
+the untitled negative control and all title, font, contrast and ink-bound assertions.
+Use the full camera/make/theme suite before delivery; title-band proof is not motion
+qualification.
 
 ## Aspect/format proof on a saved demo take
 

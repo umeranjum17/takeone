@@ -5,6 +5,7 @@ import type { CameraDefaults } from "../camera/defaults.ts";
 import { zMax } from "../camera/solver.ts";
 import type { Beat, CameraFrame, TakeMeta } from "../camera/types.ts";
 import { shutterFrames, type shutterPlan } from "./motion-blur.ts";
+import { SAFE_INSET } from "./safe-area.ts";
 
 export interface Stage {
   w: number;
@@ -52,7 +53,8 @@ function bandRows(captions: Caption[], widths: (number | CaptionInk)[], d: Camer
   const titleH = Math.max(0, ...layouts.map((l, i) => captions[i]!.title ? l.h + 2 * l.rise : 0));
   const captionH = Math.max(0, ...layouts.map((l, i) => !captions[i]!.title ? l.h + 2 * l.rise + 2 * d.caption_border : 0));
   const gap = titleH && captionH ? d.caption_size * 0.35 : 0;
-  const padding = d.caption_size * 0.6;
+  // Reserve measured text/rise and title-safe space, not a second large gutter.
+  const padding = d.caption_size * 0.05;
   return { titleH, captionH, gap, padding, band: Math.ceil(titleH + captionH + gap + 2 * padding) };
 }
 
@@ -73,9 +75,11 @@ export function bandLayout(width: number, height: number, d: CameraDefaults, cap
   widths: (number | CaptionInk)[] = []): Band | null {
   if (!bandEligible(width, height, d)) return null;
   const { titleH, captionH, gap, padding, band } = bandRows(captions, widths, d);
-  const top = Math.round(d.out_h * d.stage_margin / (1 + 2 * d.stage_margin));
-  // Band text keeps the bottom 5% of the frame clear, like captions without a band (title safe).
-  const safe = Math.max(0, Math.ceil(d.out_h * 0.05 - padding));
+  // A push-in can paint text right at the card edge; keep that edge title-safe too.
+  const top = Math.max(Math.ceil(d.out_h * SAFE_INSET),
+    Math.round(d.out_h * d.stage_margin / (1 + 2 * d.stage_margin) / 4));
+  // Band text keeps the bottom inset clear, like captions without a band (title safe).
+  const safe = Math.max(0, Math.ceil(d.out_h * SAFE_INSET - padding));
   const h = Math.floor((d.out_h - top - band - safe) / 2) * 2;
   if (h <= 0) throw new Error("text is too tall for the stage band");
   const w = even(h * d.out_w / d.out_h);
@@ -409,7 +413,8 @@ function captionMargin(size: number, d: CameraDefaults): number {
   return Math.ceil(d.out_w * 0.05 + size * 0.75);
 }
 
-const titleSize = (d: CameraDefaults, band = true) => Math.round(d.caption_size * (band ? 1.6 : 1.4));
+// A compact band title stays larger than the caption without squeezing the app card.
+const titleSize = (d: CameraDefaults, band = true) => Math.round(d.caption_size * (band ? 1.125 : 1.4));
 const textSize = (caption: Caption, d: CameraDefaults, band = false) =>
   caption.title ? titleSize(d, band) : d.caption_size;
 
