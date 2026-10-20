@@ -152,7 +152,7 @@ test("doctor and make use a signed-in installed Claude CLI without a planner key
   const binDir = join(dir, "bin");
   mkdirSync(binDir);
   const cli = join(binDir, "claude");
-  writeFileSync(cli, `#!/usr/bin/env node
+  writeFileSync(cli, `#!${process.execPath}
 const args = process.argv.slice(2);
 if (args.includes("auth") && args.includes("status")) {
   process.stdout.write(JSON.stringify({ loggedIn: true, authMethod: "claude.ai", apiProvider: "firstParty" }) + "\\n");
@@ -177,7 +177,6 @@ if (args.includes("auth") && args.includes("status")) {
       HOME: home,
       XDG_CONFIG_HOME: join(home, ".config"),
       PATH: `${binDir}:${process.env.PATH ?? "/usr/bin:/bin"}`,
-      TAKEONE_NO_KEYRING: "1",
     };
     const doctor = run(["doctor"], { env });
     assert.equal(doctor.status, 0, doctor.stderr);
