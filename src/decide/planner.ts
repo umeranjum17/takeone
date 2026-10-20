@@ -291,32 +291,23 @@ async function openAIAccountPresent(member: string, env: NodeJS.ProcessEnv = pro
 
 /** The launch environment of the person's installed Claude or Codex CLI: no
  * folder variable, so their own sign-in answers. */
+function cliLaunchEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  return { HOME: env.HOME ?? homedir(), PATH: env.PATH ?? "", ...(env.CODEX_HOME ? { CODEX_HOME: env.CODEX_HOME } : {}) };
+}
+
 async function loadCliLaunch(config: CliPlannerConfig, env: NodeJS.ProcessEnv = process.env) {
   const { cliAccounts } = await import("@byokit/accounts/cli");
   const provider = config.backend === "claude-code" ? "claude" : "codex";
   const stateDir = join(takeoneConfigDir({ env }), "cli-accounts");
   mkdirSync(dirname(stateDir), { recursive: true });
-  const cliEnv = { HOME: env.HOME ?? homedir(), PATH: env.PATH ?? "", ...(env.CODEX_HOME ? { CODEX_HOME: env.CODEX_HOME } : {}) };
-  return cliAccounts({ stateDir, bins: { [provider]: config.bin }, env: cliEnv, installed: true }).launch(config.account);
-}
-
-const CLAUDE_BILLING_ROUTES = new Set([
-  "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX", "CLAUDE_CODE_USE_FOUNDRY", "CLAUDE_CODE_USE_ANTHROPIC_AWS",
-  "CLAUDE_CODE_USE_MANTLE", "ANTHROPIC_PROFILE", "ANTHROPIC_FEDERATION_RULE_ID", "ANTHROPIC_BASE_URL",
-]);
-
-/** The environment the Claude backend builds: the person's own values minus
- * API-billed keys and billing routes, so the probe reads the same sign-in the
- * backend will. */
-function claudeProbeEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
-  return Object.fromEntries(Object.entries(env).filter(([key]) => !/KEY|TOKEN|SECRET|^NODE_OPTIONS$/i.test(key) && !CLAUDE_BILLING_ROUTES.has(key)));
+  return cliAccounts({ stateDir, bins: { [provider]: config.bin }, env: cliLaunchEnv(env), installed: true }).launch(config.account);
 }
 
 function claudeRefusal(bin: string, env: NodeJS.ProcessEnv): string | null {
   let status: unknown = null;
   try {
     const out = spawnSync(bin, ["--safe-mode", "--setting-sources", "", "auth", "status"], {
-      env: claudeProbeEnv(env), encoding: "utf8", timeout: 30_000,
+      env: cliLaunchEnv(env), encoding: "utf8", timeout: 30_000,
     });
     status = JSON.parse(out.stdout);
   } catch {
