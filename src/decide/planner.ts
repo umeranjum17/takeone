@@ -291,8 +291,13 @@ async function openAIAccountPresent(member: string, env: NodeJS.ProcessEnv = pro
 
 /** The launch environment of the person's installed Claude or Codex CLI: no
  * folder variable, so their own sign-in answers. */
-function cliLaunchEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
-  return { HOME: env.HOME ?? homedir(), PATH: env.PATH ?? "", ...(env.CODEX_HOME ? { CODEX_HOME: env.CODEX_HOME } : {}) };
+function cliLaunchEnv(env: NodeJS.ProcessEnv): { HOME: string; PATH: string } & Record<string, string> {
+  return {
+    HOME: env.HOME ?? homedir(),
+    PATH: env.PATH ?? "",
+    ...(env.CODEX_HOME ? { CODEX_HOME: env.CODEX_HOME } : {}),
+    ...(env.CLAUDE_CONFIG_DIR ? { CLAUDE_CONFIG_DIR: env.CLAUDE_CONFIG_DIR } : {}),
+  };
 }
 
 async function loadCliLaunch(config: CliPlannerConfig, env: NodeJS.ProcessEnv, configDir: string | undefined) {
