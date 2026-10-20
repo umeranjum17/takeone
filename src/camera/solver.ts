@@ -87,7 +87,7 @@ export function clippedFractions(view: Pick<CameraFrame, "x" | "y" | "w" | "h">,
 }
 
 /** Enclosing perception panels take priority over the requested tightness. */
-function withContext(zone: Zone, boxes: Box[], width: number, height: number, d: CameraDefaults): Zone {
+function withContext(zone: Zone, boxes: Box[], width: number, height: number, d: CameraDefaults, level: number): Zone {
   const baseW = baseWidth(width, height, d);
   const fits = (z: Zone) => z.bbox[2] <= baseW && z.bbox[3] <= baseW * d.out_h / d.out_w;
   let subject = zone;
@@ -101,6 +101,9 @@ function withContext(zone: Zone, boxes: Box[], width: number, height: number, d:
       && x + w / 2 <= box[0] + box[2] && y + h / 2 <= box[1] + box[3];
     if (contains || containsClick) subject = mergeZones(subject, { ...zone, bbox: box });
   }
+  // Close-ups retain their enclosing dialog, not an unrelated neighbouring card.
+  // Level 1 still supplies that extra context; the planner chooses the level.
+  if (level >= 2) return subject;
   // A whole card alone can still leave a mostly empty shot. Keep its closest
   // separate surface when the gap is smaller than the focused surface itself.
   const [sx, sy, sw, sh] = subject.bbox;
@@ -348,7 +351,7 @@ export function frame(
   }
 
   const boxes = zone.boxes ?? [];
-  zone = withContext(zone, boxes, width, height, d);
+  zone = withContext(zone, boxes, width, height, d, level);
 
   const [x, y, zoneW, zoneH] = zone.bbox;
   // A fullscreen window gives no context framing (L1 would be the whole
@@ -694,7 +697,7 @@ function buildDrafts(
       build: (until) => framed(shot.zoneA, shot.arrival, until),
       importance: shot.decision.K,
       p: shot.decision.decided_by === "ai" ? shot.decision.p : undefined,
-      subject: withContext(shot.zoneA, inShot(shot.zoneA), width, height, d),
+      subject: withContext(shot.zoneA, inShot(shot.zoneA), width, height, d, shot.decision.L),
       boxes: inShot(shot.zoneA),
       screenChange: shot.beat.kind === "change",
       startAfter: shot.beat.kind === "cut" ? (narrow ? undefined : cutSettledAt(shot.beat, shot.arrival, d))
@@ -708,7 +711,7 @@ function buildDrafts(
         build: (until) => framed(shot.zoneB, resultTime + d.result_late, until),
         importance: shot.decision.K,
         p: shot.decision.decided_by === "ai" ? shot.decision.p : undefined,
-        subject: withContext(shot.zoneB, inShot(shot.zoneB), width, height, d),
+        subject: withContext(shot.zoneB, inShot(shot.zoneB), width, height, d, shot.decision.L),
         boxes: inShot(shot.zoneB),
       });
     }

@@ -4,6 +4,7 @@
 import type { Beat, BBox, Decision, PlannerAnswers, Tightness, Zone } from "../types.ts";
 import { bboxArea } from "../types.ts";
 import { WIN_MAX_COVER } from "../beats/zones.ts";
+import { DEFAULTS } from "../camera/defaults.ts";
 
 export const LOW_CONF = 0.5;
 export const WIDE_UNION_FRAC = 0.7; // union of top two over this -> all
@@ -36,12 +37,12 @@ export function frameRect(
     ) {
       r = [...win];
     } else {
-      r = pad(zone.bbox, 2.2);
+      r = pad(zone.bbox, DEFAULTS.l1_pad);
     }
   } else if (L === 2) {
-    r = pad(zone.bbox, 1.8);
+    r = pad(zone.bbox, DEFAULTS.l2_pad);
   } else {
-    r = pad(zone.bbox, 1.35);
+    r = pad(zone.bbox, DEFAULTS.l3_pad);
   }
   // expand the short side to the output aspect
   const ar = o.aspect ?? 16 / 9;
