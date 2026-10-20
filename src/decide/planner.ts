@@ -334,8 +334,8 @@ function executable(name: string, env: NodeJS.ProcessEnv): string | undefined {
 }
 
 async function kitModel(provider: "chatgpt" | "opencode"): Promise<string> {
-  const { PROVIDERS } = await import("@byokit/accounts");
-  return PROVIDERS[provider].models.strong;
+  const { provider: catalogue } = await import("@byokit/accounts");
+  return catalogue(provider).models.strong;
 }
 
 interface Discovered {
