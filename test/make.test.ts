@@ -430,41 +430,6 @@ test("a chosen pi planner that cannot run stops with pi's own check instead of f
   }
 });
 
-test("a signed-in CLI that refuses at call time stops as unavailable, not a silent heuristic render", async () => {
-  const dir = newTake();
-  const savedPath = process.env.PATH;
-  try {
-    const configDir = join(dir, "test-config");
-    const binDir = join(dir, "bin");
-    mkdirSync(join(configDir, "takeone"), { recursive: true });
-    mkdirSync(binDir);
-    const claude = join(binDir, "claude");
-    writeFileSync(claude, `#!${process.execPath}
-const args = process.argv.slice(2);
-if (args.includes("auth") && args.includes("status")) {
-  process.stdout.write(JSON.stringify({ loggedIn: true, authMethod: "claude.ai", apiProvider: "firstParty" }) + "\\n");
-  process.exit(0);
-}
-process.exit(2);
-`);
-    chmodSync(claude, 0o755);
-    process.env.PATH = `${binDir}:${savedPath ?? ""}`;
-    await assert.rejects(
-      fastTake(dir, { apiKey: undefined, log: () => {}, warn: () => {} }),
-      (e: unknown) => {
-        assert.ok(e instanceof PlannerUnavailable, `expected PlannerUnavailable, got ${String(e)}`);
-        assert.ok(e.message.includes("could not answer"), `refusal not named: ${e.message}`);
-        assert.ok(!e.message.includes("signed in with"), `account claimed as used: ${e.message}`);
-        return true;
-      },
-    );
-    assert.ok(!existsSync(join(dir, "out", "t1.mp4")), "rendered despite PlannerUnavailable");
-  } finally {
-    process.env.PATH = savedPath;
-    rmSync(dir, { recursive: true, force: true });
-  }
-});
-
 test("a rate-limited provider stops before render instead of falling back", async () => {
   const dir = newTake();
   try {

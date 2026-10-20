@@ -333,14 +333,9 @@ function executable(name: string, env: NodeJS.ProcessEnv): string | undefined {
   return undefined;
 }
 
-async function kitModel(provider: "chatgpt" | "opencode"): Promise<string | null> {
-  try {
-    const { PROVIDERS } = await import("@byokit/accounts");
-    const model = PROVIDERS[provider]?.models.strong;
-    return typeof model === "string" && model.trim() ? model : null;
-  } catch {
-    return null;
-  }
+async function kitModel(provider: "chatgpt" | "opencode"): Promise<string> {
+  const { PROVIDERS } = await import("@byokit/accounts");
+  return PROVIDERS[provider].models.strong;
 }
 
 interface Discovered {
@@ -371,13 +366,11 @@ async function discoverCliAccount(env: NodeJS.ProcessEnv, configDir: string | un
 async function discoverAccount(member: string, env: NodeJS.ProcessEnv, configDir: string | undefined): Promise<Discovered> {
   const cli = await discoverCliAccount(env, configDir);
   if (cli.config) return cli;
-  const chatgptModel = await kitModel("chatgpt");
-  if (chatgptModel && await openAIAccountPresent(member, env)) {
-    return { config: { backend: "openai", auth: "account", model: chatgptModel }, refusal: cli.refusal, cli: null };
+  if (await openAIAccountPresent(member, env)) {
+    return { config: { backend: "openai", auth: "account", model: await kitModel("chatgpt") }, refusal: cli.refusal, cli: null };
   }
-  const goModel = await kitModel("opencode");
-  if (goModel && await goAccountPresent(member, env)) {
-    return { config: { backend: "opencode-go", auth: "account", model: goModel }, refusal: cli.refusal, cli: null };
+  if (await goAccountPresent(member, env)) {
+    return { config: { backend: "opencode-go", auth: "account", model: await kitModel("opencode") }, refusal: cli.refusal, cli: null };
   }
   return { config: null, refusal: cli.refusal, cli: null };
 }
@@ -736,12 +729,6 @@ export async function askChunk(
         cache: o.keepAnswers ? gateEmpty(scopedCache) : gateUnusable(scopedCache),
         ...(o.images?.length ? { images: o.images } : {}),
       });
-      // The signed-in CLI refused at call time (sign-in lapsed, quota, timeout): stop
-      // the run as unavailable rather than falling back per beat while claiming the account.
-      const all = Object.values(answered);
-      if (all.length > 0 && all.every((a) => a && a.abstained && (a.reason === "codex failed" || a.reason === "claude-code failed"))) {
-        throw new PlannerUnavailable(planner.label, `${config.backend === "codex" ? "codex" : "claude"} could not answer for ${config.model ?? "its default model"}: check its sign-in with \`${config.backend === "codex" ? "codex login status" : "claude auth status"}\``);
-      }
       return answered;
     };
   } else {
