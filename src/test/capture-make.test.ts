@@ -240,7 +240,7 @@ test("capture make --plan-only prices the plan without network or render", { ski
   }
 });
 
-test("doctor, make and capture never read the planner key from the environment", { skip: needsFfmpeg }, async () => {
+test("doctor, make and capture never read the planner key from the environment", async () => {
   const { home, cleanup } = withHome();
   const dir = buildTake();
   const env = { HOME: home, PATH: ffmpegToolsPath(home), TYPESAFE_API_KEY: "bogus-env-key" };
@@ -335,7 +335,7 @@ test("capture make render failure uses the envelope with exit 1", { skip: needsF
   }
 });
 
-test("capture make with an fd key stops loudly when planner.json names account auth", { skip: needsFfmpeg }, async () => {
+test("capture make with an fd key stops loudly when planner.json names account auth", async () => {
   const { home, cleanup } = withHome();
   const dir = buildTake();
   try {

@@ -5,12 +5,12 @@ import { test } from "node:test";
 import { estimateUsd } from "../decide/prices.ts";
 
 test("estimateUsd returns undefined for an unknown backend id", () => {
-  assert.equal(estimateUsd({ backend: "not-a-backend" }, 1000), undefined);
+  assert.equal(estimateUsd("not-a-backend", 1000), undefined);
 });
 
 test("estimateUsd prices account and OpenCode Go plan-key routes at zero, and an OpenAI apiKey route at its list price", () => {
-  assert.equal(estimateUsd({ backend: "openai", auth: "account" }, 1_000_000), 0);
-  assert.equal(estimateUsd({ backend: "opencode-go", auth: "account" }, 1_000_000), 0);
-  assert.equal(estimateUsd({ backend: "opencode-go", auth: "apiKey" }, 1_000_000), 0);
-  assert.equal(estimateUsd({ backend: "openai", auth: "apiKey" }, 1_000_000), 2);
+  assert.equal(estimateUsd("openai", 1_000_000, "account"), 0);
+  assert.equal(estimateUsd("opencode-go", 1_000_000, "account"), 0);
+  assert.equal(estimateUsd("opencode-go", 1_000_000, "apiKey"), 0);
+  assert.equal(estimateUsd("openai", 1_000_000, "apiKey"), 2);
 });

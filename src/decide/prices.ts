@@ -26,9 +26,9 @@ export const PROVIDER_PRICES: Record<string, ProviderPrice> = {
  * An account-auth config is subscription-billed, so its marginal token cost is
  * $0 whatever the provider's API list price. Undefined when an apiKey backend
  * or its input price is unknown: an unknown price is never a fabricated $0. */
-export function estimateUsd(config: { backend: string; auth?: string }, inputTokens: number): number | undefined {
-  if (config.auth === "account") return 0;
-  const price = PROVIDER_PRICES[config.backend]?.inputPerMtok;
+export function estimateUsd(backend: string, inputTokens: number, auth?: string): number | undefined {
+  if (auth === "account") return 0;
+  const price = PROVIDER_PRICES[backend]?.inputPerMtok;
   if (typeof price !== "number" || !Number.isFinite(price)) return undefined;
   return (inputTokens * price) / 1e6;
 }
