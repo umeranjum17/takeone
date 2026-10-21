@@ -21,7 +21,7 @@ The same command works on macOS and Linux. npm 12 refuses the tarball URL withou
 
 Installing straight from git (`npm install -g github:umeranjum17/takeone`) does not work: npm 10 and 11 break the build of a git package during a global install, and npm 12 blocks git packages by default. To work on takeone itself, install from source:
 
-Requires Node.js 22.19+ and `ffmpeg` on PATH. Optional: `tesseract` for screen-word OCR (read by default when the planner runs). Recording the desktop additionally needs Linux on Wayland with Hyprland (see [Recording](recording.md)); recording a phone needs `adb` on PATH and an attached device with USB debugging; recording the iOS Simulator needs macOS with Xcode (`xcrun simctl`), `ffprobe` on PATH, and a booted simulator; planning and rendering an existing recording take do not require those capture prerequisites. Motion setup requirements are documented in [Motion renders](motion.md).
+Requires Node.js 22.19+ and `ffmpeg` on PATH. Optional: `tesseract` for screen-word OCR (read by default when the planner runs). Recording the desktop additionally needs Linux on Wayland with Hyprland, or macOS for the desktop preview (see [Recording](recording.md)); recording a phone needs `adb` on PATH and an attached device with USB debugging; recording the iOS Simulator needs macOS with Xcode (`xcrun simctl`), `ffprobe` on PATH, and a booted simulator; planning and rendering an existing recording take do not require those capture prerequisites. Motion setup requirements are documented in [Motion renders](motion.md).
 
 ```sh
 git clone https://github.com/umeranjum17/takeone
@@ -101,7 +101,7 @@ unset jev_key store_passphrase
 
 Re-run `make` without `--no-ai`. Add `--goal "what the demo shows"` for sharper key moments, `--style calm` for the film's manner, and `--replan` to ask the planner again instead of reusing saved answers.
 
-### 3. Record your own take (Linux, Wayland, Hyprland)
+### 3. Record your own take (Linux on Wayland with Hyprland, or macOS desktop preview)
 
 ```sh
 takeone record                # grant the screen-share consent; share only the output you are demoing
