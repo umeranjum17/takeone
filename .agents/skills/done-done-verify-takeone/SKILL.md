@@ -22,6 +22,7 @@ When the repo's .done-done.yaml has an instance block, done-done already runs th
 Harness: Shell (bash), with ffmpeg and ffprobe to decode frames; a browser tool is needed only for the scene.html feature. Drive through the repo's real handles that each feature file names:
 
 - [Render a synthetic take to a framed demo MP4 offline](features/render-a-synthetic-take-to-a-framed-demo.md): Run the README quick start from a git checkout: install dependencies, then generate the demo take (`scripts/synth-take.ts`)
+- [Render a fast preview of the same film](features/render-a-fast-preview-of-the-same-film.md): `takeone render <take> --preview` renders the same camera path at about 480p and 30 fps from a 1080p proxy; `camera.json` must stay byte-identical to the full render's
 - [Check the rendered offline MP4 visually](features/check-the-rendered-offline-mp4-visually.md): After make writes the MP4, run the offline-render journey's visual check on the take (`scripts/verification/visual-check.ts`)
 - [Drive the Tidewater board in a browser through the staged scene](features/drive-the-tidewater-board-in-a-browser-t.md): Open scripts/e2e/scene.html directly as a file:// page; it is the staged Tidewater board used by the e2e takes (`scripts/e2e/scene.html`)
 - [Run the repo's static checks as a verification journey](features/run-the-repo-s-static-checks-as-a-verifi.md): From a checkout, run the checks journey (`scripts/floor-guard.mjs`)

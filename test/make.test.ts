@@ -143,6 +143,29 @@ test("make --no-ai renders the agreed beat/decision files into a tiny test MP4",
   }
 });
 
+test("render --preview frames the film like the full render, at preview speed", { skip: needsFfmpeg }, async () => {
+  const dir = newTake();
+  try {
+    const look = ["--theme", "paper", "--set", "preset=veryfast", "--set", "out_w=320", "--set", "out_h=180",
+      "--set", "ripple_ms=0", "--set", "fade_s=0"];
+    assert.equal(await main(["make", dir, "--no-ai", ...look]), 0);
+    const fullPath = join(dir, "camera.json");
+    const fullCamera = readFileSync(fullPath, "utf8");
+    // The preview writes its own file and leaves the full render's export alone.
+    assert.equal(await main(["render", dir, ...look, "--preview"]), 0);
+    assert.ok(existsSync(join(dir, "out", "t1-preview.mp4")));
+    // The camera path is the full render's, solved at full resolution: the preview frames
+    // the film the same way, so camera.json is byte-identical.
+    assert.equal(readFileSync(fullPath, "utf8"), fullCamera);
+    const probe = JSON.parse(execFileSync("ffprobe", ["-v", "error", "-select_streams", "v:0",
+      "-show_entries", "stream=width,height,r_frame_rate", "-of", "json", join(dir, "out", "t1-preview.mp4")], { encoding: "utf8" }));
+    assert.deepEqual([probe.streams[0].width, probe.streams[0].height], [320, 180]);
+    assert.equal(probe.streams[0].r_frame_rate, "30/1");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("make handles an empty focused window without retaining the previous window", { skip: needsFfmpeg }, async () => {
   const dir = newTake();
   try {
