@@ -615,6 +615,19 @@ test("a drag that reaches the screen edge stays visible through the closing ease
   }
 });
 
+test("a drag with no whole object holds the screen wide for the drag, not for the whole beat around it", () => {
+  const click = beat("click", 4, 400);
+  const dragging = beat("dragging", 9, 400, "drag");
+  dragging.t0 = 8;
+  dragging.t1 = 26;
+  dragging.actions = [{ k: "drag", t0: 14000, t1: 15500, from: [280, 720], to: [570, 855], bbox: [130, 640, 300, 160] }];
+  const frames = solveCamera([click, dragging], [decision(click, 2), decision(dragging, 2)],
+    { width: 3840, height: 2160, trim_end: 34 }, DEFAULTS);
+  const at = (t: number) => frames[Math.round(t * DEFAULTS.fps)]!;
+  for (const t of [14, 15, 15.5]) assert.equal(at(t).w, 3840, `wide through the drag at ${t}`);
+  for (const t of [10, 20, 24]) assert.ok(at(t).w < 3840 * 0.6, `back on the shot at ${t}: ${at(t).w}`);
+});
+
 // J2 whole-element framing on every emitted frame: while the camera prepares
 // the incoming selected header, the revealed Tidewater result must stay whole
 // through the hold, the header must be whole from the first prepared frame,

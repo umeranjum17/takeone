@@ -820,10 +820,13 @@ function createMove(from: CameraState, to: CameraState, arrival: number, baseW: 
   const viewportW = baseW / from.z;
   const pan = Math.hypot(to.cx - from.cx, to.cy - from.cy) / viewportW;
   const hop = from.z > d.hop_zoom && to.z > d.hop_zoom && pan > d.hop_pan;
-  const duration = moveDuration(distance(from, to, baseW), d) * (hop ? d.hop_t_scale : 1);
   const mid = hop
     ? { cx: (from.cx + to.cx) / 2, cy: (from.cy + to.cy) / 2, z: Math.max(1, Math.min(from.z, to.z) / d.hop_zoom_div) }
     : from;
+  // Smootherstep peaks at 15/8; leave headroom below the 1 ln/s output bar.
+  const zoom = hop ? 2 * Math.max(Math.abs(Math.log(mid.z / from.z)), Math.abs(Math.log(to.z / mid.z)))
+    : Math.abs(Math.log(to.z / from.z));
+  const duration = Math.max(moveDuration(distance(from, to, baseW), d) * (hop ? d.hop_t_scale : 1), 1.875 * zoom / 0.9);
   const start = Math.max(arrival - duration, startAfter);
   return { from, to, mid, start, end: start + duration, hop };
 }
@@ -904,14 +907,20 @@ function followPointer(
   if (Math.abs(dx) <= viewportW * d.follow_inner / 2
     && Math.abs(dy) <= viewportH * d.follow_inner / 2) return state;
 
+  // Aim at the inner zone's edge, not the pointer: the target is the nominal view while the pointer
+  // is inside the zone and grows from there, so it never jumps as the pointer crosses the boundary.
+  const targetX = state.cx + (Math.abs(dx) <= viewportW * d.follow_inner / 2 ? 0
+    : dx - Math.sign(dx) * viewportW * d.follow_inner / 2);
+  const targetY = state.cy + (Math.abs(dy) <= viewportH * d.follow_inner / 2 ? 0
+    : dy - Math.sign(dy) * viewportH * d.follow_inner / 2);
   const omega = d.follow_omega;
   const decay = Math.exp(-omega * dt);
-  const offsetX = previous.cx - (subject.x as number);
-  const offsetY = previous.cy - (subject.y as number);
+  const offsetX = previous.cx - targetX;
+  const offsetY = previous.cy - targetY;
   const oldVelocityX = velocity.x;
   const oldVelocityY = velocity.y;
-  const nextX = (subject.x as number) + (offsetX + (oldVelocityX + omega * offsetX) * dt) * decay;
-  const nextY = (subject.y as number) + (offsetY + (oldVelocityY + omega * offsetY) * dt) * decay;
+  const nextX = targetX + (offsetX + (oldVelocityX + omega * offsetX) * dt) * decay;
+  const nextY = targetY + (offsetY + (oldVelocityY + omega * offsetY) * dt) * decay;
   velocity.x = (oldVelocityX - omega * (oldVelocityX + omega * offsetX) * dt) * decay;
   velocity.y = (oldVelocityY - omega * (oldVelocityY + omega * offsetY) * dt) * decay;
   return { ...state, cx: nextX, cy: nextY };
@@ -1029,6 +1038,7 @@ function sampleCamera(
   const filterVelocity = { cx: 0, cy: 0, lz: 0 };
   let lastZoomMotion = start;
   let lastZoomDirection = 0;
+  let lastFollow = -Infinity;
   const frames: CameraFrame[] = [];
   const intentTimes = beats.flatMap((beat) => beat.actions).flatMap((action) => {
     const event = action as { k?: string; t?: number; t0?: number };
@@ -1125,7 +1135,8 @@ function sampleCamera(
       // a visible hold between opposite zooms once the spring settles.
       const zoomHold = reversing ? Math.max(heldUntil, lastZoomMotion + d.min_shot) : heldUntil;
       const earliest = urgent ? Math.max(start + d.establish_s, target.startAfter ?? start, previousTime)
-        : Math.max(start + d.establish_s, target.startAfter ?? 0, zoomHold, previousTime);
+        : Math.max(start + d.establish_s, target.startAfter ?? 0, zoomHold, previousTime,
+          lastFollow + d.min_shot + 3 / d.follow_omega);
       let candidateMove = createMove(state, target.state, target.t, baseW, d, earliest);
       // A crop-to-fill view has no slack around its subject: arrive with the
       // spring settled, not merely the ideal path.
@@ -1228,10 +1239,20 @@ function sampleCamera(
     const revealing = reveals.some((reveal) => time >= reveal.start && time <= reveal.end);
     // A crop-to-fill drag is framed by its grab and carried to its drop: following the
     // beat's clicks would pull the view off the dragged surface.
-    if (activeBeat && !revealing && !drag && !(narrow && gestures(activeBeat).length)) {
-      state = followPointer(state, previousFiltered, activeBeat, decisions, baseW,
+    // A move's spring tail is not followed: the follow would fight the settling arrival.
+    let followed = state;
+    if (activeBeat && !revealing && !drag && !(narrow && gestures(activeBeat).length)
+      && !(move && time < move.end + 3 / d.lowpass_omega)) {
+      followed = followPointer(state, previousFiltered, activeBeat, decisions, baseW,
         time, time - previousTime, velocity, d);
     }
+    // Where the follow leaves the view it stays for a readable hold, instead of snapping
+    // back to the nominal view the moment the pointer returns inside the inner zone.
+    if (followed.cx !== state.cx || followed.cy !== state.cy) lastFollow = time;
+    else if (time - lastFollow < d.min_shot + 0.5 && !(move && time < move.end) && !drag) {
+      followed = { ...state, cx: previousFiltered.cx, cy: previousFiltered.cy };
+    }
+    state = followed;
 
     // Constrain the requested viewport before filtering. Clamping the spring's
     // output instead turns a smooth edge arrival into an abrupt velocity stop.
