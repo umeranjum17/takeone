@@ -867,6 +867,26 @@ function spring(value: number, velocity: number, target: number, dt: number, ome
   ];
 }
 
+/** The nearest view to a centre that `ok` accepts, searched in rings of `step` source px: a follow
+ * lands only on a view whose edges cut no word and that still shows the pointer. Along an axis it
+ * travels (sign sx, sy) it may go on the way it is going but never back, so the follow never reverses. */
+function cleanAim(x: number, y: number, sx: number, sy: number, step: number,
+  ok: (cx: number, cy: number) => boolean): [number, number] {
+  if (ok(x, y)) return [x, y];
+  for (let k = 1; k <= 80; k++) {
+    let best: [number, number] | undefined, cost = Infinity;
+    for (let i = -k; i <= k; i++) for (let j = -k; j <= k; j++) {
+      if (Math.max(Math.abs(i), Math.abs(j)) !== k || (sx && i * sx < 0) || (sy && j * sy < 0)) continue;
+      const c = i * i + j * j;
+      if (c < cost && ok(x + i * step, y + j * step)) { best = [x + i * step, y + j * step]; cost = c; }
+    }
+    if (best) return best;
+  }
+  return [x, y];
+}
+
+const cleanStep = (viewportW: number) => Math.max(2, viewportW / 640);
+
 function followPointer(
   state: CameraState,
   previous: CameraState,
@@ -877,6 +897,8 @@ function followPointer(
   dt: number,
   velocity: { x: number; y: number },
   d: CameraDefaults,
+  ok?: (cx: number, cy: number) => boolean,
+  seen?: { x: number; y: number },
 ): CameraState {
   // The planner's follow answer: a beat it says should not be followed keeps the camera where it is.
   if (decisions.get(beat.id)?.follow === false) return state;
@@ -909,10 +931,12 @@ function followPointer(
 
   // Aim at the inner zone's edge, not the pointer: the target is the nominal view while the pointer
   // is inside the zone and grows from there, so it never jumps as the pointer crosses the boundary.
-  const targetX = state.cx + (Math.abs(dx) <= viewportW * d.follow_inner / 2 ? 0
+  let targetX = state.cx + (Math.abs(dx) <= viewportW * d.follow_inner / 2 ? 0
     : dx - Math.sign(dx) * viewportW * d.follow_inner / 2);
-  const targetY = state.cy + (Math.abs(dy) <= viewportH * d.follow_inner / 2 ? 0
+  let targetY = state.cy + (Math.abs(dy) <= viewportH * d.follow_inner / 2 ? 0
     : dy - Math.sign(dy) * viewportH * d.follow_inner / 2);
+  if (seen) Object.assign(seen, { x: subject.x, y: subject.y });
+  if (ok) [targetX, targetY] = cleanAim(targetX, targetY, Math.sign(targetX - state.cx), Math.sign(targetY - state.cy), cleanStep(baseW / state.z), ok);
   const omega = d.follow_omega;
   const decay = Math.exp(-omega * dt);
   const offsetX = previous.cx - targetX;
@@ -1039,6 +1063,12 @@ function sampleCamera(
   let lastZoomMotion = start;
   let lastZoomDirection = 0;
   let lastFollow = -Infinity;
+  // A followed view is held until the view has settled and then rested a shot's length; its rest
+  // view must be clean for all of that, and shows the pointer.
+  const followRest = d.min_shot + 12 / d.follow_omega;
+  const pointer = { x: 0, y: 0 };
+  let rest: [number, number] | undefined;
+  let held = { cx: 0, cy: 0, vx: 0, vy: 0 };
   const frames: CameraFrame[] = [];
   const intentTimes = beats.flatMap((beat) => beat.actions).flatMap((action) => {
     const event = action as { k?: string; t?: number; t0?: number };
@@ -1136,7 +1166,7 @@ function sampleCamera(
       const zoomHold = reversing ? Math.max(heldUntil, lastZoomMotion + d.min_shot) : heldUntil;
       const earliest = urgent ? Math.max(start + d.establish_s, target.startAfter ?? start, previousTime)
         : Math.max(start + d.establish_s, target.startAfter ?? 0, zoomHold, previousTime,
-          lastFollow + d.min_shot + 3 / d.follow_omega);
+          lastFollow + followRest);
       let candidateMove = createMove(state, target.state, target.t, baseW, d, earliest);
       // A crop-to-fill view has no slack around its subject: arrive with the
       // spring settled, not merely the ideal path.
@@ -1240,17 +1270,39 @@ function sampleCamera(
     // A crop-to-fill drag is framed by its grab and carried to its drop: following the
     // beat's clicks would pull the view off the dragged surface.
     // A move's spring tail is not followed: the follow would fight the settling arrival.
+    const restOk = (nominal: CameraState) => (cx: number, cy: number) => {
+      const view = toFrame({ ...nominal, cx, cy }, width, height, d);
+      return Math.abs(pointer.x - view.x - view.w / 2) <= view.w * 0.47
+        && Math.abs(pointer.y - view.y - view.h / 2) <= view.h * 0.47
+        && cuts!(project(view), time, time + followRest) === 0;
+    };
     let followed = state;
     if (activeBeat && !revealing && !drag && !(narrow && gestures(activeBeat).length)
       && !(move && time < move.end + 3 / d.lowpass_omega)) {
       followed = followPointer(state, previousFiltered, activeBeat, decisions, baseW,
-        time, time - previousTime, velocity, d);
+        time, time - previousTime, velocity, d, cuts && restOk(state), pointer);
     }
     // Where the follow leaves the view it stays for a readable hold, instead of snapping
-    // back to the nominal view the moment the pointer returns inside the inner zone.
-    if (followed.cx !== state.cx || followed.cy !== state.cy) lastFollow = time;
-    else if (time - lastFollow < d.min_shot + 0.5 && !(move && time < move.end) && !drag) {
-      followed = { ...state, cx: previousFiltered.cx, cy: previousFiltered.cy };
+    // back to the nominal view the moment the pointer returns inside the inner zone. The hold
+    // is the nearest clean view to where the follow stopped, never the view mid-flight.
+    if (followed !== state) {
+      const dt = time - previousTime, from = lastFollow === previousTime ? held : state;
+      lastFollow = time;
+      rest = undefined;
+      held = { cx: followed.cx, cy: followed.cy,
+        vx: dt > 0 ? (followed.cx - from.cx) / dt : 0, vy: dt > 0 ? (followed.cy - from.cy) / dt : 0 };
+    } else if (time - lastFollow < followRest && !(move && time < move.end) && !drag) {
+      // On from where it was going; a view that has all but stopped goes on away from the nominal one.
+      const going = (v: number, away: number) => Math.sign(Math.abs(v) > 5 ? v : away);
+      // The follow's own momentum carries it v / omega on before a critically damped spring can stop.
+      rest ??= cuts ? cleanAim(held.cx + held.vx / d.follow_omega, held.cy + held.vy / d.follow_omega,
+        going(held.vx, held.cx - state.cx), going(held.vy, held.cy - state.cy),
+        cleanStep(baseW / state.z), restOk(state)) : [held.cx, held.cy];
+      const dt = time - previousTime;
+      const [cx, vx] = spring(held.cx, held.vx, rest[0], dt, d.follow_omega);
+      const [cy, vy] = spring(held.cy, held.vy, rest[1], dt, d.follow_omega);
+      held = { cx, cy, vx, vy };
+      followed = { ...state, cx, cy };
     }
     state = followed;
 
