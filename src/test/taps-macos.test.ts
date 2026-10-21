@@ -27,3 +27,22 @@ test("macOS desktop takes carry no Hyprland warning", async () => {
     await rm(base, { recursive: true, force: true });
   }
 });
+
+test("Linux takes with no readable input devices keep the evdev warning", async () => {
+  const base = await mkdtemp(join(tmpdir(), "takeone-taps-linux-"));
+  const platform = Object.getOwnPropertyDescriptor(process, "platform")!;
+  Object.defineProperty(process, "platform", { value: "linux" });
+  try {
+    const taps = await startTaps({
+      eventsPath: join(base, "events.jsonl"),
+      t0ns: process.hrtime.bigint(),
+      deviceDir: join(base, "no-input"),
+      mapping: null,
+    });
+    await taps.stop();
+    assert.ok(taps.warnings.includes("no evdev mouse/keyboard devices found; recording video only with events:'none'"));
+  } finally {
+    Object.defineProperty(process, "platform", platform);
+    await rm(base, { recursive: true, force: true });
+  }
+});

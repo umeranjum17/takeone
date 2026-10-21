@@ -257,7 +257,9 @@ export async function startTaps(options: TapOptions): Promise<TapHandle> {
         "no evdev device readable (missing group 'input'); recording video only with events:'none'",
       );
     } else {
-      warnings.push("no keyboard or mouse input devices found; recording video only with events:'none'");
+      warnings.push(process.platform === "darwin"
+        ? "no keyboard or mouse input devices found; recording video only with events:'none'"
+        : "no evdev mouse/keyboard devices found; recording video only with events:'none'");
     }
   } else {
     const heldMods = new Map<string, string>();
