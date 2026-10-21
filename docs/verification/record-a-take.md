@@ -4,7 +4,7 @@ Guide (docs/guide.md) Quickstart 3/3b/3c: capture a take for later `make`. Deskt
 
 ## Sub-features
 
-- Desktop record (`takeone record`, Linux/Wayland/Hyprland): VP9 `screen.webm`, `frames.tsv`, `events.jsonl` (pointer/clicks/wheel/key classes/window; typed characters are never recorded), portal consent with a persisted single-use restore token.
+- Desktop record (`takeone record`, Linux/Wayland/Hyprland, or macOS desktop preview): VP9 `screen.webm`, `frames.tsv`, `events.jsonl` (pointer/clicks/wheel/key classes/window; typed characters are never recorded), portal consent with a persisted single-use restore token.
 - Cursor-free desktop capture: the session opens with `cursor:"hidden"` when the source advertises it, keeping Desklink's `session.cursor` pointer track and marking the take `cursor_free: true`; a refused hidden falls back to embedded with one plain message and `cursor_free: false`. See [vector-cursor.md](vector-cursor.md) for the X11 nuance and the refusal proxy.
 - Android record (`record --android <serial>`): H.264 via vendored scrcpy-server + `getevent` touch; `--touch-offset-ms N` calibrates timing; needs `adb` and USB debugging.
 - iOS Simulator record (`record --ios-sim`, macOS): H.264 via `xcrun simctl io booted recordVideo`, video-only (`take.json` carries `"events": "none"`).
