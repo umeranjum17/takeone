@@ -1,4 +1,4 @@
-import { execFileSync, spawn } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { availableParallelism } from "node:os";
@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { resolveTheme } from "../themes.ts";
 import { basename, join, resolve } from "node:path";
 import type { CameraDefaults } from "../camera/defaults.ts";
+import type { Event } from "../types.ts";
 import { actionCameraMilliseconds } from "../beats/clock.ts";
 import { applyManualZooms, baseWidth, manualZoomLimitWarning, solveCamera, type EdgeCuts } from "../camera/solver.ts";
 import { applyDragVisibility } from "../camera/gesture.ts";
@@ -22,9 +23,11 @@ import { SAFE_INSET, safeAreaReport, type Rect } from "./safe-area.ts";
 import { typingBursts, editBeats, editTimeline, validateEdits, validateZooms } from "./edits.ts";
 import { applyPlan, readPlan, validatePlan } from "../decide/plan.ts";
 import { withFilmText } from "../decide/film.ts";
+import { runFfmpeg } from "./ffmpeg.ts";
+import { ensureProxy, previewDefaults, proxySize, scaleBand, scaleBeat, scaleEvent, scaleFrames, scaleMeta, type PreviewSpec } from "./preview.ts";
 import {
   bandEligible, bandFrames, bandLayout, bandText, beatClicks, captionAss, captionLayouts, cardFilter, clickAss, measureAss, sourceViewport, stageFrames, stageGeometry, stageImageFilter,
-  takeCaptions, type Caption, type CaptionInk,
+  takeCaptions, type Band, type Caption, type CaptionInk,
 } from "./stage.ts";
 
 /** Text-friendly production encoder settings, also exercised by the output gate. */
@@ -32,26 +35,6 @@ export function encodingOptions(d: CameraDefaults): string[] {
   return ["-c:v", "libx264", "-crf", String({ draft: 23, standard: 12, master: 12 }[d.quality]),
     "-preset", d.preset, "-pix_fmt", d.quality === "master" ? "yuv444p" : "yuv420p",
     ...(d.quality === "draft" ? [] : ["-tune", "animation"])];
-}
-
-/** Run ffmpeg, resolve with its stderr, and include its final 20 stderr lines on failure. */
-function runFfmpeg(args: string[], signal?: AbortSignal): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const process = spawn("ffmpeg", ["-nostdin", ...args], { stdio: ["ignore", "ignore", "pipe"], signal });
-    let stderr = "";
-    process.stderr.setEncoding("utf8").on("data", (chunk: string) => {
-      stderr = (stderr + chunk).slice(-100_000);
-    });
-    process.on("error", reject);
-    process.on("close", (code) => {
-      if (code === 0) {
-        resolve(stderr);
-        return;
-      }
-      const lastLines = stderr.split("\n").slice(-20).join("\n");
-      reject(new Error(`ffmpeg exited ${code}\n${lastLines}`));
-    });
-  });
 }
 
 /** Event-clock time of the first video frame. */
@@ -138,10 +121,11 @@ export function sourceEdgeCuts(dir: string, meta: TakeMeta, at: (t: number) => n
   };
 }
 
-/** Read the take's durable inputs, write its camera path and render the silent MP4. */
-export async function renderTake(dir: string, d?: CameraDefaults): Promise<{ out: string; seconds: number }> {
-  const meta = JSON.parse(await readFile(join(dir, "take.json"), "utf8")) as TakeMeta;
-  d ??= resolveTheme(meta.theme);
+/** Read the take's durable inputs, write its camera path and render the silent MP4.
+ * A preview renders the same camera path from a smaller source, at a smaller export. */
+export async function renderTake(dir: string, camera?: CameraDefaults, preview?: PreviewSpec): Promise<{ out: string; seconds: number }> {
+  let meta = JSON.parse(await readFile(join(dir, "take.json"), "utf8")) as TakeMeta;
+  let d: CameraDefaults = camera ?? resolveTheme(meta.theme);
   const phone = meta.device !== undefined && meta.height > meta.width;
   if (phone) d = { ...d, corner_radius: 36, stage_margin: Math.max(0.16, d.stage_margin) };
   validateZooms(meta.zooms, meta.width, meta.height);
@@ -177,10 +161,8 @@ export async function renderTake(dir: string, d?: CameraDefaults): Promise<{ out
   const clock = meta.cuts?.length || meta.speed?.length ? editTimeline(meta, beats, trimStart, trimEnd, d, typing) : undefined;
   const outTime = clock?.at ?? ((t: number) => warp(t - trimStart, squeezes, d.idle_speed));
   const duration = outTime(trimEnd);
-  const blurs = overlayRegions(meta, "blur", outTime, trimStart, trimEnd);
-  const spotlights = overlayRegions(meta, "spotlight", outTime, trimStart, trimEnd);
   const toasts = toastWindows(meta, outTime, trimStart, trimEnd);
-  const outBeats = clock ? editBeats(beats, clock, trimStart) : warpBeats(beats, trimStart, squeezes, d.idle_speed);
+  let outBeats = clock ? editBeats(beats, clock, trimStart) : warpBeats(beats, trimStart, squeezes, d.idle_speed);
   const byId = new Map(outBeats.map(b => [b.id, b]));
   const outDecisions = clock ? decisions.flatMap(decision => {
     const beat = byId.get(decision.beat);
@@ -195,13 +177,18 @@ export async function renderTake(dir: string, d?: CameraDefaults): Promise<{ out
   const shown = withFilmText(meta);
   const captions = takeCaptions(clock ? { ...shown, captions: shown.captions?.filter(c => clock.contains(c.t)) } : shown, outTime, duration);
   const banded = captions.length > 0 && bandEligible(meta.width, meta.height, d);
-  let text = banded ? bandText(captions, [], d) : d;
-  let captionInk = await measureCaptions(dir, captions, text, banded);
-  const fitted = banded ? bandText(captions, captionInk, text) : text;
-  if (fitted !== text) captionInk = await measureCaptions(dir, captions, fitted, banded);
-  text = fitted;
-  const band = banded ? bandLayout(meta.width, meta.height, text, captions, captionInk) : null;
-  const stage = band?.stage ?? stageGeometry(meta.width, meta.height, d);
+  // The card the camera frames into, the text band and the measured caption ink. The layout
+  // belongs to the render space, so a preview lays its own card out at preview scale.
+  const layout = async (m: TakeMeta, dd: CameraDefaults, bandOverride?: Band | null) => {
+    const bandedHere = captions.length > 0 && bandEligible(m.width, m.height, dd);
+    let text = bandedHere ? bandText(captions, [], dd) : dd;
+    let ink = await measureCaptions(dir, captions, text, bandedHere);
+    const fitted = bandedHere ? bandText(captions, ink, text) : text;
+    if (fitted !== text) ink = await measureCaptions(dir, captions, fitted, bandedHere);
+    const band = bandOverride ?? (bandedHere ? bandLayout(m.width, m.height, fitted, captions, ink) : null);
+    return { text: fitted, captionInk: ink, band, stage: band?.stage ?? stageGeometry(m.width, m.height, dd) };
+  };
+  const solveLayout = await layout(meta, d);
   // Output time -> source second, so the guard builds its ink mask from the frame shown.
   const sourceAt = (t: number) => {
     let lo = trimStart, hi = trimEnd;
@@ -221,14 +208,14 @@ export async function renderTake(dir: string, d?: CameraDefaults): Promise<{ out
       : Math.max(0, Math.min(meta.height - h, cy - h / 2));
     return { t: f.t, x: (meta.width - w) / 2, y, w, h };
   };
-  const project = (frame: CameraFrame) => sourceViewport(frame, meta.width, meta.height, stage, d);
+  const project = (frame: CameraFrame) => sourceViewport(frame, meta.width, meta.height, solveLayout.stage, d);
   const changes = moving ? await takeChanges(dir, meta, trimStart, trimEnd, outTime, clock?.contains ?? (() => true)) : [];
   const solved = solveCamera(tapShots?.beats ?? outBeats, tapShots?.decisions ?? outDecisions, { ...meta, trim_end: trimStart + duration },
     { ...d, min_shot: d.min_shot * d.pace, dwell: d.dwell * d.pace, dwell_k2: d.dwell_k2 * d.pace },
     banded ? undefined : phone ? (frame) => project(phoneReframe(frame)) : project, cuts, changes);
   const solvedFrames = phone ? solved.map(phoneReframe) : solved;
   const held = wide && d.camera_path === "hold" && !phone ? holdPath(solvedFrames, outBeats, outDecisions,
-    { band, stage, width: meta.width, height: meta.height, d, minShot: d.min_shot * d.pace },
+    { band: solveLayout.band, stage: solveLayout.stage, width: meta.width, height: meta.height, d, minShot: d.min_shot * d.pace },
     videoFrames(join(dir, "screen.webm"), meta.width, meta.height, sourceAt)) : undefined;
   if (held) await writeFile(join(dir, "camera-holds.json"), JSON.stringify(held.holds, null, 2));
   // Manual spans are source-video seconds; use the same edit clock as footage.
@@ -246,9 +233,35 @@ export async function renderTake(dir: string, d?: CameraDefaults): Promise<{ out
   const restW = baseWidth(meta.width, meta.height, d), restH = restW * d.out_h / d.out_w;
   const directed = moving ? applyManualZooms(held?.frames ?? solvedFrames, { ...meta, zooms }, d, outBeats, changes)
     : solvedFrames.map(f => ({ t: f.t, x: (meta.width - restW) / 2, y: (meta.height - restH) / 2, w: restW, h: restH }));
-  const frames = moving && zooms.length ? applyDragVisibility(directed, outBeats, meta.width, meta.height, trimStart, d) : directed;
+  let frames = moving && zooms.length ? applyDragVisibility(directed, outBeats, meta.width, meta.height, trimStart, d) : directed;
   await writeFile(join(dir, "camera.json"), JSON.stringify(frames));
-  const commandFile = join(dir, "camera.cmd");
+  // A preview renders the same camera path from a smaller source: the source-space inputs
+  // and the camera frames scale with the proxy, the export-space constants with the
+  // preview's size. The solve above ran at full resolution, so the preview frames the film
+  // exactly like the full render does, at the same timestamps.
+  let source = join(dir, "screen.webm");
+  let workDir = dir;
+  let scaledEvents: Event[] | undefined;
+  if (preview) {
+    const proxy = proxySize(meta.width, meta.height);
+    source = await ensureProxy(dir, meta.width, meta.height, proxy.w, proxy.h);
+    const scale = proxy.w / meta.width;
+    meta = scaleMeta(meta, scale, proxy.w, proxy.h);
+    d = previewDefaults(d, preview.out_w, preview.out_h, preview.fps);
+    outBeats = outBeats.map(beat => scaleBeat(beat, scale));
+    frames = scaleFrames(frames, scale);
+    const eventsPath = join(dir, "events.jsonl");
+    if (existsSync(eventsPath)) scaledEvents = (await readEvents(eventsPath)).map(event => scaleEvent(event, scale));
+    workDir = join(dir, "preview");
+    await mkdir(workDir, { recursive: true });
+  }
+  const renderLayout = preview
+    ? await layout(meta, d, solveLayout.band ? scaleBand(solveLayout.band, preview.out_w / solveLayout.band.stage.w) : null)
+    : solveLayout;
+  const { text, captionInk, band, stage } = renderLayout;
+  const blurs = overlayRegions(meta, "blur", outTime, trimStart, trimEnd);
+  const spotlights = overlayRegions(meta, "spotlight", outTime, trimStart, trimEnd);
+  const commandFile = join(workDir, "camera.cmd");
   // With a band the camera frames the screen alone, into the fixed card.
   const stageCamera = band ? bandFrames(frames, band, d) : stageFrames(frames, meta.width, meta.height, stage, d);
   // The source region each frame paints: the band crops screen.webm to its frame, the stage
@@ -262,25 +275,25 @@ export async function renderTake(dir: string, d?: CameraDefaults): Promise<{ out
     captionLayouts(captions, captionInk, text, phone && d.out_w > d.out_h, band, toasts).map(({ cx, cy, w, h, rise }, i) => (
       { t: captions[i]!.t0, label: captions[i]!.text, box: [cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2 + rise] })));
   if (safe) {
-    await writeFile(join(dir, "safe-area.json"), JSON.stringify(safe, null, 1));
+    await writeFile(join(workDir, "safe-area.json"), JSON.stringify(safe, null, 1));
     const [first] = safe.failures;
     if (first) throw new Error(`safe area: ${safe.failures.length} text box placements cross the ${SAFE_INSET * 100}% inset `
       + `[${safe.safe.map(Math.round).join(",")}] of the ${d.out_w}x${d.out_h} output; first "${first.label}" at output frame ${first.frame} `
-      + `(${first.t_out}s, source ${first.t_src}s): output box [${first.output.join(",")}]; report ${join(dir, "safe-area.json")}`);
+      + `(${first.t_out}s, source ${first.t_src}s): output box [${first.output.join(",")}]; report ${join(workDir, "safe-area.json")}`);
   }
   const [cameraFrames, cameraW, cameraH] = band ? [frames, meta.width, meta.height] : [stageCamera, stage.w, stage.h];
   const shutter = shutterPlan(cameraFrames, cameraW, cameraH, view);
-  await writeFile(join(dir, "motion-blur.json"), JSON.stringify(shutter.metrics, null, 2));
+  await writeFile(join(workDir, "motion-blur.json"), JSON.stringify(shutter.metrics, null, 2));
 
   // A cursor-free take gets a drawn vector cursor from its recorded pointer
   // track, projected through the camera and rasterised at output resolution.
-  const cursorFile = join(dir, "cursor.ass");
+  const cursorFile = join(workDir, "cursor.ass");
   let cursorOverlay = "";
   if (meta.cursor_free === true) {
     // Old cursor-free takes may lack a track. Keep the footage usable, but say
     // why there is no drawn cursor. Event-file read errors still surface.
     const eventsPath = join(dir, "events.jsonl");
-    const events = existsSync(eventsPath) ? await readEvents(eventsPath) : [];
+    const events = scaledEvents ?? (existsSync(eventsPath) ? await readEvents(eventsPath) : []);
     const startMs = videoStartMs(dir, meta);
     const drawn = cursorAss({
       events, videoStartMs: startMs,
@@ -303,33 +316,33 @@ export async function renderTake(dir: string, d?: CameraDefaults): Promise<{ out
   if (typeof id !== "string" || !/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(id) || id === "..") {
     throw new Error(`invalid take id: ${id}`);
   }
-  const output = join(outputDir, `${id}.mp4`);
+  const output = join(outputDir, preview ? `${id}-preview.mp4` : `${id}.mp4`);
 
   // Render intermediates live next to camera.cmd so a failed render can be rerun by hand.
-  const stageFile = join(dir, "stage.png");
-  const holesFile = join(dir, "stage-holes.png");
+  const stageFile = join(workDir, "stage.png");
+  const holesFile = join(workDir, "stage-holes.png");
   await runFfmpeg(["-y", "-v", "error", ...(d.bg_style === "image" ? ["-i", resolveBackgroundImage(dir, d.background_image)] : []), "-filter_complex", stageImageFilter(band ? stage.baseW : meta.width, band ? stage.baseH : meta.height, stage, d, phone),
     "-map", "[stage]", "-frames:v", "1", "-update", "1", stageFile,
     "-map", "[holes]", "-frames:v", "1", "-update", "1", holesFile]);
-  const clicksFile = join(dir, "clicks.ass");
+  const clicksFile = join(workDir, "clicks.ass");
   const clicksAss = clickAss(beatClicks(outBeats), meta.width, meta.height, trimStart,
     band ? { ...stage, restScale: stage.baseW / meta.width } : stage, view,
     { frames: cameraFrames, stage: band ? { ...stage, screenX: 0, screenY: 0 } : stage, shutter });
   await writeFile(clicksFile, clicksAss);
-  const captionsFile = join(dir, "captions.ass");
+  const captionsFile = join(workDir, "captions.ass");
   const widePhone = phone && d.out_w > d.out_h;
   const captionsAss = captionAss(captions, captionInk, text, widePhone, band, toasts);
   await writeFile(captionsFile, captionsAss);
 
-  const keysFile = join(dir, "keycaps.ass");
+  const keysFile = join(workDir, "keycaps.ass");
   const keyObstacles = keycapObstacles(outBeats, outDecisions, stageCamera,
     band ? { ...stage, screenX: 0, screenY: 0 } : stage,
     trimStart, captions, captionInk, text, widePhone, band, [...spotlights, ...blurs], toasts);
   const keys = keycapAss(outBeats, trimStart, duration, d, keyObstacles);
-  const keyMaskFile = join(dir, "keycaps-mask.ass");
+  const keyMaskFile = join(workDir, "keycaps-mask.ass");
   await writeFile(keyMaskFile, keycapMaskAss(outBeats, trimStart, duration, d, keyObstacles));
   await writeFile(keysFile, keys);
-  const spotlightFile = join(dir, "spotlight.ass");
+  const spotlightFile = join(workDir, "spotlight.ass");
   const spotlight = spotlightAss(spotlights, meta.width, meta.height, view, { frames: cameraFrames, stage: band ? { ...stage, screenX: 0, screenY: 0 } : stage, shutter });
   await writeFile(spotlightFile, spotlight);
   const keysOverlay = hasDialogue(keys) ? `,ass=${filterPath(keysFile)}:fontsdir=${filterPath(FONTS_DIR)}` : "";
@@ -393,7 +406,7 @@ export async function renderTake(dir: string, d?: CameraDefaults): Promise<{ out
   const graphOption = ffmpegMajor >= 7 ? "-/filter_complex" : "-filter_complex_script";
   const pass = (graphFile: string, frames: string[], out: string, signal?: AbortSignal) => runFfmpeg([
     "-y", "-ss", String(trimStart), "-to", String(trimEnd),
-    "-i", join(dir, "screen.webm"),
+    "-i", source,
     "-framerate", String(d.fps), "-i", stageFile,
     "-framerate", String(d.fps), "-i", holesFile,
     // Slice threads keep the stage filters from starving the encoder.
@@ -410,14 +423,14 @@ export async function renderTake(dir: string, d?: CameraDefaults): Promise<{ out
   // Keep camera.cmd on failure for straightforward diagnosis and re-rendering.
   const starts = segmentStarts(shutter.counts, renderSegments(shutter.counts.length, d.fps));
   if (starts.length === 1) {
-    await writeFile(join(dir, "render.log"), await pass(commandFile, [], output));
+    await writeFile(join(workDir, "render.log"), await pass(commandFile, [], output));
     return { out: output, seconds: duration };
   }
   // One ffmpeg filter graph runs on one thread apart from slice work, and the
   // per-sample v360 remap rebuilds dominate it. Time segments render in parallel
   // and join by stream copy. Every filter after the warp is clocked by time and
   // the grain pattern is static, so each segment's frames match the single pass.
-  const parts = starts.map((_, k) => join(dir, `render-part${k}.mp4`));
+  const parts = starts.map((_, k) => join(workDir, `render-part${k}.mp4`));
   // One failed segment must not leave its siblings encoding for hours: aborting
   // kills every remaining ffmpeg, and the concat join honours the same signal.
   const cancel = new AbortController();
@@ -427,12 +440,12 @@ export async function renderTake(dir: string, d?: CameraDefaults): Promise<{ out
     const end = starts[k + 1];
     return pass(graphFile, end === undefined ? [] : ["-frames:v", String(end - start)], parts[k]!, cancel.signal);
   })).catch(err => { cancel.abort(); throw err; });
-  const list = join(dir, "render-parts.txt");
+  const list = join(workDir, "render-parts.txt");
   // Exact durations: the parts' own mp4 durations are rounded and would shift every later frame.
   await writeFile(list, parts.map((part, k) => `file '${part.replace(/'/g, "'\\''")}'\n`
     + `duration ${(((starts[k + 1] ?? shutter.counts.length) - starts[k]!) / d.fps).toFixed(6)}\n`).join(""));
   logs.push(await runFfmpeg(["-y", "-v", "error", "-f", "concat", "-safe", "0", "-i", list, "-c", "copy", "-movflags", "+faststart", output], cancel.signal));
-  await writeFile(join(dir, "render.log"), [`render segments start at frames ${starts.join(", ")}`, ...logs].join("\n"));
+  await writeFile(join(workDir, "render.log"), [`render segments start at frames ${starts.join(", ")}`, ...logs].join("\n"));
   await Promise.all([list, ...parts, ...parts.map((_, k) => join(dir, `camera-part${k}.cmd`))].map(file => rm(file, { force: true })));
   return { out: output, seconds: duration };
 }

@@ -12,6 +12,7 @@ import { makeTake, PreflightRefusal, TakeInputError } from "./make.ts";
 import { PlannerUnavailable } from "./decide/planner.ts";
 import { PlanError } from "./decide/plan.ts";
 import { renderTake, renderThreads } from "./render/render.ts";
+import { previewSize } from "./render/preview.ts";
 import { THEMES, resolveTheme } from "./themes.ts";
 import { isMotionTake, MOTION_USAGE, runMotion } from "./motion/cli.ts";
 import { renderMotion } from "./motion/motion.ts";
@@ -171,7 +172,7 @@ function parseArgs(argv: string[]): Args {
 function usage(code: number): never {
   const themes = Object.keys(THEMES).join("|");
   console.error(`takeone make <id> [--no-ai] [--goal "<sentence>"] [--style "<word>"] [--no-screen-text] [--replan] [--max-tokens N] [--theme ${themes}] [--set key=value]
-takeone render <take-dir> [--theme ${themes}] [--set key=value] [--aspect landscape|portrait|square|4:5] [--resolution 4k] [--format mp4|gif|webm|prores4444]
+takeone render <take-dir> [--theme ${themes}] [--set key=value] [--aspect landscape|portrait|square|4:5] [--resolution 4k] [--format mp4|gif|webm|prores4444] [--preview]
 takeone render <motion-dir> [--aspect landscape|portrait|square|4:5] [--stills <seconds,...>]
 ${MOTION_USAGE}
 takeone key set [--backend <name>] [--model <model>] [--via typesafe|openrouter] < stdin
@@ -252,8 +253,10 @@ export async function main(argv: string[]): Promise<number> {
       let aspect: string | undefined;
       let resolution: string | undefined;
       let format = "mp4";
+      let preview = false;
       for (let i = 0; i < args.length; i++) {
         const option = args[i];
+        if (option === "--preview") { preview = true; continue; }
         if (!["--set", "--theme", "--aspect", "--resolution", "--format"].includes(option!)) {
           throw Error(`unknown option ${option}`);
         }
@@ -270,7 +273,10 @@ export async function main(argv: string[]): Promise<number> {
         throw Error(`unknown format ${format}; use mp4, gif, webm or prores4444`);
       }
       const camera = resolveCamera(dir, pairs, theme);
-      const rendered = (await renderTake(dir, applyOverrides(dimensions, camera))).out;
+      const full = applyOverrides(dimensions, camera);
+      // A preview is the same film, framed the same way, at a fraction of the render cost.
+      const spec = preview ? { ...previewSize(full.out_w, full.out_h), fps: 30 } : undefined;
+      const rendered = (await renderTake(dir, full, spec)).out;
       if (format === "mp4") console.log(rendered);
       else {
         const suffix = format === "prores4444" ? "mov" : format;

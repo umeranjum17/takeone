@@ -227,6 +227,18 @@ Rerender without planning again:
 takeone render ~/Videos/takeone/<id> --set background=#0B1220 --set idle_speed=3
 ```
 
+To see a look change first, render a fast preview instead of the full film:
+
+```sh
+takeone render ~/Videos/takeone/<id> --preview --set background=#0B1220
+```
+
+`--preview` writes `out/<id>-preview.mp4`: the same camera path, the same framing and the
+same timestamps as the full render, at about 480p and 30 fps with no motion blur. It warps
+from a 1080p proxy of the recording, made once beside the take and reused by every later
+preview, so a theme or `--set` change can be seen in a fraction of the full render's time.
+The full render is unchanged by it: `camera.json` is the same file, byte for byte.
+
 ## Motion design from screens
 
 Use `takeone motion` to create a film from images, HTML or a URL without recording:
@@ -241,7 +253,7 @@ See [Motion renders](motion.md) for shell setup, capture states, pattern options
 
 ```sh
 node bin/takeone.mjs make <id> [--no-ai] [--goal "sentence"] [--style "word"] [--no-screen-text] [--replan] [--max-tokens N] [--theme midnight|paper|aurora|mono|sand|editorial] [--set key=value]
-node bin/takeone.mjs render /path/to/take [--theme midnight|paper|aurora|mono|sand|editorial] [--set fps=24] [--aspect landscape|portrait|square|4:5] [--resolution 4k] [--format mp4|gif|webm|prores4444]
+node bin/takeone.mjs render /path/to/take [--theme midnight|paper|aurora|mono|sand|editorial] [--set fps=24] [--aspect landscape|portrait|square|4:5] [--resolution 4k] [--format mp4|gif|webm|prores4444] [--preview]
 ```
 
 `<id>` can also be an absolute take-directory path. `make` writes `analysis/regions.json`, `analysis/ui-boxes.json`, `analysis/actions.json`, renderer-format `analysis/beats.json` (video-relative seconds), one decision per line in `analysis/decisions.jsonl`, and the per-beat camera choices in `analysis/plan.json` ([plan and render](verification/plan-and-render-take.md)); Planner answers are cached separately in `analysis/planner-cache.jsonl`. It updates `take.json` with usage and render metadata, recording `trim_end` for a trim you set yourself (clamped to the recording) and leaving it unset for the trim `record` itself wrote, which it marks `auto_trim` next to the recorded capture length; any other trim is yours and is exported as given. A take recorded before that marker existed is read as record's whenever its unmarked trim end lands within one 100 ms analysis frame of the video's end, whichever way the timeline rounding falls. One case stays ambiguous: a take whose edited end is exactly equal to the recorded length still reads as automatic while the marker is left in place. It then writes `camera.json`, `camera.cmd`, and `out/<id>.mp4`. Zone data retains individual nearby perception boxes even when focus candidates are deduplicated. A local UI-surface pass also finds static cards, panels and dialogs in the existing quarter-size grey decode, so unchanged surfaces can frame clicks with empty change regions. It analyzes at most one reference per occupied second measured from the trim start, choosing actual decoded frames to prioritize uncovered action and shot times across adjacent seconds. Each reference retains at most 24 boxes. `ui-boxes.json` records reference count, elapsed analysis time per video minute, zero model calls and zero API cost. References more than half a second away, or across a cut/redraw, are excluded. This is a conservative flat-surface detector: low-contrast boundaries, gradients and image-filled cards may be missed. Zoomed holds include enclosing context, align crop edges around neighboring boxes, and widen when needed; known UI boxes are kept whole or at least 90% outside the crop. Re-running `make` can reuse cached responses. A trim must overlap the video; only that overlap is planned. Beats are capped at 30 per minute, which may merge idle gaps.
