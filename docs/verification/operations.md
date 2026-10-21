@@ -15,7 +15,7 @@ npm run build      # rebuild after pulling; dist/ must be newer than src/
 node bin/takeone.mjs --help   # readiness: exits 0 and prints the usage block
 ```
 
-For the required Node version, see [Download / Install](../guide.md#download--install); check the installed version with `node --version`. Prerequisites: `ffmpeg` and `ffprobe` on PATH. Optional: `tesseract` (only for screen-word OCR), Hyprland/Wayland (only for desktop recording). Planning and rendering an existing take need none of the capture prerequisites.
+For the required Node version, see [Download / Install](../guide.md#download--install); check the installed version with `node --version`. Prerequisites: `ffmpeg` and `ffprobe` on PATH. Optional: `tesseract` (only for screen-word OCR), Hyprland/Wayland (only for Linux desktop recording), or a Mac with Screen Recording granted to your terminal (only for macOS desktop recording, preview; `takeone doctor` reports the grant as `screen-recording`). Planning and rendering an existing take need none of the capture prerequisites.
 
 On a shared machine, every encode (`make`, `render`, `motion`, `scripts/synth-take.ts`) is heavy work: agree on one heavy-render lock for the machine and hold it for the whole proof budget instead of picking a per-command lock. Limit the stock CLI to your allowed CPUs with `taskset -c <allowed-CPU-IDs>` when needed; inspect current affinity first, never patch the renderer to get a slot.
 

@@ -31,7 +31,7 @@ npm link           # optional: puts `takeone` on PATH
 takeone doctor     # report recorder requirements and motion-shell identity
 ```
 
-`takeone doctor` exits 1 only when a check every capture route needs fails (ffmpeg, the state dir, the takes root). Optional rows (planner account or key, motion shell, the Linux desktop rows, and xcrun for iOS Simulator) print `false` with the route that needs them in `needed_by`, and still exit 0. Android capture needs no doctor row.
+`takeone doctor` exits 1 only when a check every capture route needs fails (ffmpeg, the state dir, the takes root). Optional rows (planner account or key, motion shell, the desktop rows (the Linux desktop route and the macOS Screen Recording grant, `screen-recording`), and xcrun for iOS Simulator) print `false` with the route that needs them in `needed_by`, and still exit 0. Android capture needs no doctor row.
 
 Run `node bin/takeone.mjs` from the checkout, or `takeone` if the package is linked. Set `TAKEONE_DIR` to the parent of your takes; otherwise it defaults to `~/Videos/takeone`.
 
