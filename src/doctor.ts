@@ -31,7 +31,7 @@ const NEEDED_BY: Record<string, string> = {
   "engine-protocol": "linux-desktop",
   hyprland: "linux-desktop",
   evdev: "linux-desktop",
-  "screen-recording": "linux-desktop",
+  "screen-recording": "macos-desktop",
   xcrun: "ios-simulator",
   "motion-shell": "motion",
   "ai-planner": "planner",

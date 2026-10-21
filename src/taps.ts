@@ -250,19 +250,12 @@ export async function startTaps(options: TapOptions): Promise<TapHandle> {
   evdevHandles.push(...devices);
   if (devices.length === 0) {
     eventsMode = "none";
-    if (process.platform === "darwin") {
-      // macOS has no evdev and the engine cannot hide the cursor there, so a
-      // desktop take keeps the system cursor in the frames and records no
-      // input events at all (same take shape as --ios-sim).
-      warnings.push(
-        "macOS records the desktop video-only: the system cursor is in the frames and clicks are not captured",
-      );
-    } else if (missingGroup) {
+    if (missingGroup) {
       warnings.push(
         "no evdev device readable (missing group 'input'); recording video only with events:'none'",
       );
     } else {
-      warnings.push("no evdev mouse/keyboard devices found; recording video only with events:'none'");
+      warnings.push("no keyboard or mouse input devices found; recording video only with events:'none'");
     }
   } else {
     const heldMods = new Map<string, string>();
