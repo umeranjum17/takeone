@@ -207,9 +207,11 @@ export async function startTaps(options: TapOptions): Promise<TapHandle> {
     stopPointerTimer();
     lastMapping = mapping;
     if (hypr === null) {
-      warnings.push(externalPointer
-        ? "hyprland ipc not found; window events disabled"
-        : "hyprland ipc not found; pointer and window events disabled");
+      if (process.platform !== "darwin") {
+        warnings.push(externalPointer
+          ? "hyprland ipc not found; window events disabled"
+          : "hyprland ipc not found; pointer and window events disabled");
+      }
       syncPointerMode();
       return;
     }
