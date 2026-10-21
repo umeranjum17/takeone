@@ -6,11 +6,11 @@ Private. Runs on your own machine.
 events that drive the later camera decisions. Capture is delegated entirely to
 [desklink](https://github.com/umeranjum17/desklink) (`@desklink/host`, unchanged
 dependency): takeone spawns `desklink-host serve`, opens a **view-only** portal
-session (the compositor may show a screen-share consent dialog),
+session on Linux (the compositor may show a screen-share consent dialog; macOS differs, see below),
 answers the engine's SDP offer with [werift](https://github.com/shinyoshiaki/werift),
 and writes the received VP9 track to `screen.webm` without re-encoding.
 
-Input sources are read passively, never grabbed. If evdev mouse or keyboard devices are missing or unreadable, recording continues video-only (`events: "none"`); unavailable Hyprland IPC or an unmatched monitor disables pointer and window events:
+Input sources are read passively, never grabbed. If evdev mouse or keyboard devices are missing or unreadable, recording continues video-only (`events: "none"`); unavailable Hyprland IPC or an unmatched monitor disables pointer and window events. On Linux:
 
 - pointer position and focused window from the Hyprland IPC sockets, mapped into
   stream pixels (with a self-check that falls back to no-pointer mode when no
@@ -31,10 +31,12 @@ Input sources are read passively, never grabbed. If evdev mouse or keyboard devi
 
 ```
 takeone                 list takes (newest first)
-takeone record          record the desktop until `takeone stop` (Linux/Wayland/Hyprland only)
+takeone record          record the desktop until `takeone stop` (Linux/Wayland/Hyprland; macOS preview)
   [--fps 30] [--bitrate 40000]
   [--root DIR]          takes root (default ~/Videos/takeone, env TAKEONE_DIR)
   [--state-dir DIR]     state dir (default ~/.local/state/takeone, env TAKEONE_STATE_DIR)
+
+On macOS the desktop record opens the main display through the pinned desklink engine (ScreenCaptureKit, preview). `takeone doctor` reports the Screen Recording grant; the first record makes macOS ask once for Screen Recording permission for the app that runs takeone (Terminal or your IDE terminal) — approve it and later records open silently. A macOS desktop take is video-only: the engine cannot hide the cursor there, so the system cursor is baked into the frames and no `events.jsonl` content is written (same take shape as `--ios-sim`, `events: "none"`, `pointer: "none"`), and the camera plans from screen changes alone. `TAKEONE_CURSOR=hidden` is not honored on macOS: the engine refuses it (`cursor-unavailable`) and the take falls back to the embedded system cursor.
 takeone record --android <serial>   record a phone or emulator until `takeone stop`
   [--touch-offset-ms N] calibration added to every touch timestamp (ms)
   [--root DIR] [--state-dir DIR] as above

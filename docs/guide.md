@@ -4,7 +4,7 @@ Install, the full quickstart, planning and rendering, and development notes. Bac
 
 ## How it works
 
-1. **Record.** `takeone record` captures the desktop through desklink's view-only portal session and, when evdev is readable, the pointer, clicks, wheel, key classes and focused window. Desktop frames are captured cursor-free when the engine can hide the system cursor; the renderer then draws its own vector cursor from the pointer track. Typed characters are never recorded. `takeone record --android <serial>` records a phone or emulator into the same take format instead, and `takeone record --ios-sim` records the booted iOS Simulator on macOS, video-only with no touch events (see [Recording](recording.md)).
+1. **Record.** `takeone record` captures the desktop. On Linux it goes through desklink's view-only portal session and, when evdev is readable, records the pointer, clicks, wheel, key classes and focused window; on macOS (preview) it records the main display video-only through ScreenCaptureKit (see [Recording](recording.md)). Desktop frames are captured cursor-free when the engine can hide the system cursor; the renderer then draws its own vector cursor from the pointer track. Typed characters are never recorded. `takeone record --android <serial>` records a phone or emulator into the same take format instead, and `takeone record --ios-sim` records the booted iOS Simulator on macOS, video-only with no touch events (see [Recording](recording.md)).
 2. **Make.** `takeone make` segments the take into beats (at most 30 per minute), finds the regions that changed, and decides each beat's shot. The AI planner decides the beats that need judgement, from zone descriptions, redacted screen words, the fallback rules' suggestion for each beat and an optional `--goal` sentence; beats with nothing to choose between are decided locally. Beats are asked in order, up to 8 per call under one shared rubric, and each call starts from the shot the previous call decided. A token preflight refuses the whole run before any call if the plan would exceed its cap, and `--no-ai` keeps every decision local.
 3. **Render.** The camera path is solved on the output clock, eased through a spring and rendered with ffmpeg and libass into a silent H.264 MP4 (default 1920×1080; see [Output aspect and format](edit-controls.md) for orientation defaults and `--aspect`/`--resolution`/`--format` options): stage, click rings, shortcut keycaps, timed spotlight and blur regions, idle speed-up, titles and captions. Rerendering with new `--set` values never calls the planner.
 
@@ -21,7 +21,7 @@ The same command works on macOS and Linux. npm 12 refuses the tarball URL withou
 
 Installing straight from git (`npm install -g github:umeranjum17/takeone`) does not work: npm 10 and 11 break the build of a git package during a global install, and npm 12 blocks git packages by default. To work on takeone itself, install from source:
 
-Requires Node.js 22.19+ and `ffmpeg` on PATH. Optional: `tesseract` for screen-word OCR (read by default when the planner runs). Recording the desktop additionally needs Linux on Wayland with Hyprland (see [Recording](recording.md)); recording a phone needs `adb` on PATH and an attached device with USB debugging; recording the iOS Simulator needs macOS with Xcode (`xcrun simctl`), `ffprobe` on PATH, and a booted simulator; planning and rendering an existing recording take do not require those capture prerequisites. Motion setup requirements are documented in [Motion renders](motion.md).
+Requires Node.js 22.19+ and `ffmpeg` on PATH. Optional: `tesseract` for screen-word OCR (read by default when the planner runs). Recording the desktop additionally needs Linux on Wayland with Hyprland, or macOS for the desktop preview (see [Recording](recording.md)); recording a phone needs `adb` on PATH and an attached device with USB debugging; recording the iOS Simulator needs macOS with Xcode (`xcrun simctl`), `ffprobe` on PATH, and a booted simulator; planning and rendering an existing recording take do not require those capture prerequisites. Motion setup requirements are documented in [Motion renders](motion.md).
 
 ```sh
 git clone https://github.com/umeranjum17/takeone
@@ -31,7 +31,7 @@ npm link           # optional: puts `takeone` on PATH
 takeone doctor     # report recorder requirements and motion-shell identity
 ```
 
-`takeone doctor` exits 1 only when a check every capture route needs fails (ffmpeg, the state dir, the takes root). Optional rows (planner account or key, motion shell, the Linux desktop rows, and xcrun for iOS Simulator) print `false` with the route that needs them in `needed_by`, and still exit 0. Android capture needs no doctor row.
+`takeone doctor` exits 1 only when a check every capture route needs fails (ffmpeg, the state dir, the takes root). Optional rows (planner account or key, motion shell, the desktop rows (the Linux desktop route and the macOS Screen Recording grant, `screen-recording`), and xcrun for iOS Simulator) print `false` with the route that needs them in `needed_by`, and still exit 0. Android capture needs no doctor row.
 
 Run `node bin/takeone.mjs` from the checkout, or `takeone` if the package is linked. Set `TAKEONE_DIR` to the parent of your takes; otherwise it defaults to `~/Videos/takeone`.
 
@@ -101,7 +101,7 @@ unset jev_key store_passphrase
 
 Re-run `make` without `--no-ai`. Add `--goal "what the demo shows"` for sharper key moments, `--style calm` for the film's manner, and `--replan` to ask the planner again instead of reusing saved answers.
 
-### 3. Record your own take (Linux, Wayland, Hyprland)
+### 3. Record your own take (Linux on Wayland with Hyprland, or macOS desktop preview)
 
 ```sh
 takeone record                # grant the screen-share consent; share only the output you are demoing
@@ -111,7 +111,7 @@ takeone                       # list takes, newest first
 takeone make <id> --goal "Creating a task and moving it across a project board"
 ```
 
-`takeone record` needs a person to click Share in the compositor's screen-share dialog, so it cannot run unattended. If no one is at the desktop, use the [headless demo scene](headless-scene.md) instead (from a git checkout): it produces a take without opening a display, portal or input device.
+`takeone record` needs a person to click Share in the compositor's screen-share dialog (Linux) or to approve Screen Recording once (macOS), so it cannot run unattended. If no one is at the desktop, use the [headless demo scene](headless-scene.md) instead (from a git checkout): it produces a take without opening a display, portal or input device.
 
 ### 3b. Record a phone instead (Android, hand-driven on the device)
 
