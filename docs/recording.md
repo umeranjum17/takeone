@@ -6,11 +6,11 @@ Private. Runs on your own machine.
 events that drive the later camera decisions. Capture is delegated entirely to
 [desklink](https://github.com/umeranjum17/desklink) (`@desklink/host`, unchanged
 dependency): takeone spawns `desklink-host serve`, opens a **view-only** portal
-session (the compositor may show a screen-share consent dialog),
+session on Linux (the compositor may show a screen-share consent dialog; macOS differs, see below),
 answers the engine's SDP offer with [werift](https://github.com/shinyoshiaki/werift),
 and writes the received VP9 track to `screen.webm` without re-encoding.
 
-Input sources are read passively, never grabbed. If evdev mouse or keyboard devices are missing or unreadable, recording continues video-only (`events: "none"`); unavailable Hyprland IPC or an unmatched monitor disables pointer and window events:
+Input sources are read passively, never grabbed. If evdev mouse or keyboard devices are missing or unreadable, recording continues video-only (`events: "none"`); unavailable Hyprland IPC or an unmatched monitor disables pointer and window events. On Linux:
 
 - pointer position and focused window from the Hyprland IPC sockets, mapped into
   stream pixels (with a self-check that falls back to no-pointer mode when no

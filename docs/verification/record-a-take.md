@@ -1,6 +1,6 @@
 # Record a take (`record` / `stop` / list)
 
-Guide (docs/guide.md) Quickstart 3/3b/3c: capture a take for later `make`. Desktop recording captures the whole screen through desklink's view-only portal session plus passive input taps; `--android <serial>` records a phone or emulator via scrcpy-server; `--ios-sim` records the booted iOS Simulator video-only. Recording ends with `takeone stop`.
+Guide (docs/guide.md) Quickstart 3/3b/3c: capture a take for later `make`. Desktop recording captures the whole screen (Linux through desklink's view-only portal session plus passive input taps, macOS as a video-only preview); `--android <serial>` records a phone or emulator via scrcpy-server; `--ios-sim` records the booted iOS Simulator video-only. Recording ends with `takeone stop`.
 
 ## Sub-features
 
