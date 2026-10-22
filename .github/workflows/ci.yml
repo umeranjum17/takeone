@@ -44,7 +44,8 @@ jobs:
           cache: npm
       - run: npm ci
       - name: Install output quality tools
-        run: sudo apt-get update && sudo apt-get install -y ffmpeg tesseract-ocr unzip fonts-liberation libnss3 libatk1.0-0 libatk-bridge2.0-0 libx11-6 libxcomposite1 libxdamage1 libxrandr2 libgbm1 libasound2t64
+        timeout-minutes: 15
+        run: scripts/ci-apt-install.sh ffmpeg tesseract-ocr unzip fonts-liberation libnss3 libatk1.0-0 libatk-bridge2.0-0 libx11-6 libxcomposite1 libxdamage1 libxrandr2 libgbm1 libasound2t64
       - uses: actions/cache@v4
         with:
           path: .cache/headless-shell
@@ -112,13 +113,16 @@ jobs:
           cache: npm
       - run: npm ci
       - name: Install capture prerequisites
-        run: sudo apt-get update && sudo apt-get install -y ffmpeg unzip fonts-liberation libnss3 libatk1.0-0 libatk-bridge2.0-0 libx11-6 libxcomposite1 libxdamage1 libxrandr2 libgbm1 libasound2t64
+        timeout-minutes: 15
+        run: scripts/ci-apt-install.sh ffmpeg unzip fonts-liberation libnss3 libatk1.0-0 libatk-bridge2.0-0 libx11-6 libxcomposite1 libxdamage1 libxrandr2 libgbm1 libasound2t64
       - uses: actions/cache@v4
         with:
           path: .cache/headless-shell
           key: headless-shell-linux-x64-151.0.7922.34-3cfc2bd0
       - run: node scripts/install-headless-shell.mjs
       - name: Capture and verify pixels, events and clocks (render part also runs make)
+        # Healthy parts take 10-17 min; a wedged one fails here with its log, not at the job's 40.
+        timeout-minutes: 22
         run: node scripts/test-headless-scene.mjs --part=${{ matrix.mode }}
       - uses: actions/upload-artifact@v4
         if: always()
