@@ -19,7 +19,8 @@ const BASE = `test("make --no-jev renders", async () => {
 `;
 const SRC = "export interface AskResult { response?: unknown; answers?: unknown }\n";
 
-test("floor guard passes renamed assertions, still flags real removals and new skips", () => {
+// A throwaway repo with one committed test file, and a guard that reads the working tree.
+const repo = (base = BASE) => {
   const dir = mkdtempSync(join(tmpdir(), "takeone-floor-"));
   const env = { ...process.env, HOME: dir, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" };
   const git = (...args: string[]) => execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@example.invalid", ...args], { cwd: dir, env });
@@ -28,17 +29,22 @@ test("floor guard passes renamed assertions, still flags real removals and new s
     writeFileSync(join(dir, "src", "ask.ts"), src);
     return spawnSync(process.execPath, [join(dir, "floor-guard.mjs"), "--base", "main"], { cwd: dir, env, encoding: "utf8" }).status;
   };
-  try {
-    git("init", "-q", "-b", "main");
-    mkdirSync(join(dir, "test"));
-    mkdirSync(join(dir, "src"));
-    writeFileSync(join(dir, "src", "ask.ts"), SRC);
-    copyFileSync(GUARD, join(dir, "floor-guard.mjs"));
-    writeFileSync(join(dir, "test", "x.test.ts"), BASE);
-    git("add", ".");
-    git("commit", "-q", "-m", "base");
-    git("checkout", "-q", "-b", "change");
+  git("init", "-q", "-b", "main");
+  mkdirSync(join(dir, "test"));
+  mkdirSync(join(dir, "src"));
+  writeFileSync(join(dir, "src", "ask.ts"), SRC);
+  copyFileSync(GUARD, join(dir, "floor-guard.mjs"));
+  writeFileSync(join(dir, "test", "x.test.ts"), base);
+  git("add", ".");
+  git("commit", "-q", "-m", "base");
+  git("checkout", "-q", "-b", "change");
+  return { guard, done: () => rmSync(dir, { recursive: true, force: true }) };
+};
 
+test("floor guard passes renamed assertions, still flags real removals and new skips", () => {
+  const r = repo();
+  const { guard } = r;
+  try {
     const renamed = BASE.replaceAll("--no-jev", "--no-ai").replaceAll("r.jev.", "r.planner.").replace('=== "jev"', '=== "ai"');
     assert.equal(guard(renamed), 0, "a rename is not a removal");
     assert.equal(guard(BASE.replace("r.jev.failed, 0", "r.jev.skipped, 0") + "// failed beats\n"), 1, "a same-shape swap is not a rename while the old word remains");
@@ -59,6 +65,100 @@ test("floor guard passes renamed assertions, still flags real removals and new s
     assert.equal(guard(truthy + BASE + `test("new", ${SKIP}, async () => {});\n`), 1, "a sentinel-shaped binding that can resolve truthy still fails");
     assert.equal(guard(sentinel + BASE + `test("new", ${REAL_SKIP}, async () => {});\n`), 1, "a genuinely skipped new test still fails");
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    r.done();
+  }
+});
+
+// The preflight reserve of the chunked planner: the reserve rule moved from "every request twice"
+// to "one re-asked chunk", so the old inequality no longer holds on a take with two chunks. The
+// same test states the new rule instead.
+const RESERVE = `test("preflight reserves re-asks", async () => {
+  assert.ok(planned >= bodies.reduce((sum, body) => sum + Math.ceil(body.length / 3.5), 0) * 2 - 1200);
+});
+`;
+const RESERVE_STRONGER = `test("preflight reserves re-asks", async () => {
+  assert.equal(bodies.length, 3);
+  assert.equal(bodies[1], bodies[0], "the re-ask repeats the first chunk");
+  assert.ok(planned >= tokens(bodies[0]!) + tokens(bodies[2]!) + Math.max(tokens(bodies[0]!), tokens(bodies[2]!)));
+  assert.ok(bodies.every((body) => tokens(body) <= 4000), "every chunk stays under the 4,000-token cap");
+});
+`;
+
+test("floor guard pairs a removed check with stronger checks in the same test only", () => {
+  const r = repo(RESERVE);
+  const { guard } = r;
+  try {
+    assert.equal(guard(RESERVE_STRONGER), 0, "stronger checks in the same test replace the removed one");
+    assert.equal(guard(`test("preflight reserves re-asks", async () => {
+});
+`), 1, "a removed check with nothing in its place still fails");
+    assert.equal(guard(`test("preflight reserves re-asks", async () => {
+  assert.equal(r.planner.failed, 0);
+});
+`), 1, "a removed check with an unrelated check beside it still fails");
+    assert.equal(guard(`test("preflight reserves re-asks", async () => {
+});
+test("the next chunk starts from the previous one", async () => {
+  assert.equal(bodies.length, 3);
+  assert.equal(bodies[1], bodies[0], "the re-ask repeats the first chunk");
+  assert.ok(planned >= tokens(bodies[0]!) + tokens(bodies[2]!) + Math.max(tokens(bodies[0]!), tokens(bodies[2]!)));
+  assert.ok(bodies.every((body) => tokens(body) <= 4000), "every chunk stays under the 4,000-token cap");
+});
+`), 1, "stronger checks in another test do not cover the removed one");
+    assert.equal(guard(`test("preflight reserves re-asks", async () => {
+  assert.ok(planned >= 1);
+});
+`), 1, "a constant on the same quantity proves less than the removed check");
+    assert.equal(guard(`test("preflight reserves re-asks", async () => {
+  assert.ok(planned >= 1);
+  assert.equal(r.planner.failed, 0);
+});
+`), 1, "a weaker check plus an unrelated one do not cover the removed one");
+  } finally {
+    r.done();
+  }
+});
+
+test("floor guard keeps a numeric bar when a check is rewritten", () => {
+  const r = repo(`test("the plan covers every beat", async () => {
+  assert.ok(planned >= 1200);
+});
+`);
+  const { guard } = r;
+  try {
+    assert.equal(guard(`test("the plan covers every beat", async () => {
+  assert.ok(planned >= 2400);
+});
+`), 0, "a raised bar on the same quantity covers the removed one");
+    assert.equal(guard(`test("the plan covers every beat", async () => {
+  assert.ok(planned >= 600);
+});
+`), 1, "a lowered bar on the same quantity is still a removal");
+  } finally {
+    r.done();
+  }
+});
+
+test("floor guard flags a test that lost more checks than it gained", () => {
+  const r = repo(`test("the plan covers every beat", async () => {
+  assert.ok(planned >= 1200);
+  assert.ok(planned >= 600);
+});
+test("a second test", async () => {
+  assert.equal(r.decisions.length, 3);
+});
+`);
+  const { guard } = r;
+  try {
+    assert.equal(guard(`test("the plan covers every beat", async () => {
+  assert.ok(planned >= 2400);
+});
+test("a second test", async () => {
+  assert.equal(r.decisions.length, 3);
+  assert.equal(r.decisions[0]!.kind, "beat");
+});
+`), 1, "a test that lost two checks and gained one is a removal even when the gain is stronger");
+  } finally {
+    r.done();
   }
 });
