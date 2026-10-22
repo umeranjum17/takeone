@@ -146,17 +146,20 @@ function ffmpegToolsPath(home: string): string {
   return dir;
 }
 
-test("doctor and make use a signed-in installed Claude CLI without a planner key", { skip: needsFfmpeg }, async () => {
-  const { home, cleanup } = withHome();
-  const dir = mkdtempSync(join(tmpdir(), "takeone-cli-account-"));
-  const binDir = join(dir, "bin");
-  mkdirSync(binDir);
-  const cli = join(binDir, "claude");
-  writeFileSync(cli, `#!${process.execPath}
+/** A stand-in for the person's installed Claude CLI, signed in through a
+ * claude.ai subscription: `auth status` reports the sign-in, `-p` answers the
+ * decided schema and appends one line to `calls` so a test can prove the
+ * account actually served the run. */
+function signedInClaudeCli(binDir: string, calls?: string): string {
+  mkdirSync(binDir, { recursive: true });
+  const bin = join(binDir, "claude");
+  writeFileSync(bin, `#!${process.execPath}
+${calls === undefined ? "" : `const { appendFileSync } = require("node:fs");`}
 const args = process.argv.slice(2);
 if (args.includes("auth") && args.includes("status")) {
   process.stdout.write(JSON.stringify({ loggedIn: true, authMethod: "claude.ai", apiProvider: "firstParty" }) + "\\n");
 } else if (args[0] === "-p") {
+  ${calls === undefined ? "" : `appendFileSync(${JSON.stringify(calls)}, args.join(" ") + "\\n");`}
   const schema = JSON.parse(args[args.indexOf("--json-schema") + 1]);
   const answers = {};
   for (const [name, property] of Object.entries(schema.properties)) {
@@ -170,7 +173,15 @@ if (args.includes("auth") && args.includes("status")) {
   process.stdout.write(JSON.stringify({ type: "result", subtype: "success", is_error: false, stop_reason: "end_turn", result: "fixture", structured_output: answers, usage: { input_tokens: 1, output_tokens: 1 } }) + "\\n");
 } else process.exit(2);
 `);
-  chmodSync(cli, 0o755);
+  chmodSync(bin, 0o755);
+  return bin;
+}
+
+test("doctor and make use a signed-in installed Claude CLI without a planner key", { skip: needsFfmpeg }, async () => {
+  const { home, cleanup } = withHome();
+  const dir = mkdtempSync(join(tmpdir(), "takeone-cli-account-"));
+  const binDir = join(dir, "bin");
+  signedInClaudeCli(binDir);
   const take = buildTake();
   try {
     const env = {
@@ -189,6 +200,83 @@ if (args.includes("auth") && args.includes("status")) {
     assert.ok(!/set a key|paste.*key/i.test(made.stdout + made.stderr));
   } finally {
     rmSync(take, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true });
+    cleanup();
+  }
+});
+
+test("capture make without a planner key stays local even when an account is signed in", { skip: needsFfmpeg }, async () => {
+  const { home, cleanup } = withHome();
+  const dir = mkdtempSync(join(tmpdir(), "takeone-cap-account-off-"));
+  const calls = join(dir, "claude-calls.log");
+  const binDir = join(dir, "bin");
+  signedInClaudeCli(binDir, calls);
+  const take = buildTake();
+  try {
+    const env = { HOME: home, XDG_CONFIG_HOME: join(home, ".config"), PATH: `${binDir}:${ffmpegToolsPath(home)}` };
+    const r = run(["capture", "make", take, ...FAST_SET], { env });
+    assert.equal(r.status, 0, r.stderr);
+    const out = JSON.parse(r.stdout);
+    // Capture's host-owned credential contract: no host key, no account.
+    assert.deepEqual(out.planner, { planned_tokens: 0, input_tokens: 0, usd: 0, failed: false });
+    assert.ok(out.warnings.includes("no planner key; using heuristic policy for all beats"), out.warnings.join("; "));
+    assert.equal(JSON.parse(readFileSync(join(take, "take.json"), "utf8")).planner.mode, "fallback");
+    assert.ok(existsSync(join(take, "out", "t1.mp4")));
+    assert.ok(!existsSync(calls), "the signed-in account was never asked");
+  } finally {
+    rmSync(take, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true });
+    cleanup();
+  }
+});
+
+test("capture make --planner-account plans through the user's signed-in account", { skip: needsFfmpeg }, async () => {
+  const { home, cleanup } = withHome();
+  const dir = mkdtempSync(join(tmpdir(), "takeone-cap-account-on-"));
+  const calls = join(dir, "claude-calls.log");
+  const binDir = join(dir, "bin");
+  signedInClaudeCli(binDir, calls);
+  const take = buildTake();
+  try {
+    const env = { HOME: home, XDG_CONFIG_HOME: join(home, ".config"), PATH: `${binDir}:${ffmpegToolsPath(home)}` };
+    const r = run(["capture", "make", take, "--planner-account", ...FAST_SET], { env });
+    assert.equal(r.status, 0, r.stderr);
+    const out = JSON.parse(r.stdout);
+    assert.equal(out.out, join(take, "out", "t1.mp4"));
+    assert.equal(out.beats > 0, true);
+    // The account served the run: tokens were spent and the film was asked.
+    assert.ok(out.planner.input_tokens > 0, JSON.stringify(out.planner));
+    assert.equal(out.planner.failed, false);
+    assert.ok(!out.warnings.some((w: string) => /no planner key|fallback rules/.test(w)), out.warnings.join("; "));
+    assert.match(r.stderr, /AI planner: signed-in Claude account/);
+    assert.equal(JSON.parse(readFileSync(join(take, "take.json"), "utf8")).planner.mode, "ai");
+    assert.ok(existsSync(calls), "the account's CLI answered the planner calls");
+    assert.ok(existsSync(join(take, "out", "t1.mp4")));
+    // Capture stays privacy-scoped: window titles are dropped whatever plans.
+    assert.ok(!readFileSync(join(take, "events.jsonl"), "utf8").includes("Quarterly report"));
+  } finally {
+    rmSync(take, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true });
+    cleanup();
+  }
+});
+
+test("capture make --planner-account stops loudly when the user has no account", { skip: needsFfmpeg }, async () => {
+  const { home, cleanup } = withHome();
+  const dir = buildTake();
+  try {
+    // No claude or codex on PATH and no stored key: nothing can serve the run.
+    const env = { HOME: home, XDG_CONFIG_HOME: join(home, ".config"), PATH: ffmpegToolsPath(home) };
+    const r = run(["capture", "make", dir, "--planner-account", ...FAST_SET], { env });
+    assert.equal(r.status, 1, r.stderr);
+    const out = JSON.parse(r.stdout);
+    assert.equal(out.error.code, "planner-unavailable");
+    assert.match(out.error.message, /signed-in account or stored key was not found/);
+    assert.match(out.error.hint, /--planner-key-fd 3/);
+    // The honest stop: no local-rules film and nothing rendered behind it.
+    assert.ok(!existsSync(join(dir, "out")), "nothing rendered on a planner-unavailable stop");
+    assert.ok(!r.stderr.includes("fallback rules"), r.stderr);
+  } finally {
     rmSync(dir, { recursive: true, force: true });
     cleanup();
   }
@@ -367,6 +455,8 @@ test("capture make usage errors use the envelope with exit 2", { skip: needsFfmp
     const cases: { args: string[]; keyFile?: string }[] = [
       { args: ["capture", "make"] },
       { args: ["capture", "make", dir, "--no-planner", "--planner-key-fd", "3"], keyFile },
+      { args: ["capture", "make", dir, "--no-planner", "--planner-account"] },
+      { args: ["capture", "make", dir, "--planner-account", "--planner-key-fd", "3"], keyFile },
       { args: ["capture", "make", dir, "--planner-key-fd", "99"] },
       { args: ["capture", "make", dir, "--max-tokens", "banana"] },
       { args: ["capture", "make", dir, "--captions", join(dir, "missing.json")] },

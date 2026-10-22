@@ -69,6 +69,10 @@ export interface MakeOptions {
   /** Host-passed BYOKit credential override for the configured backend;
    * null disables the planner, undefined loads the configured store. */
   apiKey?: string | null;
+  /** Host opt-in: resolve the user's own planner (signed-in account or stored
+   * key) and stop with PlannerUnavailable when none can serve the run, instead
+   * of falling back to local rules. `capture make --planner-account`. */
+  requireAi?: boolean;
   /** Config dir holding planner.json and the sealed store; defaults to the
    * platform config dir. Tests point it at a throwaway dir. */
   configDir?: string;
@@ -106,6 +110,13 @@ export class TakeInputError extends Error {
     this.name = "TakeInputError";
     this.file = file;
   }
+}
+
+/** The user's own planner is what a host asked for (`capture make
+ * --planner-account`) and none of it can serve the run: stop with the cause,
+ * never a silent fallback to local rules. */
+function accountMissing(reason: string): PlannerUnavailable {
+  return new PlannerUnavailable("signed-in account or stored key", reason, { credentialMissing: true });
 }
 
 /** Planner accounting for one make. `requests` counts planner asks, cache hits
@@ -229,14 +240,19 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
           !(e instanceof KeystoreError && ["unavailable", "unsupported"].includes(e.code))) throw e;
       planner = null;
       plannerOff = "the secret store cannot be read";
+      if (opts.requireAi) throw accountMissing(`could not be checked: ${plannerOff}`);
     }
     if (planner && !planner.active) {
+      // The user chose a provider but its credential is missing: stop with
+      // the choices instead of silently falling back (or switching provider).
+      const auth = (planner.config as { auth?: string }).auth;
       if (!planner.defaulted && opts.apiKey === undefined) {
-        // The user chose a provider but its credential is missing: stop with
-        // the choices instead of silently falling back (or switching provider).
-        const auth = (planner.config as { auth?: string }).auth;
         throw new PlannerUnavailable(planner.label, planner.refusal ?? `no ${auth === "account" ? "sign-in" : "key"} for ${planner.label}`);
       }
+      // A host that passed --planner-account asked for the user's own planner:
+      // with none to serve the run, stop and name the cause instead of
+      // planning with local rules it did not ask for.
+      if (opts.requireAi) throw accountMissing(planner.refusal ?? planner.skipped ?? "was not found");
       if (planner.refusal ?? planner.skipped) plannerOff = (planner.refusal ?? planner.skipped) as string;
       planner = null;
     }

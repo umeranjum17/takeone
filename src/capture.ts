@@ -33,6 +33,8 @@ interface MakeArgs {
   take?: string;
   planOnly: boolean;
   noPlanner: boolean;
+  /** Host opt-in: plan with the user's own signed-in account instead of a host key. */
+  plannerAccount: boolean;
   screenText: boolean;
   plannerKeyFd?: number;
   maxTokens?: number;
@@ -41,12 +43,15 @@ interface MakeArgs {
   set: string[];
 }
 
+const MAKE_HINT = "run `takeone capture make <take> [--plan-only] [--no-planner] [--max-tokens N]`";
+
 function parseMakeArgs(argv: string[]): MakeArgs {
-  const a: MakeArgs = { planOnly: false, noPlanner: false, screenText: false, set: [] };
+  const a: MakeArgs = { planOnly: false, noPlanner: false, plannerAccount: false, screenText: false, set: [] };
   for (let i = 0; i < argv.length; i++) {
     const s = argv[i]!;
     if (s === "--plan-only") a.planOnly = true;
     else if (s === "--no-planner") a.noPlanner = true;
+    else if (s === "--planner-account") a.plannerAccount = true;
     else if (s === "--screen-text") a.screenText = true;
     else if (s === "--planner-key-fd") {
       const v = argv[++i];
@@ -104,7 +109,7 @@ function parseMakeArgs(argv: string[]): MakeArgs {
       captureFail({
         code: "invalid-arguments",
         message: `unknown capture make option: ${s}`,
-        hint: "run `takeone capture make <take> [--plan-only] [--no-planner] [--max-tokens N]`",
+        hint: MAKE_HINT,
       });
     }
   }
@@ -173,7 +178,7 @@ async function runCaptureMake(argv: string[]): Promise<number> {
     captureFail({
       code: "invalid-arguments",
       message: "capture make needs a take directory",
-      hint: "run `takeone capture make <take> [--plan-only] [--no-planner]`",
+      hint: MAKE_HINT,
     });
   }
   if (a.noPlanner && a.plannerKeyFd !== undefined) {
@@ -183,8 +188,26 @@ async function runCaptureMake(argv: string[]): Promise<number> {
       hint: "pass one or the other, not both",
     });
   }
+  if (a.plannerAccount && a.noPlanner) {
+    captureFail({
+      code: "invalid-arguments",
+      message: "--planner-account and --no-planner conflict",
+      hint: "--planner-account asks for the user's account; --no-planner plans with local rules",
+    });
+  }
+  if (a.plannerAccount && a.plannerKeyFd !== undefined) {
+    captureFail({
+      code: "invalid-arguments",
+      message: "--planner-account and --planner-key-fd conflict",
+      hint: "pass the host's key on its fd, or let the user's own account plan, not both",
+    });
+  }
   const dir = resolve(a.take!);
   const key = a.plannerKeyFd !== undefined ? readPlannerKey(a.plannerKeyFd) : null;
+  // --planner-account: the host allows the user's own signed-in account (or a
+  // stored key) to plan, resolved exactly as `takeone make` resolves it. The
+  // host's own credential contract is untouched without the flag.
+  const viaAccount = a.plannerAccount && key === null;
 
   let take: Record<string, unknown>;
   try {
@@ -223,12 +246,12 @@ async function runCaptureMake(argv: string[]): Promise<number> {
 
   // Stdout carries exactly one JSON object; the pipeline logs to stderr.
   const warnings: string[] = [];
-  if (key === null) warnings.push("no planner key; using heuristic policy for all beats");
+  if (key === null && !viaAccount) warnings.push("no planner key; using heuristic policy for all beats");
   try {
     const r = await makeTake(dir, {
       capture: true,
       screenText: a.screenText,
-      ...(key === null ? { noAi: true } : { apiKey: key }),
+      ...(viaAccount ? { requireAi: true } : key === null ? { noAi: true } : { apiKey: key }),
       ...(a.maxTokens === undefined ? {} : { maxTokens: a.maxTokens }),
       ...(camera === undefined ? {} : { camera }),
       set: a.set,
@@ -297,7 +320,9 @@ async function runCaptureMake(argv: string[]): Promise<number> {
         code: "planner-unavailable",
         // capture's off switch is --no-planner, so it words its own choices
         message: `AI planner: ${e.provider} ${e.reason}.`,
-        hint: "wait for the limit to reset and rerun, or rerun with --no-planner",
+        hint: e.credentialMissing
+          ? "sign the user's account in, or pass the host's own key with --planner-key-fd 3; --no-planner plans with local rules"
+          : "wait for the limit to reset and rerun, or rerun with --no-planner",
       });
     }
     if (e instanceof ConfigError) {

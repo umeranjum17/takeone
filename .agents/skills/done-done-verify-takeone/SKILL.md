@@ -29,6 +29,7 @@ Harness: Shell (bash), with ffmpeg and ffprobe to decode frames; a browser tool 
 - [Prove a plan edit follows its beat across a re-cut](prove-a-plan-edit-follows-its-beat-across-a-re-cut.md): Edit `analysis/plan.json` by hand, trim the take, run `make` again, and assert the edit lands on the same beat key at its new id (`src/beats/key.ts`, `src/decide/plan.ts`)
 - [Print the installed version](features/print-the-installed-version.md): Run the `version` journey: `takeone --version` and `-v` against package.json, under a node-only PATH
 - [Prove the camera drag ease on a real take](features/prove-the-camera-drag-ease-on-a-real-take.md): Render a real take with a drag, then measure the camera bars and the per-frame text cuts (`src/camera/gesture.ts`)
+- [Plan a capture with the user's account](features/plan-a-capture-with-the-users-account.md): `takeone capture make <take> --planner-account` plans through the signed-in account `takeone make` resolves, and stops with `planner-unavailable` instead of planning with local rules when there is none
 
 ## Evidence
 

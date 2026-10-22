@@ -635,19 +635,28 @@ function refusalReason(a: Answer): string | null {
 }
 
 /** The provider cannot serve this run: rate-limited, unauthorized, or timed
- * out. The CLI exits 3 with the choices; nothing renders. */
+ * out. The CLI exits 3 with the choices; nothing renders. A missing
+ * credential names the sign-in and key instead of a wait, because no rerun
+ * brings either of them back. */
 export class PlannerUnavailable extends Error {
   readonly provider: string;
   readonly reason: string;
-  constructor(provider: string, reason: string) {
+  /** True when nothing was wrong with the provider: no credential was there. */
+  readonly credentialMissing: boolean;
+  constructor(provider: string, reason: string, o: { credentialMissing?: boolean } = {}) {
+    const missing = o.credentialMissing === true;
     super(
       `AI planner: ${provider} ${reason}. ` +
-        `Choose: wait and rerun, run with --no-ai for fallback rules, ` +
-        `or switch provider yourself with takeone key set --backend <name> --model <model>.`,
+        (missing
+          ? `Choose: sign that account in, store a key with takeone key set, ` +
+            `or run with --no-ai for fallback rules.`
+          : `Choose: wait and rerun, run with --no-ai for fallback rules, ` +
+            `or switch provider yourself with takeone key set --backend <name> --model <model>.`),
     );
     this.name = "PlannerUnavailable";
     this.provider = provider;
     this.reason = reason;
+    this.credentialMissing = missing;
   }
 }
 
