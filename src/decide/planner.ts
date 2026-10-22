@@ -868,7 +868,7 @@ export async function askChunk(
       // per beat while still claiming that account. Only a true refusal stops;
       // a wrong-shaped reply is `bad_reply` and falls back per beat.
       if (cliRefused(answered, config.backend)) {
-        throw new PlannerUnavailable(planner.label, `could not answer for ${config.model ?? "its default model"}: check ${cliSignIn(account)} with \`${config.backend === "codex" ? "codex login status" : "claude auth status"}\``);
+        throw new PlannerUnavailable(planner.label, `${config.backend === "codex" ? "codex" : "claude"} could not answer for ${config.model ?? "its default model"}: check ${cliSignIn(account)} with \`${config.backend === "codex" ? "codex login status" : "claude auth status"}\``);
       }
       return answered;
     };

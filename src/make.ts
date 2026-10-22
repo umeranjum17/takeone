@@ -237,7 +237,7 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
         const auth = (planner.config as { auth?: string }).auth;
         throw new PlannerUnavailable(planner.label, planner.refusal ?? `no ${auth === "account" ? "sign-in" : "key"} for ${planner.label}`);
       }
-      if (planner.refusal) plannerOff = planner.refusal;
+      if (planner.refusal ?? planner.skipped) plannerOff = (planner.refusal ?? planner.skipped) as string;
       planner = null;
     }
     // A signed-in account that could not serve, while another provider took
