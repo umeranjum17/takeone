@@ -8,7 +8,7 @@ checks remain authoritative; this is not a release-quality qualification.
 
 - No new suppression comments: TypeScript, lint, coverage and security checkers must not be silenced.
 - No unimplemented stubs: no not-implemented throws or empty catches hiding failures.
-- No new skipped tests or assertion removals: only test-diet deletions meeting the exception below are allowed.
+- No new skipped tests or assertion removals: only test-diet deletions meeting the exception below are allowed, and a check the same test block replaces with a stronger check on the same quantity.
 - No secrets in source: findings must never print matched credential values.
 - No weakening this file or existing motion, VMAF, quality, privacy or custody bars to make a change pass.
 
@@ -35,6 +35,14 @@ is not a new skip: the sentinel is a local `const`, `let` or `var` bound to
 present and skips only when it is missing. Any truthy skip, any additional skip
 field, and any sentinel whose declaration cannot be read or lacks that shape are
 still reported.
+
+A removed check is not a removal when the test block it left gained at least as
+many checks as it lost and one of the gained checks checks the same quantity
+without lowering the bar the removed one set: that block now checks the same
+thing at least as hard. A removal whose block gained nothing, whose gained
+checks check other quantities, or whose replacement lowers the bar is still
+reported. A check that states a number where the removed one compared two
+expressions proves less and is still reported.
 
 Only intentional test-diet deletions can use the accepted exception. The deletion
 commit must name its test-diet task AND the affected journey must stay covered by

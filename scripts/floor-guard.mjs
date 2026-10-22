@@ -45,13 +45,20 @@ const diff = tracked + '\n' + untracked;
 // Walk the diff. `---` and `+++` are file headers only between a file's `diff` line and its first
 // `@@` hunk; inside a hunk every line is content, so an added `++i` (shown as `+++i`) or a removed
 // `-- comment` is a change, not a header. Both headers name the file, so a deletion
-// (`+++ /dev/null`) keeps its name.
+// (`+++ /dev/null`) keeps its name. A hunk header names the line each side starts at, so every
+// changed line knows where it sits in the file before the diff and in the file after it.
 const added = [], removed = [], deleted = [];
 const pathOf = (s) => s.replace(/^[ab]\//, '');
 let file = '', oldFile = '', inHeader = false;
+let oldLine = 0, newLine = 0;
 for (const line of diff.split('\n')) {
   if (line.startsWith('diff ')) inHeader = true;
-  else if (line.startsWith('@@')) inHeader = false;
+  else if (line.startsWith('@@')) {
+    inHeader = false;
+    const hunk = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(line);
+    oldLine = hunk ? Number(hunk[1]) : 0;
+    newLine = hunk ? Number(hunk[2]) : 0;
+  }
   else if (inHeader) {
     if (line.startsWith('--- ')) oldFile = pathOf(line.slice(4));
     else if (line.startsWith('+++ ')) {
@@ -60,8 +67,9 @@ for (const line of diff.split('\n')) {
       if (newFile === '/dev/null') deleted.push(file);
     }
   }
-  else if (line.startsWith('+')) added.push({ file, text: line.slice(1) });
-  else if (line.startsWith('-')) removed.push({ file, text: line.slice(1) });
+  else if (line.startsWith('+')) added.push({ file, text: line.slice(1), line: newLine++ });
+  else if (line.startsWith('-')) removed.push({ file, text: line.slice(1), line: oldLine++ });
+  else { oldLine++; newLine++; }   // a context line sits on both sides
 }
 
 const findings = [];
@@ -142,12 +150,16 @@ for (const f of deleted) if (isTest(f) && !testDiet(f)) flag('test-deleted', f);
 // identity is the fallback for unparseable lines. Net count is necessary but never
 // sufficient: a pure count balance must not clear a specific unmatched removal (a swap -
 // one assertion deleted, one unrelated added - nets to zero and still lowers the bar).
+// A subject the added line does not share is covered the other way round: the test block
+// the removal left can gain the check, when that block gained at least as many assertions
+// as it lost and one of them checks the same quantity without lowering its bar. That is
+// the one case a rewritten check is a stronger check, not a removed one.
 const ASSERT_LINE = /\b(expect|assert|should)\b/;
 const normSubject = (s) => s.replace(/\s+/g, " ").trim().replace(/\[\d+\]/g, "[]");
-function assertedSubject(line) {
+function assertedArgs(line) {
   const t = line.trim().replace(/;\s*$/, "");
   const m = /assert\.[A-Za-z]+\s*\(|expect\s*\(/.exec(t);
-  if (!m) return normSubject(t);
+  if (!m) return [t];
   const args = []; // split the call's argument list at top-level commas
   let depth = 0, cur = "", quote = null;
   const start = m.index + m[0].length;
@@ -164,9 +176,12 @@ function assertedSubject(line) {
     if (c === "," && !depth) { args.push(cur); cur = ""; continue; }
     cur += c;
   }
-  if (i >= t.length) return normSubject(t); // unbalanced: strict fallback
+  if (i >= t.length) return [t]; // unbalanced: strict fallback
   args.push(cur);
-  return normSubject(args[0] ?? t);
+  return args;
+}
+function assertedSubject(line) {
+  return normSubject(assertedArgs(line)[0] ?? "");
 }
 // Pair a rename only when every changed word is consistently new to the file, or when the same
 // one-word swap recurs in 2+ assertion pairs of the file (`r.jev.failed` -> `r.planner.failed` across
@@ -183,8 +198,37 @@ const wordChanges = (a, b) => {
   return wa.map((w, i) => [w, wb[i]]).filter(([oldWord, newWord]) => oldWord !== newWord);
 };
 const assertsLost = [], assertsGained = [];
-for (const { file, text } of removed) if (isTest(file) && ASSERT_LINE.test(text)) assertsLost.push({ file, subject: assertedSubject(text) });
-for (const { file, text } of added) if (isTest(file) && ASSERT_LINE.test(text)) assertsGained.push({ file, subject: assertedSubject(text) });
+for (const { file, text, line } of removed) if (isTest(file) && ASSERT_LINE.test(text)) assertsLost.push({ file, subject: assertedSubject(text), args: assertedArgs(text), line });
+for (const { file, text, line } of added) if (isTest(file) && ASSERT_LINE.test(text)) assertsGained.push({ file, subject: assertedSubject(text), args: assertedArgs(text), line });
+// The test block a changed assertion sits in, named by the test's own declaration. A removal is
+// judged against the block it left (the file before the diff) and an addition against the block it
+// joined (the file after it), so a renamed test reads as two different blocks.
+const DECLARATION = /^\s*(?:test|it|describe)\s*\(\s*("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`)/;
+const blockNames = (content) => {
+  const names = [];
+  let current = null;
+  for (const line of content.split('\n')) {
+    const m = DECLARATION.exec(line);
+    if (m) current = m[1].slice(1, -1);
+    names.push(current);
+  }
+  return names;
+};
+const blockCache = new Map();
+const blockOf = (file, side, line) => {
+  const key = side + ' ' + file;
+  let names = blockCache.get(key);
+  if (names === undefined) {
+    const content = side === 'before'
+      ? (git(['show', `${mergeBase}:${file}`]) ?? '')
+      : (existsSync(file) ? readFileSync(file, 'utf8') : '');
+    names = blockNames(content);
+    blockCache.set(key, names);
+  }
+  return names[line - 1] ?? null;
+};
+for (const l of assertsLost) l.block = blockOf(l.file, 'before', l.line);
+for (const g of assertsGained) g.block = blockOf(g.file, 'after', g.line);
 const swapCount = new Map(); // "file|old|new" -> lost/gained pairs differing in exactly that word
 for (const l of assertsLost) for (const g of assertsGained) {
   const changed = g.file === l.file ? wordChanges(l.subject, g.subject) : [];
@@ -204,11 +248,97 @@ const renamed = (file, a, b, before, after) => {
     (!hasWord(after, oldWord) && !hasWord(before, newWord)) || (swapCount.get(`${file}|${oldWord}|${newWord}`) ?? 0) >= 2) ||
     (changed.length === 1 && fieldRenamed(...changed[0]));
 };
+// The comparison an assertion makes: its operator and its two sides.
+function subjectComparison(subject) {
+  let depth = 0, quote = null;
+  for (let i = 0; i < subject.length; i++) {
+    const c = subject[i];
+    if (quote) { if (c === "\\") i++; else if (c === quote) quote = null; continue; }
+    if (c === '"' || c === "'" || c === "`") { quote = c; continue; }
+    if (c === '(' || c === '[' || c === '{') { depth++; continue; }
+    if (c === ')' || c === ']' || c === '}') { depth--; continue; }
+    if (depth !== 0) continue;
+    if (c !== '=' && c !== '!' && c !== '<' && c !== '>') continue;
+    if (subject.slice(i, i + 2) === '=>') { i++; continue; }   // an arrow function, not a comparison
+    const op = ['===', '!==', '>=', '<=', '==', '!='].find((o) => subject.startsWith(o, i)) ?? c;
+    return { op, left: subject.slice(0, i).trim(), right: subject.slice(i + op.length).trim() };
+  }
+  return null;
+}
+// The quantity an assertion checks: the left side of its comparison, or its whole first argument
+// when it compares nothing. "planned >= tokens(a) + tokens(b)" and "planned >= tokens(c) * 2 - 1200"
+// both check "planned"; "r.jev.failed" and "r.planner.failed" do not check the same thing.
+function subjectHead(subject) {
+  const comparison = subjectComparison(subject);
+  if (comparison) return normSubject(comparison.left);
+  let depth = 0, quote = null, cut = -1;
+  for (let i = 0; i < subject.length; i++) {
+    const c = subject[i];
+    if (quote) { if (c === "\\") i++; else if (c === quote) quote = null; continue; }
+    if (c === '"' || c === "'" || c === "`") { quote = c; continue; }
+    if (c === '(' || c === '[' || c === '{') { depth++; continue; }
+    if (c === ')' || c === ']' || c === '}') { depth--; continue; }
+    if (depth === 0 && c === ',') { cut = i; break; }
+  }
+  return normSubject(cut < 0 ? subject : subject.slice(0, cut));
+}
+// The value an equality assertion pins, when it pins a bare number.
+function pinnedValue(args) {
+  if (args.length < 2) return null;
+  const m = /^(-?\d+(?:\.\d+)?)$/.exec(args[1].trim());
+  return m ? Number(m[1]) : null;
+}
+// The bar an assertion sets and how it states it: a number the guard can compare, or an expression
+// it cannot. A comparison to an expression states a bar the guard has to take on trust.
+function assertionBar(a) {
+  const comparison = subjectComparison(a.subject);
+  if (comparison) {
+    const number = /^(-?\d+(?:\.\d+)?)$/.exec(comparison.right);
+    let bar = null;
+    const value = number ? Number(number[1]) : 0;
+    if (comparison.op === '>=' || comparison.op === '>') bar = { dir: 'min', value: comparison.op === '>' ? value + 1 : value };
+    else if (comparison.op === '<=' || comparison.op === '<') bar = { dir: 'max', value: comparison.op === '<' ? value - 1 : value };
+    else if (comparison.op === '===' || comparison.op === '==') bar = { dir: 'eq', value };
+    return { op: comparison.op, kind: number ? 'number' : 'expression', bar };
+  }
+  const pinned = pinnedValue(a.args);
+  return pinned === null ? null : { op: '==', kind: 'number', bar: { dir: 'eq', value: pinned } };
+}
+const opGroup = (op) => op === '>=' || op === '>' ? 'min' : op === '<=' || op === '<' ? 'max' : op === '==' || op === '===' ? 'eq' : 'ne';
+// A covering check may not lower the bar the removed one set, and may not state a weaker kind of
+// check: a number where the removed one compared two expressions proves less than the old check.
+function lowersBar(added, removed) {
+  const was = assertionBar(removed);
+  if (!was) return false;   // the removed assertion sets no bar to lower
+  const now = assertionBar(added);
+  if (!now) return true;    // the added one states none either: it cannot be shown to cover
+  if (opGroup(was.op) !== opGroup(now.op)) return true;
+  if (was.kind === 'expression') return now.kind !== 'expression';
+  if (now.kind !== 'number' || !was.bar || !now.bar) return true;
+  if (was.bar.dir === 'eq') return now.bar.dir !== 'eq' || now.bar.value !== was.bar.value;
+  if (now.bar.dir !== was.bar.dir) return true;
+  return was.bar.dir === 'min' ? now.bar.value < was.bar.value : now.bar.value > was.bar.value;
+}
+// A stronger check replaces a removed one when it checks the same quantity and does not lower the
+// bar the removed one set.
+const covers = (added, removed) =>
+  subjectHead(added.subject) === subjectHead(removed.subject) && !lowersBar(added, removed);
+// A removal is excused when the test block it left gained at least as many assertions and one of
+// them covers the removed subject: the same block now checks the same thing, at least as hard.
+// A removal in a block that gained nothing, or whose additions check other things, stays flagged.
+const strengthened = (lost) => {
+  if (!lost.block) return false;
+  const lostInBlock = assertsLost.filter(l => l.file === lost.file && l.block === lost.block).length;
+  const gainedInBlock = assertsGained.filter(g => g.file === lost.file && g.block === lost.block);
+  if (gainedInBlock.length < lostInBlock) return false;
+  return gainedInBlock.some(g => covers(g, lost));
+};
 for (const lost of assertsLost) {
   if (deleted.includes(lost.file) || testDiet(lost.file)) continue; // test-deleted / test-diet own these
   const before = git(['show', `${mergeBase}:${lost.file}`]) ?? '';
   const after = existsSync(lost.file) ? readFileSync(lost.file, 'utf8') : '';
   const match = assertsGained.findIndex(g => g.file === lost.file && (g.subject === lost.subject || renamed(lost.file, lost.subject, g.subject, before, after)));
+  if (match < 0 && strengthened(lost)) continue;   // the same block now checks it, at least as hard
   const netLoss = assertsLost.filter(l => l.file === lost.file).length > assertsGained.filter(g => g.file === lost.file).length;
   if (match < 0 || netLoss) flag('assertion-removed', lost.file, lost.subject);
 }
