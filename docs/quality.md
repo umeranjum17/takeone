@@ -78,6 +78,9 @@ this reports goal status but does not change the baseline ratchet gate.
   by themselves. VMAF mean must be ≥95 when ffmpeg provides libvmaf. Stock CI
   ffmpeg may lack libvmaf;
   that run explicitly reports **SSIM only** rather than claiming a VMAF pass.
+  In that SSIM-only mode the golden is still gated: mean SSIM over all frames must
+  be ≥0.95, so a golden that no longer matches the render fails CI instead of passing
+  unseen. Passing it does not prove VMAF ≥95; only a libvmaf ffmpeg measures that.
   Candidate and golden frame counts must match; changed duration requires review.
 - Motion blur ghosting is not part of this harness. The renderer's synthetic
   proof and measurements are documented in [camera motion blur](motion-blur.md).

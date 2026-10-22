@@ -255,7 +255,7 @@ export function compare(video: string, golden: string, output: string, vmaf: boo
     ffmpeg(['-i', video, '-i', golden, '-filter_complex', `[0:v]${clock}[a];[1:v]${clock}[b];[a][b]libvmaf=log_fmt=json:log_path=${log}:n_threads=2`, '-f', 'null', '-']);
     vmafScore = json<{ pooled_metrics: { vmaf: { mean: number } } }>(log).pooled_metrics.vmaf.mean;
   }
-  return { candidateFrames, goldenFrames, timelineMismatch: candidateFrames !== goldenFrames, minSSIM: Math.min(...scores.map(s => s.ssim)), framesBelow095: scores.filter(s => s.ssim < 0.95), vmaf: vmafScore, mode: vmaf ? 'SSIM + VMAF' : 'SSIM only: ffmpeg has no libvmaf' };
+  return { candidateFrames, goldenFrames, timelineMismatch: candidateFrames !== goldenFrames, minSSIM: Math.min(...scores.map(s => s.ssim)), meanSSIM: scores.reduce((sum, s) => sum + s.ssim, 0) / scores.length, framesBelow095: scores.filter(s => s.ssim < 0.95), vmaf: vmafScore, mode: vmaf ? 'SSIM + VMAF' : 'SSIM only: ffmpeg has no libvmaf' };
 }
 
 async function main() {
@@ -344,6 +344,8 @@ async function main() {
       if (regression.timelineMismatch) fixtureFailures.push(`golden timeline: ${regression.candidateFrames} frames vs ${regression.goldenFrames}; human review required`);
       if (!Number.isFinite(regression.minSSIM) || (regression.vmaf !== null && !Number.isFinite(regression.vmaf))) fixtureFailures.push('similarity score is not finite');
       if (regression.vmaf !== null && regression.vmaf < 95) fixtureFailures.push(`VMAF: ${regression.vmaf} < 95`);
+      // Stock CI ffmpeg has no libvmaf, so a stale golden passed unseen there. Without VMAF, SSIM gates the golden.
+      if (regression.vmaf === null && regression.meanSSIM < 0.95) fixtureFailures.push(`mean SSIM: ${regression.meanSSIM.toFixed(4)} < 0.95; golden is stale or the render regressed, review the frames`);
     }
     failures.push(...fixtureFailures.map(f => `${fixture}: ${f}`));
     baselines[fixture] = metrics;
