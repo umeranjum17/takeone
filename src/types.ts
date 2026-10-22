@@ -118,6 +118,9 @@ export type BeatKind =
 
 export interface Beat {
   id: string;
+  /** The beat's stable identity: a hash of what it shows, so a plan edit can
+   * follow it when a re-cut re-segments the take (see beats/key.ts). */
+  key?: string;
   t0: number;
   t1: number;
   anchor_t: number;

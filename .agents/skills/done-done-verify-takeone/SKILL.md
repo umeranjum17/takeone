@@ -26,6 +26,7 @@ Harness: Shell (bash), with ffmpeg and ffprobe to decode frames; a browser tool 
 - [Check the rendered offline MP4 visually](features/check-the-rendered-offline-mp4-visually.md): After make writes the MP4, run the offline-render journey's visual check on the take (`scripts/verification/visual-check.ts`)
 - [Drive the Tidewater board in a browser through the staged scene](features/drive-the-tidewater-board-in-a-browser-t.md): Open scripts/e2e/scene.html directly as a file:// page; it is the staged Tidewater board used by the e2e takes (`scripts/e2e/scene.html`)
 - [Run the repo's static checks as a verification journey](features/run-the-repo-s-static-checks-as-a-verifi.md): From a checkout, run the checks journey (`scripts/floor-guard.mjs`)
+- [Prove a plan edit follows its beat across a re-cut](prove-a-plan-edit-follows-its-beat-across-a-re-cut.md): Edit `analysis/plan.json` by hand, trim the take, run `make` again, and assert the edit lands on the same beat key at its new id (`src/beats/key.ts`, `src/decide/plan.ts`)
 - [Prove the camera drag ease on a real take](features/prove-the-camera-drag-ease-on-a-real-take.md): Render a real take with a drag, then measure the camera bars and the per-frame text cuts (`src/camera/gesture.ts`)
 
 ## Evidence

@@ -120,8 +120,12 @@ export function whatHappened(beat: Beat): string {
   return s;
 }
 
-/** The shared rubric: every judgement's full wording, once per chunk. */
-function rubric(goal: string | undefined, withImages: boolean): Record<string, string> {
+/** The shared rubric: every judgement's full wording, once per chunk. Only the
+ * rules this chunk's beats can use are spelled out: the pull-back belongs to a
+ * pause and the pointer follow to a drag or a pointer travel. */
+function rubric(goal: string | undefined, withImages: boolean, beats: Beat[]): Record<string, string> {
+  const canIdle = beats.some((beat) => beat.kind === "idle");
+  const canFollow = beats.some((beat) => beat.kind === "drag" || beat.kind === "travel");
   return {
     focus_start:
       "At the START of the beat, which zone should the viewer be looking at to see the action the user takes? Pick the zone where the user's action happens.",
@@ -139,10 +143,14 @@ function rubric(goal: string | undefined, withImages: boolean): Record<string, s
       "routine: navigation or setup a viewer can skim; useful step: a normal step of the workflow; key moment: the payoff or the step the demo exists to show.",
     shot:
       "Should the camera move for this beat at all? No for routine scrolling, pointer drift or pauses that show nothing new.",
-    idle:
-      "Should the camera pull back during this beat's pause, before a distant next beat? Yes for a long wait with nothing to read; no to keep the shot still.",
-    follow:
-      "Should the camera follow the pointer through this beat? Yes for a drag or pointer travel the viewer must track; no when the pointer's path is not the point.",
+    ...(canIdle ? {
+      idle:
+        "Should the camera pull back during this beat's pause, before a distant next beat? Yes for a long wait with nothing to read; no to keep the shot still.",
+    } : {}),
+    ...(canFollow ? {
+      follow:
+        "Should the camera follow the pointer through this beat? Yes for a drag or pointer travel the viewer must track; no when the pointer's path is not the point.",
+    } : {}),
     hints:
       "Each beat's hint is what the fallback rules would pick: suggest_shot names the rule's start zone, end zone and tightness, and fits_current_shot says whether that start zone already fits the shot before the beat (current_shot for the first beat, the rule's shot for the previous beat after it). " +
       "fits_current_shot assumes the previous beat took its suggest_shot; if you chose differently for it, judge new_subject against the shot you chose. " +
@@ -156,8 +164,10 @@ function rubric(goal: string | undefined, withImages: boolean): Record<string, s
 
 /** Per-beat questions: short pointers into the shared rubric. Choice criteria
  * keep the planner's null descriptions (cast: the wire passes values through
- * verbatim). */
-function beatQuestions(id: string, zones: ZoneNotes, images: string[] | undefined): Record<string, Question> {
+ * verbatim). The camera only reads a choice on the beats it can use, so a beat
+ * that cannot take a pull-back or a pointer follow is not asked about it. */
+function beatQuestions(beat: Beat, zones: ZoneNotes, images: string[] | undefined): Record<string, Question> {
+  const id = beat.id;
   const options = Object.fromEntries(Object.keys(zones).map((n) => [n, null])) as unknown as Record<string, string>;
   const pointer = (rule: string) => `Apply rubric.${rule} to beats.${id}.`;
   const seen = images?.length ? { images } : {};
@@ -168,8 +178,10 @@ function beatQuestions(id: string, zones: ZoneNotes, images: string[] | undefine
     [`${id}_new_subject`]: { kind: "yesno", floor: QUESTION_FLOOR, question: pointer("new_subject") },
     [`${id}_key_moment`]: { kind: "score", floor: QUESTION_FLOOR, levels: KEY_LEVELS, instructions: pointer("key_moment") },
     [`${id}_shot`]: { kind: "yesno", floor: QUESTION_FLOOR, question: pointer("shot") },
-    [`${id}_idle`]: { kind: "yesno", floor: QUESTION_FLOOR, question: pointer("idle") },
-    [`${id}_follow`]: { kind: "yesno", floor: QUESTION_FLOOR, question: pointer("follow") },
+    ...(beat.kind === "idle" ? { [`${id}_idle`]: { kind: "yesno", floor: QUESTION_FLOOR, question: pointer("idle") } } : {}),
+    ...(beat.kind === "drag" || beat.kind === "travel"
+      ? { [`${id}_follow`]: { kind: "yesno", floor: QUESTION_FLOOR, question: pointer("follow") } }
+      : {}),
   };
 }
 
@@ -225,7 +237,7 @@ export function buildChunk(
   const state: ChunkState = {
     ...(ctx.goal ? { goal: ctx.goal } : {}),
     ...(ctx.style ? { style: ctx.style } : {}),
-    rubric: rubric(ctx.goal, imageCount > 0),
+    rubric: rubric(ctx.goal, imageCount > 0, beats),
     current_shot: ctx.currentShot,
     beats: {},
     after_chunk: ctx.nextBeat ? whatHappened(ctx.nextBeat) : "The take ends after these beats.",
@@ -239,7 +251,7 @@ export function buildChunk(
       hint: ctx.hints[k]!,
     };
   });
-  const questions = () => Object.assign({}, ...beats.map((b, k) => beatQuestions(b.id, state.beats[b.id]!.zones, ctx.images?.[k])));
+  const questions = () => Object.assign({}, ...beats.map((b, k) => beatQuestions(b, state.beats[b.id]!.zones, ctx.images?.[k])));
   const measure = () => {
     const body = JSON.stringify({ model: JEV_MODEL, state, questions: toWire(questions()) });
     return { body, tokens: estimateTokens(body) + imageCount * IMAGE_TOKENS };
@@ -267,7 +279,7 @@ export function buildChunk(
         if (words.length) state[field] = words.join(" ");
         else delete state[field];
         trimmed = true;
-        state.rubric = rubric(state.goal, imageCount > 0);
+        state.rubric = rubric(state.goal, imageCount > 0, beats);
         m = measure();
       }
     }
