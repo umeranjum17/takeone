@@ -15,6 +15,7 @@ Install the latest packaged build from the [releases page](https://github.com/um
 ```sh
 npm install -g --allow-remote=all https://github.com/umeranjum17/takeone/releases/latest/download/takeone.tgz
 takeone doctor
+takeone --version    # prints the installed version
 ```
 
 The same command works on macOS and Linux. npm 12 refuses the tarball URL without `--allow-remote=all`; npm 11 prints `npm warn Unknown cli config "--allow-remote"` for it, and npm may also print an `install-scripts` warning that mentions `prepare: npm run build`. Both warnings are harmless: the release tarball already contains `dist/`, and the install still completes.

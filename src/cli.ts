@@ -18,6 +18,7 @@ import { isMotionTake, MOTION_USAGE, runMotion } from "./motion/cli.ts";
 import { renderMotion } from "./motion/motion.ts";
 import { applyOverrides, type CameraDefaults, type Overrides } from "./camera/defaults.ts";
 import { filmOverrides, type FilmDecision } from "./decide/film.ts";
+import { packageVersion } from "./version.ts";
 
 export function takesDir(): string {
   return process.env["TAKEONE_DIR"] ?? join(homedir(), "Videos", "takeone");
@@ -177,6 +178,7 @@ takeone render <motion-dir> [--aspect landscape|portrait|square|4:5] [--stills <
 ${MOTION_USAGE}
 takeone key set [--backend <name>] [--model <model>] [--via typesafe|openrouter] < stdin
 takeone [list|record|stop|doctor]
+takeone --version|-v    print the installed version
 
   make plans beats and camera decisions, then renders an MP4.
   render creates a camera path and MP4 from a planned take.
@@ -218,6 +220,10 @@ export async function main(argv: string[]): Promise<number> {
     return runRecorderCommand(cmd ?? "list", rest);
   }
   if (cmd === "--help" || cmd === "-h" || cmd === "help") usage(0);
+  if (cmd === "--version" || cmd === "-v") {
+    console.log(packageVersion());
+    return 0;
+  }
   if (cmd === "motion") {
     try {
       return await runMotion(rest, takesDir());
