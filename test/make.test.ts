@@ -536,15 +536,10 @@ test("per-beat camera answers reach plan.json and the camera; a user edit in pla
     }) as typeof fetch;
     const first = await fastTake(dir, { camera, apiKey: KEY, fetchImpl, log: () => {}, warn: () => {} });
     const readPlanFile = (): Plan => JSON.parse(readFileSync(join(dir, "analysis", "plan.json"), "utf8")) as Plan;
-    const kinds = new Map(first.beats.map((b) => [b.id, b.kind]));
     const asked = readPlanFile().beats.filter((b) => b.shot?.by === "ai");
     assert.ok(asked.length > 0, "no beat took the planner's camera answers");
-    // The camera only reads a pull-back on a pause and a pointer follow on a
-    // drag or a pointer travel, so the planner is asked about those only there.
-    assert.ok(asked.every((b) => b.shot?.value === false
-      && (kinds.get(b.id) === "idle" ? b.idle?.value === true : b.idle?.by === "rule")
-      && (kinds.get(b.id) === "drag" || kinds.get(b.id) === "travel" ? b.follow?.value === false : b.follow?.by === "rule")),
-    JSON.stringify(asked));
+    assert.ok(asked.every((b) => b.shot?.value === false && b.idle?.value === true && b.follow?.value === false),
+      JSON.stringify(asked));
     const zoomedFrames = (json: string): number => {
       const frames = JSON.parse(json) as { w: number }[];
       const full = Math.max(...frames.map((f) => f.w));
