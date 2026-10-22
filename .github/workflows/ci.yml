@@ -44,7 +44,7 @@ jobs:
           cache: npm
       - run: npm ci
       - name: Install output quality tools
-        timeout-minutes: 15
+        timeout-minutes: 20
         run: scripts/ci-apt-install.sh ffmpeg tesseract-ocr unzip fonts-liberation libnss3 libatk1.0-0 libatk-bridge2.0-0 libx11-6 libxcomposite1 libxdamage1 libxrandr2 libgbm1 libasound2t64
       - uses: actions/cache@v4
         with:
@@ -113,7 +113,7 @@ jobs:
           cache: npm
       - run: npm ci
       - name: Install capture prerequisites
-        timeout-minutes: 15
+        timeout-minutes: 20
         run: scripts/ci-apt-install.sh ffmpeg unzip fonts-liberation libnss3 libatk1.0-0 libatk-bridge2.0-0 libx11-6 libxcomposite1 libxdamage1 libxrandr2 libgbm1 libasound2t64
       - uses: actions/cache@v4
         with:
