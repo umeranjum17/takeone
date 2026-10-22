@@ -54,7 +54,22 @@ The polished video lands at `/tmp/takes/synth-demo/out/synth-demo.mp4`, next to 
 
 ### 2. Let the planner decide (AI by default)
 
-The planner is AI by default: `takeone make` asks the configured model for each beat that needs judgement and records `planner.mode: "ai"` when AI decisions are used in `take.json`. With no saved choice it uses an already-signed-in Claude or Codex CLI account first, then an already-signed-in ChatGPT or OpenCode Go plan account, then a stored key; with none it renders anyway with loud fallback rules (`planner.mode: "fallback"`). Beats with no choice to make use the local rules; `--no-ai` forces the fallback even with a credential. Calls are batched in ordered chunks; see [cost and chunking](cost.md#slice-3-batched-chunks-measured-offline). One extra film call per take also picks the look; see [Plan and render](#plan-and-render).
+The planner is AI by default: `takeone make` asks the configured model for each beat that needs judgement and records `planner.mode: "ai"` when AI decisions are used in `take.json`. With no saved choice it follows [discovery order](#discovery-order); with nothing to use it renders anyway with loud fallback rules (`planner.mode: "fallback"`). Beats with no choice to make use the local rules; `--no-ai` forces the fallback even with a credential. Calls are batched in ordered chunks; see [cost and chunking](cost.md#slice-3-batched-chunks-measured-offline). One extra film call per take also picks the look; see [Plan and render](#plan-and-render).
+
+<a id="discovery-order"></a>
+
+#### Discovery order
+
+This section owns the order; every other page states it by pointing here.
+
+With nothing saved in `planner.json`, takeone offers, in order:
+
+1. an already-signed-in Claude or Codex CLI account,
+2. an already-signed-in ChatGPT or OpenCode Go plan account,
+3. a stored key,
+4. the local rules (`planner.mode: "fallback"`).
+
+An account is offered only when it can serve. The kit must report it ready, and a Claude CLI that is signed in with an API key, Bedrock or Vertex — a real, working sign-in that bills per call and cannot answer the subscription ask — is passed over for the stored key, with the reason said out loud rather than swallowed. A discovered plan account takes the first model its own live list offers; takeone names no model of its own. A saved choice is never switched: takeone never moves provider on a limit, a refusal, an error or a missing key.
 
 Store your key with `takeone key set`, which reads one key line from piped stdin and records the provider choice. For example, in Bash, this hidden prompt keeps it out of argv and shell history:
 
@@ -75,9 +90,9 @@ printf '%s' "$planner_key" | takeone key set --backend jev --via openrouter
 
 When the decider BYOKit builds from that config reads images (the config's own `supportsImages` capability, openai and anthropic only; BYOKit refuses images for any other backend), the planner also gets one small keyframe thumbnail at each beat's action and one at its result (512 px long side, JPEG), with every zone outlined and labelled. Only the zones whose text is read stay sharp, with every word that would not pass as screen text blacked out; the rest of the frame is blurred past reading, and with `--no-screen-text` the whole frame is. A text-only decider gets the zone notes alone. In capture mode thumbnails are sent only with screen text opted in. takeone keeps no model list of its own. Cost per minute is in [cost.md](cost.md#slice-3-batched-chunks-measured-offline).
 
-The choice is stored as a BYOKit decide config in `${XDG_CONFIG_HOME:-$HOME/.config}/takeone/planner.json` (`backend`, `auth`, `model`, `via`, `supportsImages`), validated on load. When there is no saved choice, TakeOne first offers an already-signed-in Claude or Codex CLI account that BYOKit detects, then an already-signed-in ChatGPT or OpenCode Go plan account, then a stored Jev key, then falls back to local rules. A signed-in CLI or plan account is offered only when BYOKit reports it ready. An explicit choice always wins, and takeone never switches provider on a limit, an error or a missing key — a provider that cannot serve the run stops before rendering with exit 3 and the three choices (wait and rerun, `--no-ai`, or pick another provider yourself). `takeone doctor` names the account or key it found and the planner in use; with neither it says fallback rules are in use.
+The choice is stored as a BYOKit decide config in `${XDG_CONFIG_HOME:-$HOME/.config}/takeone/planner.json` (`backend`, `auth`, `model`, `via`, `supportsImages`), validated on load. With no saved choice it follows [discovery order](#discovery-order). An explicit choice always wins, and takeone never switches provider on a limit, an error or a missing key — a provider that cannot serve the run stops before rendering with exit 3 and the three choices (wait and rerun, `--no-ai`, or pick another provider yourself). `takeone doctor` names the account or key it found and the planner in use; with neither it says fallback rules are in use.
 
-Subscription sign-ins need no key; supported account selections and their behavior are documented in the [plan-and-render guide](verification/plan-and-render-take.md#live-planner-run-on-a-picked-account). A saved `planner.json` account that is not signed in stops the run with a message; a discovered CLI or plan account that refuses a call falls back per step to local rules.
+Subscription sign-ins need no key; supported account selections and their behavior are documented in the [plan-and-render guide](verification/plan-and-render-take.md#live-planner-run-on-a-picked-account). A saved `planner.json` account that is not signed in stops the run with a message, and so does a discovered account whose CLI refuses the ask: takeone names the account's sign-in method and the check to run, rather than falling back per step to local rules. Only a reply the model got wrong falls back per beat.
 
 Already have `pi` installed and signed in? Plan with it and store no key of your own. Write that same file by hand (there is no `key set` flag for a route with no key of TakeOne's own):
 

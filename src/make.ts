@@ -240,6 +240,9 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
       if (planner.refusal) plannerOff = planner.refusal;
       planner = null;
     }
+    // A signed-in account that could not serve, while another provider took
+    // the run: say so rather than letting the switch pass unnoticed.
+    if (planner?.skipped) warn(`planner: ${planner.skipped}`);
   }
   const aiActive = planner !== null;
   const readScreenText = aiActive && !opts.noScreenText && (!opts.capture || opts.screenText === true);

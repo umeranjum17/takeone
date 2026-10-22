@@ -8,7 +8,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync, existsSync
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { makeTake, PreflightRefusal, TakeInputError, type MakeOptions, type MakeResult } from "../src/make.ts";
-import { PlannerUnavailable, loadPlannerConfig, resolvePlanner } from "../src/decide/planner.ts";
+import { PlannerUnavailable, askChunk, loadPlannerConfig, resolvePlanner } from "../src/decide/planner.ts";
 import { ConfigError, type Answer } from "@byokit/decide";
 import type { Keystore } from "@byokit/secrets";
 import { main, resolveCamera } from "../src/cli.ts";
@@ -355,6 +355,110 @@ process.exit(2);
     assert.equal(resolved.defaulted, true);
     assert.equal(resolved.config.backend, "claude-code", resolved.refusal ?? "no discovered account");
     assert.equal(resolved.active, true);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+/** A fake installed Claude that answers its own `auth status` with the given
+ * sign-in method, as the real CLI does, and answers the planner's own ask with
+ * `askExit` (nonzero = the account will not answer). takeone never spawns this
+ * binary itself: BYOKit runs it, both to read the sign-in and to ask. */
+function fakeClaude(binDir: string, auth: { authMethod: string; apiProvider: string }, askExit = 0, askStdout = ""): void {
+  const claude = join(binDir, "claude");
+  writeFileSync(claude, `#!${process.execPath}
+const args = process.argv.slice(2);
+if (args.includes("auth") && args.includes("status")) {
+  process.stdout.write(JSON.stringify({ loggedIn: true, ...${JSON.stringify(auth)} }) + "\\n");
+  process.exit(0);
+}
+if (args.includes("-p")) {
+  let stdin = "";
+  process.stdin.on("data", (d) => { stdin += d; });
+  process.stdin.on("end", () => {
+    if (${JSON.stringify(askStdout)}) process.stdout.write(${JSON.stringify(askStdout)} + "\\n");
+    process.exit(${askExit});
+  });
+  return;
+}
+process.exit(2);
+`);
+  chmodSync(claude, 0o755);
+}
+
+/** An isolated home, config dir and PATH holding only the fakes above. */
+function cliHome(dir: string): { configDir: string; binDir: string; env: NodeJS.ProcessEnv } {
+  const configDir = join(dir, "config");
+  const binDir = join(dir, "bin");
+  mkdirSync(join(configDir, "takeone"), { recursive: true });
+  mkdirSync(binDir);
+  return { configDir, binDir, env: { HOME: dir, XDG_CONFIG_HOME: configDir, PATH: binDir, TAKEONE_NO_KEYRING: "1" } };
+}
+
+test("a Claude login that is an API key or a cloud route is passed over for the stored key, and says so", async () => {
+  // The kit reads `authMethod` off the CLI's own status command: only
+  // claude.ai is a subscription takeone can ask with.
+  for (const [auth, wording] of [
+    [{ authMethod: "api_key", apiProvider: "firstParty" }, /signed in with an API key/],
+    [{ authMethod: "bedrock", apiProvider: "amazon-bedrock" }, /Bedrock, Vertex/],
+  ] as const) {
+    const dir = mkdtempSync(join(tmpdir(), "takeone-cli-method-"));
+    try {
+      const { configDir, binDir, env } = cliHome(dir);
+      fakeClaude(binDir, auth);
+      const keys = { get: async () => KEY, set: async () => {}, delete: async () => {} };
+      const resolved = await resolvePlanner({ configDir, env, store: keys as unknown as Keystore });
+      assert.equal(resolved.defaulted, true);
+      // The unusable account is not offered, and the stored key is reused.
+      assert.equal(resolved.config.backend, "jev", resolved.skipped ?? "no skipped reason");
+      assert.equal(resolved.active, true, resolved.refusal ?? "stored key not reused");
+      assert.equal(resolved.key, KEY);
+      // The passed-over sign-in is said out loud, never swallowed.
+      assert.match(resolved.skipped ?? "", wording);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+});
+
+test("a signed-in Claude CLI that refuses the ask stops the run instead of falling back per beat", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "takeone-cli-refuse-"));
+  try {
+    const { configDir, binDir, env } = cliHome(dir);
+    // A Claude subscription sign-in discovery accepts, whose ask then refuses.
+    fakeClaude(binDir, { authMethod: "claude.ai", apiProvider: "firstParty" }, 1);
+    const empty = { get: async () => null, set: async () => {}, delete: async () => {} };
+    const planner = await resolvePlanner({ configDir, env, store: empty as unknown as Keystore });
+    assert.equal(planner.config.backend, "claude-code", planner.refusal ?? "no discovered account");
+    await assert.rejects(
+      askChunk({ secret: "x" }, { focus: { kind: "choice", options: { a: "Zone A" } } } as never, planner, new Map() as never, { timeoutMs: 5000 }),
+      (e: unknown) => {
+        assert.ok(e instanceof PlannerUnavailable, `not a stop: ${String(e)}`);
+        // The stop names the CLI, its sign-in and the check the user can run.
+        assert.match(e.message, /claude could not answer/);
+        assert.match(e.message, /Claude subscription sign-in/);
+        assert.match(e.message, /claude auth status/);
+        assert.match(e.message, /--no-ai/);
+        return true;
+      },
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a Claude CLI that answers in the wrong shape falls back per beat instead of stopping", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "takeone-cli-badreply-"));
+  try {
+    const { configDir, binDir, env } = cliHome(dir);
+    // The kit reports this one as `bad_reply`, apart from a refusal: the beats
+    // keep their heuristics and the film still renders.
+    fakeClaude(binDir, { authMethod: "claude.ai", apiProvider: "firstParty" }, 0, "not json at all");
+    const empty = { get: async () => null, set: async () => {}, delete: async () => {} };
+    const planner = await resolvePlanner({ configDir, env, store: empty as unknown as Keystore });
+    assert.equal(planner.config.backend, "claude-code", planner.refusal ?? "no discovered account");
+    const outcome = await askChunk({ secret: "x" }, { focus: { kind: "choice", options: { a: "Zone A" } } } as never, planner, new Map() as never, { timeoutMs: 5000 });
+    assert.equal(outcome.decisionSource, "failed");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

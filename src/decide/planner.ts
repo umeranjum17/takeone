@@ -1,12 +1,25 @@
 // Provider-agnostic AI planner over @byokit/decide: the decider is whatever
 // model the user picked through a stored BYOKit decide config
 // (`parseConfig` / `createDecider` shape: backend, auth, model, via).
-// Jev is only the default when the user picked nothing; with no saved choice
-// an already-signed-in Claude or Codex CLI account is offered first. Provider
-// names live in this module's config, label and installed-CLI account paths;
-// there is no model list here (pi's model comes from planner.json). A saved
-// choice is never switched: limits, auth errors and timeouts stop with
-// PlannerUnavailable instead of silently falling back.
+//
+// THIS MODULE OWNS THE DISCOVERY ORDER. With nothing saved, an
+// already-signed-in Claude or Codex CLI account is offered first, then a
+// signed-in ChatGPT or OpenCode Go plan account, then the stored key, then
+// local rules. Every other place states the order by pointing here
+// (docs/guide.md "Discovery order"). A saved choice is never switched:
+// limits, refusals, auth errors and timeouts stop with PlannerUnavailable
+// instead of silently falling back.
+//
+// A discovered account is offered only when it can serve. `cliAccounts` says
+// how a signed-in Claude is signed in (`SignInMethod`), and an API key,
+// Bedrock or Vertex login cannot serve takeone's ask: it is passed over for
+// the stored key and the reason is said out loud, never swallowed. At call
+// time a true refusal (the kit's `RefusalCode`, or a CLI that refuses the ask)
+// stops the run; only `bad_reply` and other per-beat failures fall back.
+//
+// Provider names live in this module's config, label and installed-CLI
+// account paths; there is no model list here (pi's model comes from
+// planner.json, a discovered plan account's from its own live list).
 //
 // Answer validation stays takeone's own mapping (mapAnswers): the kit floor is
 // set to 0 on our questions so a merely unsure answer still widens through the
@@ -27,21 +40,27 @@ import {
   type Answer,
   type DecideCache,
   type DecideConfig,
+  type FailureCode,
   type ImageInput,
   type Question,
+  type RefusalCode,
 } from "@byokit/decide";
 import { codex } from "@byokit/decide/codex";
 import { pi } from "@byokit/decide/pi";
 import { claudeCode } from "@byokit/decide/claude-code";
 import { writeFileAtomic } from "@byokit/secrets";
+// Type only: the sign-in method the kit reads from the CLI's own status
+// command. Erased at compile time, so the Node-only subpath stays dynamic.
+import type { SignInMethod } from "@byokit/accounts/cli";
 import type { PlannerAnswers } from "../types.ts";
 import { takeoneConfigDir, loadPlannerKey, readPlannerKey, noKeyring, type KeyOptions } from "../secrets.ts";
 
 /** Whole-call budget per chunk of beats (attempts plus bounded 429 waits). */
 export const DECIDE_TIMEOUT_MS = 30000;
 
-/** The planner default: Jev, used only when the user picked nothing and no
- * installed or signed-in account is found. One 429 retry per call. */
+/** The planner default: Jev, the last resort of the discovery order above,
+ * used only when the user picked nothing and no installed or signed-in
+ * account can serve. One 429 retry per call. */
 export const DEFAULT_PLANNER_CONFIG: DecideConfig = {
   backend: "jev",
   auth: "apiKey",
@@ -145,6 +164,11 @@ export interface ResolvedPlanner {
   active: boolean;
   /** Why the resolved account sign-in or the pi CLI cannot serve the backend, in plain words. */
   refusal: string | null;
+  /** A signed-in account discovery passed over because its own sign-in cannot
+   * serve (an API key, Bedrock or Vertex Claude login), while another provider
+   * took the run. Said out loud instead of being swallowed. Null when nothing
+   * signed-in was passed over. */
+  skipped: string | null;
   /** The installed CLI launch this resolve validated, when a CLI account is the planner. */
   cliLaunch: CliAccount | null;
 }
@@ -176,6 +200,7 @@ export async function resolvePlanner(o: ResolvePlannerOptions = {}): Promise<Res
   const { defaulted } = loaded;
   const env = o.env ?? process.env;
   let refusal: string | null = null;
+  let skipped: string | null = null;
   let cliLaunch: CliAccount | null = null;
   // Discovery already validated the account it hands back, so its readiness is
   // never probed a second time here or per chunk.
@@ -189,6 +214,9 @@ export async function resolvePlanner(o: ResolvePlannerOptions = {}): Promise<Res
     } else {
       refusal = discovered.refusal;
     }
+    // A signed-in account that could not serve is reported whether or not
+    // another provider took the run, so a passed-over sign-in is never silent.
+    skipped = discovered.skipped;
   }
   const c = config as { backend: string; auth: string };
   let member: string | null = null;
@@ -233,6 +261,7 @@ export async function resolvePlanner(o: ResolvePlannerOptions = {}): Promise<Res
     key,
     accountPresent,
     refusal,
+    skipped,
     cliLaunch,
     active: c.auth === "account" || c.backend === "pi" ? accountPresent : key !== null,
   };
@@ -333,46 +362,96 @@ function executable(name: string, env: NodeJS.ProcessEnv): string | undefined {
   return undefined;
 }
 
-async function kitModel(provider: "chatgpt" | "opencode"): Promise<string> {
-  const { provider: catalogue } = await import("@byokit/accounts");
-  return catalogue(provider).models.strong;
+/** The model a discovered plan account serves: the first model its own live
+ * list offers. The kit keeps no tier list of its own (`Provider.models` is
+ * gone), so takeone names no model either. An account whose list cannot be read
+ * cannot serve, and discovery falls through to the next account or the stored
+ * key rather than guessing a model the plan may not run. */
+async function planAccountModel(member: string, route: string, env: NodeJS.ProcessEnv): Promise<string | null> {
+  try {
+    const accounts = await machineAccounts(env);
+    const rows = await accounts.list(member);
+    for (const row of rows) {
+      // The kit resolves these two handles to exactly this id (its providerKey
+      // splits on "." only, so for both keys the id is the route key).
+      if (row.id !== route || row.state !== "ready") continue;
+      const first = (await accounts.models(member, row.id)).find((m) => m.available);
+      if (first) return first.id;
+    }
+    return null;
+  } catch {
+    return null;
+  }
 }
 
 interface Discovered {
   config: PlannerConfig | null;
   refusal: string | null;
+  /** A signed-in account that cannot serve and was passed over, in plain words. */
+  skipped: string | null;
   /** The validated launch behind a discovered CLI config, for reuse. */
   cli: CliAccount | null;
+}
+
+/** Why a signed-in Claude login cannot serve takeone's ask, or null when it
+ * can. An API key, Bedrock or Vertex login is a real, working Claude sign-in
+ * that bills per call and cannot answer the subscription ask the backend makes;
+ * the kit reports which one it is (`SignInMethod`, read from the CLI's own
+ * `auth status`), so the person is told that instead of watching the run
+ * quietly fall back. An absent method means the CLI did not say, so the account
+ * is still tried and a refusal at call time stops the run honestly. */
+function unusableClaudeLogin(method: SignInMethod | undefined): string | null {
+  if (method === "api_key") return "the signed-in Claude CLI is signed in with an API key, not a Claude subscription; sign in with `claude` to plan with it";
+  if (method === "other") return "the signed-in Claude CLI is signed in through a cloud provider or token (Bedrock, Vertex), not a Claude subscription; sign in with `claude` to plan with it";
+  return null;
 }
 
 async function discoverCliAccount(env: NodeJS.ProcessEnv, configDir: string | undefined): Promise<Discovered> {
   const bins = { claude: executable("claude", env), codex: executable("codex", env) };
   let refusal: string | null = null;
+  let skipped: string | null = null;
   for (const provider of ["claude", "codex"] as const) {
     const bin = bins[provider];
     if (!bin) continue;
     const config: CliPlannerConfig = { backend: provider === "claude" ? "claude-code" : "codex", auth: "account", account: `installed-${provider}`, bin };
     const ready = await cliReady(config, env, configDir);
-    if (ready.ok) return { config, refusal: null, cli: ready.launch };
-    refusal ??= ready.message;
+    if (!ready.ok) {
+      refusal ??= ready.message;
+      continue;
+    }
+    if (provider === "claude") {
+      const why = unusableClaudeLogin(ready.launch.account.method);
+      if (why) {
+        // Signed in, but not in a way this backend can ask. The stored key and
+        // the other accounts still get their turn; the reason is kept so the
+        // run can say which account it passed over.
+        skipped ??= why;
+        continue;
+      }
+    }
+    return { config, refusal: null, skipped, cli: ready.launch };
   }
-  return { config: null, refusal, cli: null };
+  return { config: null, refusal, skipped, cli: null };
 }
 
-/** The user picked nothing: a signed-in installed CLI, then a signed-in BYOKit
- * subscription account, then the stored key and local rules below. The model of
- * a discovered CLI comes from the backend's own default; a subscription account
- * takes the model the kit catalogue lists for it. */
+/** The user picked nothing, and the order is the one this module owns: a
+ * signed-in installed CLI that can serve, then a signed-in BYOKit plan account
+ * whose own list names a model, then the stored key and local rules below. The
+ * model of a discovered CLI comes from the backend's own default. */
 async function discoverAccount(member: string, env: NodeJS.ProcessEnv, configDir: string | undefined): Promise<Discovered> {
   const cli = await discoverCliAccount(env, configDir);
   if (cli.config) return cli;
   if (await openAIAccountPresent(member, env)) {
-    return { config: { backend: "openai", auth: "account", model: await kitModel("chatgpt") }, refusal: cli.refusal, cli: null };
+    const model = await planAccountModel(member, "chatgpt", env);
+    if (model) return { config: { backend: "openai", auth: "account", model }, refusal: cli.refusal, skipped: cli.skipped, cli: null };
+    cli.refusal ??= "the signed-in ChatGPT account named no model this planner can ask";
   }
   if (await goAccountPresent(member, env)) {
-    return { config: { backend: "opencode-go", auth: "account", model: await kitModel("opencode") }, refusal: cli.refusal, cli: null };
+    const model = await planAccountModel(member, "opencode:plan_key:opencode-go", env);
+    if (model) return { config: { backend: "opencode-go", auth: "account", model }, refusal: cli.refusal, skipped: cli.skipped, cli: null };
+    cli.refusal ??= "the signed-in OpenCode Go account named no model this planner can ask";
   }
-  return { config: null, refusal: cli.refusal, cli: null };
+  return { config: null, refusal: cli.refusal, skipped: cli.skipped, cli: null };
 }
 
 /** Presence of the member's Go plan login. Reads the stored key into memory
@@ -526,8 +605,34 @@ export interface AskOutcome {
 
 /** Statuses that stop the run before rendering instead of falling back: the
  * provider is limited, refused or too slow, and silently using rules would
- * bill nothing yet hide the outage. Anything else fails the beat, as before. */
+ * bill nothing yet hide the outage. Anything else fails the beat, as before.
+ * This stays the text fallback for what the kit reports without a code (a bare
+ * HTTP status, a timeout); the codes below are the primary signal. */
 const LIMIT_RE = /failed: http (429|401|402|403)\b|timed out/;
+
+/** The kit's refusal codes, in the words a person reads. `bad_reply` is not
+ * here: a model that answered in the wrong shape is a per-beat failure, not a
+ * refusal, and falls back instead of stopping the film. */
+const REFUSAL_WORDS: Record<RefusalCode, string> = {
+  key_refused: "refused the account or key",
+  out_of_credit: "has no credit left for this account",
+  rate_limited: "rate limited the account",
+};
+
+/** The kit's failure code for an abstained answer, or undefined when it did
+ * not classify one. Read defensively: the answer crosses a package boundary. */
+function failureCode(answer: Answer): FailureCode | undefined {
+  const code = (answer as { failure?: { code?: unknown } }).failure?.code;
+  return typeof code === "string" ? (code as FailureCode) : undefined;
+}
+
+/** What to tell the user about a refusal, or null when this answer is not one. */
+function refusalReason(a: Answer): string | null {
+  const code = failureCode(a);
+  if (!code || code === "bad_reply") return null;
+  const status = (a as { failure?: { status?: unknown } }).failure?.status;
+  return `${REFUSAL_WORDS[code]}${typeof status === "number" ? ` (HTTP ${status})` : ""}`;
+}
 
 /** The provider cannot serve this run: rate-limited, unauthorized, or timed
  * out. The CLI exits 3 with the choices; nothing renders. */
@@ -546,12 +651,41 @@ export class PlannerUnavailable extends Error {
   }
 }
 
-function limitReason(answers: Record<string, Answer>): string | null {
+/** Why the run must stop, or null when every beat may fall back to its
+ * heuristic. A refusal the kit classified is named in plain words; a status it
+ * left unclassified (or a timeout, which carries no code) is read from the
+ * reason the kit writes, so a stop never weakens. */
+function stopReason(answers: Record<string, Answer>): string | null {
   for (const a of Object.values(answers)) {
-    const reason = a && typeof a === "object" ? a.reason : undefined;
+    if (!a || typeof a !== "object") continue;
+    const refused = refusalReason(a);
+    if (refused) return refused;
+    const reason = a.reason;
     if (typeof reason === "string" && LIMIT_RE.test(reason)) return reason;
   }
   return null;
+}
+
+/** How the account behind a CLI call is signed in, for the stop message. The
+ * kit reads it from the CLI's own `auth status`; an absent one means the CLI
+ * did not say. */
+function cliSignIn(launch: CliAccount): string {
+  const method = launch.account.method;
+  if (method === "subscription") return "its Claude subscription sign-in";
+  if (method === "api_key") return "its API key sign-in";
+  if (method === "other") return "its cloud provider or token sign-in";
+  return "its sign-in";
+}
+
+/** A CLI backend that refuses an ask abstains every question with the bare
+ * `<backend> failed` the kit writes when the account will not serve (its
+ * sign-in lapsed, or the process could not answer). That is a true refusal, so
+ * the run stops instead of falling back per beat while still claiming the
+ * account. The kit now reports a wrong-shaped reply as `bad_reply` apart from a
+ * refusal, and that one does fall back per beat. */
+function cliRefused(answers: Record<string, Answer>, backend: string): boolean {
+  const all = Object.values(answers);
+  return all.length > 0 && all.every((a) => a && a.abstained && failureCode(a) !== "bad_reply" && a.reason === `${backend} failed`);
 }
 
 /** Malformed usage counts must not enter accounting: fail the beat instead. */
@@ -700,11 +834,11 @@ export async function askChunk(
         cache: o.keepAnswers ? gateEmpty(scopedCache) : gateUnusable(scopedCache),
         ...(o.images?.length ? { images: o.images } : {}),
       });
-      // A pi run that failed outright (non-zero exit, unreadable output) answers
-      // nothing at all; the kit reduces its own error text, so stop the run with
-      // the check the user can run instead of letting every beat fall back.
-      const all = Object.values(answered);
-      if (all.length > 0 && all.every((a) => a && a.abstained && a.reason === "pi failed")) {
+      // A pi run that refused outright (the key or model it needs is gone)
+      // answers nothing at all. Stop the run with the check the user can run
+      // instead of letting every beat fall back; a wrong-shaped reply is
+      // `bad_reply` and still falls back per beat.
+      if (cliRefused(answered, "pi")) {
         throw new PlannerUnavailable(planner.label, `pi could not answer for ${config.model}: check it with \`pi auth check --model ${config.model}\``);
       }
       return answered;
@@ -729,6 +863,13 @@ export async function askChunk(
         cache: o.keepAnswers ? gateEmpty(scopedCache) : gateUnusable(scopedCache),
         ...(o.images?.length ? { images: o.images } : {}),
       });
+      // The signed-in CLI refused the ask (the sign-in lapsed, or the account
+      // no longer serves): stop the run as unavailable rather than falling back
+      // per beat while still claiming that account. Only a true refusal stops;
+      // a wrong-shaped reply is `bad_reply` and falls back per beat.
+      if (cliRefused(answered, config.backend)) {
+        throw new PlannerUnavailable(planner.label, `could not answer for ${config.model ?? "its default model"}: check ${cliSignIn(account)} with \`${config.backend === "codex" ? "codex login status" : "claude auth status"}\``);
+      }
       return answered;
     };
   } else {
@@ -752,8 +893,8 @@ export async function askChunk(
     throw e;
   }
   if (!answers || typeof answers !== "object") return { decisionSource: "failed" };
-  const limited = limitReason(answers);
-  if (limited) throw new PlannerUnavailable(planner.label, limited);
+  const stopped = stopReason(answers);
+  if (stopped) throw new PlannerUnavailable(planner.label, stopped);
   const usage = validUsageTokens(answers);
   if (usage === null) return { decisionSource: "failed" };
   const tokens = {

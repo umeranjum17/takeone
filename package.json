@@ -24,8 +24,8 @@
     "quality": "node scripts/quality.ts"
   },
   "dependencies": {
-    "@byokit/accounts": "0.28.1",
-    "@byokit/decide": "0.13.0",
+    "@byokit/accounts": "0.30.0",
+    "@byokit/decide": "0.14.1",
     "@byokit/secrets": "0.5.2",
     "@desklink/host": "0.5.3",
     "werift": "0.24.4"
