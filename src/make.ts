@@ -338,7 +338,7 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
       .filter((z) => z.kind === "res" && z.t !== undefined)
       .map((z) => Math.max(b.t0, Math.min(endMs, z.t!))));
     return {
-      id: b.id, t0: seconds(b.t0), t1: seconds(resultT), anchor_t: seconds(b.anchor_t),
+      id: b.id, key: b.key, t0: seconds(b.t0), t1: seconds(resultT), anchor_t: seconds(b.anchor_t),
       kind: b.kind, window_cls: b.window_cls,
       ...(b.hint ? { hint: b.hint } : {}),
       ...(windowRect ? { window_rect: windowRect } : {}),
@@ -612,7 +612,15 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
     ...d, conf: Math.max(0, Math.min(1, d.conf.A ?? d.conf.B ?? d.conf.L ?? 0)),
   }));
   writeFileSync(join(analysisDir, "decisions.jsonl"), renderDecisions.map((d) => JSON.stringify(d)).join("\n") + "\n");
-  writePlan(dir, decisions);
+const plan = writePlan(dir, decisions, renderBeats);
+  for (const edit of plan.dropped) {
+    const fields = (["shot", "idle", "follow"] as const).filter((f) => edit[f]?.by === "user");
+    log(`plan: the user's ${fields.join(", ")} edit for beat ${edit.id} is dropped - the take no longer has that `
+      + `beat (key ${edit.key}); the edit is kept in analysis/plan.json under "dropped"`);
+  }
+  for (const move of plan.moved) {
+    log(`plan: the user's edit for beat ${move.from} follows its beat to ${move.to} (key ${move.key}) - the cut moved it`);
+  }
   const byAi = decisions.filter((d) => d.decided_by === "ai").length;
   const byRule = decisions.length - byAi;
   const plannerStats: PlannerStats = {

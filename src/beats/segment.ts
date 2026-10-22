@@ -2,6 +2,7 @@
 
 import type { Action, BBox, Beat, BeatKind, FrameRegions, Region } from "../types.ts";
 import { bboxArea, bboxIoU, unionBBox } from "../types.ts";
+import { assignBeatKeys } from "./key.ts";
 
 export const BEAT_GAP_MS = 1200; // next action must start within this of last activity
 export const BEAT_SPREAD_FRAC = 0.35; // ... and within this x diagonal of the first action point
@@ -299,6 +300,8 @@ export function segmentBeats(
     else b.results.push(...resultParts(scopedFrames, lastAction, until));
   }
 
+  // The stable identity each beat keeps when a later cut re-segments the take.
+  assignBeatKeys(beats);
   return beats;
 }
 
@@ -403,7 +406,7 @@ export function segmentScreenChanges(
     }
     beats.splice(index + 1, 1);
   }
-  return beats.map((beat, i) => {
+  const numbered = beats.map((beat, i) => {
     // A full-screen redraw is context. Prefer local changes within its burst
     // when present. A redraw can be fragmented into individually local regions:
     // classify the actual result-zone union, which the camera will frame.
@@ -413,4 +416,7 @@ export function segmentScreenChanges(
     if (result && bboxArea(result) / screen > 0.9) beat.kind = "cut";
     return { ...beat, id: `b${i + 1}` };
   });
+  // The stable identity each beat keeps when a later cut re-segments the take.
+  assignBeatKeys(numbered);
+  return numbered;
 }

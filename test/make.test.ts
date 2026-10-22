@@ -550,7 +550,7 @@ test("per-beat camera answers reach plan.json and the camera; a user edit in pla
     const baseline = readPlanFile();
     // A user shot on every beat is preserved in plan.json even while make
     // refuses the beats that cannot take one.
-    writeFileSync(join(dir, "analysis", "plan.json"), JSON.stringify({ version: 1,
+    writeFileSync(join(dir, "analysis", "plan.json"), JSON.stringify({ version: 2,
       beats: baseline.beats.map((b) => ({ ...b, shot: { value: true, by: "user" } })) }));
     await assert.rejects(fastTake(dir, { camera, apiKey: KEY, fetchImpl, log: () => {}, warn: () => {} }),
       /analysis\/plan\.json: beat b\d+ \([a-z]+\): shot=true cannot be honoured/);
@@ -561,7 +561,7 @@ test("per-beat camera answers reach plan.json and the camera; a user edit in pla
     // render follows it, and a rerun of make keeps it.
     const clickIds = new Set(first.beats.filter((b) => b.kind === "click").map((b) => b.id));
     assert.ok(clickIds.size > 0, "the take has no click beat to edit");
-    const userPlan: Plan = { version: 1, beats: baseline.beats.map((b) =>
+    const userPlan: Plan = { version: 2, beats: baseline.beats.map((b) =>
       clickIds.has(b.id) ? { ...b, shot: { value: true, by: "user" } } : b) };
     writeFileSync(join(dir, "analysis", "plan.json"), JSON.stringify(userPlan));
     await renderTake(dir, camera);
@@ -602,7 +602,7 @@ test("a user shot=false in plan.json removes the camera zoom the planner gave ev
     assert.ok(aiZoomed > 0, "the planner's shots did not zoom the camera, so the test proves nothing");
 
     // The user takes every shot away: the render follows it and no beat zooms.
-    const userPlan: Plan = { version: 1, beats: readPlanFile().beats.map((b) => ({ ...b, shot: { value: false, by: "user" } })) };
+    const userPlan: Plan = { version: 2, beats: readPlanFile().beats.map((b) => ({ ...b, shot: { value: false, by: "user" } })) };
     writeFileSync(join(dir, "analysis", "plan.json"), JSON.stringify(userPlan));
     await renderTake(dir, camera);
     const userZoomed = zoomedFrames(readFileSync(join(dir, "camera.json"), "utf8"));
@@ -634,6 +634,79 @@ function buildKindsTake(dir: string): string {
   writeFileSync(join(dir, "take.json"), JSON.stringify({ id: "kinds", stream: { w: STREAM_W, h: STREAM_H }, scale: 1, offset_ms: 0, pointer: "hyprland" }));
   return dir;
 }
+
+test("a user edit follows its beat across a re-cut, is dropped when the cut removes it, and is refused when it names another beat", { skip: needsFfmpeg }, async () => {
+  const dir = buildKindsTake(mkdtempSync(join(tmpdir(), "takeone-recut-")));
+  const fast = ["out_w=160", "out_h=90", "preset=veryfast", "ripple_ms=0", "fade_s=0"];
+  // --no-ai: this journey must never ask a model, and the plan edits are the point.
+  const cli = (command: string, ...flags: string[]) => spawnSync(process.execPath,
+    ["bin/takeone.mjs", command, dir, ...flags, ...fast.flatMap((value) => ["--set", value])],
+    { encoding: "utf8", env: { ...process.env, TAKEONE_DIR: dir, TAKEONE_STATE_DIR: join(dir, "state") } });
+  const planFile = join(dir, "analysis", "plan.json");
+  const takeFile = join(dir, "take.json");
+  const baseline = (): Plan => JSON.parse(readFileSync(planFile, "utf8")) as Plan;
+  const writePlanFile = (plan: Plan) => writeFileSync(planFile, JSON.stringify(plan));
+  const recut = (trim?: { start: number; end: number }) => {
+    const meta = JSON.parse(readFileSync(takeFile, "utf8"));
+    if (trim) meta.trim = trim;
+    else delete meta.trim;
+    writeFileSync(takeFile, JSON.stringify(meta));
+    return cli("make", "--no-ai");
+  };
+  try {
+    assert.equal(cli("make", "--no-ai").status, 0);
+    // The user takes the shot off the typing beat by hand, as they would in the file.
+    const before = baseline();
+    const edited = before.beats.find((beat) => beat.id === "b4")!;
+    const key = edited.key;
+    edited.shot = { value: false, by: "user" };
+    writePlanFile(before);
+
+    // The take is re-cut: the head is trimmed away, so every later beat moves up
+    // a place and the old b4 is now a different beat entirely.
+    const moved = recut({ start: 6000, end: 13000 });
+    assert.equal(moved.status, 0, moved.stderr);
+    assert.match(moved.stdout, new RegExp(`the user\\'s edit for beat b4 follows its beat to b\\d+ \\(key ${key}\\) - the cut moved it`));
+    const after = baseline();
+    const landed = after.beats.filter((beat) => beat.shot?.by === "user");
+    assert.equal(landed.length, 1, JSON.stringify(after.beats));
+    assert.equal(landed[0]!.key, key, "the edit did not follow its beat across the cut");
+    assert.notEqual(landed[0]!.id, "b4", "the cut left the beat where it was, so this proves nothing");
+    assert.deepEqual(after.dropped, [], JSON.stringify(after.dropped));
+
+    // The cut takes the edited beat away: the edit is dropped and named, never
+    // applied to whichever beat landed on its old place.
+    const dropped = recut({ start: 0, end: 5000 });
+    assert.equal(dropped.status, 0, dropped.stderr);
+    assert.match(dropped.stdout, new RegExp(`the user\\'s shot edit for beat ${landed[0]!.id} is dropped - the take no longer has that beat \\(key ${key}\\)`));
+    const gone = baseline();
+    assert.equal(gone.beats.some((beat) => beat.shot?.by === "user"), false, "the dropped edit is still applied");
+    assert.equal(gone.dropped?.[0]?.key, key);
+    assert.equal(gone.dropped?.[0]?.shot?.by, "user");
+
+    // A cut that keeps the beat again takes the edit back.
+    const back = recut(undefined);
+    assert.equal(back.status, 0, back.stderr);
+    const restored = baseline();
+    assert.equal(restored.beats.find((beat) => beat.id === "b4")?.shot?.by, "user", "the edit was not restored with its beat");
+    assert.deepEqual(restored.dropped, []);
+
+    // An entry that names one beat and carries another beat's key is refused:
+    // the edit is never applied to the beat that owns the key.
+    const swapped = baseline();
+    const editedBeat = swapped.beats.find((beat) => beat.id === "b4")!;
+    const other = swapped.beats.find((beat) => beat.id === "b1")!;
+    const editedKey = editedBeat.key;
+    editedBeat.key = other.key;
+    other.key = editedKey;
+    writePlanFile(swapped);
+    const refused = cli("render");
+    assert.equal(refused.status, 1, `a stale key rendered instead of refusing:\n${refused.stdout}${refused.stderr}`);
+    assert.match(refused.stderr, /beat b4 \(type\): the edit was made for a different beat \(key \w+, but b4 is now \w+\)/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
 
 test("plan edits the render cannot honour stop the CLI with a clear error", { skip: needsFfmpeg }, async () => {
   const dir = buildKindsTake(mkdtempSync(join(tmpdir(), "takeone-kinds-")));
