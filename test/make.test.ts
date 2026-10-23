@@ -528,6 +528,24 @@ test("a planner request that fails says why: the reply shape, not just a failed 
   }
 });
 
+test("a MiniMax ask gets an output budget big enough for its reasoning plus the decisions", async () => {
+  const dir = newTake();
+  try {
+    const configDir = join(dir, "test-config");
+    mkdirSync(join(configDir, "takeone"), { recursive: true });
+    writeFileSync(join(configDir, "takeone", "planner.json"), JSON.stringify({ backend: "minimax", auth: "apiKey", model: "MiniMax-M3.1-Flash-Preview" }));
+    const caps: number[] = [];
+    const fetchImpl = (async (_url, init) => {
+      caps.push(JSON.parse(String(init?.body)).max_tokens as number);
+      return new Response("limited", { status: 429 });
+    }) as typeof fetch;
+    await assert.rejects(fastTake(dir, { apiKey: KEY, fetchImpl, log: () => {}, warn: () => {} }));
+    assert.ok(caps.length > 0 && caps.every((n) => n >= 8192), `max_tokens sent: ${caps.join(", ")}`);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("a chosen provider without its credential stops instead of falling back", async () => {
   const dir = newTake();
   const keyring = process.env.TAKEONE_NO_KEYRING;

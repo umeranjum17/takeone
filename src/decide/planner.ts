@@ -806,10 +806,28 @@ async function plannerHost(planner: ResolvedPlanner, fetchImpl?: typeof fetch): 
       cacheScope: planner.member,
     };
   }
+  const send = c.backend === "minimax" ? withOutputBudget(fetchImpl ?? globalThis.fetch) : fetchImpl;
   return {
     ...(planner.key !== null ? { keys: { [c.backend]: planner.key } } : {}),
-    ...(fetchImpl ? { fetch: fetchImpl } : {}),
+    ...(send ? { fetch: send } : {}),
   };
+}
+
+/** Output budget for a MiniMax ask. BYOKit's Messages backend caps a reply at
+ * 1024 tokens and its decide config has no option to raise it; MiniMax spends
+ * that on reasoning before the forced `decisions` tool call, so every reply was
+ * cut and every beat fell back (live run, 4 requests, 4094 output tokens). */
+const MINIMAX_MAX_TOKENS = 8192;
+
+/** A fetch that gives a MiniMax ask the larger output budget and changes nothing else. */
+function withOutputBudget(inner: typeof fetch): typeof fetch {
+  return (async (url, init) => {
+    if (typeof init?.body !== "string") return inner(url, init);
+    let body: Record<string, unknown>;
+    try { body = JSON.parse(init.body) as Record<string, unknown>; } catch { return inner(url, init); }
+    if (typeof body.max_tokens !== "number" || body.max_tokens >= MINIMAX_MAX_TOKENS) return inner(url, init);
+    return inner(url, { ...init, body: JSON.stringify({ ...body, max_tokens: MINIMAX_MAX_TOKENS }) });
+  }) as typeof fetch;
 }
 
 const PROBE_PNG = Uint8Array.from(Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAAAAAA6fptVAAAACklEQVR4nGNgAAAAAgABSK+kcQAAAABJRU5ErkJggg==", "base64"));
