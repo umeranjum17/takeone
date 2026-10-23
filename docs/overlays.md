@@ -36,11 +36,13 @@ Blur is a visual effect, not a guarantee of irreversible redaction.
 
 Toast windows in `take.json` (`"toasts": [{ "t": 4.2, "d": 2.2 }]`, same
 video-relative seconds, no `rect`) move an overlapping caption up: on the overlay
-path (any non-16:9 source or output) the caption pill would sit bottom-over-footage
+path (a phone take, or an output whose shape differs from the source's) the caption pill would sit bottom-over-footage
 where toasts live, so a caption sharing screen time with a toast takes the top slot
-for its whole hold instead. The 16:9 band path is structurally disjoint from toasts
-and ignores the windows. The producer observes the real toast and writes the window;
-the renderer never guesses one from pixels.
+for its whole hold instead, keeping its start and text; the top slot starts at the 5%
+title-safe inset. The band path (a take exported at its own shape) is structurally
+disjoint from toasts and ignores the windows. The producer observes the real toast and writes the window;
+the renderer never guesses one from pixels. The [headless board scene](headless-scene.md)
+writes a window for every frame span its `role="status"` toast shows.
 
 Rebuild the ten-second fictional Tidewater board demo and before/after proof:
 

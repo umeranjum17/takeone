@@ -88,7 +88,7 @@ Isolated installs (CI, throwaway test HOMEs) can set `TAKEONE_NO_KEYRING=1` so t
 - **Plans the camera after you record.** From your clicks, typing and what changed on screen.
 - **Keeps the action readable.** Click rings, a drawn vector cursor and keycaps for shortcuts like `Ctrl+S`.
 - **Looks finished out of the box.** A rounded screen card on a stage, in six themes from dark `midnight` to cream `paper`.
-- **Titles and captions.** In 16:9 videos they sit in a band below the screen, never over your app ([how](docs/look.md)).
+- **Titles and captions.** When the video keeps the recording's shape (16:9, square or portrait), they sit in a band below the screen, never over your app ([how](docs/look.md)).
 - **Paces itself.** Idle stretches play faster, typing can too, and spotlight and blur boxes follow the content.
 - **Private and cheap.** Works fully offline with `--no-ai`. The AI planner is on by default: with no saved choice it [discovers a signed-in account in order](docs/guide.md#discovery-order) before falling back to any configured provider (Jev by default), and its cost is in [docs/cost.md](docs/cost.md). `takeone key set --backend <name> --model <model> [--via typesafe|openrouter]` stores your key and records the choice in `planner.json` (a saved choice is never switched automatically, and Jev is used only when no signed-in account or key is found).
 - **Exports what you need.** MP4 by default, plus GIF, WebM and ProRes 4444, in landscape, portrait, square or 4:5.
