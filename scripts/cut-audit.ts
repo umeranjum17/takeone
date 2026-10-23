@@ -11,6 +11,7 @@ import { idleSqueezes, purposefulEnd, warp } from "../src/render/pace.ts";
 import { sourceEdgeCuts } from "../src/render/render.ts";
 import { edgeSpeed, still, SWEEP_EDGE_SPEED } from "../src/camera/sweep.ts";
 import type { Beat, CameraFrame, TakeMeta } from "../src/camera/types.ts";
+import type { CameraDefaults } from "../src/camera/defaults.ts";
 
 export interface CutAudit {
   take: string;
@@ -29,10 +30,11 @@ export interface CutAudit {
   runs: { atRest: [number, number][]; creeping: [number, number][]; sweeping: [number, number][] };
 }
 
-export function auditTake(dir: string, theme = "midnight", fps = 60): CutAudit {
+/** `d` is the camera the take was rendered with; the CLI assumes the midnight theme's. */
+export function auditTake(dir: string, d: CameraDefaults = resolveCamera(dir, [], "midnight")): CutAudit {
   const read = (file: string) => JSON.parse(readFileSync(join(dir, file), "utf8"));
   const meta = read("take.json") as TakeMeta & { stream?: unknown };
-  const d = resolveCamera(dir, [], theme);
+  const fps = d.fps;
   const beats = read("analysis/beats.json") as Beat[];
   if ("stream" in meta) for (const b of beats) b.actions = b.actions.map(actionCameraMilliseconds);
   // The render's own end: an untrimmed take ends on its last purposeful action plus the outro.

@@ -1,9 +1,13 @@
 # Output quality gates
 
-`npm run quality` builds the two existing synthetic takes, plans them locally
-(`noAi: true`), renders at 60 fps, and rerenders to test byte determinism.
+`npm run quality` builds the two existing synthetic takes and one real-UI take,
+plans them locally (`noAi: true`), renders at 60 fps, and rerenders to test byte
+determinism. The real-UI take is the headless capture of the staged board scene
+(`scripts/headless-scene.mjs --cursor=hidden`, so the render draws the cursor),
+and a pass never rests on synthetic takes alone.
 It uses no desktop, device, credentials or model service. Dependencies are the
-existing ffmpeg/ffprobe tools plus tesseract (English) and Liberation fonts.
+existing ffmpeg/ffprobe tools, tesseract (English), Liberation fonts and the
+pinned headless shell (`node scripts/install-headless-shell.mjs`).
 Harness captions explicitly use Liberation Sans to avoid machine-specific
 production-font fallback; the production font default is unchanged.
 The portrait fixture uses the existing test pattern, with demo title and
@@ -41,7 +45,7 @@ this reports goal status but does not change the baseline ratchet gate.
   (`-x*out_w/w`, `-y*out_h/h`), goal 9,000 output px/s². Pan bounce counts
   sign reversals without a `min_shot` hold; speeds ≤1 px/s count as rest.
 - Subpixel judder: edge centroid on the decoded card's straight left edge, or
-  the synthetic source's sidebar divider when the text band keeps the card fixed,
+  the source's sidebar divider (the synthetic sidebar or the scene's nav border) when the text band keeps the card fixed,
   measured near the predicted projection at mid-height. RMS second differences
   of measured-minus-ideal positions, goal 0.15 px/frame². Fade and rest frames,
   offscreen edges and low-contrast samples are excluded. Sample count is
@@ -82,6 +86,13 @@ this reports goal status but does not change the baseline ratchet gate.
   be ≥0.95, so a golden that no longer matches the render fails CI instead of passing
   unseen. Passing it does not prove VMAF ≥95; only a libvmaf ffmpeg measures that.
   Candidate and golden frame counts must match; changed duration requires review.
+- Text cuts: the all-frame audit (`scripts/cut-audit.ts`) on every camera frame
+  of each fixture's render, with the same camera settings. Frames whose crop
+  edge slices a word or control count at rest and while moving under 120 output
+  px/s; goal 0 each. The audit binds its timeline to the render's own end and
+  fails when that end does not reproduce `camera.json`'s clock or a source frame
+  will not decode, so zero cuts from zero decoded frames cannot pass. Its per-run
+  times are in the JSON's `cutAudit`.
 - Motion blur ghosting is not part of this harness. The renderer's synthetic
   proof and measurements are documented in [camera motion blur](motion-blur.md).
 
@@ -96,7 +107,9 @@ whether the production default has reached 60 fps; fixture renders always test
 `scripts/quality-baseline/metrics.json` stores today's measured failures rather
 than pretending all goals already pass. `goalPassed` makes absolute §4 status
 visible per metric, while CI continues to gate regressions against these stored
-baselines. For a maximum metric the gate is
+baselines. A run that passes the gate with unmet goals prints each unmet goal
+(also `goalsUnmet` in the JSON) instead of "passed"; only a run with every goal
+met prints `quality: passed`. For a maximum metric the gate is
 `value ≤ max(goal, baseline)`; for a minimum metric it is
 `value ≥ min(goal, baseline)`. Passing metrics keep their goal. Only 1e-6 relative
 round-off is tolerated. A missing, nonfinite or removed measurement fails.
@@ -104,9 +117,10 @@ round-off is tolerated. A missing, nonfinite or removed measurement fails.
 After a quality improvement, run `npm run quality -- --ratchet` and commit the
 new JSON to tighten limits. This command must pass the existing numeric gates
 and cannot loosen a failing baseline. CI never rewrites baselines. Improvements
-must land with their tightened JSON; inspect that diff during review. The
-initial baseline was created once with `--init-baseline`, which refuses to
-replace an existing file.
+must land with their tightened JSON; inspect that diff during review. A new
+fixture or measurement has no baseline or golden, so it fails as missing until
+`npm run quality -- --init-baseline` records it after review; that switch only
+adds a missing baseline entry or golden video and never replaces a stored one.
 
 Intentional camera, caption or appearance changes can correctly fail the golden
 comparison. Review the per-frame SSIM list, OCR crops and rendered videos, then
@@ -114,14 +128,14 @@ explicitly run `npm run quality -- --ratchet --accept-golden` to replace golden
 videos and tighten numeric baselines together. This switch bypasses similarity
 review only; it cannot bypass any numeric regression. Never use it in CI. Golden updates require reviewed before/after output frames;
 never accept degraded output to pass the comparison.
-Golden videos are synthetic, silent and small enough to store directly in git.
+Golden videos are silent and small enough to store directly in git.
 SSIM and VMAF align decoded frames by index on a common time base using each
 stream's frame rate, rather than container timestamp precision. Changed timelines
 therefore need visual review rather than a misleading average-only score.
 
 `--reuse` reuses an already generated/planned fixture to speed up local
 measurement debugging, still rerendering and checking determinism. Normal CI
-always regenerates both fixtures. When renderer changes are being evaluated,
+always regenerates every fixture. When renderer changes are being evaluated,
 use the normal command so the first encode and deterministic rerender come
 from the same candidate.
 

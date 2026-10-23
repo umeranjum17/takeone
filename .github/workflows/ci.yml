@@ -57,8 +57,32 @@ jobs:
         run: npm run typecheck
       - name: Tests
         run: npm test
-      - name: Synthetic output quality gates
-        if: always()
+
+  # The output gates capture the real-UI headless scene and audit every frame of each render,
+  # which outgrows the checks job, so they run beside it on their own runner.
+  quality:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      TAKEONE_CHROME: ${{ github.workspace }}/.cache/headless-shell/151.0.7922.34/chrome-headless-shell-linux64/chrome-headless-shell
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Install output quality tools
+        timeout-minutes: 20
+        run: scripts/ci-apt-install.sh ffmpeg tesseract-ocr unzip fonts-liberation libnss3 libatk1.0-0 libatk-bridge2.0-0 libx11-6 libxcomposite1 libxdamage1 libxrandr2 libgbm1 libasound2t64
+      - uses: actions/cache@v4
+        with:
+          path: .cache/headless-shell
+          key: headless-shell-linux-x64-151.0.7922.34-3cfc2bd0
+      - run: node scripts/install-headless-shell.mjs
+      - name: Output quality gates
         run: npm run quality
       - name: Attach quality metrics and review evidence
         if: always()
@@ -76,7 +100,7 @@ jobs:
 
   # The required check `ci`: green on a docs-only change, else only when every check passed.
   ci:
-    needs: [changes, checks]
+    needs: [changes, checks, quality]
     if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     steps:
@@ -85,10 +109,12 @@ jobs:
           CHANGES: ${{ needs.changes.result }}
           CODE: ${{ needs.changes.outputs.code }}
           CHECKS: ${{ needs.checks.result }}
+          QUALITY: ${{ needs.quality.result }}
         run: |
           [ "$CHANGES" = success ] || { echo "::error::changes job $CHANGES"; exit 1; }
           if [ "$CODE" != true ]; then echo "docs-only change: static checks and quality gates skipped"; exit 0; fi
           [ "$CHECKS" = success ] || { echo "::error::checks job $CHECKS"; exit 1; }
+          [ "$QUALITY" = success ] || { echo "::error::quality job $QUALITY"; exit 1; }
 
   # The old single job ran both captures and make in series (~19-32 min). Each part runs on
   # its own runner; the headless-scene gate compares their decoded frames across runners.

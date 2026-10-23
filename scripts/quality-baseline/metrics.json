@@ -188,6 +188,20 @@
       "direction": "max",
       "unit": "",
       "goalPassed": true
+    },
+    "text_cut_at_rest": {
+      "value": 0,
+      "target": 0,
+      "direction": "max",
+      "unit": "frames",
+      "goalPassed": true
+    },
+    "text_cut_creeping": {
+      "value": 0,
+      "target": 0,
+      "direction": "max",
+      "unit": "frames",
+      "goalPassed": true
     }
   },
   "portrait": {
@@ -358,6 +372,197 @@
       "direction": "max",
       "unit": "",
       "goalPassed": false
+    },
+    "text_cut_at_rest": {
+      "value": 0,
+      "target": 0,
+      "direction": "max",
+      "unit": "frames",
+      "goalPassed": true
+    },
+    "text_cut_creeping": {
+      "value": 0,
+      "target": 0,
+      "direction": "max",
+      "unit": "frames",
+      "goalPassed": true
+    }
+  },
+  "scene": {
+    "max_upscale": {
+      "value": 0.7246376811594198,
+      "target": 1,
+      "direction": "max",
+      "unit": "output px/source px",
+      "goalPassed": true
+    },
+    "zoom_speed": {
+      "value": 0.8338734262635228,
+      "target": 1,
+      "direction": "max",
+      "unit": "ln/s",
+      "goalPassed": true
+    },
+    "zoom_acceleration": {
+      "value": 2.3317431849612547,
+      "target": 4,
+      "direction": "max",
+      "unit": "ln/s²",
+      "goalPassed": true
+    },
+    "zoom_opposite_hold": {
+      "value": 2.2666666666666666,
+      "target": 1.2,
+      "direction": "min",
+      "unit": "s",
+      "goalPassed": true
+    },
+    "pan_acceleration": {
+      "value": 2777.5751280522923,
+      "target": 9000,
+      "direction": "max",
+      "unit": "px/s²",
+      "goalPassed": true
+    },
+    "pan_bounce": {
+      "value": 0,
+      "target": 0,
+      "direction": "max",
+      "unit": "flips",
+      "goalPassed": true
+    },
+    "default_fps_error": {
+      "value": 0,
+      "target": 0,
+      "direction": "max",
+      "unit": "fps",
+      "goalPassed": true
+    },
+    "fps_error": {
+      "value": 0,
+      "target": 0,
+      "direction": "max",
+      "unit": "fps",
+      "goalPassed": true
+    },
+    "cadence_error": {
+      "value": 6.666666694833678e-7,
+      "target": 0.000002,
+      "direction": "max",
+      "unit": "s",
+      "goalPassed": true
+    },
+    "size_error": {
+      "value": 0,
+      "target": 0,
+      "direction": "max",
+      "unit": "px",
+      "goalPassed": true
+    },
+    "codec_error": {
+      "value": 0,
+      "target": 0,
+      "direction": "max",
+      "unit": "",
+      "goalPassed": true
+    },
+    "colour_error": {
+      "value": 0,
+      "target": 0,
+      "direction": "max",
+      "unit": "",
+      "goalPassed": true
+    },
+    "frame_count_error": {
+      "value": 1,
+      "target": 1,
+      "direction": "max",
+      "unit": "frames",
+      "goalPassed": true
+    },
+    "hitches": {
+      "value": 0,
+      "target": 0,
+      "direction": "max",
+      "unit": "frames",
+      "goalPassed": true
+    },
+    "determinism_error": {
+      "value": 0,
+      "target": 0,
+      "direction": "max",
+      "unit": "",
+      "goalPassed": true
+    },
+    "subpixel_judder": {
+      "value": 1.0308641996086398,
+      "target": 0.15,
+      "direction": "max",
+      "unit": "px/frame²",
+      "goalPassed": false
+    },
+    "caption_ocr_errors": {
+      "value": 0,
+      "target": 0,
+      "direction": "max",
+      "unit": "checkpoints",
+      "goalPassed": true
+    },
+    "banding": {
+      "value": 5,
+      "target": 64,
+      "direction": "max",
+      "unit": "px",
+      "goalPassed": true
+    },
+    "text_cut_at_rest": {
+      "value": 0,
+      "target": 0,
+      "direction": "max",
+      "unit": "frames",
+      "goalPassed": true
+    },
+    "text_cut_creeping": {
+      "value": 0,
+      "target": 0,
+      "direction": "max",
+      "unit": "frames",
+      "goalPassed": true
+    },
+    "color_space_error": {
+      "value": 0,
+      "target": 0,
+      "direction": "max",
+      "unit": "",
+      "goalPassed": true
+    },
+    "color_transfer_error": {
+      "value": 0,
+      "target": 0,
+      "direction": "max",
+      "unit": "",
+      "goalPassed": true
+    },
+    "color_primaries_error": {
+      "value": 0,
+      "target": 0,
+      "direction": "max",
+      "unit": "",
+      "goalPassed": true
+    },
+    "color_range_error": {
+      "value": 0,
+      "target": 0,
+      "direction": "max",
+      "unit": "",
+      "goalPassed": true
+    },
+    "caption_ocr_item_0": {
+      "value": 0,
+      "target": 0,
+      "direction": "max",
+      "unit": "",
+      "goalPassed": true
     }
   }
 }
