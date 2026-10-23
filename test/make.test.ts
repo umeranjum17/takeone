@@ -504,6 +504,30 @@ test("a provider with no known price shows cost unknown, never $0", async () => 
   }
 });
 
+test("a planner request that fails says why: the reply shape, not just a failed count", async () => {
+  const dir = newTake();
+  try {
+    const configDir = join(dir, "test-config");
+    mkdirSync(join(configDir, "takeone"), { recursive: true });
+    writeFileSync(join(configDir, "takeone", "planner.json"), JSON.stringify({ backend: "minimax", auth: "apiKey", model: "MiniMax-M3.1-Flash-Preview" }));
+    // A reply that spent its budget thinking and never called the decisions tool.
+    const fetchImpl = (async () => new Response(JSON.stringify({
+      stop_reason: "max_tokens",
+      content: [{ type: "thinking", thinking: "private model text" }],
+      usage: { input_tokens: 10, output_tokens: 1024 },
+    }), { status: 200, headers: { "content-type": "application/json" } })) as typeof fetch;
+    const warns: string[] = [];
+    const r = await fastTake(dir, { apiKey: KEY, fetchImpl, log: () => {}, warn: (s) => warns.push(s) });
+    assert.ok(r.planner.failed > 0);
+    const why = warns.filter((w) => w.startsWith("planner: a ") && w.includes("failed:")).join("\n");
+    assert.ok(why.includes("stop_reason max_tokens"), why || warns.join("\n"));
+    assert.ok(why.includes("content [thinking]"), why);
+    assert.ok(!why.includes("private model text") && !why.includes(KEY), "no model text or key in the reason");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("a chosen provider without its credential stops instead of falling back", async () => {
   const dir = newTake();
   const keyring = process.env.TAKEONE_NO_KEYRING;

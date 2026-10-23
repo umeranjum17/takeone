@@ -547,6 +547,7 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
         requests++;
         requestTokens += part.tokens;
         if (r.decisionSource === "cache") cachedRequests++;
+        if (r.failure) warn(`planner: a film request failed: ${r.failure}`);
         takeOutcome(r);
         replies.push(r.answers);
       }
@@ -581,6 +582,7 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
           requests++;
           requestTokens += chunk.tokens;
           if (r.decisionSource === "cache") cachedRequests++;
+          if (r.failure) warn(`planner: a request for ${items.length} beats failed: ${r.failure}`);
           takeOutcome(r);
           return r;
         };

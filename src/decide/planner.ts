@@ -598,6 +598,8 @@ export function gateEmpty(cache: DecideCache): DecideCache {
 
 export interface AskOutcome {
   decisionSource: "cache" | "api" | "failed";
+  /** Why a failed ask failed, per call: the kit's code and status, its reason and the shape of the provider's reply. No keys, no model text. */
+  failure?: string;
   answers?: Record<string, Answer>;
   inputTokens?: number;
   outputTokens?: number;
@@ -695,6 +697,39 @@ function cliSignIn(launch: CliAccount): string {
 function cliRefused(answers: Record<string, Answer>, backend: string): boolean {
   const all = Object.values(answers);
   return all.length > 0 && all.every((a) => a && a.abstained && failureCode(a) !== "bad_reply" && a.reason === `${backend} failed`);
+}
+
+/** The shape of the provider's reply behind an answer (stop reason and block types), enough to tell a
+ * truncated or tool-less reply from a good one without carrying any model text. */
+function replyShape(raw: unknown): string {
+  if (!raw || typeof raw !== "object") return "no reply body";
+  const r = raw as { stop_reason?: unknown; content?: unknown; error?: { type?: unknown; message?: unknown } };
+  const parts: string[] = [];
+  if (typeof r.stop_reason === "string") parts.push(`stop_reason ${r.stop_reason}`);
+  if (Array.isArray(r.content)) {
+    const types = r.content.map((b) => (b && typeof b === "object" && typeof (b as { type?: unknown }).type === "string" ? (b as { type: string }).type : "?"));
+    parts.push(`content [${types.join(", ")}]`);
+  }
+  if (r.error && typeof r.error.type === "string") parts.push(`error ${r.error.type}${typeof r.error.message === "string" ? `: ${r.error.message.slice(0, 160)}` : ""}`);
+  return parts.length ? parts.join(", ") : "reply without content";
+}
+
+/** One line saying why these answers all failed: each distinct kit code, status and reason with the reply shape. */
+function failureSummary(answers: Record<string, Answer>): string {
+  const seen = new Set<string>();
+  for (const a of Object.values(answers)) {
+    if (!a || typeof a !== "object") continue;
+    const f = (a as { failure?: { code?: unknown; status?: unknown } }).failure;
+    const bits = [
+      a.abstained ? "abstained" : "answered but unusable",
+      ...(typeof f?.code === "string" ? [`code ${f.code}`] : []),
+      ...(typeof f?.status === "number" ? [`HTTP ${f.status}`] : []),
+      ...(typeof a.reason === "string" ? [`reason "${a.reason.slice(0, 160)}"`] : []),
+      replyShape((a as { raw?: unknown }).raw),
+    ];
+    seen.add(bits.join(", "));
+  }
+  return [...seen].join("; ") || "no answers returned";
 }
 
 /** Malformed usage counts must not enter accounting: fail the beat instead. */
@@ -901,17 +936,17 @@ export async function askChunk(
     }
     throw e;
   }
-  if (!answers || typeof answers !== "object") return { decisionSource: "failed" };
+  if (!answers || typeof answers !== "object") return { decisionSource: "failed", failure: "the decider returned no answers object" };
   const stopped = stopReason(answers);
   if (stopped) throw new PlannerUnavailable(planner.label, stopped);
   const usage = validUsageTokens(answers);
-  if (usage === null) return { decisionSource: "failed" };
+  if (usage === null) return { decisionSource: "failed", failure: "the provider reported malformed token usage" };
   const tokens = {
     ...(usage.input !== undefined ? { inputTokens: usage.input } : {}),
     ...(usage.output !== undefined ? { outputTokens: usage.output } : {}),
   };
-  if (!Object.values(answers).some((a) => a && !a.abstained)) return { decisionSource: "failed", ...tokens };
-  if (o.usable && !o.usable(answers)) return { decisionSource: "failed", answers, ...tokens };
+  if (!Object.values(answers).some((a) => a && !a.abstained)) return { decisionSource: "failed", failure: failureSummary(answers), ...tokens };
+  if (o.usable && !o.usable(answers)) return { decisionSource: "failed", answers, failure: failureSummary(answers), ...tokens };
   const cached = Object.values(answers).filter(Boolean).every((a) => a.source === "cache");
   if (cached) return { decisionSource: "cache", answers };
   return { decisionSource: "api", answers, ...tokens };
