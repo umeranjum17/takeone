@@ -57,6 +57,8 @@ import { takeoneConfigDir, loadPlannerKey, readPlannerKey, noKeyring, type KeyOp
 
 /** Whole-call budget per chunk of beats (attempts plus bounded 429 waits). */
 export const DECIDE_TIMEOUT_MS = 30000;
+/** MiniMax reasons before it answers: replayed real planning requests took 10-17 s, and a slow one passes 30 s. */
+const MINIMAX_TIMEOUT_MS = 120000;
 
 /** The planner default: Jev, the last resort of the discovery order above,
  * used only when the user picked nothing and no installed or signed-in
@@ -940,7 +942,7 @@ export async function askChunk(
       config: planner.config as DecideConfig,
       host,
       privacy: "may-leave",
-      timeoutMs: o.timeoutMs ?? DECIDE_TIMEOUT_MS,
+      timeoutMs: o.timeoutMs ?? (c.backend === "minimax" ? MINIMAX_TIMEOUT_MS : DECIDE_TIMEOUT_MS),
       cache: o.keepAnswers ? gateEmpty(cache) : gateUnusable(cache),
       ...(o.images?.length ? { images: o.images } : {}),
     });

@@ -546,6 +546,30 @@ test("a MiniMax ask gets an output budget big enough for its reasoning plus the 
   }
 });
 
+test("a MiniMax reply that takes longer than the default 30 s is waited for", async () => {
+  const dir = newTake();
+  try {
+    const configDir = join(dir, "test-config");
+    mkdirSync(join(configDir, "takeone"), { recursive: true });
+    writeFileSync(join(configDir, "takeone", "planner.json"), JSON.stringify({ backend: "minimax", auth: "apiKey", model: "MiniMax-M3.1-Flash-Preview" }));
+    let first = true;
+    const fetchImpl = (async (_url, init) => {
+      if (first) {
+        first = false;
+        await new Promise<void>((resolve, reject) => {
+          const t = setTimeout(resolve, 31_000);
+          init?.signal?.addEventListener("abort", () => { clearTimeout(t); reject(new Error("aborted at the default timeout")); });
+        });
+      }
+      return new Response("limited", { status: 429 });
+    }) as typeof fetch;
+    // The slow first reply survives the wait; the 429 after it is then the stop, not "timed out".
+    await assert.rejects(fastTake(dir, { apiKey: KEY, fetchImpl, log: () => {}, warn: () => {} }), (e: unknown) => !/timed out/.test(String(e)) && /rate limited|429/.test(String(e)));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("a chosen provider without its credential stops instead of falling back", async () => {
   const dir = newTake();
   const keyring = process.env.TAKEONE_NO_KEYRING;
