@@ -4,7 +4,7 @@ Part of the takeone verification map. Source: `src/motion/`, `resources/motion/`
 
 ## How to get to it (user POV)
 
-The user has screenshots, an HTML page or a URL and wants a launch film without recording: `takeone motion design.png --out <dir> --title "Ship your next idea" --device browser`. It writes a take-shaped folder (`take.json`, `sources/`, `storyboard.json`, `out/<id>.mp4`, `render.json`); `takeone render <dir> --aspect portrait` re-lays the same timeline and `--stills 1.5,8.5` writes PNGs. With three or more screens and no `--pattern` the local rules plan a launch film (kinetic type, one beat per labelled screen, a bento recap, the end card). No screenshot is sent to a planner.
+The user has screenshots, an HTML page or a URL and wants a launch film without recording: `takeone motion design.png --out <dir> --title "Ship your next idea" --device browser`. It writes a take-shaped folder (`take.json`, `sources/`, `storyboard.json`, `out/<id>.mp4`, `render.json`); `takeone render <dir> --aspect portrait` re-lays the same timeline and `--stills 1.5,8.5` writes PNGs. With three or more screens and no `--pattern` the local rules plan a launch film (kinetic type, one beat per labelled screen and the end card); the bento recap needs at least three screens labelled with `--region ...:label`. No screenshot is sent to a planner.
 
 ## Driving it
 
