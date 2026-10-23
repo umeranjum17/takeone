@@ -288,6 +288,7 @@ export async function renderTake(dir: string, camera?: CameraDefaults, preview?:
   // A cursor-free take gets a drawn vector cursor from its recorded pointer
   // track, projected through the camera and rasterised at output resolution.
   const cursorFile = join(workDir, "cursor.ass");
+  const clicks = beatClicks(outBeats);
   let cursorOverlay = "";
   if (meta.cursor_free === true) {
     // Old cursor-free takes may lack a track. Keep the footage usable, but say
@@ -297,7 +298,7 @@ export async function renderTake(dir: string, camera?: CameraDefaults, preview?:
     const startMs = videoStartMs(dir, meta);
     const drawn = cursorAss({
       events, videoStartMs: startMs,
-      trimStart, trimEnd, outTime, frames: stageCamera, d, duration,
+      trimStart, trimEnd, outTime, clicks, frames: stageCamera, d, duration,
       originX: band ? 0 : stage.screenX, originY: band ? 0 : stage.screenY,
       card: { x: stage.screenX, y: stage.screenY, w: band ? stage.baseW : meta.width,
         h: band ? stage.baseH : meta.height, radius: d.corner_radius / stage.restScale, fixed: Boolean(band) },
@@ -325,7 +326,7 @@ export async function renderTake(dir: string, camera?: CameraDefaults, preview?:
     "-map", "[stage]", "-frames:v", "1", "-update", "1", stageFile,
     "-map", "[holes]", "-frames:v", "1", "-update", "1", holesFile]);
   const clicksFile = join(workDir, "clicks.ass");
-  const clicksAss = clickAss(beatClicks(outBeats), meta.width, meta.height, trimStart,
+  const clicksAss = clickAss(clicks, meta.width, meta.height, trimStart,
     band ? { ...stage, restScale: stage.baseW / meta.width } : stage, view,
     { frames: cameraFrames, stage: band ? { ...stage, screenX: 0, screenY: 0 } : stage, shutter });
   await writeFile(clicksFile, clicksAss);

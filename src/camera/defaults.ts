@@ -74,6 +74,9 @@ export interface CameraDefaults {
   accent: string; // click ripple colour
   ripple_ms: number; // ripple duration, 0 turns click emphasis off
   ripple_r: number; // final ripple radius, output px at rest
+  cursor_size: number; // drawn cursor scale; 1 is a 48 px arrow at 1080p, 0.5 the system cursor's own size
+  cursor_hide_idle_s: number; // s of stillness before the drawn cursor fades out; 0 never hides it
+  cursor_loop: number; // 1 glides the drawn cursor back to its first position by the last frame
   keycap_style: "linux" | "mac"; // modifier words or macOS glyphs
   caption_font: string;
   caption_size: number; // output px; the title is 1.4x this
@@ -152,6 +155,9 @@ export const DEFAULTS: CameraDefaults = {
   accent: "#6d8cff",
   ripple_ms: 550,
   ripple_r: 34,
+  cursor_size: 1,
+  cursor_hide_idle_s: 1.8,
+  cursor_loop: 0,
   keycap_style: "linux",
   caption_font: "Inter Bold",
   caption_size: 38,
@@ -237,6 +243,8 @@ export function applyOverrides(overrides: Overrides, base: CameraDefaults = DEFA
       || (k === "spring_zeta" && (v < 0.75 || v > 2))
       || (k === "pace" && (v < 0.25 || v > 4))
       || (k === "motion_blur" && v > 1)
+      || (k === "cursor_size" && (v < 0.5 || v > 3))
+      || (k === "cursor_loop" && v !== 0 && v !== 1)
       || (k === "follow_inner" && (v === 0 || v > 1))
       || (k === "cut_max" && v > 1)) {
       throw new Error(`unknown or invalid --set ${k}=${v}`);

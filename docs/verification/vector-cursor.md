@@ -5,8 +5,7 @@ renderer draws its own cursor from the recorded pointer track (`events.jsonl`
 `k:"ptr"`) instead of leaving the pointer invisible. The track is smoothed on the
 output clock, projected through the take's camera, and drawn as a vector arrow at
 output resolution *after* the camera transform, so it glides without tremor and
-stays crisp however far the camera zooms. The pointer hides after ~2 s of stillness
-and returns on the next move. Takes without `cursor_free` render exactly as before
+stays crisp however far the camera zooms. Each click lands the tip on its ripple. The pointer hides after ~2 s of stillness and returns on the next move. Takes without `cursor_free` render exactly as before
 (their baked cursor is untouched).
 
 This exists because a captured cursor is a low-resolution, jittery, baked-in
@@ -17,13 +16,25 @@ from the output-review scorecard (J4 P1).
 
 - Smoothing: a symmetric cosine-weighted window over the output clock eases arrivals
   and departures without adding trailing-filter lag.
-- Size: 48 px arrow height at 1080p, scaled by output height and the square root of
-  camera zoom. Its hotspot stays projected onto the recorded UI point; it is redrawn
+- Frame timing: each frame's arrow is an ASS line centred on that frame's time.
+  ffmpeg's `ass` filter samples each frame at its truncated millisecond and ASS
+  times are centiseconds, so lines on frame boundaries showed the previous
+  frame's arrow on every third 60 fps frame and never showed a third of the
+  positions.
+- Click arrival: around each click ripple (a click's release, a drag's press) the
+  smoothed track eases onto the ripple's centre over 0.12 s, so the tip sits on it on
+  the frame the ripple starts.
+- Size: 48 px arrow height at 1080p times `cursor_size` (default 1, 0.5 to 3), scaled
+  by output height and the square root of camera zoom. Its hotspot stays projected onto the recorded UI point; it is redrawn
   at output resolution at every zoom level.
 - Screen boundary: a hotspot outside the visible screen hides; remaining arrow ink
   is clipped to the existing rounded screen card, never drawn on the backdrop.
-- Idle hide: no pointer movement for ~1.8 s starts a short fade; the cursor is gone
-  by ~2.3 s and returns on the next movement.
+- Idle hide: no pointer movement for `cursor_hide_idle_s` (default 1.8 s) starts a
+  0.5 s fade; the cursor returns on the next movement. `cursor_hide_idle_s=0` never
+  hides it.
+- Loop: `cursor_loop=1` glides the cursor back to its first-frame position over the
+  final 0.8 s (starting no earlier than 0.12 s after the last click), so the last
+  frame's cursor matches the first.
 
 ## How to reach it (user POV)
 
@@ -96,6 +107,13 @@ output frame; `take.json` has `cursor_free: true`. Extract stills and check:
   `cursor.ass` is written and the baked cursor is the only cursor.
 - Exactly one cursor per frame: count it in the stills — a baked cursor plus a drawn
   one is the regression this guards.
+
+`node scripts/cursor-audit.ts <cursor-take> <plain-copy> <no-ripple-copy>` reads the
+arrow's height, idle fades, loop end, repeated frames and each click's distance from
+its ripple out of the encoded film; the copies are the same take rendered with
+`cursor_free: false`, the second also with `--set ripple_ms=0`. The verify skill's
+[cursor controls entry](../../.agents/skills/done-done-verify-takeone/features/size-hide-and-loop-the-drawn-cursor.md)
+lists the expected values.
 
 ## Gotchas
 
