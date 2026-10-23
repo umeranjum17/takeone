@@ -55,7 +55,8 @@ Verification and evidence: [done-done journeys and feature recipes](docs/verific
 On Linux or macOS, with [Node.js](https://nodejs.org/) 22.19 or newer and [ffmpeg](https://ffmpeg.org/) on your PATH:
 
 ```sh
-npm install -g --allow-remote=all \
+npm install -g \
+  --allow-remote=all \
   https://github.com/umeranjum17/takeone/releases/latest/download/takeone.tgz
 takeone doctor
 ```
@@ -72,7 +73,8 @@ On Linux, you need [Node.js](https://nodejs.org/) 22.19 or newer, [ffmpeg](https
 git clone https://github.com/umeranjum17/takeone
 cd takeone && npm install
 node scripts/synth-take.ts tmp/demo
-node bin/takeone.mjs make "$PWD/tmp/demo" --no-ai
+node bin/takeone.mjs make \
+  "$PWD/tmp/demo" --no-ai
 ```
 
 Your video is at `tmp/demo/out/synth-demo.mp4`. The demo recording is generated, so you need no screen recorder or API key, and planning runs offline.
