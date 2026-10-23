@@ -14,7 +14,7 @@
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/hero-dark.webp" />
     <source media="(prefers-color-scheme: light)" srcset="docs/assets/readme/hero-light.webp" />
-    <img src="docs/assets/readme/hero-light.jpg" width="960" alt="The takeone render of the Tidewater demo board on a warm themed stage, at double speed. It opens pushed in on the New task dialog while the title and notes are typed and Priority is set to High, pulls back as the task is created, the card is dragged to In progress, and the camera pushes in on the dialog again" />
+    <img src="docs/assets/readme/hero-light.jpg" width="960" alt="The takeone render of the Tidewater demo board on a warm themed stage, at double speed. It opens pushed in on the New task dialog while the title and notes are typed and Priority is set to High, pulls back as the task is created, the card is dragged to In progress, then the wide board returns with its title, From idea to launch, and the camera pushes in on the dialog again" />
   </picture>
 </p>
 
@@ -55,7 +55,9 @@ Verification and evidence: [done-done journeys and feature recipes](docs/verific
 On Linux or macOS, with [Node.js](https://nodejs.org/) 22.19 or newer and [ffmpeg](https://ffmpeg.org/) on your PATH:
 
 ```sh
-npm install -g --allow-remote=all https://github.com/umeranjum17/takeone/releases/latest/download/takeone.tgz
+npm install -g \
+  --allow-remote=all \
+  https://github.com/umeranjum17/takeone/releases/latest/download/takeone.tgz
 takeone doctor
 ```
 
@@ -68,12 +70,14 @@ npm 12 refuses the tarball URL without `--allow-remote=all`. npm 11 may print `n
 On Linux, you need [Node.js](https://nodejs.org/) 22.19 or newer, [ffmpeg](https://ffmpeg.org/) on your PATH, and the Liberation Sans or DejaVu Sans font (most distributions ship one).
 
 ```sh
-git clone https://github.com/umeranjum17/takeone && cd takeone
-npm install
-node scripts/synth-take.ts tmp/synth-demo && node bin/takeone.mjs make "$PWD/tmp/synth-demo" --no-ai
+git clone https://github.com/umeranjum17/takeone
+cd takeone && npm install
+node scripts/synth-take.ts tmp/demo
+node bin/takeone.mjs make \
+  "$PWD/tmp/demo" --no-ai
 ```
 
-Your video is at `tmp/synth-demo/out/synth-demo.mp4`. The demo recording is generated, so you need no screen recorder or API key, and planning runs offline.
+Your video is at `tmp/demo/out/synth-demo.mp4`. The demo recording is generated, so you need no screen recorder or API key, and planning runs offline.
 To record your own screen, a phone or the iOS Simulator, follow the [guide](docs/guide.md#quickstart).
 
 Isolated installs (CI, throwaway test HOMEs) can set `TAKEONE_NO_KEYRING=1` so takeone never reads the OS keyring and cannot see the host's stored key even when `XDG_RUNTIME_DIR` or `DBUS_SESSION_BUS_ADDRESS` are inherited; keys then come only from a `TAKEONE_SECRETS_PASSPHRASE_FD` sealed file.
