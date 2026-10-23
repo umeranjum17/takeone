@@ -13,7 +13,7 @@ node scripts/synth-take.ts "$PWD/tmp/verify-synth-demo" && npm run build && TAKE
 
 Safe: The offline-render journey in .done-done.yaml runs scripts/synth-take.ts and then bin/takeone.mjs make with --no-ai, so planning is local-only with no account, key or paid service. TAKEONE_DIR and TAKEONE_STATE_DIR point takes and planner state into the run's own tmp folder, so the owner's state is never touched. The build step runs after the synthetic take is generated, and the journey's own ordering is otherwise kept (from `scripts/synth-take.ts`).
 
-Ready: The make command exits 0 and prints the output path; tmp/verify-synth-demo/out/synth-demo.mp4 exists and ffprobe reports a readable video stream. Tear down what you started; never kill by process name.
+Ready: The make command exits 0 (it prints the plan and beat summary, not the output path); tmp/verify-synth-demo/out/synth-demo.mp4 exists and ffprobe reports a readable video stream. Tear down what you started; never kill by process name.
 Isolation: Each run writes only under its own tmp/verify-* directories, with TAKEONE_DIR and TAKEONE_STATE_DIR set so takeone never reads or writes the owner's takes or planner state; --no-ai keeps planning local. Use a fresh tmp directory per run and never point these variables at a real account or the owner's own state.
 When the repo's .done-done.yaml has an instance block, done-done already runs the app at $DONE_DONE_BASE_URL (its own port and HOME): BASE is then that URL, never a hard-coded port.
 
