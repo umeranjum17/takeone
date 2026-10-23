@@ -23,7 +23,7 @@ Record once, on any screen, and get the same polished demo:
 
 - **Best in class or it has failed.** Output must look and feel best in class. A demo tool whose own output is unpolished has failed at the only thing it does.
 - **Bounded cost per minute of video.** Every design states its cost per minute of video and what keeps it bounded. Today's measured numbers and hard caps are in [docs/cost.md](docs/cost.md).
-- **Your screen stays yours.** Key presses are recorded by type, never as letters. `--no-ai` keeps planning fully offline.
+- **Your screen stays yours.** Key presses are recorded by type, never as letters. Planning can also run fully offline, with no AI at all.
 - **Proof is the real render.** A change is proven on a real rendered video, not on a synthetic clip alone. The quality gates are in [docs/quality.md](docs/quality.md).
 - **Main path first.** Ship the main path working and looking right, then polish.
 
