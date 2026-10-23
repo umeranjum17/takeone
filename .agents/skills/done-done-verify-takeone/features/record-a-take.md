@@ -4,7 +4,7 @@ Part of the takeone verification map. Source: `src/record.ts`, `src/session.ts`,
 
 ## How to get to it (user POV)
 
-`takeone doctor` says what this machine can record. `takeone record` captures the whole desktop after a screen-share consent (Linux through the portal with passive input taps, macOS as a video-only preview); `takeone record --android <serial>` records a phone or emulator through scrcpy-server with touch events; `takeone record --ios-sim` records the booted iOS Simulator. `takeone stop` ends it and `takeone list` shows the take, ready for `takeone make`.
+`takeone doctor` says what this machine can record. `takeone record` captures the whole desktop after a screen-share consent (Linux through the portal with passive input taps; on macOS the same recorder runs and, when it finds no keyboard or mouse input devices, records video only with `events: "none"`); `takeone record --android <serial>` records a phone or emulator through scrcpy-server with touch events; `takeone record --ios-sim` records the booted iOS Simulator. `takeone stop` ends it and `takeone list` shows the take, ready for `takeone make`.
 
 ## Driving it
 

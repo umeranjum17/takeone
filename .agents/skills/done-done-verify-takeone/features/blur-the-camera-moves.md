@@ -4,7 +4,7 @@ Part of the takeone verification map. Source: `src/render/motion-blur.ts`, `src/
 
 ## How to get to it (user POV)
 
-Every render blurs fast camera moves with a half-frame shutter by default (`motion_blur=1`); `--set motion_blur=0` turns it off and values between shorten the shutter. Held framings stay sharp and captions are drawn after the blur.
+Every full render blurs fast camera moves with a half-frame shutter by default (`motion_blur=1`; a `--preview` never blurs); `--set motion_blur=0` turns it off and values between shorten the shutter. Held framings stay sharp and captions are drawn after the blur.
 
 ## Driving it
 
