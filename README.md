@@ -92,6 +92,7 @@ Isolated installs (CI, throwaway test HOMEs) can set `TAKEONE_NO_KEYRING=1` so t
 
 ## Learn more
 
+- [Vision](VISION.md): who takeone is for, where it is going and what it is not
 - [Guide](docs/guide.md): install, the full quickstart, planning and rendering
 - [Recording](docs/recording.md): desktop, phone and Simulator capture, commands and take files
 - [Look and pacing](docs/look.md): themes, stage, zoom, captions and every look setting
