@@ -14,8 +14,8 @@ Harness: Shell (bash), with ffmpeg and ffprobe to decode frames.
 1. Launch the app as SKILL.md says and wait until it is ready.
 2. Node scripts/synth-take.ts tmp/verify-synth-demo, then node bin/takeone.mjs make
    tmp/verify-synth-demo --no-ai, then node bin/takeone.mjs render tmp/verify-synth-demo --preview.
-3. Check the proof, not the exit code: `out/headless-demo-preview.mp4` (or the take's own id)
-   exists, ffprobe reports the preview size and 30 fps, and `camera.json` is byte-identical
+3. Check the proof, not the exit code: `out/<id>-preview.mp4` exists, ffprobe reports
+   864x486 at 30 fps for a 1080p export (the short edge is at most 500 px, the aspect exact), and `camera.json` is byte-identical
    to the one the full render wrote: the preview frames the film like the full render.
 4. Capture: extract one still from the preview MP4 to
    $DONE_DONE_EVIDENCE_ROOT/render-a-fast-preview-of-the-same-film.png, and save the ffprobe

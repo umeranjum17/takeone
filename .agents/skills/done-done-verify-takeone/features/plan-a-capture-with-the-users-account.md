@@ -1,6 +1,6 @@
 # Plan a capture with the user's account
 
-Part of the takeone verification map. Source: `src/capture.ts`, `src/make.ts`.
+Part of the takeone verification map. Source: `src/capture.ts`, `src/make.ts`, `scripts/verification/capture-planner-account-live.sh` (the same plan through an API-key route held in a throwaway HOME; `DRY=1` stops before any provider call).
 
 ## How to get to it (user POV)
 

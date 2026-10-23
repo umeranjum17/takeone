@@ -24,7 +24,7 @@ kept, so no model call). Runs take about 10 minutes each at the shipped 1920x108
 3. Edit two beats by hand in one copy: `shot: {"value":false,"by":"user"}` on a click beat, and
    `follow: {"value":false,"by":"user"}` on a drag beat. Record both keys.
 4. Re-cut that take (`trim.start` a few seconds in, `trim.end` at the recording length) and `make` it again.
-   The log must print, one line per edited beat:
+   The log must print one line for each edit whose beat the cut moved to a new id (an edit whose beat keeps its id prints none):
    `plan: the user's edit for beat b<old> follows its beat to b<new> (key k…) - the cut moved it`
 5. Assert in the new `analysis/plan.json`: each edited beat is present under its old key at its new `id` with
    `by: "user"`, `dropped` is empty, and the ids that did not move kept their ids and keys.
