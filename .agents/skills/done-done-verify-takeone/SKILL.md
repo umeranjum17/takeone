@@ -31,6 +31,7 @@ Harness: Shell (bash), with ffmpeg and ffprobe to decode frames; a browser tool 
 - [Prove the camera drag ease on a real take](features/prove-the-camera-drag-ease-on-a-real-take.md): Render a real take with a drag, then measure the camera bars and the per-frame text cuts (`src/camera/gesture.ts`)
 - [Plan a capture with the user's account](features/plan-a-capture-with-the-users-account.md): `takeone capture make <take> --planner-account` plans through the signed-in account `takeone make` resolves, and stops with `planner-unavailable` instead of planning with local rules when there is none
 - [Size, hide and loop the drawn cursor on a real take](features/size-hide-and-loop-the-drawn-cursor.md): Render a cursor-free take with `cursor_size`, `cursor_hide_idle_s` and `cursor_loop`, then measure size, fades, loop end and click arrival from the encoded film (`scripts/cursor-audit.ts`)
+- [Prove captions stay clear of toasts and board text on a real take](features/prove-captions-clear-toasts-on-a-real-take.md): Capture the headless board in portrait, square and landscape, add captions at its click times, render at its own shape (band) and cropped (overlay), and read `covers` in `safe-area.json` (`scripts/headless-scene.mjs`, `src/render/stage.ts`)
 
 ## Evidence
 

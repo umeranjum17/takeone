@@ -43,8 +43,9 @@ export function stageGeometry(width: number, height: number, d: CameraDefaults):
 }
 
 /**
- * With a title or captions, a 16:9 take exported at 16:9 keeps its card fixed above a reserved
- * text band and the camera moves inside the card, so text never covers the app.
+ * With a title or captions, a take exported at its own shape (16:9, square or portrait) keeps
+ * its card fixed above a reserved text band and the camera moves inside the card, so text never
+ * covers the app or a toast.
  */
 export interface Band { stage: Stage; top: number; titleY: number; captionY: number; titleH: number; captionH: number }
 
@@ -60,15 +61,18 @@ function bandRows(captions: Caption[], widths: (number | CaptionInk)[], d: Camer
 
 /**
  * Text geometry for the band: caption_size is in output px, so on small outputs it
- * scales down until the band takes at most a third of the frame. 1080p is untouched.
+ * scales down until the band takes at most a third of the frame, and a tenth of a portrait
+ * frame. The card so keeps over 55% of a square frame's width and 80% of a portrait one's.
+ * 1080p landscape is untouched.
  */
 export function bandText(captions: Caption[], widths: (number | CaptionInk)[], d: CameraDefaults): CameraDefaults {
-  const fit = Math.min(1, d.out_h / 3 / bandRows(captions, widths, d).band);
+  const share = d.out_h > d.out_w ? 0.1 : 1 / 3;
+  const fit = Math.min(1, d.out_h * share / bandRows(captions, widths, d).band);
   return fit < 1 ? { ...d, caption_size: d.caption_size * fit, caption_border: d.caption_border * fit } : d;
 }
 
 export function bandEligible(width: number, height: number, d: CameraDefaults): boolean {
-  return Math.abs(width / height - 16 / 9) <= 0.01 && Math.abs(d.out_w / d.out_h - 16 / 9) <= 0.01;
+  return Math.abs(width / height - d.out_w / d.out_h) <= 0.01;
 }
 
 export function bandLayout(width: number, height: number, d: CameraDefaults, captions: Caption[] = [],
@@ -475,7 +479,8 @@ export function captionLayouts(captions: Caption[], widths: (number | CaptionInk
     const above = !caption.title && moved[index]! && movedTitle >= 0
       && captions[movedTitle]!.t0 < caption.t1 && captions[movedTitle]!.t1 > caption.t0
       ? heights[movedTitle]! + size * 0.35 : 0;
-    const cy = top ? d.out_h * 0.035 + h / 2 + above
+    // The top slot starts at the title-safe inset the render gates on, like the band.
+    const cy = top ? Math.ceil(d.out_h * SAFE_INSET) + h / 2 + above
       : d.out_h - d.out_h * 0.075 - h / 2 - (below ? below + size * 0.35 : 0);
     return { cx, cy, w, h, size, rise: Math.round(size * 0.3) };
   });

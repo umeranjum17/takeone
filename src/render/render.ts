@@ -179,11 +179,12 @@ export async function renderTake(dir: string, camera?: CameraDefaults, preview?:
     ? phoneTapShots(outBeats, meta.width, meta.height) : null;
   const shown = withFilmText(meta);
   const captions = takeCaptions(clock ? { ...shown, captions: shown.captions?.filter(c => clock.contains(c.t)) } : shown, outTime, duration);
-  const banded = captions.length > 0 && bandEligible(meta.width, meta.height, d);
+  // A phone keeps its handset framing; other takes exported at their own shape get the band.
+  const banded = captions.length > 0 && !phone && bandEligible(meta.width, meta.height, d);
   // The card the camera frames into, the text band and the measured caption ink. The layout
   // belongs to the render space, so a preview lays its own card out at preview scale.
   const layout = async (m: TakeMeta, dd: CameraDefaults, bandOverride?: Band | null) => {
-    const bandedHere = captions.length > 0 && bandEligible(m.width, m.height, dd);
+    const bandedHere = captions.length > 0 && !phone && bandEligible(m.width, m.height, dd);
     let text = bandedHere ? bandText(captions, [], dd) : dd;
     let ink = await measureCaptions(dir, captions, text, bandedHere);
     const fitted = bandedHere ? bandText(captions, ink, text) : text;
@@ -284,7 +285,7 @@ export async function renderTake(dir: string, camera?: CameraDefaults, preview?:
   const safe = safeAreaReport(dir, stageCamera, drawn, band ? { x: 0, y: 0 } : { x: stage.screenX, y: stage.screenY },
     { w: d.out_w, h: d.out_h, fps: d.fps }, sourceAt,
     captionLayouts(captions, captionInk, text, phone && d.out_w > d.out_h, band, toasts).map(({ cx, cy, w, h, rise }, i) => (
-      { t: captions[i]!.t0, label: captions[i]!.text, box: [cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2 + rise] })));
+      { t: captions[i]!.t0, t1: captions[i]!.t1, label: captions[i]!.text, box: [cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2 + rise] })));
   if (safe) {
     await writeFile(join(workDir, "safe-area.json"), JSON.stringify(safe, null, 1));
     const [first] = safe.failures;

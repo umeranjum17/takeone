@@ -36,7 +36,7 @@ node scripts/headless-scene.mjs tmp/board-film --aspect=landscape --no-title
 ### Safe area
 
 Every layout is fitted into its viewport inside a 5% inset on each side, and the take
-records every visible text line, editable field and the open dialog in
+records every visible text line, editable field, the open dialog and a shown toast in
 `text-boxes.json` (stream px on the video clock, saved whenever they change). `render`
 (and `make`) project those boxes through the final camera and stage, exactly as the
 cursor overlay is placed, and exit 1 before encoding when any shown box crosses the
@@ -49,6 +49,13 @@ take fills the frame and a push-in then paints board text inside the outer 5%, s
 `max_upscale=0.5` to keep the 2× source at its rest framing. To prove camera
 motion on a scene take, delete `text-boxes.json` from a copy: that take then carries
 no safe-area acceptance.
+
+`safe-area.json` also lists, per title and caption, the frames its box covers a shown
+box (`frames`, `labels`) and its least clearance in output px to any of them
+(`clearance`, `nearest`). The take writes each span its `role="status"` toast shows
+as a `toasts` window in `take.json` (see [toasts](overlays.md)): a render at the take's
+own shape keeps captions in the band below the card, and a render cropped to another shape
+moves a caption sharing a toast's screen time to the top slot.
 
 The output directory must be new; missing parent directories are created. The installer fetches
 the pinned Chrome for Testing headless shell, verifies the archive
