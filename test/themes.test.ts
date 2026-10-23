@@ -23,7 +23,7 @@ test("theme precedence and validation, including saved portrait takes", () => {
     assert.deepEqual(resolveTheme(undefined),resolveTheme("midnight"));
     assert.equal(parseSet(["caption_font=123"]).caption_font,"123");
     for (const name of ["invalid", "__proto__", "constructor", 42, null]) assert.throws(()=>resolveTheme(name), /unknown theme/);
-    for (const bad of [{bg_stops:"#ffffff"},{bg_stops:"#ffffff,red"},{bg_style:"url"},{display_font:"x,evil"},{grain:101},{shadow_blur:-1},{pace:0},{spring_zeta:0.5},{text:123},{bg_pattern:"unknown"},{caption_rounding:2},{caption_opacity:2},{caption_border:17},{shadow_color:"red"}]) {
+    for (const bad of [{bg_stops:"#ffffff"},{bg_stops:"#ffffff,red"},{bg_style:"url"},{display_font:"x,evil"},{grain:101},{shadow_blur:-1},{pace:0},{spring_zeta:0.5},{text:123},{bg_pattern:"unknown"},{caption_rounding:2},{caption_opacity:2},{caption_border:17},{shadow_color:"red"},{cursor_size:0.4},{cursor_size:3.5},{cursor_loop:2},{cursor_hide_idle_s:-1}]) {
       assert.throws(()=>applyOverrides(bad), /invalid --set/);
     }
   } finally {rmSync(dir,{recursive:true,force:true});}
@@ -52,6 +52,8 @@ test("all bundled themes render with bundled faces; midnight decoded frames equa
     writeFileSync(join(dir,"take.json"),JSON.stringify({...meta,cursor_free:true}));
     const cursor = hashes((await renderTake(dir,applyOverrides(small))).out);
     assert.notEqual(cursor,base,"the encoded film contains the drawn pointer");
+    assert.notEqual(hashes((await renderTake(dir,applyOverrides({...small,cursor_size:2}))).out),cursor,
+      "cursor_size redraws the pointer at a different size");
     writeFileSync(join(dir,"events.jsonl"),'{"k":"ptr","t":0,"x":639,"y":180}\n');
     const edge = (await renderTake(dir,applyOverrides(small))).out;
     const pixels = (file:string, filter:string) => execFileSync("ffmpeg",["-v","error","-i",file,

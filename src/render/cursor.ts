@@ -3,7 +3,9 @@
 // The pointer track (events.jsonl k:"ptr") is smoothed on the output clock,
 // projected through the take's camera and drawn as a vector arrow at output
 // resolution after the camera transform, so it glides with no tremor and stays
-// crisp however far the camera zooms. Idle motion hides it after two seconds.
+// crisp however far the camera zooms. Every click lands the tip exactly on its
+// ripple. `cursor_size`, `cursor_hide_idle_s` and `cursor_loop` size it, hide it
+// after stillness and glide it home for a looping film.
 //
 // It is used only when take.json says cursor_free, so takes with a baked system
 // cursor render exactly as before.
@@ -14,11 +16,14 @@ import { assHeader, assTime, roundRect } from "./stage.ts";
 
 /** Art in its own 24x32 box (headless-scene's arrow), hotspot at (2, 2). */
 const ART: [number, number][] = [[2, 2], [2, 23], [7, 18.5], [10.5, 26.5], [14, 25], [10.5, 17.5], [17, 17.5]];
-/** Arrow height at 1080p; a close-up grows it gently rather than obscuring the field. */
+/** Arrow height at 1080p and cursor_size 1; a close-up grows it gently rather than obscuring the field. */
 const REST_H = 48;
-/** Idle seconds before the cursor begins to fade, and the fade length. */
-const IDLE_START = 1.8;
+/** Seconds the idle fade lasts once cursor_hide_idle_s of stillness has passed. */
 const IDLE_FADE = 0.5;
+/** Seconds either side of a click over which the cursor is drawn onto the click point. */
+const PIN_S = 0.12;
+/** Seconds the cursor_loop return glide takes at most. */
+const LOOP_S = 0.8;
 /** Source px of movement within a 0.2 s span that still counts as pointing. */
 const MOVE_EPS = 1.5;
 
@@ -42,6 +47,8 @@ export interface CursorOptions {
   trimEnd: number;
   /** Video seconds -> output seconds (trim and idle squeezing applied). */
   outTime: (t: number) => number;
+  /** The clicks the ripples are drawn at (beatClicks of the output beats): output seconds plus trimStart, source px. */
+  clicks: { t: number; x: number; y: number }[];
   /** Camera frames in output-mapped coordinates: stageFrames (wide) or bandFrames (banded). */
   frames: CameraFrame[];
   d: CameraDefaults;
@@ -54,6 +61,8 @@ export interface CursorOptions {
 }
 
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
+/** Eases 0..1 in and out with zero velocity at both ends. */
+const smoother = (u: number) => u * u * u * (u * (6 * u - 15) + 10);
 
 /** The re-rendered cursor overlay in output resolution; empty when there is nothing to draw. */
 export function cursorAss(o: CursorOptions): string {
@@ -94,10 +103,35 @@ export function cursorAss(o: CursorOptions): string {
     return { x: sx / n, y: sy / n };
   });
 
+  // The window averages a click with the motion around it, so draw the cursor
+  // onto each click ripple's centre, easing in and out over PIN_S (never past
+  // a neighbouring click): the ripple and the arrow tip meet exactly.
+  const clicks = o.clicks.map((c) => ({ ...c, t: c.t - o.trimStart })).sort((a, b) => a.t - b.t);
+  clicks.forEach((c, k) => {
+    const half = Math.max(2 / fps, Math.min(PIN_S, c.t - (clicks[k - 1]?.t ?? -Infinity), (clicks[k + 1]?.t ?? Infinity) - c.t));
+    for (let i = Math.max(0, Math.ceil((c.t - half) * fps)); i < count && i / fps <= c.t + half; i++) {
+      const gap = Math.abs(i / fps - c.t);
+      const w = gap <= 1 / fps ? 1 : 0.5 + 0.5 * Math.cos(Math.PI * (gap - 1 / fps) / (half - 1 / fps));
+      pos[i] = { x: pos[i]!.x + (c.x - pos[i]!.x) * w, y: pos[i]!.y + (c.y - pos[i]!.y) * w };
+    }
+  });
+
+  // A looping film ends where it began: after the last click settles, glide
+  // back to the first frame's position by the last frame.
+  if (o.d.cursor_loop === 1 && count > 1) {
+    const end = (count - 1) / fps;
+    const start = clamp(end - LOOP_S, (clicks.at(-1)?.t ?? -Infinity) + PIN_S, end);
+    const home = pos[0]!;
+    for (let i = Math.ceil(start * fps); i < count; i++) {
+      const u = end > start ? smoother(clamp((i / fps - start) / (end - start), 0, 1)) : 1;
+      pos[i] = { x: pos[i]!.x + (home.x - pos[i]!.x) * u, y: pos[i]!.y + (home.y - pos[i]!.y) * u };
+    }
+  }
+
   // Last frame the pointer was actually moving; jitter inside the smoothed
   // window reads as still, so a resting hand hides.
   // Frame 0 is the anchor: a pointer that has never moved is still visible until
-  // two seconds of stillness pass, rather than being hidden from the first frame.
+  // cursor_hide_idle_s of stillness pass, rather than being hidden from the first frame.
   const alive: number[] = new Array(count).fill(0);
   let lastMove = 0;
   for (let i = 0; i < count; i++) {
@@ -112,12 +146,13 @@ export function cursorAss(o: CursorOptions): string {
   const outline = "&H00282320&";
   let header = assHeader(o.d.out_w, o.d.out_h, o.d.caption_font, o.d.caption_size);
   const body: string[] = [];
+  const hideAfter = o.d.cursor_hide_idle_s;
   for (let i = 0; i < count; i++) {
     const idle = (i - alive[i]!) / fps;
-    const opacity = idle <= IDLE_START ? 1 : clamp(1 - (idle - IDLE_START) / IDLE_FADE, 0, 1);
+    const opacity = hideAfter === 0 || idle <= hideAfter ? 1 : clamp(1 - (idle - hideAfter) / IDLE_FADE, 0, 1);
     if (opacity <= 0.002) continue;
     const f = o.frames[Math.min(i, o.frames.length - 1)]!;
-    const scale = REST_H / 24.5 * o.d.out_h / 1080 * Math.sqrt(maxW / f.w);
+    const scale = REST_H * o.d.cursor_size / 24.5 * o.d.out_h / 1080 * Math.sqrt(maxW / f.w);
     const ox = (pos[i]!.x + o.originX - f.x) * o.d.out_w / f.w;
     const oy = (pos[i]!.y + o.originY - f.y) * o.d.out_h / f.h;
     const c = o.card, kx = c.fixed ? 1 : o.d.out_w / f.w, ky = c.fixed ? 1 : o.d.out_h / f.h;
@@ -132,8 +167,10 @@ export function cursorAss(o: CursorOptions): string {
     const clear = Math.round((1 - opacity) * 255).toString(16).padStart(2, "0").toUpperCase();
     const path = ART.map(([px, py], k) =>
       `${k === 0 ? "m" : "l"} ${(ox + (px - 2) * scale).toFixed(1)} ${(oy + (py - 2) * scale).toFixed(1)}`).join(" ");
-    const end = assTime((i + 1) / fps);
-    body.push(`Dialogue: 1,${assTime(i / fps)},${end},Default,,0,0,0,,`
+    // ffmpeg's ass filter samples each frame at its truncated millisecond and ASS times are
+    // centiseconds, so a line on frame boundaries would show the previous
+    // frame's arrow on every third 60 fps frame. Centre each line on its frame.
+    body.push(`Dialogue: 1,${assTime((i - 0.5) / fps)},${assTime((i + 0.5) / fps)},Default,,0,0,0,,`
       + `{\\an7\\pos(0,0)\\p1${clip}\\bord${(1.5 * scale).toFixed(2)}\\3c${outline}\\3a&H${clear}&\\1c${fill}\\1a&H${clear}&\\shad0}${path}\n`);
   }
   if (body.length === 0) return "";
