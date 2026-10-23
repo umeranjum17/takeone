@@ -19,8 +19,14 @@ these presets. When the output is narrower than the source (for example a 9:16,
 1:1 or 4:5 export of a 16:9 capture), the camera crops in to fill the frame —
 centred on each shot's subject — so the screen is never scaled down into a
 letterboxed strip; the app fills the whole frame. The camera moves in wide
-exports and in portrait (9:16, 4:5) exports of a wider desktop screen; square
-exports and phone takes keep the centred crop.
+exports and in portrait (9:16), 4:5 and square (1:1) exports of a wider desktop
+screen, re-aiming each shot on the action; phone takes keep the centred crop.
+When such a crop cannot hold a click or scroll beside its shot's subject (a far
+top-bar button, a side feed), the camera pans to the control from the pointer's
+approach through the press, holds at least one shot length, and returns. The
+planned shot stays for a click that opens a dialog (the shot belongs to the
+dialog), for a control no view can frame without an edge through a word, and for
+a press with no room for the move between the actions around it.
 
 `--set camera_path=hold` (default `solver`) is an opt-in camera: it keeps the
 solver's settled framings, checked on the frame actually shown, holds each one
