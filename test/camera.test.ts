@@ -13,6 +13,7 @@ import { idleSqueezes, warp, warpBeats } from "../src/render/pace.ts";
 import { sourceViewport, stageGeometry, stageFrames, minStageMargin } from "../src/render/stage.ts";
 import { edgeCuts, cutCount } from "../src/render/framing.ts";
 import { resolveTheme } from "../src/themes.ts";
+import { edgeSpeed, still, SWEEP_EDGE_SPEED } from "../src/camera/sweep.ts";
 import { contains, settledFrames } from "../scripts/check-framing.ts";
 import { hasFfmpeg } from "./helpers.ts";
 
@@ -70,9 +71,11 @@ test("render CLI rejects unknown and malformed override arguments", () => {
 // One consumer journey: inferred duration, then the real make -> saved render path over
 // typing, a revealed dialog result, drags trimmed at the video boundary, released and not,
 // and a drop whose settled layout the camera reframes.
-// The added portrait and drop renders need a 360s journey budget (the drop journey's
-// real 4K capture plus its guarded portrait solve measured 249s on a loaded two-CPU runner).
-test("render without trim_end uses the latest beat end", { timeout: 360_000, skip: needsFfmpeg }, async () => {
+// The added portrait and drop renders need a 480s journey budget (the drop journey's
+// real 4K capture plus its guarded portrait solve measured 249s on a loaded two-CPU runner;
+// judging every slowly moving frame for cut text adds about a quarter: alone on one host
+// 192s before, 237s after, and 404s inside the full parallel suite).
+test("render without trim_end uses the latest beat end", { timeout: 480_000, skip: needsFfmpeg }, async () => {
   const dir = await mkdtemp(join(tmpdir(), "takeone:duration-"));
   try {
     await mkdir(join(dir, "analysis"));
@@ -1088,6 +1091,57 @@ test("text guard samples the last frame of a recording that ends before the take
 // The safe-area gate judges the text each frame paints. A push-in crops the screen card, so a
 // box the crop hides or cuts is not text in the outer 5% of the output; text the frame paints
 // there is, and must still stop the render. One journey, both ways, through the real renderer.
+// A crop edge moving between two framings crosses the text between them; the owner allows that
+// only at a sweep. A manual push-in into a page of words eases out slowly, so its edges would crawl
+// through words: the render retimes the move along its own path so every frame that cuts a word
+// sweeps at SWEEP_EDGE_SPEED or faster. Judged as the product judges it, on the shown source frame.
+test("a push-in through text sweeps past every word it cuts instead of crawling", { timeout: 180_000 }, async () => {
+  // New tests cannot declare the needsFfmpeg skip (the floor guard blocks new skips).
+  if (!hasFfmpeg()) throw new Error("requires system ffmpeg and ffprobe on PATH");
+  const W = 640, H = 360, d = { ...FAST, idle_speed: 1, outro_s: 0 };
+  const take = async (words: boolean) => {
+    const dir = await mkdtemp(join(tmpdir(), "takeone:sweep-"));
+    await mkdir(join(dir, "analysis"));
+    // Rows of 30 px "words" 3 px apart: dense ink to a vertical or horizontal edge, never a separator.
+    const page = new Uint8Array(W * H).fill(200);
+    if (words) for (let y = 30; y < 330; y += 3) for (let x = 60; x + 30 < 600; x += 36) page.fill(40, y * W + x, y * W + x + 30);
+    await writeFile(join(dir, "page.gray"), page);
+    execFileSync("ffmpeg", ["-v", "error", "-stream_loop", "119", "-f", "rawvideo", "-pix_fmt", "gray", "-s", `${W}x${H}`, "-r", "30",
+      "-i", join(dir, "page.gray"), "-c:v", "mpeg4", "-q:v", "2", "-f", "matroska", "-y", join(dir, "screen.webm")]);
+    await writeFile(join(dir, "take.json"), JSON.stringify({ id: "sweep", width: W, height: H, trim_start: 0, trim_end: 3.6,
+      zooms: [{ t0: 0.8, t1: 3.6, bbox: [400, 150, 120, 90], level: 3 }] }));
+    await writeFile(join(dir, "analysis/beats.json"), "[]");
+    await writeFile(join(dir, "analysis/decisions.jsonl"), "");
+    return dir;
+  };
+  const blank = await take(false), page = await take(true);
+  try {
+    await renderTake(blank, d);
+    await renderTake(page, d);
+    const planned = JSON.parse(await readFile(join(blank, "camera.json"), "utf8")) as CameraFrame[];
+    const swept = JSON.parse(await readFile(join(page, "camera.json"), "utf8")) as CameraFrame[];
+    const cuts = sourceEdgeCuts(page, { width: W, height: H } as Parameters<typeof sourceEdgeCuts>[1], (t) => t, true)!;
+    const stage = stageGeometry(W, H, d);
+    const judged = (path: CameraFrame[]) => path.slice(1).map((f, i) => {
+      const at = Math.round(f.t * 10) / 10, cut = cuts(sourceViewport(f, W, H, stage, d), at, at) > 0;
+      const p = path[i]!, moving = !still(p, f, d.out_w, d.out_h, d.fps);
+      return { t: f.t, cut, crawl: moving && edgeSpeed(p, f, d.out_w, d.out_h, d.fps) < SWEEP_EDGE_SPEED, sweep: moving && edgeSpeed(p, f, d.out_w, d.out_h, d.fps) >= SWEEP_EDGE_SPEED };
+    });
+    // Control: the planned push-in, shown over the words, crawls edges through them.
+    assert.ok(judged(planned).some(f => f.cut && f.crawl), "the planned push-in must crawl an edge through a word");
+    const after = judged(swept);
+    assert.deepEqual(after.filter(f => f.cut && f.crawl).map(f => f.t), [], "no frame cuts a word while crawling");
+    assert.ok(after.some(f => f.cut && f.sweep), "the push-in still crosses the words, at a sweep");
+    // Only the timing changed: same frames, same clock, the same director's framing at the end.
+    assert.equal(swept.length, planned.length);
+    assert.deepEqual(swept.map(f => f.t), planned.map(f => f.t));
+    assert.deepEqual(swept.at(-1), planned.at(-1));
+  } finally {
+    await rm(blank, { recursive: true, force: true });
+    await rm(page, { recursive: true, force: true });
+  }
+});
+
 test("the safe-area gate judges the text a push-in paints", { timeout: 120_000 }, async () => {
   // New tests cannot declare the needsFfmpeg skip (the floor guard blocks new skips).
   if (!hasFfmpeg()) throw new Error("requires system ffmpeg and ffprobe on PATH");
