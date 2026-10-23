@@ -1,4 +1,5 @@
 import { applyDragVisibility, gesturePointer, gestures, type Gesture } from "./gesture.ts";
+import { SWEEP_CLEARANCE } from "./sweep.ts";
 import { fillWidth, minStageMargin, stageFrames, stageGeometry } from "../render/stage.ts";
 import { PANEL_MAX_AREA, WIN_MAX_COVER } from "../beats/zones.ts";
 import { DEFAULTS, type CameraDefaults } from "./defaults.ts";
@@ -1270,11 +1271,19 @@ function sampleCamera(
     // A crop-to-fill drag is framed by its grab and carried to its drop: following the
     // beat's clicks would pull the view off the dragged surface.
     // A move's spring tail is not followed: the follow would fight the settling arrival.
-    const restOk = (nominal: CameraState) => (cx: number, cy: number) => {
+    // Where the follow comes to rest, the view also stays clean with its edges SWEEP_CLEARANCE in
+    // or out (an edge on the screen's border cuts nothing), so the follow and the next move are
+    // sweeping by the time an edge meets text, instead of crawling into it from the rest.
+    const restOk = (nominal: CameraState, clearance = 0) => (cx: number, cy: number) => {
       const view = toFrame({ ...nominal, cx, cy }, width, height, d);
-      return Math.abs(pointer.x - view.x - view.w / 2) <= view.w * 0.47
-        && Math.abs(pointer.y - view.y - view.h / 2) <= view.h * 0.47
-        && cuts!(project(view), time, time + followRest) === 0;
+      if (Math.abs(pointer.x - view.x - view.w / 2) > view.w * 0.47
+        || Math.abs(pointer.y - view.y - view.h / 2) > view.h * 0.47) return false;
+      const seen = project(view), m = clearance * seen.w / d.out_w;
+      if (!m) return cuts!(seen, time, time + followRest) === 0;
+      const [l, t] = [Math.round(seen.x) > 0 ? m : 0, Math.round(seen.y) > 0 ? m : 0];
+      const [r, b] = [Math.round(seen.x + seen.w) < width ? m : 0, Math.round(seen.y + seen.h) < height ? m : 0];
+      return [0, -1, 1].every((k) => cuts!({ ...seen, x: seen.x - k * l, y: seen.y - k * t,
+        w: seen.w + k * (l + r), h: seen.h + k * (t + b) }, time, time + followRest) === 0);
     };
     let followed = state;
     if (activeBeat && !revealing && !drag && !(narrow && gestures(activeBeat).length)
@@ -1297,7 +1306,7 @@ function sampleCamera(
       // The follow's own momentum carries it v / omega on before a critically damped spring can stop.
       rest ??= cuts ? cleanAim(held.cx + held.vx / d.follow_omega, held.cy + held.vy / d.follow_omega,
         going(held.vx, held.cx - state.cx), going(held.vy, held.cy - state.cy),
-        cleanStep(baseW / state.z), restOk(state)) : [held.cx, held.cy];
+        cleanStep(baseW / state.z), restOk(state, SWEEP_CLEARANCE)) : [held.cx, held.cy];
       const dt = time - previousTime;
       const [cx, vx] = spring(held.cx, held.vx, rest[0], dt, d.follow_omega);
       const [cy, vy] = spring(held.cy, held.vy, rest[1], dt, d.follow_omega);

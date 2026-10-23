@@ -10,6 +10,7 @@ import type { Event } from "../types.ts";
 import { actionCameraMilliseconds } from "../beats/clock.ts";
 import { applyManualZooms, baseWidth, manualZoomLimitWarning, solveCamera, type EdgeCuts } from "../camera/solver.ts";
 import { applyDragVisibility } from "../camera/gesture.ts";
+import { sweepCuts } from "../camera/sweep.ts";
 import type { Beat, CameraFrame, Decision, TakeMeta } from "../camera/types.ts";
 import type { FrameRegions } from "../types.ts";
 import { blurGraph, keycapAss, keycapBackdropGraph, keycapMaskAss, keycapObstacles, overlayRegions, spotlightAss, spotlightGraph, toastWindows } from "./overlays.ts";
@@ -73,8 +74,9 @@ async function takeChanges(dir: string, meta: TakeMeta, start: number, end: numb
  * whose visible edges cut a word or control, instead of relying on each beat's planner boxes. The
  * predicate is the acceptance check's own: no guard band, one dense text stretch per cut word
  * (see cutCount). `at` maps a solver time to a source second; each hold's mask is reused across
- * its search. Returns undefined with no source. */
-export function sourceEdgeCuts(dir: string, meta: TakeMeta, at: (t: number) => number): EdgeCuts | undefined {
+ * its search. Returns undefined with no source. `strict` (an audit) fails where no frame decodes,
+ * instead of reading the view as clean. */
+export function sourceEdgeCuts(dir: string, meta: TakeMeta, at: (t: number) => number, strict = false): EdgeCuts | undefined {
   const file = join(dir, "screen.webm");
   if (!existsSync(file)) return undefined;
   const { width: W, height: H } = meta;
@@ -109,6 +111,7 @@ export function sourceEdgeCuts(dir: string, meta: TakeMeta, at: (t: number) => n
         const frame = frameAt(time);
         if (frame) frames.push(frame);
       }
+      if (!frames.length && strict) throw new Error(`${file}: no source frame decodes at ${times.map(time => at(time).toFixed(3)).join(", ")} s`);
       if (!frames.length && !warnedDecodes) {
         warnedDecodes = true;
         console.warn("source frames would not decode; the camera text guard is off");
@@ -234,6 +237,14 @@ export async function renderTake(dir: string, camera?: CameraDefaults, preview?:
   const directed = moving ? applyManualZooms(held?.frames ?? solvedFrames, { ...meta, zooms }, d, outBeats, changes)
     : solvedFrames.map(f => ({ t: f.t, x: (meta.width - restW) / 2, y: (meta.height - restH) / 2, w: restW, h: restH }));
   let frames = moving && zooms.length ? applyDragVisibility(directed, outBeats, meta.width, meta.height, trimStart, d) : directed;
+  // The same guard judges the moving frames of the final path, whichever stage made them: none may
+  // crawl a crop edge through a word, so a move crosses text only at a sweep. A frame is judged on
+  // the source frame its 0.1 s mask window starts at, so re-checking a retimed move decodes nothing
+  // new, and each move's decodes are dropped once it is done.
+  if (wide && !phone && cuts) frames = sweepCuts(frames, () => {
+    const moveCuts = sourceEdgeCuts(dir, meta, (t) => sourceAt(t - trimStart))!;
+    return (f) => { const at = Math.round((trimStart + f.t) * 10) / 10; return moveCuts(banded ? f : project(f), at, at) > 0; };
+  }, d);
   await writeFile(join(dir, "camera.json"), JSON.stringify(frames));
   // A preview renders the same camera path from a smaller source: the source-space inputs
   // and the camera frames scale with the proxy, the export-space constants with the

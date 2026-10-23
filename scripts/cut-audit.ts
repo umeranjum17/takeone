@@ -7,16 +7,10 @@ import { basename, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { actionCameraMilliseconds } from "../src/beats/clock.ts";
 import { resolveCamera } from "../src/cli.ts";
-import { idleSqueezes, warp } from "../src/render/pace.ts";
+import { idleSqueezes, purposefulEnd, warp } from "../src/render/pace.ts";
 import { sourceEdgeCuts } from "../src/render/render.ts";
+import { edgeSpeed, still, SWEEP_EDGE_SPEED } from "../src/camera/sweep.ts";
 import type { Beat, CameraFrame, TakeMeta } from "../src/camera/types.ts";
-
-/** A cut frame is allowed only while the card edge sweeps the screen faster than this, in output px/s:
- * 2 px per 60 fps frame. The reference demo's camera is effectively at rest (95% of frame pairs move the
- * view under 130 px/s, median 0.1) and its moves (frames over 30 px/s) have p25 85 and median 349 px/s, so 120
- * sits in the slow part of a real move and a view crawling below it is reading, not travelling. On the
- * real takes under the old follow, a quarter of the moving cuts crawled below this speed (A p25 93 px/s). */
-export const MOVING_EDGE_SPEED = 120;
 
 export interface CutAudit {
   take: string;
@@ -25,26 +19,14 @@ export interface CutAudit {
   cut: number;
   /** Cut while still: the repo's own rest test (zoom <= 0.005 ln/s, edge <= 1 output px/s). Must be 0. */
   cutAtRest: number;
-  /** Cut while moving slower than MOVING_EDGE_SPEED. Must be 0. */
+  /** Cut while moving slower than SWEEP_EDGE_SPEED. Must be 0. */
   cutCreeping: number;
-  /** Cut while moving at MOVING_EDGE_SPEED or faster: the speed-gated allowance. */
+  /** Cut while moving at SWEEP_EDGE_SPEED or faster: the speed-gated allowance. */
   cutSweeping: number;
+  /** Source second the audit's timeline ends at: take.json's trim_end, else the render's own end. */
+  trimEnd: number;
   /** Frame runs [first, last] seconds of each cut class, for locating the frames. */
   runs: { atRest: [number, number][]; creeping: [number, number][]; sweeping: [number, number][] };
-}
-
-/** Fastest a crop edge crosses the screen between frames i-1 and i, in output px/s. */
-export function edgeSpeed(p: CameraFrame, q: CameraFrame, outW: number, outH: number, fps: number): number {
-  const sx = outW / q.w, sy = outH / q.h;
-  return Math.max(Math.abs(q.x - p.x) * sx, Math.abs(q.x + q.w - p.x - p.w) * sx,
-    Math.abs(q.y - p.y) * sy, Math.abs(q.y + q.h - p.y - p.h) * sy) * fps;
-}
-
-/** The repo's rest definition, as used by the camera bars and the drag-ease proof. */
-export function still(p: CameraFrame, q: CameraFrame, outW: number, outH: number, fps: number): boolean {
-  return Math.abs(Math.log(q.w / p.w)) * fps <= 0.005
-    && Math.abs(q.x / q.w - p.x / p.w) * outW * fps <= 1
-    && Math.abs(q.y / q.h - p.y / p.h) * outH * fps <= 1;
 }
 
 export function auditTake(dir: string, theme = "midnight", fps = 60): CutAudit {
@@ -53,7 +35,9 @@ export function auditTake(dir: string, theme = "midnight", fps = 60): CutAudit {
   const d = resolveCamera(dir, [], theme);
   const beats = read("analysis/beats.json") as Beat[];
   if ("stream" in meta) for (const b of beats) b.actions = b.actions.map(actionCameraMilliseconds);
-  const start = meta.trim_start ?? 0, end = meta.trim_end!;
+  // The render's own end: an untrimmed take ends on its last purposeful action plus the outro.
+  const start = meta.trim_start ?? 0, end = meta.trim_end ?? purposefulEnd(beats, start,
+    meta.duration ?? Math.max(0, ...beats.map((beat) => beat.t1)), d);
   const squeezes = idleSqueezes(beats, start, end, d);
   const outTime = (t: number) => warp(t - start, squeezes, d.idle_speed);
   const sourceAt = (t: number) => {
@@ -61,11 +45,16 @@ export function auditTake(dir: string, theme = "midnight", fps = 60): CutAudit {
     for (let k = 0; k < 40; k++) { const mid = (lo + hi) / 2; if (outTime(mid) < t) lo = mid; else hi = mid; }
     return hi;
   };
-  const cuts = sourceEdgeCuts(dir, meta, t => sourceAt(t - start));
-  if (!cuts) throw new Error(`${dir}: no screen.webm to audit`);
   const frames = read("camera.json") as CameraFrame[];
+  // An unbound end maps every frame to no source second, so nothing decodes and every frame reads
+  // clean: the end must reproduce the rendered camera's own clock, and a frame that will not decode fails.
+  const duration = outTime(end), last = frames.at(-1)?.t ?? NaN;
+  if (!(Math.abs(duration - last) <= 1 / fps)) throw new Error(`${dir}: end ${end} s gives ${duration} s of output, `
+    + `but camera.json runs ${last} s; set trim_end in take.json to the rendered end`);
+  const cuts = sourceEdgeCuts(dir, meta, t => sourceAt(t - start), true);
+  if (!cuts) throw new Error(`${dir}: no screen.webm to audit`);
   const audit: CutAudit = { take: basename(dir), frames: frames.length, cut: 0, cutAtRest: 0, cutCreeping: 0,
-    cutSweeping: 0, runs: { atRest: [], creeping: [], sweeping: [] } };
+    cutSweeping: 0, trimEnd: end, runs: { atRest: [], creeping: [], sweeping: [] } };
   const open: Record<string, [number, number] | undefined> = {};
   const close = (kind: keyof CutAudit["runs"], i: number, keep: boolean) => {
     const run = open[kind];
@@ -75,7 +64,7 @@ export function auditTake(dir: string, theme = "midnight", fps = 60): CutAudit {
     const p = frames[Math.max(0, i - 1)]!;
     const kind = cuts({ x: f.x, y: f.y, w: f.w, h: f.h } as never, start + f.t, start + f.t) === 0 ? undefined
       : still(p, f, d.out_w, d.out_h, fps) ? "atRest"
-        : edgeSpeed(p, f, d.out_w, d.out_h, fps) >= MOVING_EDGE_SPEED ? "sweeping" : "creeping";
+        : edgeSpeed(p, f, d.out_w, d.out_h, fps) >= SWEEP_EDGE_SPEED ? "sweeping" : "creeping";
     for (const k of ["atRest", "creeping", "sweeping"] as const) close(k, i, k === kind);
     if (!kind) return;
     audit.cut++;
@@ -88,8 +77,8 @@ export function auditTake(dir: string, theme = "midnight", fps = 60): CutAudit {
 
 export function report(audits: CutAudit[]): string {
   const pct = (n: number, of: number) => `${(100 * n / of).toFixed(1)}%`;
-  const lines = audits.map(a => `${a.take}: ${a.frames} frames, ${a.cut} cut (${pct(a.cut, a.frames)}): `
-    + `${a.cutAtRest} at rest, ${a.cutCreeping} moving under ${MOVING_EDGE_SPEED} px/s, ${a.cutSweeping} moving at or over it (allowed)`);
+  const lines = audits.map(a => `${a.take} (to ${a.trimEnd} s): ${a.frames} frames, ${a.cut} cut (${pct(a.cut, a.frames)}): `
+    + `${a.cutAtRest} at rest, ${a.cutCreeping} moving under ${SWEEP_EDGE_SPEED} px/s, ${a.cutSweeping} moving at or over it (allowed)`);
   const bad = audits.reduce((n, a) => n + a.cutAtRest + a.cutCreeping, 0);
   return [...lines, bad ? `FAIL: ${bad} frames cut text at rest or while crawling` : "PASS: no frame cuts text at rest or while crawling"].join("\n");
 }
