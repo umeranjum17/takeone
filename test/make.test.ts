@@ -586,7 +586,7 @@ function minimaxReply(body: string, broken: boolean): Response {
     return [];
   }));
   const name = Object.keys(questions).find((n) => questions[n]!.kind === "yesno");
-  if (broken && name) input[name] = { pick: "false", probabilities: { false: "", true: 0.4 } };
+  if (broken && name) input[name] = { pick: "false", probabilities: { false: "" as unknown as number, true: 0.4 } };
   return new Response(JSON.stringify({ stop_reason: "tool_use", content: [{ type: "tool_use", name: "decisions", input }], usage: { input_tokens: 500, output_tokens: 300 } }), { status: 200 });
 }
 
