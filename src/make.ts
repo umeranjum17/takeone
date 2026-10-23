@@ -14,7 +14,7 @@ import { decodeAnalysisFrames, firstFrameTimeMs, readEvents } from "./perceive/d
 import { segmentBeats, actStart, resultTime, RESULT_MIN_AREA } from "./beats/segment.ts";
 import { actionVideoSeconds } from "./beats/clock.ts";
 import { zonesForBeat, OCR_MAX_AREA } from "./beats/zones.ts";
-import { beatAnswers, buildChunk, planChunks, TIGHTNESS_LEVELS, CHUNK_TOKEN_CAP, type BeatHint, type ChunkCtx } from "./decide/request.ts";
+import { beatAnswers, beatsPerCall, buildChunk, planChunks, TIGHTNESS_LEVELS, CHUNK_BEATS, CHUNK_TOKEN_CAP, type BeatHint, type ChunkCtx } from "./decide/request.ts";
 import { appBrightness, appliedFilm, captionSpans, filmOverrides, joinFilm, mapFilm, planFilm, type FilmDecision } from "./decide/film.ts";
 import type { Answer, DecideCache, ImageInput } from "@byokit/decide";
 import { ConfigError } from "@byokit/decide";
@@ -69,6 +69,10 @@ export interface MakeOptions {
   /** Host-passed BYOKit credential override for the configured backend;
    * null disables the planner, undefined loads the configured store. */
   apiKey?: string | null;
+  /** Host opt-in: resolve the user's own planner (signed-in account or stored
+   * key) and stop with PlannerUnavailable when none can serve the run, instead
+   * of falling back to local rules. `capture make --planner-account`. */
+  requireAi?: boolean;
   /** Config dir holding planner.json and the sealed store; defaults to the
    * platform config dir. Tests point it at a throwaway dir. */
   configDir?: string;
@@ -106,6 +110,13 @@ export class TakeInputError extends Error {
     this.name = "TakeInputError";
     this.file = file;
   }
+}
+
+/** The user's own planner is what a host asked for (`capture make
+ * --planner-account`) and none of it can serve the run: stop with the cause,
+ * never a silent fallback to local rules. */
+function accountMissing(reason: string): PlannerUnavailable {
+  return new PlannerUnavailable("signed-in account or stored key", reason, { credentialMissing: true });
 }
 
 /** Planner accounting for one make. `requests` counts planner asks, cache hits
@@ -229,14 +240,19 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
           !(e instanceof KeystoreError && ["unavailable", "unsupported"].includes(e.code))) throw e;
       planner = null;
       plannerOff = "the secret store cannot be read";
+      if (opts.requireAi) throw accountMissing(`could not be checked: ${plannerOff}`);
     }
     if (planner && !planner.active) {
+      // The user chose a provider but its credential is missing: stop with
+      // the choices instead of silently falling back (or switching provider).
+      const auth = (planner.config as { auth?: string }).auth;
       if (!planner.defaulted && opts.apiKey === undefined) {
-        // The user chose a provider but its credential is missing: stop with
-        // the choices instead of silently falling back (or switching provider).
-        const auth = (planner.config as { auth?: string }).auth;
         throw new PlannerUnavailable(planner.label, planner.refusal ?? `no ${auth === "account" ? "sign-in" : "key"} for ${planner.label}`);
       }
+      // A host that passed --planner-account asked for the user's own planner:
+      // with none to serve the run, stop and name the cause instead of
+      // planning with local rules it did not ask for.
+      if (opts.requireAi) throw accountMissing(planner.refusal ?? planner.skipped ?? "was not found");
       if (planner.refusal ?? planner.skipped) plannerOff = (planner.refusal ?? planner.skipped) as string;
       planner = null;
     }
@@ -449,7 +465,8 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
     };
     // Beats with one zone have nothing to choose; they keep the rules uncounted.
     const asked = beats.map((_, i) => i).filter((i) => beats[i]!.zones.length >= 2);
-    const chunks = planChunks(asked, build(heuristics), () => failed++);
+    const plannerBackend = (planner.config as { backend: string }).backend;
+    const chunks = planChunks(asked, build(heuristics), () => failed++, beatsPerCall(plannerBackend));
     // The film calls decide the whole take: one call, or a chain of chunks when
     // the take is over one request's cap. The film runs before the beat chunks.
     const filmPlan = beats.length === 0 || opts.film === false ? null : planFilm({
@@ -460,8 +477,11 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
     const filmCalls = filmPlan?.calls.length ?? 0;
     if (!filmPlan && beats.length > 0 && opts.film !== false) warn(`film call: one beat is over the ${CHUNK_TOKEN_CAP}-token request cap on its own; the film keeps the base look`);
     const plannedTokens = chunks.reduce((n, c) => n + c.chunk.tokens, 0) + (filmPlan?.tokens ?? 0);
-    // One re-ask of the largest chunk is reserved for a malformed answer.
-    const reservedTokens = plannedTokens + Math.max(0, ...chunks.map((c) => c.chunk.tokens));
+    // A malformed answer is asked once more: one re-ask of the largest chunk is
+    // reserved, or of every chunk where calls are small and the model often
+    // loses a field (MiniMax).
+    const reaskChunks = beatsPerCall(plannerBackend) < CHUNK_BEATS ? chunks : chunks.slice(0, 1);
+    const reservedTokens = plannedTokens + (reaskChunks === chunks ? chunks.reduce((n, c) => n + c.chunk.tokens, 0) : Math.max(0, ...chunks.map((c) => c.chunk.tokens)));
     // The ceiling is estimated in the default request shape; other backends
     // answer the same questions, so the bound still holds within its margin.
     planned = { planned_tokens: reservedTokens, usd: estimateUsd(plannerPricing!.backend, reservedTokens, plannerPricing!.auth) ?? null };
@@ -531,12 +551,13 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
         requests++;
         requestTokens += part.tokens;
         if (r.decisionSource === "cache") cachedRequests++;
+        if (r.failure) warn(`planner: a film request failed: ${r.failure}`);
         takeOutcome(r);
         replies.push(r.answers);
       }
       filmDecision = mapFilm(joinFilm(replies), filmPlan.calls.at(-1)!.endings, captionSpans(beats, seconds));
     }
-    let reasks = 1;
+    let reasks = reaskChunks === chunks ? chunks.length : 1;
     let overReserve = 0;
     // Chunks run in order: each one starts from the shot the previous chunk decided.
     for (const [c, plannedChunk] of chunks.entries()) {
@@ -565,6 +586,7 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
           requests++;
           requestTokens += chunk.tokens;
           if (r.decisionSource === "cache") cachedRequests++;
+          if (r.failure) warn(`planner: a request for ${items.length} beats failed: ${r.failure}`);
           takeOutcome(r);
           return r;
         };

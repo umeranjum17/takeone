@@ -8,6 +8,10 @@ export const JEV_MODEL = "jev-latest";
 /** One planner call asks for up to CHUNK_BEATS beats, capped at CHUNK_TOKEN_CAP estimated tokens. */
 export const CHUNK_TOKEN_CAP = 4000;
 export const CHUNK_BEATS = 8;
+/** Beats one call asks for. MiniMax reasons before it answers and its reply for eight beats (eight questions each, with a rationale) runs past its output budget or loses a field; two beats fit with room. */
+export function beatsPerCall(backend: string): number {
+  return backend === "minimax" ? 2 : CHUNK_BEATS;
+}
 export const CHARS_PER_TOKEN = 3.5;
 /** Estimate for one keyframe thumbnail (512 px long side, JPEG). Providers bill
  * images by their own tile formulas; this is the planner's budget figure. */
@@ -282,7 +286,7 @@ export function buildChunk(
  * as too large splits in half; a single item that is still too large goes to
  * `tooLarge` and keeps the rules.
  */
-export function planChunks<T, C>(items: T[], build: (group: T[]) => C, tooLarge: (item: T) => void): { items: T[]; chunk: C }[] {
+export function planChunks<T, C>(items: T[], build: (group: T[]) => C, tooLarge: (item: T) => void, perChunk = CHUNK_BEATS): { items: T[]; chunk: C }[] {
   const out: { items: T[]; chunk: C }[] = [];
   const place = (group: T[]): void => {
     try {
@@ -295,7 +299,7 @@ export function planChunks<T, C>(items: T[], build: (group: T[]) => C, tooLarge:
       place(group.slice(half));
     }
   };
-  const n = Math.ceil(items.length / CHUNK_BEATS);
+  const n = Math.ceil(items.length / perChunk);
   for (let k = 0; k < n; k++) {
     place(items.slice(Math.round((k * items.length) / n), Math.round(((k + 1) * items.length) / n)));
   }

@@ -504,6 +504,120 @@ test("a provider with no known price shows cost unknown, never $0", async () => 
   }
 });
 
+test("a planner request that fails says why: the reply shape, not just a failed count", async () => {
+  const dir = newTake();
+  try {
+    const configDir = join(dir, "test-config");
+    mkdirSync(join(configDir, "takeone"), { recursive: true });
+    writeFileSync(join(configDir, "takeone", "planner.json"), JSON.stringify({ backend: "minimax", auth: "apiKey", model: "MiniMax-M3.1-Flash-Preview" }));
+    // A reply that spent its budget thinking and never called the decisions tool.
+    const fetchImpl = (async () => new Response(JSON.stringify({
+      stop_reason: "max_tokens",
+      content: [{ type: "thinking", thinking: "private model text" }],
+      usage: { input_tokens: 10, output_tokens: 1024 },
+    }), { status: 200, headers: { "content-type": "application/json" } })) as typeof fetch;
+    const warns: string[] = [];
+    const r = await fastTake(dir, { apiKey: KEY, fetchImpl, log: () => {}, warn: (s) => warns.push(s) });
+    assert.ok(r.planner.failed > 0);
+    const why = warns.filter((w) => w.startsWith("planner: a ") && w.includes("failed:")).join("\n");
+    assert.ok(why.includes("stop_reason max_tokens"), why || warns.join("\n"));
+    assert.ok(why.includes("content [thinking]"), why);
+    assert.ok(!why.includes("private model text") && !why.includes(KEY), "no model text or key in the reason");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a MiniMax ask gets an output budget big enough for its reasoning plus the decisions", async () => {
+  const dir = newTake();
+  try {
+    const configDir = join(dir, "test-config");
+    mkdirSync(join(configDir, "takeone"), { recursive: true });
+    writeFileSync(join(configDir, "takeone", "planner.json"), JSON.stringify({ backend: "minimax", auth: "apiKey", model: "MiniMax-M3.1-Flash-Preview" }));
+    const caps: number[] = [];
+    const fetchImpl = (async (_url, init) => {
+      caps.push(JSON.parse(String(init?.body)).max_tokens as number);
+      return new Response("limited", { status: 429 });
+    }) as typeof fetch;
+    await assert.rejects(fastTake(dir, { apiKey: KEY, fetchImpl, log: () => {}, warn: () => {} }));
+    assert.ok(caps.length > 0 && caps.every((n) => n >= 8192), `max_tokens sent: ${caps.join(", ")}`);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a MiniMax reply that takes longer than the default 30 s is waited for", async () => {
+  const dir = newTake();
+  try {
+    const configDir = join(dir, "test-config");
+    mkdirSync(join(configDir, "takeone"), { recursive: true });
+    writeFileSync(join(configDir, "takeone", "planner.json"), JSON.stringify({ backend: "minimax", auth: "apiKey", model: "MiniMax-M3.1-Flash-Preview" }));
+    let first = true;
+    const fetchImpl = (async (_url, init) => {
+      if (first) {
+        first = false;
+        await new Promise<void>((resolve, reject) => {
+          const t = setTimeout(resolve, 31_000);
+          init?.signal?.addEventListener("abort", () => { clearTimeout(t); reject(new Error("aborted at the default timeout")); });
+        });
+      }
+      return new Response("limited", { status: 429 });
+    }) as typeof fetch;
+    // The slow first reply survives the wait; the 429 after it is then the stop, not "timed out".
+    await assert.rejects(fastTake(dir, { apiKey: KEY, fetchImpl, log: () => {}, warn: () => {} }), (e: unknown) => !/timed out/.test(String(e)) && /rate limited|429/.test(String(e)));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+/** A MiniMax Messages reply answering every asked question; `broken` loses one yes/no field the way a real reply did ("false": ""). */
+function minimaxReply(body: string, broken: boolean): Response {
+  const { questions } = JSON.parse(JSON.parse(body).messages[0].content[0].text) as { questions: Record<string, { kind: string; options?: Record<string, unknown>; levels?: string[] }> };
+  const input = Object.fromEntries(Object.entries(questions).flatMap(([name, q]) => {
+    if (q.kind === "choice") {
+      const options = Object.keys(q.options ?? {});
+      return [[name, { pick: options[0], probabilities: Object.fromEntries(options.map((o, i) => [o, i === 0 ? 0.9 : 0.1 / Math.max(1, options.length - 1)])), rationale: "first zone" }]];
+    }
+    if (q.kind === "score") {
+      const levels = (q.levels ?? []).map((_, i) => String(i));
+      return [[name, { pick: "1", probabilities: Object.fromEntries(levels.map((l) => [l, l === "1" ? 0.9 : 0.1 / Math.max(1, levels.length - 1)])), rationale: "middle level" }]];
+    }
+    if (q.kind === "yesno") return [[name, { pick: "false", probabilities: { false: 0.9, true: 0.1 }, rationale: "no" }]];
+    return [];
+  }));
+  const name = Object.keys(questions).find((n) => questions[n]!.kind === "yesno");
+  if (broken && name) input[name] = { pick: "false", probabilities: { false: "" as unknown as number, true: 0.4 }, rationale: "" };
+  return new Response(JSON.stringify({ stop_reason: "tool_use", content: [{ type: "tool_use", name: "decisions", input }], usage: { input_tokens: 500, output_tokens: 300 } }), { status: 200 });
+}
+
+test("MiniMax plans two beats a call and repairs a malformed reply with one more ask", async () => {
+  const dir = buildTake(mkdtempSync(join(tmpdir(), "takeone-take-")));
+  try {
+    const configDir = join(dir, "test-config");
+    mkdirSync(join(configDir, "takeone"), { recursive: true });
+    writeFileSync(join(configDir, "takeone", "planner.json"), JSON.stringify({ backend: "minimax", auth: "apiKey", model: "MiniMax-M3.1-Flash-Preview" }));
+    const beatCalls: string[][] = [];
+    const seen = new Set<string>();
+    const fetchImpl = (async (_url, init) => {
+      const body = String(init?.body);
+      const names = Object.keys((JSON.parse(JSON.parse(body).messages[0].content[0].text) as { questions: object }).questions);
+      if (!names.some((n) => /^b\d+_/.test(n))) return new Response(JSON.stringify({ stop_reason: "tool_use", content: [{ type: "tool_use", name: "decisions", input: {} }] }), { status: 200 });
+      beatCalls.push(names);
+      const key = names.join(",");
+      const first = !seen.has(key);
+      seen.add(key);
+      return minimaxReply(body, first); // the first ask of every chunk is malformed, the repair ask is good
+    }) as typeof fetch;
+    const r = await fastTake(dir, { apiKey: KEY, fetchImpl, film: false, log: () => {}, warn: () => {} });
+    const beatsAsked = new Set(beatCalls.flat().map((n) => n.split("_")[0]));
+    assert.ok(beatCalls.every((names) => new Set(names.map((n) => n.split("_")[0])).size <= 2), "at most two beats a call");
+    assert.equal(beatCalls.length, seen.size * 2, "every chunk is asked once more after its malformed reply");
+    assert.equal(r.decisions.filter((d) => d.decided_by === "ai").length, beatsAsked.size, "every asked beat is decided by the model");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("a chosen provider without its credential stops instead of falling back", async () => {
   const dir = newTake();
   const keyring = process.env.TAKEONE_NO_KEYRING;
