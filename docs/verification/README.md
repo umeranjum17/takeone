@@ -1,6 +1,6 @@
 # takeone feature map
 
-User-facing features of the takeone CLI, in README order. Each file tells you what the feature is, how a user reaches it, how to drive it with the takeone CLI from a shell, and what observable end state proves it works. Proofs drive these journeys; a proof that only exercises a convenient entry point is incomplete when the map lists others.
+User-facing features of the takeone CLI, in README order. The maintained feature map that `done-done affected` reads is `.agents/skills/done-done-verify-takeone/features/`; these files hold the longer recipes it links. Each file tells you what the feature is, how a user reaches it, how to drive it with the takeone CLI from a shell, and what observable end state proves it works. Proofs drive these journeys; a proof that only exercises a convenient entry point is incomplete when the map lists others.
 
 | # | Feature | Offline? | File |
 |---|---|---|---|
@@ -15,7 +15,7 @@ The done-done visual journey ([operations](operations.md), `scripts/verification
 
 Run from the repository root after `npm ci`, with ffmpeg/ffprobe and the pinned headless shell available. Use task-owned takes/state and the assigned heavy lock; set `TAKEONE_GATE` to the assigned memory gate, and bound CPU affinity to eight allowed CPUs. The scripts run heavy checks serially. Missing tools or model access block proof; they never mean PASS.
 
-- `done-done run checks`: floor guard, typecheck and existing tests.
+- Floor guard, typecheck, tests and the synthetic quality gates run in CI (`.github/workflows/ci.yml`), not as a done-done journey.
 - `done-done run offline-render`: rebuild, synthetic make, decoded-pixel checks, still, probe and hashes.
 - On the baseline: `done-done run visual-reference`. Preserve its run directory and `work/` as the reference; never run another checkout from this worktree.
 - On the candidate: `TAKEONE_VISUAL_REF=<reference-directory> done-done verify visual --outcome "All ten visual cells pass pixel and design checks against the approved reference"`. This spending journey parks before execution (`awaiting_approval`, exit 4); follow the approval procedure below. All ten cells and the design step are required. `visual-desktop` is only a two-cell exploratory slice, not acceptance.

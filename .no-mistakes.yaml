@@ -3,8 +3,8 @@
 test:
   instructions: |
     Test only what the change touches, plus one user journey; CI's `ci` and
-    `headless-scene` checks run the full suite, so do not rerun `npm test`,
-    `done-done run checks` or scripts/test-headless-scene.mjs here.
+    `headless-scene` checks run the full suite, so do not rerun `npm test`
+    or scripts/test-headless-scene.mjs here.
     1. Changed parts: `npm run typecheck`, then `npm run build && node --test`
        on only the test/*.test.ts and dist/test/*.test.js files that exercise
        the changed src/ or scripts/ modules (none for a docs-only change).

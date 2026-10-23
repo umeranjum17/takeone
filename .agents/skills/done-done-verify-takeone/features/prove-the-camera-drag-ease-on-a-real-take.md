@@ -4,7 +4,7 @@ Part of the takeone verification map. Source: `src/camera/gesture.ts` (`applyDra
 
 ## How to get to it (user POV)
 
-Render a take that contains a drag with `node bin/takeone.mjs render <take-dir> --theme midnight`. The camera eases wide for the drag only, then returns to the editorial framing.
+Render a take that contains a drag with `node bin/takeone.mjs render <take-dir> --theme midnight`. The camera eases wide around the drag (the ease starts one transition before the grab and ends one after the release, each end walked out to a quiet frame), then returns to the editorial framing.
 
 ## Driving it
 
