@@ -570,6 +570,54 @@ test("a MiniMax reply that takes longer than the default 30 s is waited for", as
   }
 });
 
+/** A MiniMax Messages reply answering every asked question; `broken` loses one yes/no field the way a real reply did ("false": ""). */
+function minimaxReply(body: string, broken: boolean): Response {
+  const { questions } = JSON.parse(JSON.parse(body).messages[0].content[0].text) as { questions: Record<string, { kind: string; options?: Record<string, unknown>; levels?: string[] }> };
+  const input = Object.fromEntries(Object.entries(questions).flatMap(([name, q]) => {
+    if (q.kind === "choice") {
+      const options = Object.keys(q.options ?? {});
+      return [[name, { pick: options[0], probabilities: Object.fromEntries(options.map((o, i) => [o, i === 0 ? 0.9 : 0.1 / Math.max(1, options.length - 1)])), rationale: "first zone" }]];
+    }
+    if (q.kind === "score") {
+      const levels = (q.levels ?? []).map((_, i) => String(i));
+      return [[name, { pick: "1", probabilities: Object.fromEntries(levels.map((l) => [l, l === "1" ? 0.9 : 0.1 / Math.max(1, levels.length - 1)])), rationale: "middle level" }]];
+    }
+    if (q.kind === "yesno") return [[name, { pick: "false", probabilities: { false: 0.9, true: 0.1 }, rationale: "no" }]];
+    return [];
+  }));
+  const name = Object.keys(questions).find((n) => questions[n]!.kind === "yesno");
+  if (broken && name) input[name] = { pick: "false", probabilities: { false: "", true: 0.4 } };
+  return new Response(JSON.stringify({ stop_reason: "tool_use", content: [{ type: "tool_use", name: "decisions", input }], usage: { input_tokens: 500, output_tokens: 300 } }), { status: 200 });
+}
+
+test("MiniMax plans two beats a call and repairs a malformed reply with one more ask", async () => {
+  const dir = buildTake(mkdtempSync(join(tmpdir(), "takeone-take-")));
+  try {
+    const configDir = join(dir, "test-config");
+    mkdirSync(join(configDir, "takeone"), { recursive: true });
+    writeFileSync(join(configDir, "takeone", "planner.json"), JSON.stringify({ backend: "minimax", auth: "apiKey", model: "MiniMax-M3.1-Flash-Preview" }));
+    const beatCalls: string[][] = [];
+    const seen = new Set<string>();
+    const fetchImpl = (async (_url, init) => {
+      const body = String(init?.body);
+      const names = Object.keys((JSON.parse(JSON.parse(body).messages[0].content[0].text) as { questions: object }).questions);
+      if (!names.some((n) => /^b\d+_/.test(n))) return new Response(JSON.stringify({ stop_reason: "tool_use", content: [{ type: "tool_use", name: "decisions", input: {} }] }), { status: 200 });
+      beatCalls.push(names);
+      const key = names.join(",");
+      const first = !seen.has(key);
+      seen.add(key);
+      return minimaxReply(body, first); // the first ask of every chunk is malformed, the repair ask is good
+    }) as typeof fetch;
+    const r = await fastTake(dir, { apiKey: KEY, fetchImpl, film: false, log: () => {}, warn: () => {} });
+    const beatsAsked = new Set(beatCalls.flat().map((n) => n.split("_")[0]));
+    assert.ok(beatCalls.every((names) => new Set(names.map((n) => n.split("_")[0])).size <= 2), "at most two beats a call");
+    assert.equal(beatCalls.length, seen.size * 2, "every chunk is asked once more after its malformed reply");
+    assert.equal(r.decisions.filter((d) => d.decided_by === "ai").length, beatsAsked.size, "every asked beat is decided by the model");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("a chosen provider without its credential stops instead of falling back", async () => {
   const dir = newTake();
   const keyring = process.env.TAKEONE_NO_KEYRING;

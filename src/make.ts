@@ -14,7 +14,7 @@ import { decodeAnalysisFrames, firstFrameTimeMs, readEvents } from "./perceive/d
 import { segmentBeats, actStart, resultTime, RESULT_MIN_AREA } from "./beats/segment.ts";
 import { actionVideoSeconds } from "./beats/clock.ts";
 import { zonesForBeat, OCR_MAX_AREA } from "./beats/zones.ts";
-import { beatAnswers, buildChunk, planChunks, TIGHTNESS_LEVELS, CHUNK_TOKEN_CAP, type BeatHint, type ChunkCtx } from "./decide/request.ts";
+import { beatAnswers, beatsPerCall, buildChunk, planChunks, TIGHTNESS_LEVELS, CHUNK_BEATS, CHUNK_TOKEN_CAP, type BeatHint, type ChunkCtx } from "./decide/request.ts";
 import { appBrightness, appliedFilm, captionSpans, filmOverrides, joinFilm, mapFilm, planFilm, type FilmDecision } from "./decide/film.ts";
 import type { Answer, DecideCache, ImageInput } from "@byokit/decide";
 import { ConfigError } from "@byokit/decide";
@@ -465,7 +465,8 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
     };
     // Beats with one zone have nothing to choose; they keep the rules uncounted.
     const asked = beats.map((_, i) => i).filter((i) => beats[i]!.zones.length >= 2);
-    const chunks = planChunks(asked, build(heuristics), () => failed++);
+    const plannerBackend = (planner.config as { backend: string }).backend;
+    const chunks = planChunks(asked, build(heuristics), () => failed++, beatsPerCall(plannerBackend));
     // The film calls decide the whole take: one call, or a chain of chunks when
     // the take is over one request's cap. The film runs before the beat chunks.
     const filmPlan = beats.length === 0 || opts.film === false ? null : planFilm({
@@ -476,8 +477,11 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
     const filmCalls = filmPlan?.calls.length ?? 0;
     if (!filmPlan && beats.length > 0 && opts.film !== false) warn(`film call: one beat is over the ${CHUNK_TOKEN_CAP}-token request cap on its own; the film keeps the base look`);
     const plannedTokens = chunks.reduce((n, c) => n + c.chunk.tokens, 0) + (filmPlan?.tokens ?? 0);
-    // One re-ask of the largest chunk is reserved for a malformed answer.
-    const reservedTokens = plannedTokens + Math.max(0, ...chunks.map((c) => c.chunk.tokens));
+    // A malformed answer is asked once more: one re-ask of the largest chunk is
+    // reserved, or of every chunk where calls are small and the model often
+    // loses a field (MiniMax).
+    const reaskChunks = beatsPerCall(plannerBackend) < CHUNK_BEATS ? chunks : chunks.slice(0, 1);
+    const reservedTokens = plannedTokens + (reaskChunks === chunks ? chunks.reduce((n, c) => n + c.chunk.tokens, 0) : Math.max(0, ...chunks.map((c) => c.chunk.tokens)));
     // The ceiling is estimated in the default request shape; other backends
     // answer the same questions, so the bound still holds within its margin.
     planned = { planned_tokens: reservedTokens, usd: estimateUsd(plannerPricing!.backend, reservedTokens, plannerPricing!.auth) ?? null };
@@ -553,7 +557,7 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
       }
       filmDecision = mapFilm(joinFilm(replies), filmPlan.calls.at(-1)!.endings, captionSpans(beats, seconds));
     }
-    let reasks = 1;
+    let reasks = reaskChunks === chunks ? chunks.length : 1;
     let overReserve = 0;
     // Chunks run in order: each one starts from the shot the previous chunk decided.
     for (const [c, plannedChunk] of chunks.entries()) {
