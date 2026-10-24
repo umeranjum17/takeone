@@ -1400,6 +1400,7 @@ test("an over-long AI title is dropped; a title at the 28-character bound fits t
     const text = bandText(captions, [], d);
     const ink = await measureCaptions(dir, captions, text);
     const band = bandLayout(STREAM_W, STREAM_H, text, captions, ink);
+    assert.ok(band, "the 1080p stage is not band-eligible");
     assert.ok(ink[0]!.w > 28 * Math.round(text.caption_size * 1.6) * 0.5,
       `the title at the bound rendered no ink (w=${ink[0]!.w}); the bundled face did not draw it`);
     assert.doesNotThrow(() => captionLayouts(captions, ink, text, band), "a title at the bound does not fit the 1080p band row");
