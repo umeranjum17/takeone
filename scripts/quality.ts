@@ -52,16 +52,17 @@ export function cameraMetrics(frames: CameraFrame[], fps: number, outW: number, 
   };
 }
 
-/** Baselines relax only today's failing values; passing values retain the goal. */
-export function regressions(metrics: Metrics, baseline: Metrics): string[] {
+/** Baselines relax only today's failing values; passing values retain the goal. `noise` allows a
+ * metric its measured spread across machines on identical renders, in the metric's own unit. */
+export function regressions(metrics: Metrics, baseline: Metrics, noise: Record<string, number> = {}): string[] {
   const failures: string[] = [];
   for (const [name, m] of Object.entries(metrics)) {
     const b = baseline[name];
     if (!Number.isFinite(m.value) || !b || !Number.isFinite(b.value) || b.direction !== m.direction || b.target !== m.target) { failures.push(`${name}: missing/invalid baseline or measurement`); continue; }
     const limit = m.direction === 'max' ? Math.max(m.target, b.value) : Math.min(m.target, b.value);
-    // Only machine round-off is ignored. No percentage slack hiding regressions.
-    const tolerance = Math.max(1, Math.abs(limit)) * 1e-6;
-    if (m.direction === 'max' ? m.value > limit + tolerance : m.value < limit - tolerance) failures.push(`${name}: ${m.value} vs limit ${limit} (goal ${m.target})`);
+    // Only machine round-off and a measured spread are ignored. No percentage slack hiding regressions.
+    const tolerance = Math.max(1, Math.abs(limit)) * 1e-6 + (noise[name] ?? 0);
+    if (m.direction === 'max' ? m.value > limit + tolerance : m.value < limit - tolerance) failures.push(`${name}: ${m.value} vs limit ${limit}${noise[name] ? ` + measured spread ${noise[name]}` : ''} (goal ${m.target})`);
   }
   for (const name of Object.keys(baseline)) if (!metrics[name]) failures.push(`${name}: measurement disappeared`);
   return failures;
@@ -241,10 +242,12 @@ function captions(video: string, dir: string, meta: TakeMeta, d: typeof DEFAULTS
 // never pass on synthetic takes alone. Its nav border sits at design x 280.5 in the 5% safe inset:
 // (0.05 * 1920 + 280.5 * 0.9 * 1920 / 2560) CSS px at 2x. It is captured cursor-free, so the render
 // draws the cursor after the crop and the cut audit reads only UI, never a painted arrow leaving the card.
-const FIXTURES: Record<string, { script: string; args?: string[]; video: string; divider?: number }> = {
+const FIXTURES: Record<string, { script: string; args?: string[]; video: string; divider?: number; noise?: Record<string, number> }> = {
   synth: { script: 'synth-take.ts', video: 'synth-demo', divider: 319 },
   portrait: { script: 'synth-portrait.ts', video: 'portrait' }, // a portrait export is never banded
-  scene: { script: 'headless-scene.mjs', args: ['--cursor=hidden'], video: 'headless-demo', divider: 570.7 },
+  scene: { script: 'headless-scene.mjs', args: ['--cursor=hidden'], video: 'headless-demo', divider: 570.7,
+    // Judder on frame-identical renders: 1.0309 on a dev host (5 runs), 1.0523 on the CI runner; 0.03 clears that 0.0214 spread.
+    noise: { subpixel_judder: 0.03 } },
 };
 
 export function compare(video: string, golden: string, output: string, vmaf: boolean) {
@@ -300,7 +303,7 @@ async function main() {
     failures.push(...sharpness.filter(m => !m.flatPassed).map(m => `flat card ${m.quality}: variance ${m.flat.variance} (limit ${m.flatTarget}), mean ${m.flat.mean} vs reference ${m.flatReference.mean}`));
   }
   for (const fixture of fixtures) {
-    const { script, args: extra = [], video: name, divider } = FIXTURES[fixture]!;
+    const { script, args: extra = [], video: name, divider, noise } = FIXTURES[fixture]!;
     console.error(`quality: ${fixture}`);
     const dir = join(root, fixture);
     const d = { ...DEFAULTS, fps: 60, caption_font: 'Liberation Sans', ...(fixture === 'portrait' ? { out_w: 1080, out_h: 1920 } : {}) };
@@ -373,7 +376,7 @@ async function main() {
     if (initialize && !existsSync(golden)) newGoldens.push(fixture);
     const regression = existsSync(golden) ? compare(video, golden, dir, vmaf) : null;
     // A measurement or golden with nothing stored fails as missing, unless --init-baseline adds it now.
-    const fixtureFailures = [...regressions(Object.fromEntries(Object.entries(metrics).filter(([k]) => !added.includes(k))), known),
+    const fixtureFailures = [...regressions(Object.fromEntries(Object.entries(metrics).filter(([k]) => !added.includes(k))), known, noise),
       ...added.filter(k => !Number.isFinite(metrics[k]!.value)).map(k => `${k}: nonfinite measurement`),
       ...(regression || newGoldens.includes(fixture) ? [] : ['no golden render; review this output, then run --init-baseline'])];
     if (initialize) initialized[fixture] = { ...known, ...Object.fromEntries(added.map(k => [k, metrics[k]!])) };

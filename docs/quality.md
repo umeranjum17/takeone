@@ -119,7 +119,11 @@ baselines. A run that passes the gate with unmet goals prints each unmet goal
 met prints `quality: passed`. For a maximum metric the gate is
 `value ≤ max(goal, baseline)`; for a minimum metric it is
 `value ≥ min(goal, baseline)`. Passing metrics keep their goal. Only 1e-6 relative
-round-off is tolerated. A missing, nonfinite or removed measurement fails.
+round-off is tolerated, plus, where a fixture declares one, a metric's measured
+spread across machines on frame-identical renders: the scene's judder is allowed
+0.03 px/frame² above its baseline (1.0309 on a dev host, 1.0523 on the CI runner),
+and a 1 px shift injected every fourth frame still fails it. A missing,
+nonfinite or removed measurement fails.
 
 After a quality improvement, run `npm run quality -- --ratchet` and commit the
 new JSON to tighten limits. This command must pass the existing numeric gates
