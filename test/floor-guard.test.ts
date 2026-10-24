@@ -20,7 +20,7 @@ const BASE = `test("make --no-jev renders", async () => {
 const SRC = "export interface AskResult { response?: unknown; answers?: unknown }\n";
 
 // A throwaway repo with one committed test file, and a guard that reads the working tree.
-const repo = (base = BASE) => {
+const repo = (base = BASE, baseSrc = SRC) => {
   const dir = mkdtempSync(join(tmpdir(), "takeone-floor-"));
   const env = { ...process.env, HOME: dir, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" };
   const git = (...args: string[]) => execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@example.invalid", ...args], { cwd: dir, env });
@@ -32,7 +32,7 @@ const repo = (base = BASE) => {
   git("init", "-q", "-b", "main");
   mkdirSync(join(dir, "test"));
   mkdirSync(join(dir, "src"));
-  writeFileSync(join(dir, "src", "ask.ts"), SRC);
+  writeFileSync(join(dir, "src", "ask.ts"), baseSrc);
   copyFileSync(GUARD, join(dir, "floor-guard.mjs"));
   writeFileSync(join(dir, "test", "x.test.ts"), base);
   git("add", ".");
@@ -158,6 +158,31 @@ test("a second test", async () => {
   assert.equal(r.decisions[0]!.kind, "beat");
 });
 `), 1, "a test that lost two checks and gained one is a removal even when the gain is stronger");
+  } finally {
+    r.done();
+  }
+});
+
+// The caption layout lost its phone-overlay parameters, so the band check calls it with one argument
+// fewer. That check is the same check, not a removed one, only while src/ drops the parameter too.
+test("floor guard pairs a call that lost an argument with the function that lost the parameter", () => {
+  const SIGNATURE = "export function layout(rows: unknown[], d: object, wide = false, band?: object) { return [rows, d, wide, band]; }\n";
+  const r = repo(`test("the title fits the band row", async () => {
+  assert.doesNotThrow(() => layout(rows, d, false, band), "the title does not fit");
+});
+`, SIGNATURE);
+  const { guard } = r;
+  try {
+    const dropped = `test("the title fits the band row", async () => {
+  assert.doesNotThrow(() => layout(rows, d, band), "the title does not fit");
+});
+`;
+    assert.equal(guard(dropped, SIGNATURE.replace("wide = false, ", "").replace("wide, ", "")), 0, "the argument went with its parameter");
+    assert.equal(guard(dropped, SIGNATURE), 1, "an argument dropped while src keeps the parameter still fails");
+    assert.equal(guard(dropped.replace("layout(rows, d, band)", "layout(rows, band)"), SIGNATURE.replace("wide = false, ", "").replace("wide, ", "")), 1,
+      "dropping a second argument for one dropped parameter still fails");
+    assert.equal(guard(dropped.replace("layout(rows, d, band)", "layout(rows, d, true)"), SIGNATURE.replace("wide = false, ", "").replace("wide, ", "")), 1,
+      "a changed argument is not a dropped one");
   } finally {
     r.done();
   }

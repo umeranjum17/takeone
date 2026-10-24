@@ -13,7 +13,7 @@ import { applyDragVisibility } from "../camera/gesture.ts";
 import { sweepCuts } from "../camera/sweep.ts";
 import type { Beat, CameraFrame, Decision, TakeMeta } from "../camera/types.ts";
 import type { FrameRegions } from "../types.ts";
-import { blurGraph, keycapAss, keycapBackdropGraph, keycapMaskAss, keycapObstacles, overlayRegions, spotlightAss, spotlightGraph, toastWindows } from "./overlays.ts";
+import { blurGraph, keycapAss, keycapBackdropGraph, keycapMaskAss, keycapObstacles, overlayRegions, spotlightAss, spotlightGraph } from "./overlays.ts";
 import { motionBlurGraph, shutterPlan } from "./motion-blur.ts";
 import { idleSqueezes, purposefulEnd, setptsExpr, warp, warpBeats } from "./pace.ts";
 import { cursorAss, pointerSamples } from "./cursor.ts";
@@ -27,7 +27,7 @@ import { withFilmText } from "../decide/film.ts";
 import { runFfmpeg } from "./ffmpeg.ts";
 import { ensureProxy, previewDefaults, proxySize, scaleBand, scaleBeat, scaleEvent, scaleFrames, scaleMeta, type PreviewSpec } from "./preview.ts";
 import {
-  bandEligible, bandFrames, bandLayout, bandText, beatClicks, captionAss, captionLayouts, cardFilter, clickAss, measureAss, sourceViewport, stageFrames, stageGeometry, stageImageFilter,
+  bandCamera, bandFrames, bandLayout, bandText, beatClicks, captionAss, captionLayouts, cardFilter, clickAss, insideScreen, measureAss, sourceViewport, stageFrames, stageGeometry, stageImageFilter,
   takeCaptions, type Band, type Caption, type CaptionInk,
 } from "./stage.ts";
 
@@ -164,7 +164,6 @@ export async function renderTake(dir: string, camera?: CameraDefaults, preview?:
   const clock = meta.cuts?.length || meta.speed?.length ? editTimeline(meta, beats, trimStart, trimEnd, d, typing) : undefined;
   const outTime = clock?.at ?? ((t: number) => warp(t - trimStart, squeezes, d.idle_speed));
   const duration = outTime(trimEnd);
-  const toasts = toastWindows(meta, outTime, trimStart, trimEnd);
   const shownBeats = clipDrags(beats, clock?.spans.filter(s => s.rate > 0) ?? [{ t0: trimStart, t1: trimEnd }]);
   let outBeats = clock ? editBeats(shownBeats, clock, trimStart) : warpBeats(shownBeats, trimStart, squeezes, d.idle_speed);
   const byId = new Map(outBeats.map(b => [b.id, b]));
@@ -180,20 +179,25 @@ export async function renderTake(dir: string, camera?: CameraDefaults, preview?:
     ? phoneTapShots(outBeats, meta.width, meta.height) : null;
   const shown = withFilmText(meta);
   const captions = takeCaptions(clock ? { ...shown, captions: shown.captions?.filter(c => clock.contains(c.t)) } : shown, outTime, duration);
-  // A phone keeps its handset framing; other takes exported at their own shape get the band.
-  const banded = captions.length > 0 && !phone && bandEligible(meta.width, meta.height, d);
+  // Every take with text gets the band, a phone in its handset too: text never covers the app.
+  const banded = captions.length > 0;
   // The card the camera frames into, the text band and the measured caption ink. The layout
   // belongs to the render space, so a preview lays its own card out at preview scale.
   const layout = async (m: TakeMeta, dd: CameraDefaults, bandOverride?: Band | null) => {
-    const bandedHere = captions.length > 0 && !phone && bandEligible(m.width, m.height, dd);
-    let text = bandedHere ? bandText(captions, [], dd) : dd;
-    let ink = await measureCaptions(dir, captions, text, bandedHere);
-    const fitted = bandedHere ? bandText(captions, ink, text) : text;
-    if (fitted !== text) ink = await measureCaptions(dir, captions, fitted, bandedHere);
-    const band = bandOverride ?? (bandedHere ? bandLayout(m.width, m.height, fitted, captions, ink) : null);
+    let text = banded ? bandText(captions, [], dd) : dd;
+    let ink = await measureCaptions(dir, captions, text);
+    const fitted = banded ? bandText(captions, ink, text) : text;
+    if (fitted !== text) ink = await measureCaptions(dir, captions, fitted);
+    const band = bandOverride ?? (banded ? bandLayout(m.width, m.height, fitted, captions, ink) : null);
     return { text: fitted, captionInk: ink, band, stage: band?.stage ?? stageGeometry(m.width, m.height, dd) };
   };
   const solveLayout = await layout(meta, d);
+  // A band card of the screen's own shape (a phone in a 16:9 film) is framed at that shape.
+  const cam = solveLayout.band ? bandCamera(solveLayout.band, meta.width, meta.height, d) : d;
+  // The band card shows only screen: a view padded past it (a square's whole-screen rest, a phone's
+  // held margin) is fitted back inside. A desktop take at the export's own shape needs no fitting.
+  const fit = banded && (phone || Math.abs(meta.width / meta.height - d.out_w / d.out_h) > 0.01)
+    ? (f: CameraFrame) => insideScreen(f, meta.width, meta.height, cam.out_w / cam.out_h) : undefined;
   // Output time -> source second, so the guard builds its ink mask from the frame shown.
   const sourceAt = (t: number) => {
     let lo = trimStart, hi = trimEnd;
@@ -206,8 +210,8 @@ export async function renderTake(dir: string, camera?: CameraDefaults, preview?:
   // A handset's controls span its narrow screen. Keep that entire width while pushing in and
   // following the tapped row; the guard judges this re-framed view, not the raw solver crop.
   const phoneReframe = (f: CameraFrame): CameraFrame => {
-    const w = Math.max(f.w, meta.width * d.hold_pad);
-    const h = w * d.out_h / d.out_w;
+    const w = Math.max(f.w, meta.width * cam.hold_pad);
+    const h = w * cam.out_h / cam.out_w;
     const cy = f.y + f.h / 2;
     const y = h >= meta.height ? (meta.height - h) / 2
       : Math.max(0, Math.min(meta.height - h, cy - h / 2));
@@ -216,11 +220,11 @@ export async function renderTake(dir: string, camera?: CameraDefaults, preview?:
   const project = (frame: CameraFrame) => sourceViewport(frame, meta.width, meta.height, solveLayout.stage, d);
   const changes = moving ? await takeChanges(dir, meta, trimStart, trimEnd, outTime, clock?.contains ?? (() => true)) : [];
   const solved = solveCamera(tapShots?.beats ?? outBeats, tapShots?.decisions ?? outDecisions, { ...meta, trim_end: trimStart + duration },
-    { ...d, min_shot: d.min_shot * d.pace, dwell: d.dwell * d.pace, dwell_k2: d.dwell_k2 * d.pace },
-    banded ? undefined : phone ? (frame) => project(phoneReframe(frame)) : project, cuts, changes);
+    { ...cam, min_shot: d.min_shot * d.pace, dwell: d.dwell * d.pace, dwell_k2: d.dwell_k2 * d.pace },
+    banded ? fit && (phone ? (frame) => fit(phoneReframe(frame)) : fit) : phone ? (frame) => project(phoneReframe(frame)) : project, cuts, changes);
   const solvedFrames = phone ? solved.map(phoneReframe) : solved;
   const held = wide && d.camera_path === "hold" && !phone ? holdPath(solvedFrames, outBeats, outDecisions,
-    { band: solveLayout.band, stage: solveLayout.stage, width: meta.width, height: meta.height, d, minShot: d.min_shot * d.pace },
+    { band: solveLayout.band, stage: solveLayout.stage, width: meta.width, height: meta.height, d: cam, minShot: d.min_shot * d.pace },
     videoFrames(join(dir, "screen.webm"), meta.width, meta.height, sourceAt)) : undefined;
   if (held) await writeFile(join(dir, "camera-holds.json"), JSON.stringify(held.holds, null, 2));
   // Manual spans are source-video seconds; use the same edit clock as footage.
@@ -235,10 +239,11 @@ export async function renderTake(dir: string, camera?: CameraDefaults, preview?:
   });
   // Exports without qualified motion retain the centred rest framing; neither
   // automatic/held paths nor manual spans can move it.
-  const restW = baseWidth(meta.width, meta.height, d), restH = restW * d.out_h / d.out_w;
-  const directed = moving ? applyManualZooms(held?.frames ?? solvedFrames, { ...meta, zooms }, d, outBeats, changes)
+  const restW = baseWidth(meta.width, meta.height, cam), restH = restW * cam.out_h / cam.out_w;
+  const directed = moving ? applyManualZooms(held?.frames ?? solvedFrames, { ...meta, zooms }, cam, outBeats, changes)
     : solvedFrames.map(f => ({ t: f.t, x: (meta.width - restW) / 2, y: (meta.height - restH) / 2, w: restW, h: restH }));
-  let frames = moving && zooms.length ? applyDragVisibility(directed, outBeats, meta.width, meta.height, trimStart, d) : directed;
+  let frames = moving && zooms.length ? applyDragVisibility(directed, outBeats, meta.width, meta.height, trimStart, cam) : directed;
+  if (fit) frames = frames.map(fit);
   // The same guard judges the moving frames of the final path, whichever stage made them: none may
   // crawl a crop edge through a word, so a move crosses text only at a sweep. A frame is judged on
   // the source frame its 0.1 s mask window starts at, so re-checking a retimed move decodes nothing
@@ -246,7 +251,7 @@ export async function renderTake(dir: string, camera?: CameraDefaults, preview?:
   if (wide && !phone && cuts) frames = sweepCuts(frames, () => {
     const moveCuts = sourceEdgeCuts(dir, meta, (t) => sourceAt(t - trimStart))!;
     return (f) => { const at = Math.round((trimStart + f.t) * 10) / 10; return moveCuts(banded ? f : project(f), at, at) > 0; };
-  }, d);
+  }, cam);
   await writeFile(join(dir, "camera.json"), JSON.stringify(frames));
   // A preview renders the same camera path from a smaller source: the source-space inputs
   // and the camera frames scale with the proxy, the export-space constants with the
@@ -285,7 +290,7 @@ export async function renderTake(dir: string, camera?: CameraDefaults, preview?:
   // A take that carries its text boxes renders only when every shown box sits in the safe area.
   const safe = safeAreaReport(dir, stageCamera, drawn, band ? { x: 0, y: 0 } : { x: stage.screenX, y: stage.screenY },
     { w: d.out_w, h: d.out_h, fps: d.fps }, sourceAt,
-    captionLayouts(captions, captionInk, text, phone && d.out_w > d.out_h, band, toasts).map(({ cx, cy, w, h, rise }, i) => (
+    (band ? captionLayouts(captions, captionInk, text, band) : []).map(({ cx, cy, w, h, rise }, i) => (
       { t: captions[i]!.t0, t1: captions[i]!.t1, label: captions[i]!.text, box: [cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2 + rise] })));
   if (safe) {
     await writeFile(join(workDir, "safe-area.json"), JSON.stringify(safe, null, 1));
@@ -344,14 +349,13 @@ export async function renderTake(dir: string, camera?: CameraDefaults, preview?:
     { frames: cameraFrames, stage: band ? { ...stage, screenX: 0, screenY: 0 } : stage, shutter });
   await writeFile(clicksFile, clicksAss);
   const captionsFile = join(workDir, "captions.ass");
-  const widePhone = phone && d.out_w > d.out_h;
-  const captionsAss = captionAss(captions, captionInk, text, widePhone, band, toasts);
+  const captionsAss = band ? captionAss(captions, captionInk, text, band) : "";
   await writeFile(captionsFile, captionsAss);
 
   const keysFile = join(workDir, "keycaps.ass");
   const keyObstacles = keycapObstacles(outBeats, outDecisions, stageCamera,
     band ? { ...stage, screenX: 0, screenY: 0 } : stage,
-    trimStart, captions, captionInk, text, widePhone, band, [...spotlights, ...blurs], toasts);
+    trimStart, captions, captionInk, text, band, [...spotlights, ...blurs]);
   const keys = keycapAss(outBeats, trimStart, duration, d, keyObstacles);
   const keyMaskFile = join(workDir, "keycaps-mask.ass");
   await writeFile(keyMaskFile, keycapMaskAss(outBeats, trimStart, duration, d, keyObstacles));
@@ -513,22 +517,22 @@ function filterPath(path: string): string {
   return escapedOption.replace(/[\\',;\[\]]/g, "\\$&");
 }
 
-/** Libass ink bounds: band captions use complete single lines; titles and legacy overlays use wrapping. */
-export async function measureCaptions(dir: string, captions: Caption[], d: CameraDefaults, band: boolean): Promise<CaptionInk[]> {
+/** Libass ink bounds: captions use complete single lines; titles use wrapping. */
+export async function measureCaptions(dir: string, captions: Caption[], d: CameraDefaults): Promise<CaptionInk[]> {
   if (captions.length === 0) return [];
   const file = join(dir, "measure.ass");
   const widths = captions.map(() => ({ w: 0, h: 0 }));
-  const wrapped = captions.flatMap((c, i) => band && !c.title ? [] : [i]);
-  const groups = [wrapped, ...captions.flatMap((c, i) => band && !c.title ? [[i]] : [])].filter(g => g.length);
+  const titles = captions.flatMap((c, i) => c.title ? [i] : []);
+  const groups = [titles, ...captions.flatMap((c, i) => c.title ? [] : [[i]])].filter(g => g.length);
   for (const indices of groups) {
     const first = captions[indices[0]!]!;
     const fullWidth = Array.from(first.text).length * d.caption_size * 4;
-    const scale = band && !first.title ? Math.max(0.01, Math.min(1, Math.floor(32000 / Math.max(1, fullWidth) * 100) / 100)) : 1;
-    const measurement = band && !first.title ? { ...d,
+    const scale = !first.title ? Math.max(0.01, Math.min(1, Math.floor(32000 / Math.max(1, fullWidth) * 100) / 100)) : 1;
+    const measurement = !first.title ? { ...d,
       out_w: Math.ceil((d.out_w + fullWidth * scale) / 2) * 2,
       out_h: Math.ceil(d.caption_size * 4 / 2) * 2,
     } : d;
-    await writeFile(file, measureAss(indices.map(i => captions[i]!), measurement, band, scale * 100));
+    await writeFile(file, measureAss(indices.map(i => captions[i]!), measurement, scale * 100));
     const log = await runFfmpeg(["-hide_banner", "-f", "lavfi", "-i", `color=black:s=${measurement.out_w}x${measurement.out_h}:r=1:d=${indices.length}`,
       "-vf", `ass=${filterPath(file)}:fontsdir=${filterPath(FONTS_DIR)},format=gray,cropdetect=limit=0:round=2:reset=1:skip=0`, "-f", "null", "-"]);
     for (const match of log.matchAll(/x1:(-?\d+) x2:(-?\d+) y1:(-?\d+) y2:(-?\d+).*? t:(\d+(?:\.\d+)?)/g)) {

@@ -71,7 +71,6 @@ const clicks = touches.filter(e => e.k === "btn" && e.down);
 if (clicks.length !== 4) throw new Error(`expected four real taps; got ${clicks.length}`);
 meta.title = "Tidewater · From plan to priority";
 const captions = ["Start a new task", "Choose a priority", "Make it high priority", "Add the launch brief"];
-meta.captions = clicks.map((e, i) => ({ t: Math.max(0, (e.t - meta.offset_ms) / 1000), d: 2.6, text: captions[i],
-  ...(i === 1 || i === 2 ? { position: "bottom" as const } : {}) }));
+meta.captions = clicks.map((e, i) => ({ t: Math.max(0, (e.t - meta.offset_ms) / 1000), d: 2.6, text: captions[i] }));
 writeFileSync(metaPath, JSON.stringify(meta, null, 2) + "\n");
 console.log(JSON.stringify(result, null, 2));

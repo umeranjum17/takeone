@@ -1,6 +1,6 @@
 import type { Beat, CameraFrame, Decision, TakeMeta } from "../camera/types.ts";
 import type { CameraDefaults } from "../camera/defaults.ts";
-import { assHeader, assTime, captionLayouts, drawing, roundRect, type Band, type Caption, type CaptionInk, type Stage, type ToastWindow } from "./stage.ts";
+import { assHeader, assTime, captionLayouts, drawing, roundRect, type Band, type Caption, type CaptionInk, type Stage } from "./stage.ts";
 
 import { shutterFrames, type shutterPlan } from "./motion-blur.ts";
 
@@ -22,7 +22,7 @@ export function shortcutKeys(combo: unknown): string[] | null {
 }
 
 type Rect = [number, number, number, number];
-export interface KeycapObstacle { t0: number; t1: number; rect: Rect; kind?: "text" | "top-text" }
+export interface KeycapObstacle { t0: number; t1: number; rect: Rect; kind?: "text" }
 export interface KeycapCue {
   t0: number; t1: number; keys: string[]; cx: number; cy: number;
   w: number; h: number; size: number; widths: number[];
@@ -30,8 +30,8 @@ export interface KeycapCue {
 
 /** Project focus targets through the footage camera; reserve measured title and caption bounds. */
 export function keycapObstacles(beats: Beat[], decisions: Decision[], frames: CameraFrame[], st: Stage,
-  start: number, captions: Caption[], ink: CaptionInk[], d: CameraDefaults, widePhone = false,
-  band?: Band | null, regions: TimedRegion[] = [], toasts: ToastWindow[] = []): KeycapObstacle[] {
+  start: number, captions: Caption[], ink: CaptionInk[], d: CameraDefaults,
+  band: Band | null, regions: TimedRegion[] = []): KeycapObstacle[] {
   const out: KeycapObstacle[] = [];
   const byBeat = new Map(decisions.map(decision => [decision.beat, decision]));
   for (const frame of frames) {
@@ -59,11 +59,8 @@ export function keycapObstacles(beats: Beat[], decisions: Decision[], frames: Ca
       w * d.out_w / frame.w, h * d.out_h / frame.h,
     ] });
   }
-  const layouts = captionLayouts(captions, ink, d, widePhone, band, toasts);
-  captions.forEach((caption, i) => {
-    const { cx, cy, w, h, rise } = layouts[i]!;
-    const top = !band && widePhone && !caption.title && caption.position !== "bottom";
-    out.push({ t0: caption.t0, t1: caption.t1, kind: top ? "top-text" : "text", rect: [cx - w / 2, cy - h / 2, w, h + rise] });
+  if (band) captionLayouts(captions, ink, d, band).forEach(({ cx, cy, w, h, rise }, i) => {
+    out.push({ t0: captions[i]!.t0, t1: captions[i]!.t1, kind: "text", rect: [cx - w / 2, cy - h / 2, w, h + rise] });
   });
   return out;
 }
@@ -186,23 +183,6 @@ export function keycapAss(beats: Beat[], start: number, duration: number, d: Cam
 
 type OverlayRegion = NonNullable<TakeMeta["blur"]>[number];
 export interface TimedRegion { t0: number; t1: number; rect: OverlayRegion["rect"] }
-
-/** Toast windows in output seconds. The producer observes the real toast (fixture DOM,
- * OS event) and writes video-relative {t, d}; placement honours them, never guesses them. */
-export function toastWindows(meta: TakeMeta, at: (t: number) => number,
-  start: number, end: number): ToastWindow[] {
-  const values = meta.toasts;
-  if (values === undefined) return [];
-  if (!Array.isArray(values)) throw new Error("invalid toasts: expected an array");
-  return values.flatMap((w, i) => {
-    if (!w || !Number.isFinite(w.t) || !Number.isFinite(w.d) || w.d <= 0) {
-      throw new Error(`invalid toasts[${i}]: expected finite t and positive d`);
-    }
-    const t0 = at(Math.max(start, w.t));
-    const t1 = at(Math.min(end, w.t + w.d));
-    return t1 > t0 ? [{ t0, t1 }] : [];
-  });
-}
 
 /** Region coordinates are source pixels; times are video seconds, mapped through trim/squeeze. */
 export function overlayRegions(meta: TakeMeta, kind: "spotlight" | "blur", at: (t: number) => number,
