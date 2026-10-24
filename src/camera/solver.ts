@@ -252,10 +252,10 @@ function cropped(width: number, height: number, d: CameraDefaults): boolean {
 }
 
 /** Width of the output-aspect canvas the source sits in; z = 1 shows all of it.
- * A portrait cut from a wider screen plans on the crop-to-fill window it renders. */
+ * A portrait, 4:5 or square cut from a wider screen plans on the crop-to-fill window it renders. */
 export function baseWidth(width: number, height: number, d: CameraDefaults = DEFAULTS): number {
   const padded = Math.max(width, height * d.out_w / d.out_h);
-  return d.out_h > d.out_w ? fillWidth(width, height, stageGeometry(width, height, d), d) ?? padded : padded;
+  return d.out_h >= d.out_w ? fillWidth(width, height, stageGeometry(width, height, d), d) ?? padded : padded;
 }
 
 /** Deepest zoom, measured against the aspect-padded canvas, that keeps within max_upscale. */
@@ -1407,6 +1407,149 @@ function validateCameraInputs(beats: Beat[], decisions: Decision[], take: TakeMe
   }
 }
 
+/** Pan acceleration a press shot's moves stay under: headroom below scripts/quality.ts's 9000 output px/s². */
+const PRESS_PAN_ACCEL = 8000;
+
+/**
+ * A crop-to-fill view is too narrow to hold a far control beside its shot's subject, so a
+ * click on it (or a scroll's whole run) can happen off screen. Each press the solved path
+ * misses gets its own hold: the control (with any neighbouring act the same view can also
+ * hold) from the approach through the press, then an ease back to the solved path. A hold
+ * lasts at least a shot, so the camera never darts there and back; it departs from and
+ * returns to the solved view at rest, and each move is long enough to keep its pan
+ * acceleration in bounds. Presses whose controls fit one view share a hold. The solved path
+ * stays for a click that redraws the screen (the shot belongs to the dialog it opened), for a
+ * control no view frames without an edge through a word, and for a press with no room for
+ * the moves between the acts around it (or inside the opening hold).
+ */
+function pressShots(frames: CameraFrame[], beats: Beat[], width: number, height: number, start: number,
+  d: CameraDefaults, project: (frame: CameraFrame) => CameraFrame, cuts?: EdgeCuts): CameraFrame[] {
+  const baseW = baseWidth(width, height, d), aspect = d.out_w / d.out_h;
+  const end = start + frames.at(-1)!.t;
+  const lead = d.dwell, tail = Math.max(0, d.min_shot - d.dwell), minHold = d.min_shot + 1 / d.fps;
+  const at = (t: number) => frames[clamp(Math.round((t - start) * d.fps), 0, frames.length - 1)]!;
+  // Every view here is the one shown: a raw crop the corner inset pulls back would kink the path.
+  const state = (f: CameraFrame): CameraState => {
+    const v = project(f);
+    return { cx: v.x + v.w / 2, cy: v.y + v.h / 2, z: baseW / v.w };
+  };
+  // Quintic easing peaks at 5.774 D/T² for a pan of D output px over T seconds.
+  const moveTime = (from: CameraState, to: CameraState) => {
+    const w = baseW / Math.min(from.z, to.z);
+    const pan = Math.hypot((to.cx - from.cx) * d.out_w / w, (to.cy - from.cy) * d.out_h / (w / aspect));
+    return Math.max(moveDuration(distance(from, to, baseW), d), Math.sqrt(5.774 * pan / PRESS_PAN_ACCEL));
+  };
+  const near = width / 60;
+  const fits = (box: Box) => box[2] <= baseW && box[3] <= baseW / aspect;
+  const shows = (t0: number, t1: number, box: Box) => {
+    for (let t = t0; t <= t1 + 1e-9; t += 1 / d.fps) if (clippedFractions(project(at(t)), [box])[0] !== 0) return false;
+    return true;
+  };
+  type Action = { k?: string; t?: number; t0?: number; t1?: number; x?: number; y?: number; region?: Box; bbox?: Box };
+  type Act = { t0: number; t1: number; box: Box; press: boolean };
+  const acts: Act[] = beats.flatMap((beat) => {
+    const boxes = beat.zones.flatMap((zone) => zone.boxes ?? []);
+    return (beat.actions as Action[]).flatMap((a): Act[] => {
+      const t0 = (a.t ?? a.t0 ?? NaN) / 1000, t1 = (a.t ?? a.t1 ?? a.t0 ?? NaN) / 1000;
+      if (!Number.isFinite(t0) || !Number.isFinite(t1) || t1 < start || t0 > end) return [];
+      if (a.k === "type" && a.region) return [{ t0, t1, box: a.region, press: false }];
+      if (a.k === "drag" && a.bbox) return [{ t0, t1, box: a.bbox, press: false }];
+      if ((a.k !== "click" && a.k !== "scroll") || a.x === undefined || a.y === undefined) return [];
+      const [x, y] = [a.x, a.y];
+      // The control under the pointer, with room for the pointer itself.
+      const pointer: Box = [x - near / 2, y - near / 2, near, near];
+      const control = boxes.filter(([bx, by, bw, bh]) => x >= bx && x <= bx + bw && y >= by && y <= by + bh
+        && bw * bh <= LABEL_AREA_MAX * width * height).sort((p, q) => p[2] * p[3] - q[2] * q[3])[0];
+      const box = control && fits(unionBBox(control, pointer)) ? unionBBox(control, pointer) : pointer;
+      return [{ t0, t1, box, press: true }];
+    });
+  }).sort((p, q) => p.t0 - q.t0);
+  // A click that redraws the screen (opens a dialog) hands the shot to what it opened, already framed.
+  const redraws = beats.filter((beat) => beat.kind === "cut").map((beat) => beat.anchor_t);
+  const spans: Act[] = [];
+  for (const press of acts.filter((a) => a.press)) {
+    if (redraws.some((t) => Math.abs(t - press.t0) <= d.cut_settle_ms / 1000)) continue;
+    if (shows(Math.max(start, press.t0 - lead), Math.min(end, press.t1), press.box)) continue;
+    const last = spans.at(-1);
+    const union = last && unionBBox(last.box, press.box);
+    if (last && union && press.t0 - last.t1 < 2 * d.move_t_max && fits(union)) {
+      last.t1 = Math.max(last.t1, press.t1);
+      last.box = union;
+    } else spans.push({ ...press });
+  }
+  if (!spans.length) return frames;
+  const step = Math.max(1, Math.round(width / 960));
+  const holds = spans.flatMap((span) => {
+    // Neighbouring acts within a move of the press stay in view when the window can hold them too.
+    let box = span.box;
+    for (const act of acts.filter((a) => a.t1 >= span.t0 - lead - d.move_t_max && a.t0 <= span.t1 + tail + d.move_t_max)
+      .sort((p, q) => Math.min(Math.abs(p.t0 - span.t1), Math.abs(p.t1 - span.t0))
+        - Math.min(Math.abs(q.t0 - span.t1), Math.abs(q.t1 - span.t0)))) {
+      if (fits(unionBBox(box, act.box))) box = unionBBox(box, act.box);
+    }
+    const a = Math.max(start, span.t0 - lead), b = Math.min(end, span.t1 + tail);
+    const w0 = at(span.t0).w;
+    const clean = (crop: CameraFrame) => clippedFractions(project(crop), [box])[0] === 0
+      && (!cuts || cuts(project(crop), a, b) === 0);
+    // No framing holds the control without an edge through a word: the planned shot stays.
+    const crop = wholeCrop(w0, baseW, aspect, box, [], width, height, clean, [], project, step);
+    if (!crop) return [];
+    const target = state(crop);
+    // Acts outside this view: the hold enters after the one before and leaves before the next where it can.
+    const outside = acts.filter((act) => clippedFractions(crop, [act.box])[0] !== 0);
+    const before = Math.max(start + d.establish_s, ...outside.filter((act) => act.t1 < span.t0 - 1e-6).map((act) => act.t1));
+    const after = Math.min(end, ...outside.filter((act) => act.t0 > span.t1 + 1e-6).map((act) => act.t0));
+    return [{ a, b, press0: span.t0, press1: span.t1, target, before, after, s0: a, enter: 0, leave: 0,
+      from: undefined as CameraState | undefined, to: undefined as CameraState | undefined }];
+  });
+  // The solved view at rest (under 1 output px/s, the quality gate's own rest): a hold departs
+  // from and returns to a still view, never one mid-move or creeping the other way.
+  const still = (t: number) => [t - 1 / d.fps, t].every((u) => {
+    const p = state(at(u)), q = state(at(u + 1 / d.fps));
+    return Math.hypot(q.cx - p.cx, q.cy - p.cy) * d.out_w * q.z / baseW * d.fps < 1 && Math.abs(Math.log(q.z / p.z)) * d.fps < 0.005;
+  });
+  const kept: typeof holds = [];
+  for (const hold of holds) {
+    const previous = kept.at(-1);
+    const lo = Math.max(hold.before, previous ? previous.b + previous.leave : start);
+    const enter = moveTime(state(at(hold.a)), hold.target), leave = moveTime(hold.target, state(at(hold.b)));
+    // Leave in time for the next act; lengthen the approach rather than shorten the hold.
+    hold.b = Math.max(hold.press1, Math.min(hold.b, hold.after - leave));
+    hold.a = Math.max(Math.min(hold.a, hold.b - minHold), Math.min(hold.press0, lo + enter));
+    hold.b = Math.max(hold.b, hold.a + minHold);
+    hold.leave = leave;
+    // Only where the whole move in, hold and move out fit between the acts around it.
+    if (hold.a - enter < lo - 1e-6 || hold.b + leave > Math.min(hold.after, end) + 1e-6) continue;
+    // Return once the solved view has stopped: hold the control while it is still travelling.
+    for (let t = hold.b + leave; t <= Math.min(hold.after, end - 1 / d.fps); t += 1 / d.fps) {
+      if (!still(t)) continue;
+      hold.b = t - leave;
+      hold.to = state(at(t));
+      break;
+    }
+    // Depart from where the solved view last stood still.
+    hold.s0 = hold.a - enter;
+    for (let t = hold.s0; t >= lo; t -= 1 / d.fps) {
+      if (!still(t)) continue;
+      hold.s0 = t;
+      hold.from = state(at(t));
+      break;
+    }
+    hold.enter = hold.a - hold.s0;
+    kept.push(hold);
+  }
+  return frames.map((f) => {
+    const t = f.t + start;
+    const hold = kept.find((h) => t >= h.s0 && t <= h.b + h.leave);
+    if (!hold) return f;
+    const [from, to, u] = t < hold.a ? [hold.from ?? state(f), hold.target, hold.enter > 0 ? smooth((t - hold.s0) / hold.enter) : 1]
+      : t > hold.b ? [hold.to ?? state(f), hold.target, 1 - smooth((t - hold.b) / hold.leave)]
+      : [hold.target, hold.target, 1];
+    return { ...toFrame({ cx: lerp(from.cx, to.cx, u), cy: lerp(from.cy, to.cy, u),
+      z: Math.exp(lerp(Math.log(from.z), Math.log(to.z), u)) }, width, height, d), t: f.t };
+  });
+}
+
 export function solveCameraDetailed(
   beats: Beat[],
   decisions: Decision[],
@@ -1465,6 +1608,7 @@ export function solveCameraDetailed(
       break;
     }
   }
+  if (cropped(width, height, d)) sampled = pressShots(sampled, directed, width, height, start, d, project, cuts);
   // Bookends are editorial boundaries, independent of action dwell, move caps
   // and pointer follow. Ease out before the outro, then hold the exact stage.
   // Drag visibility is applied last, so a drag-safe viewport is never discarded.

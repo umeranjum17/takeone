@@ -257,11 +257,21 @@ test("render without trim_end uses the latest beat end", { timeout: 480_000, ski
       .map(f => sourceViewport(f, 3840, 2160, tallStage, tall));
     assert.ok(pushed.length >= 10 && pushed.every(f => contains(f, [2400, 600, 500, 400])),
       `portrait manual zoom pushes in to its whole subject: ${JSON.stringify(pushed[0])}`);
-    // Square motion is not qualified: auto and manual spans keep the centred rest frame.
+    // A square cut re-aims the same way: the span right of the centred square window holds its subject whole.
     drive4K("render", "--set", "out_w=540", "--set", "out_h=540", "--set", "outro_s=0");
     const square = await camera4K();
+    assert.ok(square.length >= 20 && square.some(f => f.x !== 0 || f.y !== -840 || f.w !== 3840 || f.h !== 3840),
+      "square camera leaves the centred rest frame");
+    // The earlier scope held square at rest; that claim must now fail.
+    assert.throws(() =>
     assert.ok(square.length >= 20 && square.every(f => f.x === 0 && f.y === -840 && f.w === 3840 && f.h === 3840),
-      "square camera stays at the centred rest frame");
+      "square camera stays at the centred rest frame"));
+    const box = { ...resolveTheme(undefined), out_w: 540, out_h: 540 };
+    const boxStage = stageGeometry(3840, 2160, box);
+    const squared = square.filter(f => f.t >= 3 && f.t <= 4.2)
+      .map(f => sourceViewport(f, 3840, 2160, boxStage, box));
+    assert.ok(squared.length >= 10 && squared.every(f => contains(f, [2400, 600, 500, 400])),
+      `square manual zoom pushes in to its whole subject: ${JSON.stringify(squared[0])}`);
     await writeFile(join(dir, "take.json"), JSON.stringify({ ...plannedMeta,
       zooms: [{ t0: 3, t1: 4.2, bbox: [1344, 504, 1152, 940], level: 3 }] }));
     for (const path of ["solver", "hold"]) {
@@ -326,6 +336,23 @@ test("render without trim_end uses the latest beat end", { timeout: 480_000, ski
     const held = (t: number) => [400 + (1500 - 600) * (t - 3) / 1.5, 1000, 500, 250];
     assert.ok(during(3, 4.5).length >= 10 && during(3, 4.5).every(f => contains(f, held(f.t))),
       `the portrait crop carries the dragged item whole: ${JSON.stringify(during(3, 4.5).find(f => !contains(f, held(f.t))))}`);
+
+    // A click on the far top bar, outside the planned left shot: the crop pans to it from the
+    // approach through the press, then returns to the shot.
+    const left = [400, 900, 600, 300], press = [3500 - 32, 70 - 32, 64, 64];
+    await writeFile(join(dir, "analysis/beats.json"), JSON.stringify([
+      { id: "p1", kind: "click", t0: 2, t1: 9, anchor_t: 2, zones: [{ name: "z1", type: "act", bbox: left }, all],
+        actions: [{ k: "click", t: 2, x: 700, y: 1050 }, { k: "click", t: 6, x: 3500, y: 70 }] },
+    ]));
+    await writeFile(join(dir, "analysis/decisions.jsonl"),
+      JSON.stringify({ beat: "p1", A: "z1", L: 1, p: 0, K: 1, conf: 1, decided_by: "test" }) + "\n");
+    drive4K("render", "--set", "out_w=540", "--set", "out_h=960", "--set", "outro_s=0");
+    const pressed = (await camera4K()).map(f => ({ ...sourceViewport(f, 3840, 2160, tallStage, tall), t: f.t }));
+    const over = (a: number, b: number) => pressed.filter(f => f.t >= a && f.t <= b);
+    assert.ok(over(3, 3.5).every(f => contains(f, left)), "the planned shot holds the left subject before the press");
+    assert.ok(over(5.4, 6).length >= 5 && over(5.4, 6).every(f => contains(f, press)),
+      `the portrait crop shows the far control from the approach through the press: ${JSON.stringify(over(5.4, 6).find(f => !contains(f, press)))}`);
+    assert.ok(over(9, 10).every(f => contains(f, left)), "the crop returns to the planned shot after the press");
 
     // Drag then release, made from a real capture: the portrait view carries a card
     // right to the Done lane, the card it displaces slides down after release
