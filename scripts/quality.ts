@@ -273,7 +273,14 @@ export function compare(video: string, golden: string, output: string, vmaf: boo
 async function main() {
   const args = process.argv.slice(2);
   const allowed = ['--init-baseline', '--ratchet', '--accept-golden', '--reuse'];
-  if (args.some(a => !allowed.includes(a))) throw new Error(`usage: node scripts/quality.ts [${allowed.join('] [')}]`);
+  // --fixture <name>, repeatable, runs only those fixtures (CI gates the slow real-UI scene in its own job).
+  const chosen = args.flatMap((a, i) => args[i - 1] === '--fixture' ? [a] : []);
+  if (args.at(-1) === '--fixture' || chosen.some(f => !FIXTURES[f])
+    || args.some((a, i) => !allowed.includes(a) && a !== '--fixture' && args[i - 1] !== '--fixture')) {
+    throw new Error(`usage: node scripts/quality.ts [${allowed.join('] [')}] [--fixture ${Object.keys(FIXTURES).join('|')}]...`);
+  }
+  const fixtures = chosen.length ? [...new Set(chosen)] : Object.keys(FIXTURES);
+  const notRun = Object.keys(FIXTURES).filter(f => !fixtures.includes(f));
   const root = resolve('tmp/quality'), baselineDir = resolve('scripts/quality-baseline');
   mkdirSync(root, { recursive: true });
   const baselineFile = join(baselineDir, 'metrics.json');
@@ -282,14 +289,18 @@ async function main() {
   // --init-baseline only adds a baseline or golden that does not exist yet; it never replaces one.
   const initialized: Record<string, Metrics> = {}, newGoldens: string[] = [];
   const vmaf = command('ffmpeg', ['-hide_banner', '-filters']).toString().includes('libvmaf');
-  const report: Record<string, unknown> = { version: 1, dirty: Boolean(command('git', ['status', '--porcelain']).toString().trim()), harnessSha256: sha(resolve('scripts/quality.ts')), revision: command('git', ['rev-parse', 'HEAD']).toString().trim(), ffmpeg: command('ffmpeg', ['-version']).toString().split('\n')[0], tesseract: command('tesseract', ['--version']).toString().split('\n')[0], vmafAvailable: vmaf, fixtures: {} };
+  const report: Record<string, unknown> = { version: 1, dirty: Boolean(command('git', ['status', '--porcelain']).toString().trim()), harnessSha256: sha(resolve('scripts/quality.ts')), revision: command('git', ['rev-parse', 'HEAD']).toString().trim(), ffmpeg: command('ffmpeg', ['-version']).toString().split('\n')[0], tesseract: command('tesseract', ['--version']).toString().split('\n')[0], vmafAvailable: vmaf, fixtures: {}, fixturesNotRun: notRun };
   const baselines: Record<string, Metrics> = {};
   const failures: string[] = [];
-  const sharpness = zoomSharpness(join(baselineDir, 'tidewater-4k.png'), join(root, 'sharpness'));
-  report.sharpness = { sourceSha256: sha(join(baselineDir, 'tidewater-4k.png')), sourceWidth: 3840, sourceHeight: 2160, measurements: sharpness };
-  failures.push(...sharpness.filter(m => !m.sharpnessPassed).map(m => `zoom sharpness ${m.quality}: ${m.ratio} < ${m.target}`));
-  failures.push(...sharpness.filter(m => !m.flatPassed).map(m => `flat card ${m.quality}: variance ${m.flat.variance} (limit ${m.flatTarget}), mean ${m.flat.mean} vs reference ${m.flatReference.mean}`));
-  for (const [fixture, { script, args: extra = [], video: name, divider }] of Object.entries(FIXTURES)) {
+  // The native-pixel sharpness check runs with the synthetic fixtures.
+  if (fixtures.includes('synth')) {
+    const sharpness = zoomSharpness(join(baselineDir, 'tidewater-4k.png'), join(root, 'sharpness'));
+    report.sharpness = { sourceSha256: sha(join(baselineDir, 'tidewater-4k.png')), sourceWidth: 3840, sourceHeight: 2160, measurements: sharpness };
+    failures.push(...sharpness.filter(m => !m.sharpnessPassed).map(m => `zoom sharpness ${m.quality}: ${m.ratio} < ${m.target}`));
+    failures.push(...sharpness.filter(m => !m.flatPassed).map(m => `flat card ${m.quality}: variance ${m.flat.variance} (limit ${m.flatTarget}), mean ${m.flat.mean} vs reference ${m.flatReference.mean}`));
+  }
+  for (const fixture of fixtures) {
+    const { script, args: extra = [], video: name, divider } = FIXTURES[fixture]!;
     console.error(`quality: ${fixture}`);
     const dir = join(root, fixture);
     const d = { ...DEFAULTS, fps: 60, caption_font: 'Liberation Sans', ...(fixture === 'portrait' ? { out_w: 1080, out_h: 1920 } : {}) };
@@ -384,13 +395,15 @@ async function main() {
   report.goalsUnmet = unmet;
   save(join(root, 'metrics.json'), report);
   if (failures.length) { console.error(failures.join('\n')); process.exitCode = 1; return; }
-  if (args.includes('--ratchet')) save(baselineFile, baselines);
+  if (args.includes('--ratchet')) save(baselineFile, { ...stored, ...baselines });
   else if (initialize) save(baselineFile, { ...stored, ...initialized });
-  for (const fixture of args.includes('--accept-golden') ? Object.keys(FIXTURES) : newGoldens) {
+  for (const fixture of args.includes('--accept-golden') ? fixtures : newGoldens) {
     copyFileSync(join(root, fixture, 'out', `${FIXTURES[fixture]!.video}.mp4`), join(baselineDir, `${fixture}.mp4`));
   }
-  console.error(unmet.length ? `quality: no regression against the stored baselines, but ${unmet.length} goals are not met:\n${unmet.join('\n')}`
-    : 'quality: passed; every goal met');
+  // A partial run names what it skipped, so its result never reads as the whole bar.
+  const scope = notRun.length ? ` for ${fixtures.join(', ')} only (not run: ${notRun.join(', ')})` : '';
+  console.error(unmet.length ? `quality: no regression against the stored baselines${scope}, but ${unmet.length} goals are not met:\n${unmet.join('\n')}`
+    : `quality: passed${scope}; every goal met`);
   console.error(`quality: metrics ${join(root, 'metrics.json')}`);
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) main().catch(e => {

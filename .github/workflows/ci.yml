@@ -57,14 +57,30 @@ jobs:
         run: npm run typecheck
       - name: Tests
         run: npm test
+      - name: Synthetic output quality gates
+        if: always()
+        run: npm run quality -- --fixture synth --fixture portrait
+      - name: Attach quality metrics and review evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: output-quality-${{ github.sha }}
+          path: |
+            tmp/quality/*.json
+            tmp/quality/*/ssim.log
+            tmp/quality/*/vmaf.json
+            tmp/quality/*/ocr-*.png
+            tmp/quality/sharpness/*
+            tmp/quality/*/out/*.mp4
+          if-no-files-found: error
 
-  # The output gates capture the real-UI headless scene and audit every frame of each render,
-  # which outgrows the checks job, so they run beside it on their own runner.
-  quality:
+  # The real-UI quality gate: the headless board scene captured, rendered twice and audited on
+  # every frame takes about an hour on a runner, so it runs beside the checks job, not in it.
+  quality-scene:
     needs: changes
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 120
     env:
       TAKEONE_CHROME: ${{ github.workspace }}/.cache/headless-shell/151.0.7922.34/chrome-headless-shell-linux64/chrome-headless-shell
     steps:
@@ -82,25 +98,24 @@ jobs:
           path: .cache/headless-shell
           key: headless-shell-linux-x64-151.0.7922.34-3cfc2bd0
       - run: node scripts/install-headless-shell.mjs
-      - name: Output quality gates
-        run: npm run quality
-      - name: Attach quality metrics and review evidence
+      - name: Real-UI output quality gates
+        run: npm run quality -- --fixture scene
+      - name: Attach scene quality metrics and review evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: output-quality-${{ github.sha }}
+          name: output-quality-scene-${{ github.sha }}
           path: |
             tmp/quality/*.json
-            tmp/quality/*/ssim.log
-            tmp/quality/*/vmaf.json
-            tmp/quality/*/ocr-*.png
-            tmp/quality/sharpness/*
-            tmp/quality/*/out/*.mp4
+            tmp/quality/scene/ssim.log
+            tmp/quality/scene/vmaf.json
+            tmp/quality/scene/ocr-*.png
+            tmp/quality/scene/out/*.mp4
           if-no-files-found: error
 
   # The required check `ci`: green on a docs-only change, else only when every check passed.
   ci:
-    needs: [changes, checks, quality]
+    needs: [changes, checks, quality-scene]
     if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     steps:
@@ -109,12 +124,12 @@ jobs:
           CHANGES: ${{ needs.changes.result }}
           CODE: ${{ needs.changes.outputs.code }}
           CHECKS: ${{ needs.checks.result }}
-          QUALITY: ${{ needs.quality.result }}
+          SCENE: ${{ needs.quality-scene.result }}
         run: |
           [ "$CHANGES" = success ] || { echo "::error::changes job $CHANGES"; exit 1; }
           if [ "$CODE" != true ]; then echo "docs-only change: static checks and quality gates skipped"; exit 0; fi
           [ "$CHECKS" = success ] || { echo "::error::checks job $CHECKS"; exit 1; }
-          [ "$QUALITY" = success ] || { echo "::error::quality job $QUALITY"; exit 1; }
+          [ "$SCENE" = success ] || { echo "::error::quality-scene job $SCENE"; exit 1; }
 
   # The old single job ran both captures and make in series (~19-32 min). Each part runs on
   # its own runner; the headless-scene gate compares their decoded frames across runners.

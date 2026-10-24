@@ -16,6 +16,13 @@ rendering; see the [Tidewater recording evidence](guide.md#3b-record-a-phone-ins
 for real-app output. The sharpness fixture additionally exercises the production
 camera sampler and encoder on a frozen native 4K Tidewater browser capture.
 
+`--fixture <name>` (repeatable: `synth`, `portrait`, `scene`) runs only those
+fixtures; a partial run says which fixtures it skipped in its last line and in the
+JSON's `fixturesNotRun`, so it never reads as the whole bar. The native-pixel
+sharpness check runs with `synth`. CI gates `synth` and `portrait` in the checks
+job and `scene` in its own `quality-scene` job, about an hour on a runner; the
+required `ci` check waits for both.
+
 CI attaches `tmp/quality/metrics.json`, videos, caption crops and similarity logs
 to each pull request's workflow run, including failed quality runs. The JSON
 records the revision, tool versions, actual stream metadata, all measurements,
