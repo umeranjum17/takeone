@@ -367,6 +367,8 @@ export async function renderTake(dir: string, camera?: CameraDefaults, preview?:
   const keysOverlay = hasDialogue(keys) ? `,ass=${filterPath(keysFile)}:fontsdir=${filterPath(FONTS_DIR)}` : "";
 
   const fade = Math.min(d.fade_s, duration / 4);
+  // Fade dither frames: [0, ditherIn) fade in, [ditherOut, end) fade out.
+  const ditherIn = Math.ceil(fade * d.fps - 1e-6), ditherOut = Math.floor((duration - fade) * d.fps + 1e-6) + 1;
   const background = `0x${d.background_to.slice(1)}`;
   // Planar YUV composition; blur patches briefly use RGB. Stills are decoded once.
   // An .ass with no Dialogue lines renders nothing, so skip its overlay:
@@ -407,11 +409,12 @@ export async function renderTake(dir: string, camera?: CameraDefaults, preview?:
       // fade: the darkest, lowest-contrast frames are the first ones in and the last ones out,
       // so easing the grain in with the fade is what left those frames banded. One amplitude
       // for every theme - this is an 8-bit quantisation problem, not a gradient-depth one.
-      // The grain runs unconditionally, not gated to the fade windows: switching it on in one
-      // frame left a CAMBI onset transient (4.73 on a visibly clean mono fade-out onset frame)
-      // while every other fade frame scored <= 0.184.
+      // The grain runs only on the frames a fade changes: over the whole film it was a fixed
+      // screen of noise on the UI people read (2.9 luma levels on flat cards). Switching it on
+      // in a predicted frame left a CAMBI onset transient (4.73 on a visibly clean mono fade-out
+      // onset frame), so each switch lands on a forced keyframe (see `pass`).
       + (fade > 0 ? `,fade=t=in:st=0:d=${fade}:color=${background},fade=t=out:st=${duration - fade}:d=${fade}:color=${background}`
-        + `,noise=c0s=10:c0f=u:c0_seed=7` : "")
+        + `,noise=c0s=10:c0f=u:c0_seed=7:enable='lt(t,${(ditherIn - 0.5) / d.fps})+gt(t,${(ditherOut - 0.5) / d.fps})'` : "")
       + `,scale=in_color_matrix=bt601:out_color_matrix=bt709:out_range=tv,format=${pixelFormat},setparams=range=limited:color_primaries=bt709:color_trc=bt709:colorspace=bt709`
       + (start ? ",setpts=PTS-STARTPTS" : ""),
   ].join(";"); };
@@ -423,7 +426,12 @@ export async function renderTake(dir: string, camera?: CameraDefaults, preview?:
     .match(/ffmpeg version (?:n)?(\d+)/)?.[1] ?? 0);
   // ffmpeg 7 introduced file-valued options; older releases use the script flag.
   const graphOption = ffmpegMajor >= 7 ? "-/filter_complex" : "-filter_complex_script";
-  const pass = (graphFile: string, frames: string[], out: string, signal?: AbortSignal) => runFfmpeg([
+  // A keyframe on each frame where the fade dither switches, in the segment's own time.
+  const ditherKeys = (start: number, end: number) => {
+    const keys = fade > 0 ? [ditherIn, ditherOut].filter(k => k > start && k < end) : [];
+    return keys.length ? ["-force_key_frames", keys.map(k => ((k - start - 0.25) / d.fps).toFixed(6)).join(",")] : [];
+  };
+  const pass = (graphFile: string, frames: string[], out: string, keys: string[], signal?: AbortSignal) => runFfmpeg([
     "-y", "-ss", String(trimStart), "-to", String(trimEnd),
     "-i", source,
     "-framerate", String(d.fps), "-i", stageFile,
@@ -434,7 +442,7 @@ export async function renderTake(dir: string, camera?: CameraDefaults, preview?:
     "-filter_threads", threads, "-filter_complex_threads", threads,
     graphOption, graphFile,
     ...(clock ? ["-t", String(duration)] : []), ...frames,
-    "-r", String(d.fps), "-an", ...encodingOptions(d),
+    "-r", String(d.fps), "-an", ...encodingOptions(d), ...keys,
     "-color_primaries", "bt709", "-color_trc", "bt709", "-colorspace", "bt709", "-color_range", "tv",
     "-movflags", "+faststart", out,
   ], signal);
@@ -442,7 +450,7 @@ export async function renderTake(dir: string, camera?: CameraDefaults, preview?:
   // Keep camera.cmd on failure for straightforward diagnosis and re-rendering.
   const starts = segmentStarts(shutter.counts, renderSegments(shutter.counts.length, d.fps));
   if (starts.length === 1) {
-    await writeFile(join(workDir, "render.log"), await pass(commandFile, [], output));
+    await writeFile(join(workDir, "render.log"), await pass(commandFile, [], output, ditherKeys(0, shutter.counts.length)));
     return { out: output, seconds: duration };
   }
   // One ffmpeg filter graph runs on one thread apart from slice work, and the
@@ -457,7 +465,8 @@ export async function renderTake(dir: string, camera?: CameraDefaults, preview?:
     const graphFile = join(dir, `camera-part${k}.cmd`);
     await writeFile(graphFile, graph(start));
     const end = starts[k + 1];
-    return pass(graphFile, end === undefined ? [] : ["-frames:v", String(end - start)], parts[k]!, cancel.signal);
+    return pass(graphFile, end === undefined ? [] : ["-frames:v", String(end - start)], parts[k]!,
+      ditherKeys(start, end ?? shutter.counts.length), cancel.signal);
   })).catch(err => { cancel.abort(); throw err; });
   const list = join(workDir, "render-parts.txt");
   // Exact durations: the parts' own mp4 durations are rounded and would shift every later frame.
