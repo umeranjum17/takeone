@@ -30,7 +30,8 @@ export interface CutAudit {
   runs: { atRest: [number, number][]; creeping: [number, number][]; sweeping: [number, number][] };
 }
 
-export function auditTake(dir: string, theme = "midnight", fps = 60): CutAudit {
+/** The rendered film's own clock: camera frames and the source second each output second shows. */
+export function renderClock(dir: string, theme?: string, fps = 60) {
   const read = (file: string) => JSON.parse(readFileSync(join(dir, file), "utf8"));
   const meta = read("take.json") as TakeMeta & { stream?: unknown };
   const d = resolveCamera(dir, [], theme);
@@ -41,7 +42,7 @@ export function auditTake(dir: string, theme = "midnight", fps = 60): CutAudit {
     meta.duration ?? Math.max(0, ...beats.map((beat) => beat.t1)), d);
   // take.json cuts and timed speed run the render's own edit clock; typing speed needs the take's key
   // events, so it is refused rather than audited on the wrong clock.
-  if (meta.speed?.some(s => s.kind === "type_speed")) throw new Error(`${dir}: cut-audit does not model speed type_speed`);
+  if (meta.speed?.some(s => s.kind === "type_speed")) throw new Error(`${dir}: the audit clock does not model speed type_speed`);
   const clock = meta.cuts?.length || meta.speed?.length ? editTimeline(meta, beats, start, end, d) : undefined;
   const squeezes = idleSqueezes(beats, start, end, d);
   const outTime = clock?.at ?? ((t: number) => warp(t - start, squeezes, d.idle_speed));
@@ -56,6 +57,11 @@ export function auditTake(dir: string, theme = "midnight", fps = 60): CutAudit {
   const duration = outTime(end), last = frames.at(-1)?.t ?? NaN;
   if (!(Math.abs(duration - last) <= 1 / fps)) throw new Error(`${dir}: end ${end} s gives ${duration} s of output, `
     + `but camera.json runs ${last} s; set trim_end in take.json to the rendered end`);
+  return { meta, d, start, end, sourceAt, frames };
+}
+
+export function auditTake(dir: string, theme = "midnight", fps = 60): CutAudit {
+  const { meta, d, start, end, sourceAt, frames } = renderClock(dir, theme, fps);
   const cuts = sourceEdgeCuts(dir, meta, t => sourceAt(t - start), true);
   if (!cuts) throw new Error(`${dir}: no screen.webm to audit`);
   const audit: CutAudit = { take: basename(dir), frames: frames.length, cut: 0, cutAtRest: 0, cutCreeping: 0,
