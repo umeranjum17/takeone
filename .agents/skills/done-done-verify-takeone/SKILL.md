@@ -39,8 +39,9 @@ Harness: Shell (bash), with ffmpeg and ffprobe to decode frames; a browser tool 
 - [Print the installed version](features/print-the-installed-version.md): Run the `version` journey: `takeone --version` and `-v` against package.json, under a node-only PATH
 - [Check the rendered films visually](features/check-the-rendered-offline-mp4-visually.md): the visual check on one film, and the `visual-reference`, `visual`, `visual-controls` and `visual-design` journeys across ten shape and theme cells (`scripts/verification/`)
 - [Drive the Tidewater board in a browser through the staged scene](features/drive-the-tidewater-board-in-a-browser-t.md): Open scripts/e2e/scene.html directly as a file:// page; it is the staged Tidewater board used by the e2e takes (`scripts/e2e/scene.html`)
+- [Run the output quality gates on real and synthetic takes](features/run-the-output-quality-gates.md): `npm run quality` gates three fixtures, including the real-UI headless scene, with every §4 metric and the all-frame text-cut audit, and prints `passed` only when every goal is met (`scripts/quality.ts`, `scripts/cut-audit.ts`)
 
-Static checks (floor guard, typecheck, tests and the synthetic quality gates) run in CI (`.github/workflows/ci.yml`) and are not a journey here: done-done is the local proof on the real product, and its receipt feeds the merge gate. To find the journey a change needs, run `done-done affected <base>`: it reads the paths each feature cites.
+Static checks (floor guard, typecheck and tests) run in CI (`.github/workflows/ci.yml`) and are not a journey here; the output quality gates run in CI and as the `quality` journey: done-done is the local proof on the real product, and its receipt feeds the merge gate. To find the journey a change needs, run `done-done affected <base>`: it reads the paths each feature cites.
 
 ## Evidence
 

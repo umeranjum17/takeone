@@ -2,7 +2,7 @@
 // Offline output acceptance: no desktop, credentials, model calls or npm additions.
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { DEFAULTS } from '../src/camera/defaults.ts';
@@ -12,6 +12,7 @@ import { encodingOptions, measureCaptions, renderTake } from '../src/render/rend
 import { cameraFilter } from '../src/render/camera-filter.ts';
 import { bandEligible, bandFrames, bandLayout, bandText, stageFrames, stageGeometry, takeCaptions, type Band } from '../src/render/stage.ts';
 import { idleSqueezes, purposefulEnd, warp } from '../src/render/pace.ts';
+import { auditTake } from './cut-audit.ts';
 
 export interface Metric { value: number; target: number; direction: 'max' | 'min'; unit: string; goalPassed: boolean }
 export type Metrics = Record<string, Metric>;
@@ -51,16 +52,17 @@ export function cameraMetrics(frames: CameraFrame[], fps: number, outW: number, 
   };
 }
 
-/** Baselines relax only today's failing values; passing values retain the goal. */
-export function regressions(metrics: Metrics, baseline: Metrics): string[] {
+/** Baselines relax only today's failing values; passing values retain the goal. `noise` allows a
+ * metric its measured spread across machines on identical renders, in the metric's own unit. */
+export function regressions(metrics: Metrics, baseline: Metrics, noise: Record<string, number> = {}): string[] {
   const failures: string[] = [];
   for (const [name, m] of Object.entries(metrics)) {
     const b = baseline[name];
     if (!Number.isFinite(m.value) || !b || !Number.isFinite(b.value) || b.direction !== m.direction || b.target !== m.target) { failures.push(`${name}: missing/invalid baseline or measurement`); continue; }
     const limit = m.direction === 'max' ? Math.max(m.target, b.value) : Math.min(m.target, b.value);
-    // Only machine round-off is ignored. No percentage slack hiding regressions.
-    const tolerance = Math.max(1, Math.abs(limit)) * 1e-6;
-    if (m.direction === 'max' ? m.value > limit + tolerance : m.value < limit - tolerance) failures.push(`${name}: ${m.value} vs limit ${limit} (goal ${m.target})`);
+    // Only machine round-off and a measured spread are ignored. No percentage slack hiding regressions.
+    const tolerance = Math.max(1, Math.abs(limit)) * 1e-6 + (noise[name] ?? 0);
+    if (m.direction === 'max' ? m.value > limit + tolerance : m.value < limit - tolerance) failures.push(`${name}: ${m.value} vs limit ${limit}${noise[name] ? ` + measured spread ${noise[name]}` : ''} (goal ${m.target})`);
   }
   for (const name of Object.keys(baseline)) if (!metrics[name]) failures.push(`${name}: measurement disappeared`);
   return failures;
@@ -154,12 +156,12 @@ export function edgePosition(row: Uint8Array, predicted: number): number | null 
   }
   return sum >= 20 ? weighted / sum : null;
 }
-export function judder(video: string, frames: CameraFrame[], meta: TakeMeta, d: typeof DEFAULTS, required: boolean, band: Band | null): { rms: number; samples: number } | null {
+export function judder(video: string, frames: CameraFrame[], meta: TakeMeta, d: typeof DEFAULTS, required: boolean, band: Band | null, divider = 319): { rms: number; samples: number } | null {
   // A 3-row strip through the straight card edge avoids corners, captions and rescaling.
-  // A banded card never moves, so track the source sidebar divider moving inside it instead.
+  // A banded card never moves, so track the source's straight sidebar divider (source px) inside it instead.
   const rows = frameRows(video, `crop=iw:3:0:${Math.floor(d.out_h / 2)}:exact=1`);
   const st = stageGeometry(meta.width, meta.height, d);
-  const source = band ? 319 : st.screenX;
+  const source = band ? divider : st.screenX;
   const [lo, hi] = band ? [band.stage.screenX + 8, band.stage.screenX + band.stage.baseW - 8] : [8, d.out_w - 8];
   const residuals: (number | null)[] = [];
   for (let i = 0; i < Math.min(frames.length, rows.length / (3 * d.out_w)); i++) {
@@ -235,6 +237,19 @@ function captions(video: string, dir: string, meta: TakeMeta, d: typeof DEFAULTS
   return checks;
 }
 
+// Each fixture's producer script, the MP4 make writes and the sidebar divider judder tracks in a
+// banded card. The scene is real UI, the headless capture of scripts/e2e/scene.html, so the gates
+// never pass on synthetic takes alone. Its nav border sits at design x 280.5 in the 5% safe inset:
+// (0.05 * 1920 + 280.5 * 0.9 * 1920 / 2560) CSS px at 2x. It is captured cursor-free, so the render
+// draws the cursor after the crop and the cut audit reads only UI, never a painted arrow leaving the card.
+const FIXTURES: Record<string, { script: string; args?: string[]; video: string; divider?: number; noise?: Record<string, number> }> = {
+  synth: { script: 'synth-take.ts', video: 'synth-demo', divider: 319 },
+  portrait: { script: 'synth-portrait.ts', video: 'portrait' }, // a portrait export is never banded
+  scene: { script: 'headless-scene.mjs', args: ['--cursor=hidden'], video: 'headless-demo', divider: 570.7,
+    // Judder on frame-identical renders: 1.0309 on a dev host (5 runs), 1.0523 on the CI runner; 0.03 clears that 0.0214 spread.
+    noise: { subpixel_judder: 0.03 } },
+};
+
 export function compare(video: string, golden: string, output: string, vmaf: boolean) {
   const count = (file: string): number => {
     const probe = JSON.parse(command('ffprobe', ['-v', 'error', '-select_streams', 'v:0', '-count_frames', '-show_entries', 'stream=nb_read_frames', '-of', 'json', file]).toString());
@@ -261,28 +276,41 @@ export function compare(video: string, golden: string, output: string, vmaf: boo
 async function main() {
   const args = process.argv.slice(2);
   const allowed = ['--init-baseline', '--ratchet', '--accept-golden', '--reuse'];
-  if (args.some(a => !allowed.includes(a))) throw new Error(`usage: node scripts/quality.ts [${allowed.join('] [')}]`);
+  // --fixture <name>, repeatable, runs only those fixtures (CI gates the slow real-UI scene in its own job).
+  const chosen = args.flatMap((a, i) => args[i - 1] === '--fixture' ? [a] : []);
+  if (args.at(-1) === '--fixture' || chosen.some(f => !FIXTURES[f])
+    || args.some((a, i) => !allowed.includes(a) && a !== '--fixture' && args[i - 1] !== '--fixture')) {
+    throw new Error(`usage: node scripts/quality.ts [${allowed.join('] [')}] [--fixture ${Object.keys(FIXTURES).join('|')}]...`);
+  }
+  const fixtures = chosen.length ? [...new Set(chosen)] : Object.keys(FIXTURES);
+  const notRun = Object.keys(FIXTURES).filter(f => !fixtures.includes(f));
   const root = resolve('tmp/quality'), baselineDir = resolve('scripts/quality-baseline');
   mkdirSync(root, { recursive: true });
   const baselineFile = join(baselineDir, 'metrics.json');
   const initialize = args.includes('--init-baseline');
-  if (initialize && existsSync(baselineFile)) throw new Error('baseline exists; use --ratchet (cannot loosen limits)');
-  const stored = initialize ? null : json<Record<string, Metrics>>(baselineFile);
+  const stored = existsSync(baselineFile) ? json<Record<string, Metrics>>(baselineFile) : {};
+  // --init-baseline only adds a baseline or golden that does not exist yet; it never replaces one.
+  const initialized: Record<string, Metrics> = {}, newGoldens: string[] = [];
   const vmaf = command('ffmpeg', ['-hide_banner', '-filters']).toString().includes('libvmaf');
-  const report: Record<string, unknown> = { version: 1, dirty: Boolean(command('git', ['status', '--porcelain']).toString().trim()), harnessSha256: sha(resolve('scripts/quality.ts')), revision: command('git', ['rev-parse', 'HEAD']).toString().trim(), ffmpeg: command('ffmpeg', ['-version']).toString().split('\n')[0], tesseract: command('tesseract', ['--version']).toString().split('\n')[0], vmafAvailable: vmaf, fixtures: {} };
+  const report: Record<string, unknown> = { version: 1, dirty: Boolean(command('git', ['status', '--porcelain']).toString().trim()), harnessSha256: sha(resolve('scripts/quality.ts')), revision: command('git', ['rev-parse', 'HEAD']).toString().trim(), ffmpeg: command('ffmpeg', ['-version']).toString().split('\n')[0], tesseract: command('tesseract', ['--version']).toString().split('\n')[0], vmafAvailable: vmaf, fixtures: {}, fixturesNotRun: notRun };
   const baselines: Record<string, Metrics> = {};
   const failures: string[] = [];
-  const sharpness = zoomSharpness(join(baselineDir, 'tidewater-4k.png'), join(root, 'sharpness'));
-  report.sharpness = { sourceSha256: sha(join(baselineDir, 'tidewater-4k.png')), sourceWidth: 3840, sourceHeight: 2160, measurements: sharpness };
-  failures.push(...sharpness.filter(m => !m.sharpnessPassed).map(m => `zoom sharpness ${m.quality}: ${m.ratio} < ${m.target}`));
-  failures.push(...sharpness.filter(m => !m.flatPassed).map(m => `flat card ${m.quality}: variance ${m.flat.variance} (limit ${m.flatTarget}), mean ${m.flat.mean} vs reference ${m.flatReference.mean}`));
-  for (const fixture of ['synth', 'portrait']) {
+  // The native-pixel sharpness check runs with the synthetic fixtures.
+  if (fixtures.includes('synth')) {
+    const sharpness = zoomSharpness(join(baselineDir, 'tidewater-4k.png'), join(root, 'sharpness'));
+    report.sharpness = { sourceSha256: sha(join(baselineDir, 'tidewater-4k.png')), sourceWidth: 3840, sourceHeight: 2160, measurements: sharpness };
+    failures.push(...sharpness.filter(m => !m.sharpnessPassed).map(m => `zoom sharpness ${m.quality}: ${m.ratio} < ${m.target}`));
+    failures.push(...sharpness.filter(m => !m.flatPassed).map(m => `flat card ${m.quality}: variance ${m.flat.variance} (limit ${m.flatTarget}), mean ${m.flat.mean} vs reference ${m.flatReference.mean}`));
+  }
+  for (const fixture of fixtures) {
+    const { script, args: extra = [], video: name, divider, noise } = FIXTURES[fixture]!;
     console.error(`quality: ${fixture}`);
     const dir = join(root, fixture);
     const d = { ...DEFAULTS, fps: 60, caption_font: 'Liberation Sans', ...(fixture === 'portrait' ? { out_w: 1080, out_h: 1920 } : {}) };
-    const video = join(dir, 'out', `${fixture === 'synth' ? 'synth-demo' : 'portrait'}.mp4`);
+    const video = join(dir, 'out', `${name}.mp4`);
     if (!args.includes('--reuse')) {
-      command(process.execPath, [resolve(`scripts/synth-${fixture === 'synth' ? 'take' : 'portrait'}.ts`), dir]);
+      rmSync(dir, { recursive: true, force: true }); // the scene capture refuses to overwrite a take
+      command(process.execPath, [resolve('scripts', script), dir, ...extra]);
       if (fixture === 'portrait') {
         const meta = json<Record<string, unknown>>(join(dir, 'take.json'));
         save(join(dir, 'take.json'), { ...meta, title: 'Explore the demo', captions: [{ t: 3, text: 'Tap to see details' }] });
@@ -313,8 +341,11 @@ async function main() {
     hashes.forEach((h, i) => { if (i && h === hashes[i - 1] && frames[i] && peak(['x', 'y', 'w'].map(k => frames[i]![k as 'x'] - frames[i - 1]![k as 'x'])) > 0.01) hitches++; });
     const rest = frames.find(f => f.t >= 0.7 && f.t < 1.2) ?? frames[0]!;
     const row = ffmpeg(['-ss', String(rest.t), '-i', video, '-vf', 'crop=iw:1:0:10:exact=1', '-frames:v', '1', '-pix_fmt', 'gray', '-f', 'rawvideo', '-']);
-    const edge = judder(video, frames, meta, d, fixture === 'synth', band);
+    const edge = judder(video, frames, meta, d, fixture === 'synth', band, divider);
     const ocr = captions(video, dir, meta, d, frames.at(-1)!.t, band);
+    // Every frame of the real render, on the end the render bound: an end that does not reproduce
+    // camera.json's clock, or a source frame that will not decode, throws instead of reading clean.
+    const cuts = auditTake(dir, d);
     const metrics: Metrics = {
       ...cameraMetrics(frames, d.fps, d.out_w, d.out_h, d.min_shot),
       default_fps_error: metric(Math.abs(DEFAULTS.fps - 60), 0, 'fps'),
@@ -329,6 +360,8 @@ async function main() {
       ...(edge ? { subpixel_judder: metric(edge.rms, 0.15, 'px/frame²') } : {}),
       caption_ocr_errors: metric(ocr.filter(c => !c.exact).length, 0, 'checkpoints'),
       banding: metric(widestRun(row), 64, 'px'),
+      text_cut_at_rest: metric(cuts.cutAtRest, 0, 'frames'),
+      text_cut_creeping: metric(cuts.cutCreeping, 0, 'frames'),
     };
     for (const key of ['color_space', 'color_transfer', 'color_primaries', 'color_range']) metrics[key + '_error'] = metric(Number(stream[key] !== (key === 'color_range' ? 'tv' : 'bt709')), 0);
     const texts = [meta.title, ...(meta.captions ?? []).map(c => c.text)].filter((t): t is string => Boolean(t));
@@ -338,8 +371,15 @@ async function main() {
     });
     // Motion blur does not exist yet. Never invent a passing ghosting measurement.
     const golden = join(baselineDir, `${fixture}.mp4`);
-    const regression = initialize ? null : compare(video, golden, dir, vmaf);
-    const fixtureFailures = initialize ? Object.entries(metrics).filter(([, m]) => !Number.isFinite(m.value)).map(([k]) => `${k}: nonfinite measurement`) : regressions(metrics, stored![fixture]!);
+    const known = stored[fixture] ?? {};
+    const added = initialize ? Object.keys(metrics).filter(k => !known[k]) : [];
+    if (initialize && !existsSync(golden)) newGoldens.push(fixture);
+    const regression = existsSync(golden) ? compare(video, golden, dir, vmaf) : null;
+    // A measurement or golden with nothing stored fails as missing, unless --init-baseline adds it now.
+    const fixtureFailures = [...regressions(Object.fromEntries(Object.entries(metrics).filter(([k]) => !added.includes(k))), known, noise),
+      ...added.filter(k => !Number.isFinite(metrics[k]!.value)).map(k => `${k}: nonfinite measurement`),
+      ...(regression || newGoldens.includes(fixture) ? [] : ['no golden render; review this output, then run --init-baseline'])];
+    if (initialize) initialized[fixture] = { ...known, ...Object.fromEntries(added.map(k => [k, metrics[k]!])) };
     if (regression && !args.includes('--accept-golden')) {
       if (regression.timelineMismatch) fixtureFailures.push(`golden timeline: ${regression.candidateFrames} frames vs ${regression.goldenFrames}; human review required`);
       if (!Number.isFinite(regression.minSSIM) || (regression.vmaf !== null && !Number.isFinite(regression.vmaf))) fixtureFailures.push('similarity score is not finite');
@@ -349,16 +389,25 @@ async function main() {
     }
     failures.push(...fixtureFailures.map(f => `${fixture}: ${f}`));
     baselines[fixture] = metrics;
-    (report.fixtures as Record<string, unknown>)[fixture] = { metrics, sha256: sha(video), goldenSha256: existsSync(golden) ? sha(golden) : null, stream, source: JSON.parse(command('ffprobe', ['-v', 'error', '-show_streams', '-of', 'json', join(dir, 'screen.webm')]).toString()).streams[0], cameraFrames: camera.length, decodedFrames: hashes.length, judderSamples: edge?.samples ?? 0, judderStatus: edge ? (edge.samples ? 'measured' : 'not-applicable: no camera motion at native cap') : 'not-applicable: optional fixture has no measurable judder', ocr, regression, motionBlurGhosting: { status: 'not-applicable', reason: 'motion blur ghosting is qualified separately; see docs/motion-blur.md' }, failures: fixtureFailures };
+    (report.fixtures as Record<string, unknown>)[fixture] = { metrics, sha256: sha(video), goldenSha256: existsSync(golden) ? sha(golden) : null, stream, source: JSON.parse(command('ffprobe', ['-v', 'error', '-show_streams', '-of', 'json', join(dir, 'screen.webm')]).toString()).streams[0], cameraFrames: camera.length, decodedFrames: hashes.length, judderSamples: edge?.samples ?? 0, judderStatus: edge ? (edge.samples ? 'measured' : 'not-applicable: no camera motion at native cap') : 'not-applicable: optional fixture has no measurable judder', ocr, cutAudit: cuts, regression, motionBlurGhosting: { status: 'not-applicable', reason: 'motion blur ghosting is qualified separately; see docs/motion-blur.md' }, failures: fixtureFailures };
   }
+  // The ratchet gates regressions only, so a run with unmet goals must say so rather than "passed".
+  const unmet = Object.entries(baselines).flatMap(([fixture, metrics]) => Object.entries(metrics).filter(([, m]) => !m.goalPassed)
+    .map(([name, m]) => `${fixture} ${name}: ${m.value} (goal ${m.direction === 'max' ? '<=' : '>='} ${m.target})`));
   report.failures = failures;
+  report.goalsUnmet = unmet;
   save(join(root, 'metrics.json'), report);
   if (failures.length) { console.error(failures.join('\n')); process.exitCode = 1; return; }
-  if (initialize || args.includes('--ratchet')) save(baselineFile, baselines);
-  if (initialize || args.includes('--accept-golden')) {
-    for (const fixture of ['synth', 'portrait']) copyFileSync(join(root, fixture, 'out', `${fixture === 'synth' ? 'synth-demo' : 'portrait'}.mp4`), join(baselineDir, `${fixture}.mp4`));
+  if (args.includes('--ratchet')) save(baselineFile, { ...stored, ...baselines });
+  else if (initialize) save(baselineFile, { ...stored, ...initialized });
+  for (const fixture of args.includes('--accept-golden') ? fixtures : newGoldens) {
+    copyFileSync(join(root, fixture, 'out', `${FIXTURES[fixture]!.video}.mp4`), join(baselineDir, `${fixture}.mp4`));
   }
-  console.error(`quality: passed; metrics ${join(root, 'metrics.json')}`);
+  // A partial run names what it skipped, so its result never reads as the whole bar.
+  const scope = notRun.length ? ` for ${fixtures.join(', ')} only (not run: ${notRun.join(', ')})` : '';
+  console.error(unmet.length ? `quality: no regression against the stored baselines${scope}, but ${unmet.length} goals are not met:\n${unmet.join('\n')}`
+    : `quality: passed${scope}; every goal met`);
+  console.error(`quality: metrics ${join(root, 'metrics.json')}`);
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) main().catch(e => {
   mkdirSync(resolve('tmp/quality'), { recursive: true });
