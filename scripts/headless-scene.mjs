@@ -22,6 +22,10 @@ const TEXT_BOXES = `(() => {
   for (const el of document.querySelectorAll('input, textarea, #modal, [role=status]')) if (seen(el)) add(el, el.getBoundingClientRect(), el.id);
   return JSON.stringify(out);
 })()`;
+// A toast is the page's status message (role="status") while it shows text. Its windows let a
+// proof sample frames through each toast; render keeps every caption in the band, off it.
+const TOAST_SHOWN = `[...document.querySelectorAll('[role=status]')].some(el => el.textContent.trim()
+  && el.checkVisibility({ opacityProperty: true, visibilityProperty: true }))`;
 
 export async function captureScene(output, { cursorHidden = false, aspect = 'landscape', title = true, scale = 2 } = {}) {
   // Each aspect captures its own layout at its own viewport, so a same-aspect render needs no crop.
@@ -29,7 +33,8 @@ export async function captureScene(output, { cursorHidden = false, aspect = 'lan
   if (!layout) throw new Error(`unknown aspect ${aspect}; use ${Object.keys(LAYOUTS).join(', ')}`);
   const [cssW, cssH] = layout.css, { s, ox, oy } = fit(layout);
   const { steps, frames } = choreography(layout);
-  const boxes = [];
+  const boxes = [], toasts = [];
+  let toastFrom = -1;
   // Refuse to overwrite existing data. Metadata is published only after encoding.
   const dir = resolve(output);
   await mkdir(dirname(dir), { recursive: true });
@@ -93,6 +98,12 @@ export async function captureScene(output, { cursorHidden = false, aspect = 'lan
       // Text boxes on the video clock, kept only when they change.
       const current = await browser.evaluate(TEXT_BOXES);
       if (boxes.at(-1)?.json !== current) boxes.push({ t: frame / FPS, json: current });
+      // Toast windows on the video clock, observed from the painted frame, not the choreography.
+      const shown = await browser.evaluate(TOAST_SHOWN);
+      if (shown && toastFrom < 0) toastFrom = frame;
+      if ((!shown || frame === frames - 1) && toastFrom >= 0) {
+        toasts.push({ t: toastFrom / FPS, d: ((shown ? frames : frame) - toastFrom) / FPS }); toastFrom = -1;
+      }
       const { data } = await browser.send('Page.captureScreenshot', { format: 'png', fromSurface: true, captureBeyondViewport: false });
       await new Promise((resolve, reject) => encoder.stdin.write(Buffer.from(data, 'base64'), error => error ? reject(error) : resolve()));
       if (frame % 300 === 0) console.log(`headless scene: ${frame}/${frames} frames`);
@@ -112,6 +123,7 @@ export async function captureScene(output, { cursorHidden = false, aspect = 'lan
       clock: { offsetMs: 0, medianMs: 0, spreadMs: 0, frames },
       source: { kind: 'headless-demo', css: { w: cssW, h: cssH }, browser: VERSION, sha256: BINARY_SHA256 },
       ...(title ? { title: 'From idea to launch' } : {}),
+      ...(toasts.length ? { toasts } : {}),
     }, null, 2) + '\n');
     succeeded = true;
     return { dir, frames };

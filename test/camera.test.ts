@@ -1289,12 +1289,20 @@ test("captions never cover a recorded toast in any export shape", { timeout: 180
       const covers = report.covers as { label: string; frames: number }[];
       assert.deepEqual(covers.map(c => [c.label, c.frames]), [["Board demo", 0], ["Create the task", 0]],
         `${source.join("x")} into ${out.join("x")}: no title or caption frame covers the toast`);
+      return report.covers.find((c: { label: string }) => c.label === "Create the task");
     } finally { await rm(dir, { recursive: true, force: true }); }
   };
-  await render([360, 640], [360, 640], [90, 560, 180, 32]);
-  // The portrait crop of this 640x360 source shows x 251-388 at rest; the pill sits at its bottom.
-  await render([640, 360], [360, 640], [270, 300, 100, 20]);
-  await render([360, 640], [640, 360], [90, 560, 180, 32], "ios");
+  const band = await render([360, 640], [360, 640], [90, 560, 180, 32]);
+  assert.equal(band.frames, 0, "the band keeps the caption below the card");
+  // The portrait crop of this 640x360 source paints x 251-388, y 58-302 at rest.
+  const cropped: [number, number] = [640, 360], pill = [270, 260, 100, 20];
+  const stacked = await render(cropped, [360, 640], pill);
+  // The cropped export used to draw the caption over the footage, on the toast: no longer.
+  assert.throws(() =>
+    assert.ok(stacked.frames > 0, "without the window the cropped caption covers the toast"));
+  // A phone in a 16:9 film used to move its caption to the top slot; it now sits in the band.
+  const moved = await render([360, 640], [640, 360], [90, 560, 180, 32], "ios");
+  assert.equal(moved.frames, 0);
 });
 
 test("a planner shot=false on a click beat removes its camera move", () => {

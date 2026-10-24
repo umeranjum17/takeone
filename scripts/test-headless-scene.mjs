@@ -59,10 +59,15 @@ async function checkTake(dir) {
   assert.ok(wheelEvents.length > 0);
   assert.ok(wheelEvents.some(e => e.dy < 0), 'downward feed movement must serialize as negative wheel delta');
   assert.ok(wheelEvents.some(e => e.dy > 0), 'upward feed movement must serialize as positive wheel delta');
-  // Every toast the board shows has its box in text-boxes.json, so safe-area.json can show no caption covers it.
+  // Every toast the board shows is a take.json window, and the toast's box is in text-boxes.json
+  // from the window's first frame, so safe-area.json can show no caption covers it.
+  const { toasts } = JSON.parse(await readFile(join(dir,'take.json'),'utf8'));
+  assert.deepEqual(toasts?.map(w => w.d.toFixed(2)), ['2.20','2.20','2.20'], 'created, archived and created again');
   const { samples } = JSON.parse(await readFile(join(dir,'text-boxes.json'),'utf8'));
-  const toast = samples.map(s => s.boxes.some(box => box[4] === 'toast'));
-  assert.equal(toast.filter((shown, i) => shown && !toast[i - 1]).length, 3, 'created, archived and created again');
+  for (const w of toasts) {
+    const shown = samples.findLast(s => s.t <= w.t + 1e-6);
+    assert.ok(shown?.boxes.some(box => box[4] === 'toast'), `toast box at ${w.t}s`);
+  }
   const md5 = decode(dir);
   await writeFile(join(dir,'frames.framemd5'),md5);
   return decodedHash(md5);

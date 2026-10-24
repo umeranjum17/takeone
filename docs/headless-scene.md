@@ -52,8 +52,9 @@ no safe-area acceptance.
 
 `safe-area.json` also lists, per title and caption, the frames its box covers a shown
 box (`frames`, `labels`) and its least clearance in output px to any of them
-(`clearance`, `nearest`). The `role="status"` toast's box is recorded while it shows, and
-every render keeps captions in the band below the card, so no caption covers it.
+(`clearance`, `nearest`). The take writes each span its `role="status"` toast shows as a
+`toasts` window in `take.json` and records the toast's box while it shows; every render keeps
+captions in the band below the card, so no caption covers it.
 
 The output directory must be new; missing parent directories are created. The installer fetches
 the pinned Chrome for Testing headless shell, verifies the archive
