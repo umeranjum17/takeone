@@ -1303,8 +1303,11 @@ test("captions never cover a recorded toast in any export shape", { timeout: 180
   // A phone in a 16:9 film used to move its caption to the top slot; it now sits in the band.
   const moved = await render([360, 640], [640, 360], [90, 560, 180, 32], "ios");
   assert.equal(moved.frames, 0);
-  // The contract changed: a caption no longer moves over the footage, away from a toast, but sits in
-  // the band below the card. Measured 51-77 px from the toast pill across these shapes; 40 holds that gap.
+  // The top-slot clearance claim no longer holds: captions now sit in the band below the card, not
+  // moved over the footage away from a toast.
+  assert.throws(() =>
+  assert.ok(moved.clearance > 100, `the moved caption leaves the toast in the clear (${moved.clearance} px)`));
+  // Measured 51-77 px from the toast pill across these shapes; 40 holds that gap.
   assert.ok(moved.clearance >= 40, `the band caption leaves the toast in the clear (${moved.clearance} px)`);
 });
 
