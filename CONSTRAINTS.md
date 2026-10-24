@@ -44,6 +44,11 @@ checks check other quantities, or whose replacement lowers the bar is still
 reported. A check that states a number where the removed one compared two
 expressions proves less and is still reported.
 
+A check whose only change is one argument dropped from a call is the same check
+when this diff also removes parameters from that function's declaration in
+`src/`: the argument went with its parameter. A test-only argument drop, a call
+that lost more than one argument, and a changed argument are still reported.
+
 Only intentional test-diet deletions can use the accepted exception. The deletion
 commit must name its test-diet task AND the affected journey must stay covered by
 an existing integration/e2e test; generic reasons or task mentions alone fail.
