@@ -1264,41 +1264,37 @@ test("the safe-area gate judges the text a push-in paints", { timeout: 120_000 }
   } finally { await rm(untitled, { recursive: true, force: true }); }
 });
 
-// A caption must never cover a toast. A take exported at its own shape (here portrait) keeps its
-// captions in the band below the card. Cropped to another shape, the caption sits over the
-// footage's bottom band, so a recorded toast window moves the caption sharing its screen time to
-// the top slot, which must stay inside the output's 5% inset and leave the toast in the clear.
-test("captions never cover a recorded toast, in the band or moved off it", { timeout: 180_000 }, async () => {
+// A caption must never cover a toast or the app, in any export shape: the card stays fixed above
+// the band whether the export takes the screen's shape, crops a wider screen to fill a narrower
+// shape, or shows a narrower screen (a phone in its handset) whole in a wider film.
+test("captions never cover a recorded toast in any export shape", { timeout: 180_000 }, async () => {
   if (!hasFfmpeg()) throw new Error("requires system ffmpeg and ffprobe on PATH");
-  const render = async (source: [number, number], toast: number[], toasts: boolean) => {
+  const render = async (source: [number, number], out: [number, number], toast: number[], device?: "ios") => {
     const dir = await mkdtemp(join(tmpdir(), "takeone:toast-"));
     try {
       await mkdir(join(dir, "analysis"));
       execFileSync("ffmpeg", ["-v", "error", "-f", "lavfi", "-i", `color=c=white:s=${source[0]}x${source[1]}:r=30:d=3`,
         "-c:v", "mpeg4", "-q:v", "2", "-f", "matroska", "-y", join(dir, "screen.webm")]);
       await writeFile(join(dir, "take.json"), JSON.stringify({ id: "toast", width: source[0], height: source[1],
-        trim_start: 0, trim_end: 2, captions: [{ t: 0.5, d: 1, text: "Create the task" }],
-        ...(toasts ? { toasts: [{ t: 0.4, d: 1.2 }] } : {}) }));
+        trim_start: 0, trim_end: 2, ...(device ? { device } : {}), title: "Board demo",
+        captions: [{ t: 0.5, d: 1, text: "Create the task" }] }));
       await writeFile(join(dir, "analysis/beats.json"), "[]");
       await writeFile(join(dir, "analysis/decisions.jsonl"), "");
       // The toast pill the headless scene records, near the bottom of the screen.
       await writeFile(join(dir, "text-boxes.json"), JSON.stringify({ space: "stream px", clock: "video s",
         samples: [{ t: 0, boxes: [[...toast, "toast"]] }] }));
-      await renderTake(dir, { ...FAST, out_w: 360, out_h: 640 });
+      await renderTake(dir, { ...FAST, out_w: out[0], out_h: out[1] });
       const report = JSON.parse(await readFile(join(dir, "safe-area.json"), "utf8"));
       assert.equal(report.failures.length, 0);
-      return report.covers.find((c: { label: string }) => c.label === "Create the task");
+      const covers = report.covers as { label: string; frames: number }[];
+      assert.deepEqual(covers.map(c => [c.label, c.frames]), [["Board demo", 0], ["Create the task", 0]],
+        `${source.join("x")} into ${out.join("x")}: no title or caption frame covers the toast`);
     } finally { await rm(dir, { recursive: true, force: true }); }
   };
-  const band = await render([360, 640], [90, 560, 180, 32], false);
-  assert.equal(band.frames, 0, "the band keeps the caption below the card");
-  // The portrait crop of this 640x360 source paints x 251-388, y 58-302 at rest.
-  const cropped: [number, number] = [640, 360], pill = [270, 260, 100, 20];
-  const stacked = await render(cropped, pill, false);
-  assert.ok(stacked.frames > 0, "without the window the cropped caption covers the toast");
-  const moved = await render(cropped, pill, true);
-  assert.equal(moved.frames, 0);
-  assert.ok(moved.clearance > 100, `the moved caption leaves the toast in the clear (${moved.clearance} px)`);
+  await render([360, 640], [360, 640], [90, 560, 180, 32]);
+  // The portrait crop of this 640x360 source shows x 251-388 at rest; the pill sits at its bottom.
+  await render([640, 360], [360, 640], [270, 300, 100, 20]);
+  await render([360, 640], [640, 360], [90, 560, 180, 32], "ios");
 });
 
 test("a planner shot=false on a click beat removes its camera move", () => {
