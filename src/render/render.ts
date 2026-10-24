@@ -11,7 +11,7 @@ import { actionCameraMilliseconds } from "../beats/clock.ts";
 import { applyManualZooms, baseWidth, manualZoomLimitWarning, solveCamera, type EdgeCuts } from "../camera/solver.ts";
 import { applyDragVisibility } from "../camera/gesture.ts";
 import { sweepCuts } from "../camera/sweep.ts";
-import type { Beat, CameraFrame, Decision, TakeMeta } from "../camera/types.ts";
+import type { Beat, CameraFrame, Decision, ManualZoom, TakeMeta } from "../camera/types.ts";
 import type { FrameRegions } from "../types.ts";
 import { blurGraph, keycapAss, keycapBackdropGraph, keycapMaskAss, keycapObstacles, overlayRegions, spotlightAss, spotlightGraph, toastWindows } from "./overlays.ts";
 import { motionBlurGraph, shutterPlan } from "./motion-blur.ts";
@@ -146,11 +146,11 @@ export async function renderTake(dir: string, camera?: CameraDefaults, preview?:
 
   const trimStart = meta.trim_start ?? 0;
   const wide = d.out_w > d.out_h;
-  // Wide motion and crop-to-fill motion (a portrait, 4:5 or square cut from a wider
-  // desktop screen) are qualified. Phone and other exports keep the centred rest framing.
+  // Automatic wide motion and crop-to-fill motion (a portrait, 4:5 or square cut from a wider
+  // desktop screen) are qualified. Phone and other exports rest at the centred framing; the
+  // user's own zooms direct every shape.
   const moving = wide || (!phone && d.out_w / d.out_h < meta.width / meta.height);
-  const cameraWarning = moving ? manualZoomLimitWarning(meta, d)
-    : meta.zooms?.length ? "take.json: camera motion is disabled for this export shape; use wide output, or a narrower shape cut from a wider screen, for zooms" : undefined;
+  const cameraWarning = manualZoomLimitWarning(meta, d);
   if (cameraWarning) console.warn(cameraWarning);
   const trimEnd = meta.trim_end ?? purposefulEnd(beats, trimStart,
     meta.duration ?? Math.max(0, ...beats.map((beat) => beat.t1)), d);
@@ -226,19 +226,39 @@ export async function renderTake(dir: string, camera?: CameraDefaults, preview?:
   // Manual spans are source-video seconds; use the same edit clock as footage.
   // Applying them after holdPath prevents its automatic composition from erasing
   // the director's explicit framing. Drag visibility remains the final safety gate.
-  const zooms = (meta.zooms ?? []).flatMap(z => {
+  const requested = new Map<ManualZoom, number>();
+  const zooms = (meta.zooms ?? []).flatMap((z, index) => {
     const spans = clock?.spans.filter(s => s.rate > 0) ?? [{ t0: trimStart, t1: trimEnd }];
     return spans.flatMap(s => {
       const a = Math.max(trimStart, s.t0, z.t0), b = Math.min(trimEnd, s.t1, z.t1);
-      return b > a ? [{ ...z, t0: trimStart + outTime(a), t1: trimStart + outTime(b) }] : [];
+      if (b <= a) return [];
+      const span = { ...z, t0: trimStart + outTime(a), t1: trimStart + outTime(b) };
+      requested.set(span, index);
+      return [span];
     });
   });
-  // Exports without qualified motion retain the centred rest framing; neither
-  // automatic/held paths nor manual spans can move it.
+  // Exports without qualified automatic motion rest at the centred framing; manual spans
+  // direct that rest path like any other.
   const restW = baseWidth(meta.width, meta.height, d), restH = restW * d.out_h / d.out_w;
-  const directed = moving ? applyManualZooms(held?.frames ?? solvedFrames, { ...meta, zooms }, d, outBeats, changes)
+  const path = moving ? held?.frames ?? solvedFrames
     : solvedFrames.map(f => ({ t: f.t, x: (meta.width - restW) / 2, y: (meta.height - restH) / 2, w: restW, h: restH }));
-  let frames = moving && zooms.length ? applyDragVisibility(directed, outBeats, meta.width, meta.height, trimStart, d) : directed;
+  const { frames: directed, arrivals } = applyManualZooms(path, { ...meta, zooms }, d, outBeats, changes, banded ? undefined : project);
+  let frames = zooms.length ? applyDragVisibility(directed, outBeats, meta.width, meta.height, trimStart, d) : directed;
+  // Drag visibility may keep a hold wider while a drag is on screen: the hold then arrives
+  // where the final path rejoins it. Every late arrival is reported with its exact amount.
+  const rejoins = (from: number, until: number) => {
+    const k = Math.round((from - trimStart) * d.fps);
+    let i = k;
+    while (i < frames.length && i <= (until - trimStart) * d.fps
+      && Math.abs(frames[i]!.x - directed[i]!.x) + Math.abs(frames[i]!.y - directed[i]!.y) + Math.abs(frames[i]!.w - directed[i]!.w) > 0.5) i++;
+    return i > k ? trimStart + i / d.fps : from;
+  };
+  const late = arrivals.flatMap(h => {
+    const at = rejoins(h.at, h.until);
+    const cause = at > h.at ? (at > h.until ? "a drag on screen keeps the view wide for its whole span" : "a drag on screen stays in view until then") : h.cause;
+    return cause ? [`zoom ${requested.get(h.zoom)! + 1} ${(Math.min(at, h.until) - h.requested).toFixed(2)} s after its requested time, because ${cause}`] : [];
+  });
+  if (late.length) console.warn(`Manual zoom arrives late: ${late.join("; ")}.`);
   // The same guard judges the moving frames of the final path, whichever stage made them: none may
   // crawl a crop edge through a word, so a move crosses text only at a sweep. A frame is judged on
   // the source frame its 0.1 s mask window starts at, so re-checking a retimed move decodes nothing

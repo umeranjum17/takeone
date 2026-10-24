@@ -1,6 +1,7 @@
 import { applyDragVisibility, gesturePointer, gestures, type Gesture } from "./gesture.ts";
 import { SWEEP_CLEARANCE } from "./sweep.ts";
 import { fillWidth, minStageMargin, stageFrames, stageGeometry } from "../render/stage.ts";
+import { PAN_A, ZOOM_A, ZOOM_V } from "../render/framing.ts";
 import { PANEL_MAX_AREA, WIN_MAX_COVER } from "../beats/zones.ts";
 import { DEFAULTS, type CameraDefaults } from "./defaults.ts";
 import { unionBBox } from "../types.ts";
@@ -9,6 +10,7 @@ import type {
   CameraFrame,
   CameraState,
   Decision,
+  ManualZoom,
   TakeMeta,
   Zone,
 } from "./types.ts";
@@ -411,40 +413,101 @@ export function moveDuration(drift: number, d: CameraDefaults = DEFAULTS): numbe
   return clamp(proposed, d.move_t_min, d.move_t_max);
 }
 
+/** When a manual zoom was asked to arrive, when its hold arrives and ends, and why any arrival is late. */
+export interface ManualArrival { zoom: ManualZoom; requested: number; at: number; until: number; cause?: string }
+
 /**
- * Explicit holds direct the final path, including the opt-in held path. Like a
- * planned shot, a hold arrives on painted content: a cut or result painting the
- * box during the approach holds the camera until it settles, then the move starts.
- * A change that paints partly in the box but past the hold (a popup opened in
- * it) widens the hold to the box with it, arriving on the frame it paints, as a
- * planned shot frames a field's popup with its modal.
+ * Explicit holds direct the final path, including the opt-in held path. A hold
+ * arrives at its requested time: its move starts early, long enough that the shown
+ * window (`view`) keeps within the camera gates. Like a planned shot, it arrives on
+ * painted content: a cut or result painting the box during the approach holds
+ * the camera until it settles, then the move starts. A move whose lead would
+ * cross the clip start or the previous hold starts at that boundary instead (a
+ * hold too close to the previous one moves straight on from it). Short of room,
+ * a move speeds up only as far as the gates allow; a hold that still cannot make
+ * its time is reported late by the exact amount. A change that paints partly in the box
+ * but past the hold (a popup opened in it) widens the hold to the box with it,
+ * arriving on the frame it paints, as a planned shot frames a field's popup with its modal.
  */
 export function applyManualZooms(frames: CameraFrame[], take: TakeMeta, d: CameraDefaults, beats: Beat[] = [],
-  changes: { t: number; bbox: Zone["bbox"] }[] = []): CameraFrame[] {
+  changes: { t: number; bbox: Zone["bbox"] }[] = [], view: (frame: CameraFrame) => CameraFrame = identity): { frames: CameraFrame[]; arrivals: ManualArrival[] } {
   const start = take.trim_start ?? 0;
   const end = start + frames.at(-1)!.t;
   const zooms = [...(take.zooms ?? [])].filter(z => z.t1 > start && z.t0 < end)
     .sort((a, b) => a.t0 - b.t0);
-  if (!zooms.length) return frames;
+  if (!zooms.length) return { frames, arrivals: [] };
   const baseW = baseWidth(take.width, take.height, d);
   const state = (f: CameraFrame): CameraState => ({ cx: f.x + f.w / 2, cy: f.y + f.h / 2, z: baseW / f.w });
   const at = (t: number) => state(frames[clamp(Math.round((t - start) * d.fps), 0, frames.length - 1)]!);
-  const holds = zooms.map((z, i) => {
+  const ease = (from: CameraState, to: CameraState, u: number): CameraState => ({ cx: lerp(from.cx, to.cx, u),
+    cy: lerp(from.cy, to.cy, u), z: Math.exp(lerp(Math.log(from.z), Math.log(to.z), u)) });
+  const rate = (v: number[]) => v.slice(1).map((x, i) => (x - v[i]!) * d.fps);
+  // Does an n-frame move, its eased path sampled on the shown window with a still frame each side,
+  // keep the zoom speed and acceleration and the pan acceleration under the gates?
+  const passes = (from: CameraState, to: CameraState, n: number) => {
+    const shown = Array.from({ length: n + 5 }, (_, i) =>
+      view(toFrame(ease(from, to, smooth(clamp((i - 2) / n, 0, 1))), take.width, take.height, d)));
+    const zv = rate(shown.map(f => Math.log(f.w)));
+    const ax = rate(rate(shown.map(f => d.out_w * f.x / f.w))), ay = rate(rate(shown.map(f => d.out_h * f.y / f.h)));
+    return zv.every(z => Math.abs(z) <= ZOOM_V) && rate(zv).every(z => Math.abs(z) <= ZOOM_A)
+      && ax.every((x, i) => Math.hypot(x, ay[i]!) <= PAN_A);
+  };
+  // The shortest move within the gates, and the one a hold takes when it has room: the solver's
+  // duration, or longer when the gates need it. A framing already in place needs no move.
+  const fastest = (from: CameraState, to: CameraState) => {
+    if (distance(from, to, baseW) < 1e-6) return 0;
+    let n = 1;
+    while (n < 10 * d.fps && !passes(from, to, n)) n++;
+    return n / d.fps;
+  };
+  const lead = (from: CameraState, to: CameraState) =>
+    distance(from, to, baseW) < 1e-6 ? 0 : Math.max(moveDuration(distance(from, to, baseW), d), fastest(from, to));
+  type Stage = { go: number; t: number; target: CameraState };
+  type Hold = { s0: number; go: number; a: number; b: number; enter: number; leave: number; stages: Stage[]; from?: CameraState };
+  const holds: Hold[] = [];
+  const arrivals: ManualArrival[] = [];
+  zooms.forEach((z, i) => {
     const box: Zone = { name: "manual", type: "act", bbox: z.bbox };
-    const aim = (zone: Zone) => frame(zone, z.level ?? 2, take.width, take.height, undefined, d);
+    // Aim at the framing shown, not a centre past the screen edge that toFrame clamps: the eased
+    // path between two shown framings never runs into that clamp and stops short on one axis.
+    const aim = (zone: Zone) => state(toFrame(frame(zone, z.level ?? 2, take.width, take.height, undefined, d), take.width, take.height, d));
     const inBox = (bbox: Zone["bbox"]) => clippedFractions({ x: z.bbox[0], y: z.bbox[1], w: z.bbox[2], h: z.bbox[3] }, [bbox])[0]! < 1;
     let target = aim(box);
     const a0 = Math.max(start, z.t0);
-    const enter = Math.min(moveDuration(distance(at(a0), target, baseW), d),
-      Math.max(0, a0 - (zooms[i - 1]?.t1 ?? start)) / 2);
-    const s0 = a0 - enter;
+    const previous = holds.at(-1);
+    const prior = previous?.stages.at(-1)!.target;
+    // A hold that already covers the first frame opens on its framing.
+    let enter = z.t0 <= start ? 0 : lead(at(a0), target);
+    let floor = z.t0 <= start ? 0 : fastest(at(a0), target);
+    let from: CameraState | undefined;
+    let boundary = start;
+    if (previous && prior) {
+      const back = lead(prior, at(previous.b));
+      if (a0 - enter >= previous.b + back) {
+        previous.leave = back;
+        boundary = previous.b + back;
+      } else {
+        // No room to return between the two holds: move straight on from the previous framing.
+        enter = lead(prior, target);
+        floor = fastest(prior, target);
+        from = prior;
+        previous.leave = 0;
+        boundary = previous.b;
+      }
+    }
+    const s0 = Math.max(boundary, a0 - enter);
     const painted = beats.flatMap(beat => [
       ...(beat.kind === "cut" ? [[beat.anchor_t, cutSettledAt(beat, beat.anchor_t, d)]] : []),
       ...beat.zones.filter(zone => zone.type === "res" && zone.t_change !== undefined && inBox(zone.bbox))
         .map(zone => [zone.t_change!, zone.t_change!]),
     ]).filter(([t]) => t! > s0 && t! <= a0).map(([, ready]) => ready!);
     const go = Math.max(s0, ...painted);
+    if (from && previous) previous.b = s0;
+    // Short of room, the move speeds up toward the fastest one within the gates, never past it.
+    enter = Math.max(floor, Math.min(enter, a0 - go));
     const a = go + enter, b = Math.max(a, Math.min(end, z.t1));
+    arrivals.push({ zoom: z, requested: a0, at: a, until: b, ...(a > a0 + 1e-6 ? { cause: go > s0 ? "it waits for the screen to paint"
+      : boundary > start ? "the previous zoom holds until then" : "the clip starts too close to it" } : {}) });
     const stages = [{ go: a, t: a, target }];
     for (const change of changes) {
       if (change.t <= s0 || change.t > b || !inBox(change.bbox)
@@ -453,18 +516,18 @@ export function applyManualZooms(frames: CameraFrame[], take: TakeMeta, d: Camer
       const union = mergeZones(box, { ...box, bbox: change.bbox }), next = aim(union);
       // A crop-to-fill view may be unable to hold both; the box then keeps its framing.
       if (clippedFractions(toFrame(next, take.width, take.height, d), [union.bbox])[0] !== 0) continue;
-      const previous = target;
+      const previousTarget = target;
       box.bbox = union.bbox;
       target = next;
-      const move = change.t - moveDuration(distance(previous, target, baseW), d);
+      const move = change.t - lead(previousTarget, target);
       if (move <= a) stages[0]!.target = target;
       else stages.push({ go: move, t: change.t, target });
     }
-    const leave = Math.min(moveDuration(distance(target, at(b), baseW), d),
-      Math.max(0, (zooms[i + 1]?.t0 ?? end) - b) / 2);
-    return { s0, go, a, b, enter, leave, stages, from: go > s0 ? at(s0) : undefined };
+    // A move out that the clip end cuts short stays at its pace: the film ends during it.
+    const leave = lead(target, at(b));
+    holds.push({ s0, go, a, b, enter, leave, stages, from: from ?? (go > s0 ? at(s0) : undefined) });
   });
-  return frames.map(f => {
+  return { arrivals, frames: frames.map(f => {
     const t = f.t + start;
     const hold = holds.find(h => t >= h.s0 && t <= h.b + h.leave);
     if (!hold) return f;
@@ -474,9 +537,8 @@ export function applyManualZooms(frames: CameraFrame[], take: TakeMeta, d: Camer
       : t > hold.b ? [state(f), hold.stages.at(-1)!.target, 1 - smooth((t - hold.b) / hold.leave)]
       : k > 0 && t < stage.t ? [hold.stages[k - 1]!.target, stage.target, smooth((t - stage.go) / (stage.t - stage.go))]
       : [stage.target, stage.target, 1];
-    return { ...toFrame({ cx: lerp(from.cx, to.cx, u), cy: lerp(from.cy, to.cy, u),
-      z: Math.exp(lerp(Math.log(from.z), Math.log(to.z), u)) }, take.width, take.height, d), t: f.t };
-  });
+    return { ...toFrame(ease(from, to, u), take.width, take.height, d), t: f.t };
+  }) };
 }
 
 /** Pair decisions with their zones and establish the requested A arrival time. */
