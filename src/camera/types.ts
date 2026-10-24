@@ -97,12 +97,10 @@ export interface TakeMeta extends TakeEdits {
   /** Timed source-pixel regions; t/d are video-relative seconds. */
   spotlight?: { t: number; d: number; rect: [number, number, number, number] }[];
   blur?: { t: number; d: number; rect: [number, number, number, number] }[];
-  /** Optional opening title, drawn over the first seconds of the render. */
+  /** Optional opening title, shown in the band below the card for the first seconds of the render. */
   title?: string;
   /** Optional captions in video-relative seconds; `d` defaults to 3. */
-  captions?: { t: number; d?: number; text: string; position?: "top" | "bottom" }[];
-  /** Toast windows in video-relative seconds; overlay captions sharing screen time move up. */
-  toasts?: { t: number; d: number }[];
+  captions?: { t: number; d?: number; text: string }[];
   /** Source-pixel regions; requested arrival at t0, automatic framing resumes at t1. */
   zooms?: ManualZoom[];
 }

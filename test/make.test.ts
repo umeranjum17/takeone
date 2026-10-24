@@ -1398,12 +1398,11 @@ test("an over-long AI title is dropped; a title at the 28-character bound fits t
     const captions = takeCaptions({ width: STREAM_W, height: STREAM_H, title: widest, duration: 4 }, (t) => t, 4);
     assert.deepEqual(captions.filter((c) => c.title).map((c) => c.text), [widest], "the title at the bound is not drawn");
     const text = bandText(captions, [], d);
-    const ink = await measureCaptions(dir, captions, text, true);
+    const ink = await measureCaptions(dir, captions, text);
     const band = bandLayout(STREAM_W, STREAM_H, text, captions, ink);
-    assert.ok(band, "the 1080p stage is not band-eligible");
     assert.ok(ink[0]!.w > 28 * Math.round(text.caption_size * 1.6) * 0.5,
       `the title at the bound rendered no ink (w=${ink[0]!.w}); the bundled face did not draw it`);
-    assert.doesNotThrow(() => captionLayouts(captions, ink, text, false, band), "a title at the bound does not fit the 1080p band row");
+    assert.doesNotThrow(() => captionLayouts(captions, ink, text, band), "a title at the bound does not fit the 1080p band row");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

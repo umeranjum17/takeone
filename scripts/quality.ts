@@ -10,7 +10,7 @@ import type { CameraFrame, Beat, TakeMeta } from '../src/camera/types.ts';
 import { makeTake } from '../src/make.ts';
 import { encodingOptions, measureCaptions, renderTake } from '../src/render/render.ts';
 import { cameraFilter } from '../src/render/camera-filter.ts';
-import { bandEligible, bandFrames, bandLayout, bandText, stageFrames, stageGeometry, takeCaptions, type Band } from '../src/render/stage.ts';
+import { bandFrames, bandLayout, bandText, stageFrames, stageGeometry, takeCaptions, type Band } from '../src/render/stage.ts';
 import { idleSqueezes, purposefulEnd, warp } from '../src/render/pace.ts';
 import { auditTake } from './cut-audit.ts';
 
@@ -323,13 +323,13 @@ async function main() {
     const meta = json<TakeMeta>(join(dir, 'take.json'));
     const camera = json<CameraFrame[]>(join(dir, 'camera.json'));
     let band: Band | null = null;
-    if ((meta.title || meta.captions?.length) && bandEligible(meta.width, meta.height, d)) {
+    if (meta.title || meta.captions?.length) {
       const duration = camera.at(-1)!.t + 1 / d.fps;
       const captions = outputCaptions(dir, meta, d, duration);
       const initial = bandText(captions, [], d);
-      let ink = await measureCaptions(dir, captions, initial, true);
+      let ink = await measureCaptions(dir, captions, initial);
       const text = bandText(captions, ink, initial);
-      if (text !== initial) ink = await measureCaptions(dir, captions, text, true);
+      if (text !== initial) ink = await measureCaptions(dir, captions, text);
       band = bandLayout(meta.width, meta.height, text, captions, ink);
     }
     const frames = band ? bandFrames(camera, band, d) : stageFrames(camera, meta.width, meta.height, stageGeometry(meta.width, meta.height, d), d);

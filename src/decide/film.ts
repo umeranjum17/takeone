@@ -361,7 +361,7 @@ export function filmOverrides(film: FilmDecision, themeFree: boolean, pinned: st
 
 /** The take's text for a render: its own title and captions when it sets them
  * (an empty title keeps none), else the film's AI text. */
-export function withFilmText<T extends { title?: string; captions?: { t: number; d?: number; text: string; position?: "top" | "bottom" }[]; film?: FilmDecision }>(meta: T): T {
+export function withFilmText<T extends { title?: string; captions?: { t: number; d?: number; text: string }[]; film?: FilmDecision }>(meta: T): T {
   const film = meta.film;
   if (film?.title === undefined && film?.captions === undefined) return meta;
   return { ...meta, title: meta.title ?? film.title, captions: meta.captions ?? film.captions };
