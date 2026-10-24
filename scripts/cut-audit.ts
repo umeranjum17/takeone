@@ -8,6 +8,7 @@ import { pathToFileURL } from "node:url";
 import { actionCameraMilliseconds } from "../src/beats/clock.ts";
 import { resolveCamera } from "../src/cli.ts";
 import { idleSqueezes, purposefulEnd, warp } from "../src/render/pace.ts";
+import { editTimeline } from "../src/render/edits.ts";
 import { sourceEdgeCuts } from "../src/render/render.ts";
 import { edgeSpeed, still, SWEEP_EDGE_SPEED } from "../src/camera/sweep.ts";
 import type { Beat, CameraFrame, TakeMeta } from "../src/camera/types.ts";
@@ -38,8 +39,12 @@ export function auditTake(dir: string, theme = "midnight", fps = 60): CutAudit {
   // The render's own end: an untrimmed take ends on its last purposeful action plus the outro.
   const start = meta.trim_start ?? 0, end = meta.trim_end ?? purposefulEnd(beats, start,
     meta.duration ?? Math.max(0, ...beats.map((beat) => beat.t1)), d);
+  // take.json cuts and timed speed run the render's own edit clock; typing speed needs the take's key
+  // events, so it is refused rather than audited on the wrong clock.
+  if (meta.speed?.some(s => s.kind === "type_speed")) throw new Error(`${dir}: cut-audit does not model speed type_speed`);
+  const clock = meta.cuts?.length || meta.speed?.length ? editTimeline(meta, beats, start, end, d) : undefined;
   const squeezes = idleSqueezes(beats, start, end, d);
-  const outTime = (t: number) => warp(t - start, squeezes, d.idle_speed);
+  const outTime = clock?.at ?? ((t: number) => warp(t - start, squeezes, d.idle_speed));
   const sourceAt = (t: number) => {
     let lo = start, hi = end;
     for (let k = 0; k < 40; k++) { const mid = (lo + hi) / 2; if (outTime(mid) < t) lo = mid; else hi = mid; }

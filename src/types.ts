@@ -47,6 +47,8 @@ export type Action =
       /** Recorded pointer samples on the event clock, preserving pauses and curves. */
       path?: { t: number; x: number; y: number }[];
       whole_object?: BBox;
+      /** The film shows this drag from mid-gesture: a trim or cut took its press away. */
+      resumed?: boolean;
       from: [number, number];
       to: [number, number];
       bbox: BBox;

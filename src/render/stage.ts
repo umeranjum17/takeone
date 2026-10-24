@@ -320,14 +320,14 @@ export function drawing(start: number, end: number, colour: string, clear: numbe
 
 export interface Click { t: number; x: number; y: number }
 
-/** Clicks and drag presses from beat actions (ms timestamps), deduplicated, in seconds. */
+/** Clicks and drag presses the film shows, from beat actions (ms timestamps), deduplicated, in seconds. */
 export function beatClicks(beats: Beat[]): Click[] {
   const clicks = new Map<string, Click>();
   for (const beat of beats) for (const action of beat.actions) {
-    const a = action as { k?: string; t?: number; t0?: number; x?: number; y?: number; from?: [number, number] };
+    const a = action as { k?: string; t?: number; t0?: number; x?: number; y?: number; from?: [number, number]; resumed?: boolean };
     const hit = a.k === "click" && a.t !== undefined && a.x !== undefined && a.y !== undefined
       ? { t: a.t / 1000, x: a.x, y: a.y }
-      : a.k === "drag" && a.t0 !== undefined && a.from ? { t: a.t0 / 1000, x: a.from[0], y: a.from[1] } : null;
+      : a.k === "drag" && a.t0 !== undefined && a.from && !a.resumed ? { t: a.t0 / 1000, x: a.from[0], y: a.from[1] } : null;
     if (hit) clicks.set(`${hit.t}:${hit.x}:${hit.y}`, hit);
   }
   return [...clicks.values()].sort((a, b) => a.t - b.t);

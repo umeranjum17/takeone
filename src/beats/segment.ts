@@ -25,7 +25,8 @@ export function actEnd(a: Action): number {
   return a.k === "click" || a.k === "shortcut" || a.k === "focus" || a.k === "cut" ? a.t : a.t1;
 }
 
-function trimDrag(a: Extract<Action, { k: "drag" }>, start: number, end: number): Action {
+/** The part of a drag inside [start, end], starting and ending where the pointer is at each boundary. */
+export function trimDrag(a: Extract<Action, { k: "drag" }>, start: number, end: number): Extract<Action, { k: "drag" }> {
   const t0 = Math.max(a.t0, start), t1 = Math.min(a.t1, end);
   if (t0 === a.t0 && t1 === a.t1) return a;
   const points = [{ t: a.t0, x: a.from[0], y: a.from[1] }, ...(a.path ?? []),
@@ -46,7 +47,7 @@ function trimDrag(a: Extract<Action, { k: "drag" }>, start: number, end: number)
     a.whole_object[0] + from[0] - a.from[0], a.whole_object[1] + from[1] - a.from[1],
     a.whole_object[2], a.whole_object[3],
   ];
-  return { ...a, t0, t1, from, to, path, bbox, ...(whole_object ? { whole_object } : {}) };
+  return { ...a, t0, t1, from, to, path, bbox, ...(whole_object ? { whole_object } : {}), ...(t0 > a.t0 ? { resumed: true } : {}) };
 }
 
 function actPoint(a: Action): [number, number] | null {

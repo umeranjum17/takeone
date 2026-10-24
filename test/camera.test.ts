@@ -175,6 +175,31 @@ test("render without trim_end uses the latest beat end", { timeout: 480_000, ski
       assert.ok(Math.abs(Number(decoded.trim()) - trace.length) <= 1,
         "saved camera and playable output share a clock");
     }
+    // A cut over the press keeps the part of the drag the film still shows: the wide camera and a
+    // portrait crop of it hold the cursor and the dragged object (the whole object moved with the
+    // pointer to 260) on every held frame after the cut, judged on the window the render shows.
+    const uncut = JSON.parse(await readFile(join(dir, "take.json"), "utf8"));
+    const cut = { t0: 4.8, t1: 6.2 }, shift = uncut.trim_start + cut.t1 - cut.t0;
+    await writeFile(join(dir, "take.json"), JSON.stringify({ ...uncut, cuts: [cut] }));
+    for (const [w, h] of [[320, 180], [180, 320]] as const) {
+      cli("render", "--set", "idle_speed=1", "--set", `out_w=${w}`, "--set", `out_h=${h}`, "--set", "ripple_ms=400");
+      // The press is cut away, so no press ripple where the footage resumes mid-drag; on the wide
+      // film the right press it still shows (6.5 s) keeps its own (the crop leaves that press out).
+      const ripples = (await readFile(join(dir, "clicks.ass"), "utf8")).split("\n").flatMap(line => {
+        const m = /^Dialogue: \d+,(\d+):(\d+):([\d.]+),/.exec(line);
+        return m ? [Number(m[1]) * 3600 + Number(m[2]) * 60 + Number(m[3])] : [];
+      });
+      const near = (t: number) => ripples.some(r => Math.abs(r - (t - shift)) < 0.05);
+      assert.ok(!near(cut.t1) && (h > w || near(6.5)), `${w}x${h}: press ripples at ${[...new Set(ripples)].slice(0, 12)}`);
+      const shape = { ...resolveTheme(undefined), out_w: w, out_h: h };
+      const stage = stageGeometry(320, 180, shape);
+      const recut: CameraFrame[] = JSON.parse(await readFile(join(dir, "camera.json"), "utf8"));
+      const afterCut = recut.filter(f => f.t >= 6.8 - shift && f.t <= 8.4 - shift)
+        .map(f => h > w ? sourceViewport(f, 320, 180, stage, shape) : f);
+      assert.ok(afterCut.length > 30, "check every held frame after the cut");
+      const lost = afterCut.find(f => !contains(f, [252, 82, 32, 40]) || !contains(f, [250, 70, 40, 40]));
+      assert.equal(lost, undefined, `${w}x${h}: a cut over the press lost the drag`);
+    }
     // With the recording length known, the export runs to the result's outro
     // (10.9 + 1.6) rather than stopping on the beat's last action (10.4).
     await writeFile(join(dir, "take.json"), JSON.stringify({ id: "duration", width: 320, height: 180, duration: 13 }));
