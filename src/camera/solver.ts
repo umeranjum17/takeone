@@ -1251,9 +1251,15 @@ function sampleCamera(
     }
     // Carry the view in lockstep with the dragged surface from where it is on
     // screen at the grab, so it lands whole on its drop target; the drop then
-    // holds like any arrival.
+    // holds like any arrival. A view that does not hold the grab (a drag the
+    // film first shows mid-gesture, its press trimmed or cut away, so the footage
+    // cuts to it there) starts the carry centred on the grab instead.
     if (drag) {
-      dragFrom ??= previousFiltered;
+      if (!dragFrom) {
+        const grab: Box = drag.whole_object ?? [drag.from[0] - 8, drag.from[1] - 8, 32, 40];
+        dragFrom = clippedFractions(project(toFrame(previousFiltered, width, height, d)), [grab])[0] === 0
+          ? previousFiltered : { ...previousFiltered, cx: grab[0] + grab[2] / 2, cy: grab[1] + grab[3] / 2 };
+      }
       const [px, py] = gesturePointer(drag, time);
       state = { ...dragFrom, cx: dragFrom.cx + px - drag.from[0], cy: dragFrom.cy + py - drag.from[1] };
       move = { from: state, to: state, mid: state, start: time, end: time, hop: false };
@@ -1581,8 +1587,9 @@ export function solveCameraDetailed(
     kind: quietShots.some((shot) => shot.beat === beat) ? beat.kind : "idle",
     actions: quietShots.some((shot) => shot.beat === beat) ? beat.actions : [],
   }));
-  // A crop-to-fill view carries every drag, even one whose shot merged away.
-  const drags = cropped(width, height, d) ? directed.flatMap(gestures) : [];
+  // A crop-to-fill view carries every drag the film shows, even one whose shot merged away or
+  // whose beat lost its shot to a cut.
+  const drags = cropped(width, height, d) ? visibleBeats.flatMap(gestures) : [];
   // Start with arrival-only masks, then extend them to the next emitted move,
   // not the next planned draft: rate limiting, deferral and drag can drop it.
   // Reframing can change which moves survive, so repeat until covered. Windows
@@ -1611,16 +1618,28 @@ export function solveCameraDetailed(
   if (cropped(width, height, d)) sampled = pressShots(sampled, directed, width, height, start, d, project, cuts);
   // Bookends are editorial boundaries, independent of action dwell, move caps
   // and pointer follow. Ease out before the outro, then hold the exact stage.
-  // Drag visibility is applied last, so a drag-safe viewport is never discarded.
+  // Drag visibility is applied last, so a drag-safe viewport is never discarded:
+  // a crop-to-fill view cannot widen to a drag, so its carried view is that
+  // viewport, and the bookends give way to it for the drag, easing to and from
+  // it over one move.
+  const carry = (framed: CameraFrame[]) => drags.length === 0 ? framed : framed.map((f, i) => {
+    const s = sampled[i]!, t = f.t + start;
+    const u = smooth(Math.max(0, ...drags.map(g =>
+      1 - Math.min(1, Math.max(g.t0 / 1000 - t, t - g.t1 / 1000, 0) / d.move_t_max))));
+    if (u === 0 || f === s) return f;
+    if (u === 1) return s;
+    const w = Math.exp(lerp(Math.log(f.w), Math.log(s.w), u)), h = w * d.out_h / d.out_w;
+    return { t: f.t, w, h, x: lerp(f.x + f.w / 2, s.x + s.w / 2, u) - w / 2, y: lerp(f.y + f.h / 2, s.y + s.h / 2, u) - h / 2 };
+  });
   const wide = d.outro_s > 0 ? toFrame({ cx: width / 2, cy: height / 2, z: 1 }, width, height, d) : null;
   const arrival = wide ? Math.max(0, end - start - d.outro_s) : 0;
   const moveStart = arrival - d.move_t_max;
   if (!wide || moveStart <= d.establish_s) {
-    return { frames: applyDragVisibility(wide ? sampled.map(f => ({ ...wide, t: f.t })) : sampled,
+    return { frames: applyDragVisibility(carry(wide ? sampled.map(f => ({ ...wide, t: f.t })) : sampled),
       visibleBeats, width, height, start, d), holds };
   }
   const origin = sampled[Math.floor(moveStart * d.fps)]!;
-  return { frames: applyDragVisibility(sampled.map(f => {
+  return { frames: applyDragVisibility(carry(sampled.map(f => {
     if (f.t < moveStart) return f;
     if (f.t >= arrival) return { ...wide, t: f.t };
     const u = smooth((f.t - moveStart) / (arrival - moveStart));
@@ -1629,7 +1648,7 @@ export function solveCameraDetailed(
     return { t: f.t, w, h,
       x: lerp(origin.x + origin.w / 2, wide.x + wide.w / 2, u) - w / 2,
       y: lerp(origin.y + origin.h / 2, wide.y + wide.h / 2, u) - h / 2 };
-  }), visibleBeats, width, height, start, d), holds };
+  })), visibleBeats, width, height, start, d), holds };
 }
 
 export function solveCamera(

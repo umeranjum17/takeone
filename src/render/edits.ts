@@ -2,7 +2,8 @@
 // One source-to-output clock for footage, camera, clicks and caption starts.
 import type { CameraDefaults } from "../camera/defaults.ts";
 import type { Beat, ManualZoom, TakeMeta } from "../camera/types.ts";
-import type { Event } from "../types.ts";
+import type { Action, Event } from "../types.ts";
+import { trimDrag } from "../beats/segment.ts";
 import { TYPE_GAP_MS } from "../perceive/actions.ts";
 import { idleSqueezes } from "./pace.ts";
 
@@ -134,6 +135,23 @@ export function editTimeline(meta: TakeMeta, beats: Beat[], start: number, end: 
   return { spans, duration, at, contains, filter };
 }
 
+/**
+ * A trim or cut across a drag keeps the part the film shows, from where the pointer is when the
+ * footage resumes to where it is when the footage stops, so the camera holds the dragged object and
+ * cursor on every shown frame of it. `shown` are the source spans the film plays, in seconds.
+ */
+export function clipDrags(beats: Beat[], shown: Span[]): Beat[] {
+  const inside = (t: number) => shown.some(s => t >= s.t0 * 1000 && t < s.t1 * 1000);
+  return beats.map(beat => ({ ...beat, actions: beat.actions.flatMap(action => {
+    const a = action as Action;
+    if (a.k !== "drag") return [action];
+    const kept = shown.filter(s => s.t1 * 1000 > a.t0 && s.t0 * 1000 < a.t1);
+    if (!kept.length) return [];
+    const drag = trimDrag(a, Math.max(a.t0, kept[0]!.t0 * 1000), Math.min(a.t1, kept.at(-1)!.t1 * 1000));
+    return [{ ...drag, ...(drag.path ? { path: drag.path.filter(p => p.t === drag.t0 || p.t === drag.t1 || inside(p.t)) } : {}) }];
+  }) }));
+}
+
 /** Remove discarded events, then warp every remaining timestamp on the same clock. */
 export function editBeats(beats: Beat[], clock: EditTimeline, start: number): Beat[] {
   const s = (t: number) => t < start ? t : start + clock.at(t);
@@ -146,11 +164,8 @@ export function editBeats(beats: Beat[], clock: EditTimeline, start: number): Be
       if (a.t !== undefined) return clock.contains(a.t / 1000) ? [{ ...a, t: ms(a.t) }] : [];
       if (a.t0 !== undefined && a.t1 !== undefined) {
         if (clock.at(a.t1 / 1000) <= clock.at(a.t0 / 1000)) return [];
-        // A press before trim is context; a press removed inside trim cannot be invented.
-        if ((a as { k?: string }).k === "drag" && a.t0 / 1000 >= start && !clock.contains(a.t0 / 1000)) return [];
-        return [{ ...a, t0: ms(a.t0), t1: ms(a.t1),
-          ...(a.path ? { path: a.path.filter(p => p.t / 1000 < start || clock.contains(p.t / 1000)).map(p => ({ ...p, t: ms(p.t) })) } : {}),
-        }];
+        // clipDrags already kept only the shown part of a drag's path.
+        return [{ ...a, t0: ms(a.t0), t1: ms(a.t1), ...(a.path ? { path: a.path.map(p => ({ ...p, t: ms(p.t) })) } : {}) }];
       }
       return [a];
     });

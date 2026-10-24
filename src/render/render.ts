@@ -21,7 +21,7 @@ import { firstFrameTimeMs, readEvents } from "../perceive/decode.ts";
 import { phoneTapShots } from "./phone.ts";
 import { edgeCuts, cutCount, holdPath, lastFrameSecond, videoFrames } from "./framing.ts";
 import { SAFE_INSET, safeAreaReport, type Rect } from "./safe-area.ts";
-import { typingBursts, editBeats, editTimeline, validateEdits, validateZooms } from "./edits.ts";
+import { clipDrags, typingBursts, editBeats, editTimeline, validateEdits, validateZooms } from "./edits.ts";
 import { applyPlan, readPlan, validatePlan } from "../decide/plan.ts";
 import { withFilmText } from "../decide/film.ts";
 import { runFfmpeg } from "./ffmpeg.ts";
@@ -165,7 +165,8 @@ export async function renderTake(dir: string, camera?: CameraDefaults, preview?:
   const outTime = clock?.at ?? ((t: number) => warp(t - trimStart, squeezes, d.idle_speed));
   const duration = outTime(trimEnd);
   const toasts = toastWindows(meta, outTime, trimStart, trimEnd);
-  let outBeats = clock ? editBeats(beats, clock, trimStart) : warpBeats(beats, trimStart, squeezes, d.idle_speed);
+  const shownBeats = clipDrags(beats, clock?.spans.filter(s => s.rate > 0) ?? [{ t0: trimStart, t1: trimEnd }]);
+  let outBeats = clock ? editBeats(shownBeats, clock, trimStart) : warpBeats(shownBeats, trimStart, squeezes, d.idle_speed);
   const byId = new Map(outBeats.map(b => [b.id, b]));
   const outDecisions = clock ? decisions.flatMap(decision => {
     const beat = byId.get(decision.beat);

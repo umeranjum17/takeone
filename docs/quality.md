@@ -156,7 +156,16 @@ and starts the retained path there. No negative video-relative action or path
 timestamps reach the camera solver; the original pre-boundary history remains
 in `analysis/actions.json`. An unreleased drag lasts until the known video/trim
 end, holding its final pointer position through the stationary tail. Released
-drags end at release or the trim end, whichever comes first. Overlapping shorter
+drags end at release or the trim end, whichever comes first. A rerender clips the
+same way at the trim and `cuts` in `take.json`: a drag keeps the part the film
+shows, from where the pointer is when the footage resumes to where it is when it
+stops, so a cut over the press or the release no longer drops the drag. A drag
+the film shows from mid-gesture (`resumed`, set wherever the boundary takes its
+press away) draws no press ripple, since the film never shows that press. A portrait
+crop carries such a drag from a view that holds the grab (the footage cuts there
+anyway), and the opening and closing bookends give way to the carried view for the
+drag; `node scripts/drag-audit.ts` checks the cursor and dragged card on every
+frame that shows the drag. Overlapping shorter
 actions and beat merging cannot shorten a retained drag's visibility protection;
 the checker covers its active tail even outside the owning beat's interval.
 The camera reserves the object's swept footprint ahead of the drag, rather
