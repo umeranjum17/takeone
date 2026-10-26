@@ -1,6 +1,6 @@
 # Make a motion film from screens
 
-Part of the takeone verification map. Source: `src/motion/`, `src/motion/hyperframes.ts`, `resources/motion/`, `resources/fonts/`, `resources/demo/`, `src/themes.ts`, `scripts/motion-proof.ts`, `scripts/motion-gates.ts`, `scripts/motion-edge.ts`, `scripts/motion-edge-proof.ts`, `scripts/motion-beat-proof.ts`, `scripts/motion-fragment-proof.ts`. Full recipe and gotchas: `docs/verification/motion-films.md`, `docs/motion.md`.
+Part of the takeone verification map. Source: `src/motion/`, `src/motion/hyperframes.ts`, `resources/motion/`, `resources/fonts/`, `resources/demo/`, `src/themes.ts`, `scripts/motion-proof.ts`, `scripts/motion-gates.ts`, `scripts/motion-edge.ts`, `scripts/motion-edge-proof.ts`, `scripts/motion-beat-proof.ts`, `scripts/motion-fragment-proof.ts`, `test/motion-hyperframes.test.ts`. Full recipe and gotchas: `docs/verification/motion-films.md`, `docs/motion.md`.
 
 ## How to get to it (user POV)
 
