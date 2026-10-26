@@ -15,6 +15,7 @@ import { edgeCuts, cutCount } from "../src/render/framing.ts";
 import { resolveTheme } from "../src/themes.ts";
 import { edgeSpeed, still, SWEEP_EDGE_SPEED } from "../src/camera/sweep.ts";
 import { contains, settledFrames } from "../scripts/check-framing.ts";
+import { auditTake } from "../scripts/cut-audit.ts";
 import { hasFfmpeg } from "./helpers.ts";
 
 // Only tests pass a fast preset and tiny output: shipped output stays
@@ -1192,6 +1193,36 @@ test("a push-in through text sweeps past every word it cuts instead of crawling"
     await rm(blank, { recursive: true, force: true });
     await rm(page, { recursive: true, force: true });
   }
+});
+
+test("the cut audit judges the view the stage shows, margin and all", { timeout: 180_000 }, async () => {
+  if (!hasFfmpeg()) throw new Error("requires system ffmpeg and ffprobe on PATH");
+  const W = 640, H = 360, d = { ...FAST, idle_speed: 1, outro_s: 0 };
+  const dir = await mkdtemp(join(tmpdir(), "takeone:audit-"));
+  try {
+    await mkdir(join(dir, "analysis"));
+    // Words run off the bottom edge, as a page does below the fold; the push-in lands on the empty top.
+    const page = new Uint8Array(W * H).fill(200);
+    for (let y = 300; y < H; y += 3) for (let x = 60; x + 30 < 600; x += 36) page.fill(40, y * W + x, y * W + x + 30);
+    await writeFile(join(dir, "page.gray"), page);
+    execFileSync("ffmpeg", ["-v", "error", "-stream_loop", "119", "-f", "rawvideo", "-pix_fmt", "gray", "-s", `${W}x${H}`, "-r", "30",
+      "-i", join(dir, "page.gray"), "-c:v", "mpeg4", "-q:v", "2", "-f", "matroska", "-y", join(dir, "screen.webm")]);
+    await writeFile(join(dir, "take.json"), JSON.stringify({ id: "audit", width: W, height: H, trim_start: 0, trim_end: 3.6,
+      zooms: [{ t0: 0.8, t1: 3.6, bbox: [260, 40, 120, 90], level: 2 }] }));
+    await writeFile(join(dir, "analysis/beats.json"), "[]");
+    await writeFile(join(dir, "analysis/decisions.jsonl"), "");
+    await renderTake(dir, d);
+    const frames = JSON.parse(await readFile(join(dir, "camera.json"), "utf8")) as CameraFrame[];
+    // The raw source crop leaves its rest at the bottom edge, inside the words, while the stage still
+    // shows the whole screen in its margin: judged raw, the push-in would crawl through them.
+    const cuts = sourceEdgeCuts(dir, { width: W, height: H } as Parameters<typeof sourceEdgeCuts>[1], (t) => t, true)!;
+    const raw = frames.slice(1).filter((f, i) => !still(frames[i]!, f, d.out_w, d.out_h, d.fps)
+      && edgeSpeed(frames[i]!, f, d.out_w, d.out_h, d.fps) < SWEEP_EDGE_SPEED && cuts(f, f.t, f.t) > 0);
+    assert.ok(raw.length > 0, "control: the raw crop crawls through the words");
+    const audit = auditTake(dir, d);
+    assert.deepEqual([audit.cutAtRest, audit.cutCreeping], [0, 0], JSON.stringify(audit.runs));
+    assert.ok(audit.cutSweeping > 0, "the shown view still crosses the words, at a sweep");
+  } finally { await rm(dir, { recursive: true, force: true }); }
 });
 
 test("the safe-area gate judges the text a push-in paints", { timeout: 120_000 }, async () => {

@@ -11,6 +11,8 @@ import { resolveCamera } from "../src/cli.ts";
 import { idleSqueezes, purposefulEnd, warp } from "../src/render/pace.ts";
 import { editTimeline } from "../src/render/edits.ts";
 import { sourceEdgeCuts } from "../src/render/render.ts";
+import { bandEligible, sourceViewport, stageGeometry, takeCaptions } from "../src/render/stage.ts";
+import { withFilmText } from "../src/decide/film.ts";
 import { edgeSpeed, still, SWEEP_EDGE_SPEED } from "../src/camera/sweep.ts";
 import type { Beat, CameraFrame, TakeMeta } from "../src/camera/types.ts";
 import type { CameraDefaults } from "../src/camera/defaults.ts";
@@ -61,6 +63,14 @@ export function auditTake(dir: string, d: CameraDefaults = resolveCamera(dir, []
     + `but camera.json runs ${last} s; set trim_end in take.json to the rendered end`);
   const cuts = sourceEdgeCuts(dir, meta, t => sourceAt(t - start), true);
   if (!cuts) throw new Error(`${dir}: no screen.webm to audit`);
+  // Judge the view the card shows, as the render's guard does: camera frames are source crops, and
+  // without a caption band the stage margin shows around them until the camera pushes in.
+  const phone = meta.device !== undefined && meta.height > meta.width;
+  const shown = withFilmText(meta);
+  const banded = !phone && bandEligible(meta.width, meta.height, d)
+    && takeCaptions(clock ? { ...shown, captions: shown.captions?.filter(c => clock.contains(c.t)) } : shown, outTime, duration).length > 0;
+  const stage = stageGeometry(meta.width, meta.height, d);
+  const view = (f: CameraFrame) => banded ? f : sourceViewport(f, meta.width, meta.height, stage, d);
   const audit: CutAudit = { take: basename(dir), frames: frames.length, cut: 0, cutAtRest: 0, cutCreeping: 0,
     cutSweeping: 0, trimEnd: end, runs: { atRest: [], creeping: [], sweeping: [] } };
   const open: Record<string, [number, number] | undefined> = {};
@@ -70,7 +80,7 @@ export function auditTake(dir: string, d: CameraDefaults = resolveCamera(dir, []
   };
   frames.forEach((f, i) => {
     const p = frames[Math.max(0, i - 1)]!;
-    const kind = cuts({ x: f.x, y: f.y, w: f.w, h: f.h } as never, start + f.t, start + f.t) === 0 ? undefined
+    const kind = cuts(view(f), start + f.t, start + f.t) === 0 ? undefined
       : still(p, f, d.out_w, d.out_h, fps) ? "atRest"
         : edgeSpeed(p, f, d.out_w, d.out_h, fps) >= SWEEP_EDGE_SPEED ? "sweeping" : "creeping";
     for (const k of ["atRest", "creeping", "sweeping"] as const) close(k, i, k === kind);

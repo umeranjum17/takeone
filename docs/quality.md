@@ -94,7 +94,9 @@ this reports goal status but does not change the baseline ratchet gate.
   unseen. Passing it does not prove VMAF ≥95; only a libvmaf ffmpeg measures that.
   Candidate and golden frame counts must match; changed duration requires review.
 - Text cuts: the all-frame audit (`scripts/cut-audit.ts`) on every camera frame
-  of each fixture's render, with the same camera settings. Frames whose crop
+  of each fixture's render, with the same camera settings. It judges the view
+  the card shows (the stage margin included, as the render's guard does), not the
+  raw source crop. Frames whose visible
   edge slices a word or control count at rest and while moving under 120 output
   px/s; goal 0 each. The audit binds its timeline to the render's own end and
   fails when that end does not reproduce `camera.json`'s clock or a source frame
