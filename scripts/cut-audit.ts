@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // All-frame text-cut audit of rendered takes: the repo's own edgeCuts (via sourceEdgeCuts) on every
-// camera frame, split by how fast the card edge is sweeping. usage: node scripts/cut-audit.ts <take-dir>...
+// camera frame, split by how fast the card edge is sweeping. usage: node scripts/cut-audit.ts [--set k=v]... <take-dir>...
+// Pass the same --set overrides the take was rendered with.
 // A take dir is a rendered one: take.json, analysis/beats.json, screen.webm and camera.json.
 import { readFileSync } from "node:fs";
 import { basename, join } from "node:path";
@@ -91,9 +92,10 @@ export function report(audits: CutAudit[]): string {
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  const dirs = process.argv.slice(2);
-  if (!dirs.length) throw new Error("usage: node scripts/cut-audit.ts <rendered-take-dir>...");
-  const audits = dirs.map(dir => auditTake(dir));
+  const args = process.argv.slice(2), sets: string[] = [], dirs: string[] = [];
+  for (let i = 0; i < args.length; i++) if (args[i] === "--set") sets.push(args[++i]!); else dirs.push(args[i]!);
+  if (!dirs.length) throw new Error("usage: node scripts/cut-audit.ts [--set k=v]... <rendered-take-dir>...");
+  const audits = dirs.map(dir => auditTake(dir, resolveCamera(dir, sets, "midnight")));
   for (const a of audits) console.log(JSON.stringify(a));
   console.log(report(audits));
   process.exitCode = audits.some(a => a.cutAtRest + a.cutCreeping) ? 1 : 0;
