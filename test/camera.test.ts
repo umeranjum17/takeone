@@ -16,6 +16,7 @@ import { resolveTheme } from "../src/themes.ts";
 import { edgeSpeed, still, SWEEP_EDGE_SPEED } from "../src/camera/sweep.ts";
 import { contains, settledFrames } from "../scripts/check-framing.ts";
 import { auditTake } from "../scripts/cut-audit.ts";
+import { cameraMetrics } from "../scripts/quality.ts";
 import { hasFfmpeg } from "./helpers.ts";
 
 // Only tests pass a fast preset and tiny output: shipped output stays
@@ -1389,4 +1390,21 @@ test("a manual zoom is not widened by scroll repaints or changes far from the ge
   assert.ok(held([{ t: 4.2, bbox: [1500, 1100, 400, 700] }]).h > plain.h + 1);
   // A repaint during the scroll and a change far from the click leave the hold as it was.
   assert.deepEqual(held([{ t: 2, bbox: [1300, 500, 700, 1300] }, { t: 4.4, bbox: [2200, 1100, 600, 700] }]), plain);
+});
+
+// A push-in to one corner, a pan to the next action across the page and the outro used to turn the
+// page edge back without a shot's rest (6 pan bounces here): centre and zoom eased apart in the
+// move and in the spring, a pan back started before a min_shot rest, and the outro left a shot that
+// had only just landed.
+test("push-ins, a pan across the page and the outro never bounce the page edge", () => {
+  const click = (id: string, t: number, bbox: Zone["bbox"]): Beat => ({ id, t0: t - 0.5, t1: t + 1, anchor_t: t, kind: "click",
+    zones: [zone(id, bbox)], actions: [{ k: "click", t: t * 1000, x: bbox[0] + 90, y: bbox[1] + 60, window_cls: "x" } as Action] });
+  const a = click("a", 3, [3300, 200, 180, 120]), b = click("b", 4.4, [500, 1400, 180, 120]);
+  const frames = solveCamera([a, b], [decision(a), decision(b)], { width: 3840, height: 2160, trim_end: 9.4 } as Parameters<typeof solveCamera>[2]);
+  const at = (t: number) => frames[Math.round(t * DEFAULTS.fps)]!;
+  assert.ok(contains(at(3.6), a.zones[0]!.bbox) && at(3.6).w < 3840 * 0.6, "pushes in on the first click");
+  assert.ok(contains(at(6.6), b.zones[0]!.bbox) && at(6.6).w < 3840 * 0.6, "then on the second");
+  assert.equal(frames.at(-1)!.w, 3840, "and the outro closes on the whole stage");
+  const metrics = cameraMetrics(frames, DEFAULTS.fps, DEFAULTS.out_w, DEFAULTS.out_h, DEFAULTS.min_shot);
+  assert.equal(metrics.pan_bounce.value, 0);
 });

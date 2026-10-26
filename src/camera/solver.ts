@@ -56,6 +56,23 @@ const clamp = (value: number, min: number, max: number) =>
   Math.max(min, Math.min(max, value));
 const lerp = (a: number, b: number, u: number) => a + (b - a) * u;
 const smooth = (u: number) => u * u * u * (u * (u * 6 - 15) + 10);
+/** Centre progress for a zoom about the two views' shared fixed point: the centre moves in step
+ * with the view width, so the projected page edge never turns back mid-move (the pan-bounce gate). */
+const along = (wA: number, wB: number, w: number, u: number) =>
+  Math.abs(Math.log(wB / wA)) < 1e-6 ? u : (w - wA) / (wB - wA);
+/** The page origin's place on screen, per axis: the quality gate's pan measure. */
+const origin = (f: CameraFrame, d: CameraDefaults) => [-f.x * d.out_w / f.w, -f.y * d.out_h / f.h] as const;
+/** Whether the view moves between two output frames, by the quality gate's rest (1 output px/s of
+ * page origin, 0.005 ln/s of zoom). */
+function moving(p: CameraFrame, q: CameraFrame, d: CameraDefaults): boolean {
+  const [px, py] = origin(p, d), [qx, qy] = origin(q, d);
+  return Math.max(Math.abs(qx - px), Math.abs(qy - py)) * d.fps >= 1 || Math.abs(Math.log(q.w / p.w)) * d.fps >= 0.005;
+}
+/** Eased blend of two views: logarithmic zoom, centre along the fixed-point path. */
+function blend(from: CameraState, to: CameraState, u: number): CameraState {
+  const z = Math.exp(lerp(Math.log(from.z), Math.log(to.z), u)), s = along(1 / from.z, 1 / to.z, 1 / z, u);
+  return { cx: lerp(from.cx, to.cx, s), cy: lerp(from.cy, to.cy, s), z };
+}
 const identity = (frame: CameraFrame): CameraFrame => frame;
 
 type Box = Zone["bbox"];
@@ -517,8 +534,7 @@ export function applyManualZooms(frames: CameraFrame[], take: TakeMeta, d: Camer
       : t > hold.b ? [state(f), hold.stages.at(-1)!.target, 1 - smooth((t - hold.b) / hold.leave)]
       : k > 0 && t < stage.t ? [hold.stages[k - 1]!.target, stage.target, smooth((t - stage.go) / (stage.t - stage.go))]
       : [stage.target, stage.target, 1];
-    return { ...toFrame({ cx: lerp(from.cx, to.cx, u), cy: lerp(from.cy, to.cy, u),
-      z: Math.exp(lerp(Math.log(from.z), Math.log(to.z), u)) }, take.width, take.height, d), t: f.t };
+    return { ...toFrame(blend(from, to, u), take.width, take.height, d), t: f.t };
   });
 }
 
@@ -915,7 +931,7 @@ function createMove(from: CameraState, to: CameraState, arrival: number, baseW: 
   return { from, to, mid, start, end: start + duration, hop };
 }
 
-/** MOVE rule: smootherstep centre interpolation with logarithmic zoom. */
+/** MOVE rule: smootherstep, logarithmic zoom about the views' fixed point. */
 function interpolateMove(move: Move, time: number): CameraState {
   let u = clamp((time - move.start) / (move.end - move.start), 0, 1);
   let from = move.from;
@@ -929,12 +945,7 @@ function interpolateMove(move: Move, time: number): CameraState {
       from = move.mid;
     }
   }
-  u = smooth(u);
-  return {
-    cx: lerp(from.cx, to.cx, u),
-    cy: lerp(from.cy, to.cy, u),
-    z: Math.exp(lerp(Math.log(from.z), Math.log(to.z), u)),
-  };
+  return blend(from, to, smooth(u));
 }
 
 /**
@@ -1036,25 +1047,27 @@ function followPointer(
 
 /** The same constrained, critically damped step for sampling and preparation planning. */
 function filterState(requested: CameraState, previous: CameraState,
-  velocity: { cx: number; cy: number; lz: number }, dt: number,
+  velocity: { x: number; y: number; w: number }, dt: number,
   width: number, height: number, d: CameraDefaults): [CameraState, number] {
-  const crop = toFrame(requested, width, height, d);
-  const [cx, vx] = spring(previous.cx, velocity.cx, crop.x + crop.w / 2, dt, d.lowpass_omega);
-  const [cy, vy] = spring(previous.cy, velocity.cy, crop.y + crop.h / 2, dt, d.lowpass_omega);
-  const [lz, vz] = spring(Math.log(previous.z), velocity.lz,
-    Math.log(baseWidth(width, height, d) / crop.w), dt, d.lowpass_omega);
-  Object.assign(velocity, { cx: vx, cy: vy, lz: vz });
-  return [{ cx, cy, z: Math.exp(lz) }, lz];
+  // Spring the crop's edges and width alike: a zoom about a fixed point stays one through the
+  // spring, and a monotone request stays monotone, so the page edge never turns back.
+  const crop = toFrame(requested, width, height, d), from = toFrame(previous, width, height, d);
+  const [x, vx] = spring(from.x, velocity.x, crop.x, dt, d.lowpass_omega);
+  const [y, vy] = spring(from.y, velocity.y, crop.y, dt, d.lowpass_omega);
+  const [w, vw] = spring(from.w, velocity.w, crop.w, dt, d.lowpass_omega);
+  const h = w * d.out_h / d.out_w, z = baseWidth(width, height, d) / w;
+  Object.assign(velocity, { x: vx, y: vy, w: vw });
+  return [{ cx: x + w / 2, cy: y + h / 2, z }, Math.log(z)];
 }
 
 /** Pass a carried view through unfiltered, handing its motion on to the spring. */
 function carried(requested: CameraState, previous: CameraState,
-  velocity: { cx: number; cy: number; lz: number }, dt: number,
+  velocity: { x: number; y: number; w: number }, dt: number,
   width: number, height: number, d: CameraDefaults): [CameraState, number] {
   const crop = toFrame(requested, width, height, d);
   const state = { cx: crop.x + crop.w / 2, cy: crop.y + crop.h / 2, z: baseWidth(width, height, d) / crop.w };
-  if (dt > 0) Object.assign(velocity, { cx: (state.cx - previous.cx) / dt,
-    cy: (state.cy - previous.cy) / dt, lz: (Math.log(state.z) - Math.log(previous.z)) / dt });
+  const from = toFrame(previous, width, height, d);
+  if (dt > 0) Object.assign(velocity, { x: (crop.x - from.x) / dt, y: (crop.y - from.y) / dt, w: (crop.w - from.w) / dt });
   return [state, Math.log(state.z)];
 }
 
@@ -1062,7 +1075,7 @@ function carried(requested: CameraState, previous: CameraState,
 function springTail(move: Move, width: number, height: number, d: CameraDefaults): number {
   const duration = move.end - move.start, step = 1 / d.fps;
   const target = toFrame(move.to, width, height, d);
-  const velocity = { cx: 0, cy: 0, lz: 0 };
+  const velocity = { x: 0, y: 0, w: 0 };
   let state = move.from;
   for (let time = step; time < duration + Math.log(1e6) / d.lowpass_omega; time += step) {
     [state] = filterState(time < duration ? interpolateMove(move, move.start + time) : move.to,
@@ -1076,7 +1089,7 @@ function springTail(move: Move, width: number, height: number, d: CameraDefaults
 
 /** First whole-subject sample along the existing move/spring, with preceding focus retained. */
 function preparationTime(from: CameraState, to: CameraState, outgoing: Zone, incoming: Zone,
-  velocity: { cx: number; cy: number; lz: number }, width: number, height: number,
+  velocity: { x: number; y: number; w: number }, width: number, height: number,
   d: CameraDefaults, project: (frame: CameraFrame) => CameraFrame,
   plan: { start: number; beats: Beat[]; decisions: Map<string, Decision>;
     reveals: { start: number; end: number }[]; baseW: number;
@@ -1143,9 +1156,11 @@ function sampleCamera(
   const deferLimit = d.move_t_max + Math.log(1e6) / d.lowpass_omega + 1;
   let targetIndex = 0;
   const velocity = { x: 0, y: 0 };
-  const filterVelocity = { cx: 0, cy: 0, lz: 0 };
+  const filterVelocity = { x: 0, y: 0, w: 0 };
   let lastZoomMotion = start;
   let lastZoomDirection = 0;
+  // Per axis, like zoom: the last time and direction the page origin moved on screen.
+  const lastPan = [start, start], lastPanDirection = [0, 0];
   let lastFollow = -Infinity;
   // A followed view is held until the view has settled and then rested a shot's length; its rest
   // view must be clean for all of that, and shows the pointer.
@@ -1239,6 +1254,12 @@ function sampleCamera(
       const target = targets[targetIndex]!;
       // A shot due before a drag's release is stale once the carried view has replaced it.
       if (drags.some((g) => target.t <= g.t1 / 1000 && time > g.t1 / 1000)) { targetIndex++; continue; }
+      // The move in flight already goes there: restarting it from the spring's view would step the
+      // request back and bounce the view.
+      if (move && time < move.end && (["cx", "cy", "z"] as const).every(k => Math.abs(move!.to[k] - target.state[k]) < 1e-6)) {
+        targetIndex++;
+        continue;
+      }
       const urgent = Boolean(target.reveal);
       const prepared = preparations.get(target);
       if (!urgent && move && previousTime < heldUntil
@@ -1247,8 +1268,13 @@ function sampleCamera(
         && Math.sign(Math.log(target.state.z / state.z)) === -lastZoomDirection;
       // Include result and breathe targets: arrivals alone do not enforce
       // a visible hold between opposite zooms once the spring settles.
-      const zoomHold = reversing ? Math.max(heldUntil, lastZoomMotion + d.min_shot) : heldUntil;
-      const earliest = urgent ? Math.max(start + d.establish_s, target.startAfter ?? start, previousTime)
+      // A pan back the way the page last moved waits out a shot's rest, even for a reveal: else it
+      // reads as a bounce.
+      const here = origin(toFrame(state, width, height, d), d), there = origin(toFrame(target.state, width, height, d), d);
+      const panHold = Math.max(-Infinity, ...[0, 1].filter(k => Math.abs(there[k]! - here[k]!) >= 1
+        && Math.sign(there[k]! - here[k]!) === -lastPanDirection[k]!).map(k => lastPan[k]! + d.min_shot));
+      const zoomHold = Math.max(heldUntil, reversing ? lastZoomMotion + d.min_shot : -Infinity, panHold);
+      const earliest = urgent ? Math.max(start + d.establish_s, target.startAfter ?? start, previousTime, panHold)
         : Math.max(start + d.establish_s, target.startAfter ?? 0, zoomHold, previousTime,
           lastFollow + followRest);
       let candidateMove = createMove(state, target.state, target.t, baseW, d, earliest);
@@ -1421,6 +1447,11 @@ function sampleCamera(
     previousFiltered = state;
     previousTime = time;
     frames.push({ ...toFrame(state, width, height, d), t: time - start });
+    const [p, q] = frames.slice(-2);
+    if (q) origin(q, d).forEach((o, k) => {
+      const v = (o - origin(p!, d)[k]!) * d.fps;
+      if (Math.abs(v) >= 1) { lastPan[k] = time; lastPanDirection[k] = Math.sign(v); }
+    });
   }
   return frames;
 }
@@ -1634,8 +1665,7 @@ function pressShots(frames: CameraFrame[], beats: Beat[], width: number, height:
     const [from, to, u] = t < hold.a ? [hold.from ?? state(f), hold.target, hold.enter > 0 ? smooth((t - hold.s0) / hold.enter) : 1]
       : t > hold.b ? [hold.to ?? state(f), hold.target, 1 - smooth((t - hold.b) / hold.leave)]
       : [hold.target, hold.target, 1];
-    return { ...toFrame({ cx: lerp(from.cx, to.cx, u), cy: lerp(from.cy, to.cy, u),
-      z: Math.exp(lerp(Math.log(from.z), Math.log(to.z), u)) }, width, height, d), t: f.t };
+    return { ...toFrame(blend(from, to, u), width, height, d), t: f.t };
   });
 }
 
@@ -1712,15 +1742,22 @@ export function solveCameraDetailed(
       1 - Math.min(1, Math.max(g.t0 / 1000 - t, t - g.t1 / 1000, 0) / d.move_t_max))));
     if (u === 0 || f === s) return f;
     if (u === 1) return s;
-    const w = Math.exp(lerp(Math.log(f.w), Math.log(s.w), u)), h = w * d.out_h / d.out_w;
-    return { t: f.t, w, h, x: lerp(f.x + f.w / 2, s.x + s.w / 2, u) - w / 2, y: lerp(f.y + f.h / 2, s.y + s.h / 2, u) - h / 2 };
+    const w = Math.exp(lerp(Math.log(f.w), Math.log(s.w), u)), h = w * d.out_h / d.out_w, k = along(f.w, s.w, w, u);
+    return { t: f.t, w, h, x: lerp(f.x + f.w / 2, s.x + s.w / 2, k) - w / 2, y: lerp(f.y + f.h / 2, s.y + s.h / 2, k) - h / 2 };
   });
   const wide = d.outro_s > 0 ? toFrame({ cx: width / 2, cy: height / 2, z: 1 }, width, height, d) : null;
   // The outro gives way to the last action: its pull-back waits until the last shot has landed and
   // held for min_shot, and when the take ends first the film ends on that shot. Only a take with no
   // shot at all and no room for the outro holds the whole stage throughout.
   const settled = quietShots.length ? Math.max(...quietShots.map(shot => shot.arrival)) - start + d.min_shot : 0;
-  const moveStart = wide ? Math.max(end - start - d.outro_s - d.move_t_max, settled) : 0;
+  const planned = wide ? Math.max(end - start - d.outro_s - d.move_t_max, settled) : 0;
+  // The shot lands when the solved view stops, not at its planned arrival: wait out a move still
+  // running, then a min_shot rest from its last moving frame.
+  let still = Math.min(sampled.length, Math.floor(planned * d.fps));
+  while (still < sampled.length && still > 0 && moving(sampled[still - 1]!, sampled[still]!, d)) still++;
+  let last = Math.min(still, sampled.length - 1);
+  while (last > 0 && !moving(sampled[last - 1]!, sampled[last]!, d)) last--;
+  const moveStart = wide && last > 0 ? Math.max(planned, sampled[last]!.t + d.min_shot) : planned;
   const arrival = Math.min(end - start, moveStart + d.move_t_max);
   if (wide && quietShots.length && moveStart + d.move_t_min > end - start) {
     return { frames: applyDragVisibility(carry(sampled), visibleBeats, width, height, start, d), holds };
@@ -1735,10 +1772,10 @@ export function solveCameraDetailed(
     if (f.t >= arrival) return { ...wide, t: f.t };
     const u = smooth((f.t - moveStart) / (arrival - moveStart));
     const w = Math.exp(lerp(Math.log(origin.w), Math.log(wide.w), u));
-    const h = w * d.out_h / d.out_w;
+    const h = w * d.out_h / d.out_w, k = along(origin.w, wide.w, w, u);
     return { t: f.t, w, h,
-      x: lerp(origin.x + origin.w / 2, wide.x + wide.w / 2, u) - w / 2,
-      y: lerp(origin.y + origin.h / 2, wide.y + wide.h / 2, u) - h / 2 };
+      x: lerp(origin.x + origin.w / 2, wide.x + wide.w / 2, k) - w / 2,
+      y: lerp(origin.y + origin.h / 2, wide.y + wide.h / 2, k) - h / 2 };
   })), visibleBeats, width, height, start, d), holds };
 }
 
