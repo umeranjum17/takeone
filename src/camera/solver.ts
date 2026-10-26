@@ -3,7 +3,7 @@ import { SWEEP_CLEARANCE } from "./sweep.ts";
 import { fillWidth, minStageMargin, stageFrames, stageGeometry } from "../render/stage.ts";
 import { PANEL_MAX_AREA, WIN_MAX_COVER } from "../beats/zones.ts";
 import { DEFAULTS, type CameraDefaults } from "./defaults.ts";
-import { unionBBox } from "../types.ts";
+import { unionBBox, type Action } from "../types.ts";
 import type {
   Beat,
   CameraFrame,
@@ -76,6 +76,8 @@ function labelBoxes(beat: Beat, width: number, height: number): Box[] {
     .map((box) => [box.join(), box])).values()];
 }
 export const HIGH_CLIP_FRACTION = 0.9;
+/** Grid steps per axis for a readable push-in's edge search: about 1% of a 4K screen apart at a 2x crop. */
+const READABLE_STEPS = 48;
 
 /** Fraction of each UI box outside a crop. A hold permits whole boxes or tiny edge slivers. */
 export function clippedFractions(view: Pick<CameraFrame, "x" | "y" | "w" | "h">, boxes: Box[]): number[] {
@@ -136,7 +138,7 @@ function compose(state: CameraState, subject: Zone, boxes: Box[], width: number,
   const avoid = boxes.filter((box) => box[2] * box[3] > screen * LABEL_AREA_MAX
     && box[2] * box[3] <= screen * PANEL_MAX_AREA);
   const best = wholeCrop(desired.w, baseW, d.out_w / d.out_h, subject.bbox, small, width, height,
-    (crop) => !cuts || cuts(project(crop), at, until) === 0, avoid, project);
+    (crop) => !cuts || cuts(project(crop), at, until) === 0, avoid, project, 0, cuts !== undefined);
   if (best) return { cx: best.x + best.w / 2, cy: best.y + best.h / 2, z: baseW / best.w };
   const [sx, sy, sw, sh] = subject.bbox;
   return cropped(width, height, d)
@@ -156,10 +158,15 @@ function compose(state: CameraState, subject: Zone, boxes: Box[], width: number,
  * `project` maps a raw crop to what the viewer sees (the stage adds a margin around pushed-in
  * crops): the edge tests run on the projected crop, so a raw edge that looks clear but renders
  * inside a rail still fails. Positions and cluster scoring stay in raw camera space.
- * `step` adds positions that many pixels apart, for an `accept` with no boxes to align to. */
+ * `step` adds positions that many pixels apart, for an `accept` with no boxes to align to.
+ * `readable`: `accept` is a real no-cut-text check, so a crop at this width that holds the
+ * subject whole and cuts no glyph may slice other boxes (a paragraph, a card beside the action)
+ * rather than widen past them: a push-in crops its surroundings the way an editor would, and the
+ * text check keeps every edge in a gap between words or lines. A box-clean crop still wins at
+ * the same width. */
 export function wholeCrop(w0: number, maxW: number, aspect: number, subject: Box, boxes: Box[], width: number, height: number,
   accept: (crop: CameraFrame) => boolean = () => true, avoid: Box[] = [],
-  project: (frame: CameraFrame) => CameraFrame = identity, step = 0): CameraFrame | undefined {
+  project: (frame: CameraFrame) => CameraFrame = identity, step = 0, readable = false): CameraFrame | undefined {
   const [sx, sy, sw, sh] = subject;
   const solid = avoid.flatMap((box): Box[] => {
     const [bx, by, bw, bh] = box;
@@ -240,6 +247,26 @@ export function wholeCrop(w0: number, maxW: number, aspect: number, subject: Box
       }
     }
     if (best) return best;
+    if (readable) {
+      const grid = (s: number, span: number, view: number, size: number): number[] => {
+        if (view >= size) return [(size - view) / 2];
+        const low = Math.max(0, s + span - view), high = Math.min(size - view, s);
+        if (low > high) return [];
+        const centre = clamp(s + span / 2 - view / 2, low, high);
+        return [centre, ...Array.from({ length: READABLE_STEPS + 1 }, (_, i) => low + (high - low) * i / READABLE_STEPS)];
+      };
+      let readableCrop: CameraFrame | undefined, readableScore = Infinity;
+      const gy = grid(sy, sh, h, height);
+      for (const x of grid(sx, sw, w, width)) {
+        for (const y of gy) {
+          const score = Math.pow((x + w / 2 - sx - sw / 2) / w, 2) + Math.pow((y + h / 2 - sy - sh / 2) / h, 2);
+          if (score >= readableScore) continue;
+          const crop = { t: 0, x, y, w, h };
+          if (accept(crop)) { readableCrop = crop; readableScore = score; }
+        }
+      }
+      if (readableCrop) return readableCrop;
+    }
     fallback ??= loose;
     if (w >= maxW) return fallback;
   }
@@ -417,7 +444,10 @@ export function moveDuration(drift: number, d: CameraDefaults = DEFAULTS): numbe
  * box during the approach holds the camera until it settles, then the move starts.
  * A change that paints partly in the box but past the hold (a popup opened in
  * it) widens the hold to the box with it, arriving on the frame it paints, as a
- * planned shot frames a field's popup with its modal.
+ * planned shot frames a field's popup with its modal. Content a scroll repaints,
+ * up to a dwell after it stops (reveal-on-scroll), is the page moving under the box, and a
+ * change out of reach of the last pointed gesture (a live demo animating elsewhere on the
+ * page) is not one it opened; neither widens a hold.
  */
 export function applyManualZooms(frames: CameraFrame[], take: TakeMeta, d: CameraDefaults, beats: Beat[] = [],
   changes: { t: number; bbox: Zone["bbox"] }[] = []): CameraFrame[] {
@@ -427,6 +457,11 @@ export function applyManualZooms(frames: CameraFrame[], take: TakeMeta, d: Camer
     .sort((a, b) => a.t0 - b.t0);
   if (!zooms.length) return frames;
   const baseW = baseWidth(take.width, take.height, d);
+  // Where each gesture acted (action times are ms), if it pointed anywhere: a popup it opens paints within reach of that.
+  const pointed = beats.flatMap(beat => (beat.actions as Action[]).flatMap((a): { t: number; at?: Box }[] =>
+    a.k === "click" ? [{ t: a.t / 1000, at: [a.x, a.y, 0, 0] }] : a.k === "drag" ? [{ t: a.t1 / 1000, at: [...a.to, 0, 0] }]
+      : a.k === "type" ? [{ t: a.t0 / 1000, at: a.region }] : a.k === "shortcut" ? [{ t: a.t / 1000 }] : []))
+    .sort((a, b) => a.t - b.t);
   const state = (f: CameraFrame): CameraState => ({ cx: f.x + f.w / 2, cy: f.y + f.h / 2, z: baseW / f.w });
   const at = (t: number) => state(frames[clamp(Math.round((t - start) * d.fps), 0, frames.length - 1)]!);
   const holds = zooms.map((z, i) => {
@@ -446,8 +481,16 @@ export function applyManualZooms(frames: CameraFrame[], take: TakeMeta, d: Camer
     const go = Math.max(s0, ...painted);
     const a = go + enter, b = Math.max(a, Math.min(end, z.t1));
     const stages = [{ go: a, t: a, target }];
+    const scrolling = (t: number) => beats.some(beat => beat.kind === "scroll" && t >= beat.t0 && t <= beat.t1 + d.dwell);
+    const reach = 0.25 * Math.min(take.width, take.height);
+    const unprompted = (change: { t: number; bbox: Box }) => {
+      const at = pointed.findLast(g => g.t <= change.t + 1 / d.fps)?.at;
+      if (!at) return false;
+      const [x, y, w, h] = change.bbox;
+      return Math.hypot(Math.max(x - at[0] - at[2], 0, at[0] - x - w), Math.max(y - at[1] - at[3], 0, at[1] - y - h)) > reach;
+    };
     for (const change of changes) {
-      if (change.t <= s0 || change.t > b || !inBox(change.bbox)
+      if (change.t <= s0 || change.t > b || !inBox(change.bbox) || scrolling(change.t) || unprompted(change)
         || change.bbox[2] * change.bbox[3] > PANEL_MAX_AREA * take.width * take.height
         || clippedFractions(toFrame(target, take.width, take.height, d), [change.bbox])[0] === 0) continue;
       const union = mergeZones(box, { ...box, bbox: change.bbox }), next = aim(union);
@@ -503,6 +546,33 @@ function buildShots(
       arrival: Math.max(start + d.establish_s, beat.anchor_t - d.anchor_early),
     };
   }).sort((a, b) => a.arrival - b.arrival);
+}
+
+/**
+ * A scroll is not followed (the page moves under a still camera), but once it settles the
+ * camera pushes in on what it brought into view, so a scroll-only take still has a subject:
+ * the content that keeps changing after the settle (a playing film, a live terminal), else
+ * the region the scroll repainted. The push holds until the next shot; it needs a minimum
+ * shot of room, and never frames more than half the screen (that is the wide shot already).
+ */
+function withScrollPushIns(shots: Shot[], beats: Beat[], decisions: Map<string, Decision>,
+  changes: { t: number; bbox: Box }[], width: number, height: number, end: number, d: CameraDefaults): Shot[] {
+  const added: Shot[] = [];
+  for (const beat of beats) {
+    const decision = decisions.get(beat.id);
+    const scrolls = (beat.actions as Action[]).filter((a): a is Extract<Action, { k: "scroll" }> => a.k === "scroll");
+    if (beat.kind !== "scroll" || !decision || decision.shot === false || !scrolls.length) continue;
+    const settled = Math.max(...scrolls.map(a => a.t1 / 1000)) + d.dwell;
+    const until = Math.min(end, ...shots.map(shot => shot.arrival).filter(t => t > settled - d.min_shot));
+    if (until - settled < d.min_shot) continue;
+    const moving = changes.filter(c => c.t > settled && c.t < until && c.bbox[2] * c.bbox[3] < width * height / 2);
+    const repainted = beat.zones.filter(zone => zone.type === "res").sort((a, b) => b.bbox[2] * b.bbox[3] - a.bbox[2] * a.bbox[3])[0];
+    const bbox = moving.length ? moving.map(c => c.bbox).reduce(unionBBox) : repainted?.bbox;
+    if (!bbox || bbox[2] * bbox[3] > width * height / 2) continue;
+    const zone: Zone = { name: "settled", type: "res", bbox, t_change: settled };
+    added.push({ beat, decision: { ...decision, B: undefined, L: 2 }, zoneA: zone, zoneB: zone, arrival: settled + d.move_t_min });
+  }
+  return [...shots, ...added].sort((a, b) => a.arrival - b.arrival);
 }
 
 /** If dwell delays a shot substantially, merge both subjects into one framing. */
@@ -574,6 +644,8 @@ function applyDwellAndShotLength(shots: Shot[], d: CameraDefaults): Shot[] {
     && shot.beat.kind !== "scroll" && shot.beat.kind !== "idle"
     && !(shot.beat.kind === "travel" && !shot.beat.actions.some(action =>
       ["click", "type", "drag", "shortcut"].includes((action as { k?: string }).k ?? "")));
+  const acted = (shot: Shot) => shot.beat.actions.some(action =>
+    ["click", "type", "drag", "shortcut"].includes((action as { k?: string }).k ?? ""));
   for (const shot of shots) {
     if (!takesShot(shot)) continue;
     // A simultaneous subject shot already covers the cut's arrival. Accepting
@@ -591,7 +663,17 @@ function applyDwellAndShotLength(shots: Shot[], d: CameraDefaults): Shot[] {
         }
         shot.arrival = earliest;
       }
-      if (shot.arrival - previous.arrival < d.min_shot) continue;
+      if (shot.arrival - previous.arrival < d.min_shot) {
+        // Too close to keep both: a shot on a gesture (the click, the typing) wins over one
+        // that only frames the screen before it, which would otherwise take its place.
+        if (!acted(previous) && acted(shot)) {
+          accepted.pop();
+          shot.arrival = Math.max(shot.arrival, (accepted.at(-1)?.arrival ?? -Infinity) + d.min_shot);
+          accepted.push(shot);
+          wide = wholeStage(shot);
+        }
+        continue;
+      }
     }
     accepted.push(shot);
     wide = wholeStage(shot);
@@ -759,7 +841,8 @@ function buildDrafts(
     // A planner idle answer overrides the duration rule; without one, a long idle beat breathes.
     const breathe = beat.kind === "idle" && (decisions.get(beat.id)?.idle ?? beat.t1 - beat.t0 > d.idle_s);
     const distantNext = !nextBeat || nextBeat.t0 - beat.t1 > d.next_beat_s;
-    if (!breathe || !distantNext) continue;
+    const pushed = shots.some(shot => shot.zoneA.name === "settled" && shot.arrival <= beat.t1 && shot.arrival + d.min_shot >= beat.t0);
+    if (!breathe || !distantNext || pushed) continue;
     // Widen to the window itself; a fullscreen window widens to the whole screen.
     const zone: Zone = { name: "win", type: "win", bbox: beat.window_rect ?? [0, 0, width, height] };
     drafts.push({
@@ -1576,7 +1659,8 @@ export function solveCameraDetailed(
     || gestures(beat).some(g => g.t1 / 1000 > start && g.t0 / 1000 < end));
   const shots = buildShots(beats.filter(beat => !beat.camera_suppressed), decisions, start, d)
     .filter((shot) => visibleBeats.includes(shot.beat));
-  const quietShots = applyDwellAndShotLength(shots, d).filter((shot) => shot.arrival < end);
+  const quietShots = withScrollPushIns(applyDwellAndShotLength(shots, d), visibleBeats.filter(beat => !beat.camera_suppressed),
+    decisionMap, changes, width, height, end, d).filter((shot) => shot.arrival < end);
   const directed = visibleBeats.filter(beat => !beat.camera_suppressed);
   const drafts = buildDrafts(quietShots, directed, width, height, start, end, d, project, cuts, decisionMap);
   drafts.unshift({ t: start, importance: 0,
