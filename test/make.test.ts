@@ -146,8 +146,17 @@ test("make --no-ai renders the agreed beat/decision files into a tiny test MP4",
 test("render --preview frames the film like the full render, at preview speed", { skip: needsFfmpeg }, async () => {
   const dir = newTake();
   try {
+    // Upscale headroom lets the 320 px fixture's camera push in, and the cursor stays shown, so it rides a moving camera.
     const look = ["--theme", "paper", "--set", "preset=veryfast", "--set", "out_w=320", "--set", "out_h=180",
-      "--set", "ripple_ms=0", "--set", "fade_s=0"];
+      "--set", "ripple_ms=0", "--set", "fade_s=0", "--set", "max_upscale=4", "--set", "cursor_hide_idle_s=0"];
+    // A cursor-free take: the preview draws the same re-rendered cursor as the full render. The pointer
+    // wanders off the click, so where the arrow lands depends on which camera frame projects it.
+    const metaPath = join(dir, "take.json");
+    writeFileSync(metaPath, JSON.stringify({ ...JSON.parse(readFileSync(metaPath, "utf8")), cursor_free: true }));
+    const eventsPath = join(dir, "events.jsonl");
+    const wander = Array.from({ length: 40 }, (_, i) => ({ t: 700 + i * 200, k: "ptr", x: 200 - i * 4, y: 90 - i }));
+    const events = [...readFileSync(eventsPath, "utf8").trim().split("\n").map((line) => JSON.parse(line)), ...wander].sort((a, b) => a.t - b.t);
+    writeFileSync(eventsPath, events.map((e) => JSON.stringify(e)).join("\n") + "\n");
     assert.equal(await main(["make", dir, "--no-ai", ...look]), 0);
     const fullPath = join(dir, "camera.json");
     const fullCamera = readFileSync(fullPath, "utf8");
@@ -161,6 +170,17 @@ test("render --preview frames the film like the full render, at preview speed", 
       "-show_entries", "stream=width,height,r_frame_rate", "-of", "json", join(dir, "out", "t1-preview.mp4")], { encoding: "utf8" }));
     assert.deepEqual([probe.streams[0].width, probe.streams[0].height], [320, 180]);
     assert.equal(probe.streams[0].r_frame_rate, "30/1");
+    // The preview's 30 fps cursor follows the camera at its own time, not the 60 fps camera frame of the same
+    // index: its arrow tip sits where the full render's does at that second.
+    const tips = (file: string) => new Map(readFileSync(file, "utf8").split("\n").flatMap((line) => {
+      // Each line spans its frame's half-frame either side: key it on its centre, the frame's own time.
+      const m = /^Dialogue: 1,(\d+):(\d+):([\d.]+),(\d+):(\d+):([\d.]+),.*\}m ([-\d.]+) ([-\d.]+)/.exec(line);
+      const at = (h: string, mm: string, ss: string) => +h * 3600 + +mm * 60 + +ss;
+      return m ? [[Math.round((at(m[1]!, m[2]!, m[3]!) + at(m[4]!, m[5]!, m[6]!)) * 50), [+m[7]!, +m[8]!]] as const] : [];
+    }));
+    const full = tips(join(dir, "cursor.ass")), preview = tips(join(dir, "preview", "cursor.ass"));
+    const off = [...preview].filter(([t]) => full.has(t)).map(([t, [x, y]]) => Math.hypot(x - full.get(t)![0], y - full.get(t)![1]));
+    assert.ok(off.length > 20 && Math.max(...off) <= 1.5, `${off.length} matched frames, worst ${Math.max(...off).toFixed(1)} px`);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
