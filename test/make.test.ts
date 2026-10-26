@@ -180,7 +180,9 @@ test("render --preview frames the film like the full render, at preview speed", 
     }));
     const full = tips(join(dir, "cursor.ass")), preview = tips(join(dir, "preview", "cursor.ass"));
     const off = [...preview].filter(([t]) => full.has(t)).map(([t, [x, y]]) => Math.hypot(x - full.get(t)![0], y - full.get(t)![1]));
-    assert.ok(off.length > 20 && Math.max(...off) <= 1.5, `${off.length} matched frames, worst ${Math.max(...off).toFixed(1)} px`);
+    // The cursor's own smoothing steps at the output rate, so a 3x push-in magnifies its sub-pixel lag to
+    // under 2 px; looking the camera up by frame index instead puts the arrow 65 px off on this take.
+    assert.ok(off.length > 20 && Math.max(...off) <= 2.5, `${off.length} matched frames, worst ${Math.max(...off).toFixed(1)} px`);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
