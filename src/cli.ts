@@ -19,6 +19,8 @@ import { renderMotion } from "./motion/motion.ts";
 import { applyOverrides, type CameraDefaults, type Overrides } from "./camera/defaults.ts";
 import { filmOverrides, type FilmDecision } from "./decide/film.ts";
 import { packageVersion } from "./version.ts";
+import { makeWithScore } from "./score/run.ts";
+import { DEFAULT_MAX_ROUNDS, DEFAULT_TARGET_SCORE } from "./score/loop.ts";
 
 export function takesDir(): string {
   return process.env["TAKEONE_DIR"] ?? join(homedir(), "Videos", "takeone");
@@ -35,6 +37,9 @@ interface Args {
   set: string[];
   camera?: CameraDefaults;
   theme?: string;
+  targetScore?: number;
+  maxRounds?: number;
+  scoreRequested: boolean;
 }
 
 /** Parse `--set key=value` pairs; numeric values stay numbers so that
@@ -128,7 +133,7 @@ export function renderDimensions(aspect?: string, resolution?: string, source: "
 const GOAL_STYLE_MAX_CHARS = 500;
 
 function parseArgs(argv: string[]): Args {
-  const a: Args = { noAi: false, noScreenText: false, replan: false, set: [] };
+  const a: Args = { noAi: false, noScreenText: false, replan: false, set: [], scoreRequested: false };
   for (let i = 0; i < argv.length; i++) {
     const s = argv[i]!;
     if (s === "--no-ai") a.noAi = true;
@@ -152,6 +157,15 @@ function parseArgs(argv: string[]): Args {
     else if (s === "--no-screen-text") a.noScreenText = true;
     else if (s === "--replan") a.replan = true;
     else if (s === "--max-tokens") a.maxTokens = Number(argv[++i]);
+    else if (s === "--target-score" || s === "--max-rounds") {
+      a.scoreRequested = true;
+      const next = argv[i + 1];
+      const value = next === undefined || next.startsWith("--") ? undefined : next;
+      if (value !== undefined) i++;
+      if (s === "--target-score") {
+        if (value !== undefined) a.targetScore = Number(value);
+      } else if (value !== undefined) a.maxRounds = Number(value);
+    }
     else if (s === "--set") {
       const v = argv[++i];
       if (v === undefined) {
@@ -172,7 +186,7 @@ function parseArgs(argv: string[]): Args {
 
 function usage(code: number): never {
   const themes = Object.keys(THEMES).join("|");
-  console.error(`takeone make <id> [--no-ai] [--goal "<sentence>"] [--style "<word>"] [--no-screen-text] [--replan] [--max-tokens N] [--theme ${themes}] [--set key=value]
+  console.error(`takeone make <id> [--no-ai] [--goal "<sentence>"] [--style "<word>"] [--no-screen-text] [--replan] [--max-tokens N] [--theme ${themes}] [--set key=value] [--target-score N] [--max-rounds M]
 takeone render <take-dir> [--theme ${themes}] [--set key=value] [--aspect landscape|portrait|square|4:5] [--resolution 4k] [--format mp4|gif|webm|prores4444] [--preview]
 takeone render <motion-dir> [--aspect landscape|portrait|square|4:5] [--stills <seconds,...>]
 ${MOTION_USAGE}
@@ -189,7 +203,9 @@ takeone --version|-v    print the installed version
   --style         style hint for the film, e.g. calm, brisk
   --no-screen-text  do not send redacted screen words (sent by default with a planner)
   --replan        ignore saved planner answers and ask again
-  --max-tokens    refuse above this many planned input tokens (default 40k x take minutes)`);
+  --max-tokens    refuse above this many planned input tokens (default 40k x take minutes)
+  --target-score  score the film against a 10-point rubric and re-render until it reaches N (default 9)
+  --max-rounds    hard cap on score rounds (default 4): one judge call per round, plus one determinism re-render`);
   process.exit(code);
 }
 
@@ -318,6 +334,14 @@ export async function main(argv: string[]): Promise<number> {
     console.error("takeone make: --max-tokens must be a positive integer");
     return 2;
   }
+  if (a.targetScore !== undefined && (!Number.isFinite(a.targetScore) || a.targetScore < 0 || a.targetScore > 10)) {
+    console.error("takeone make: --target-score must be between 0 and 10");
+    return 2;
+  }
+  if (a.maxRounds !== undefined && (!Number.isSafeInteger(a.maxRounds) || a.maxRounds < 1 || a.maxRounds > 20)) {
+    console.error("takeone make: --max-rounds must be an integer from 1 to 20");
+    return 2;
+  }
   if (!a.id) {
     console.error("takeone make: missing take id");
     usage(2);
@@ -334,6 +358,18 @@ export async function main(argv: string[]): Promise<number> {
     return 2;
   }
   try {
+    if (a.scoreRequested) {
+      const scored = await makeWithScore({
+        dir,
+        make: a,
+        target: a.targetScore ?? DEFAULT_TARGET_SCORE,
+        maxRounds: a.maxRounds ?? DEFAULT_MAX_ROUNDS,
+        log: (line) => console.log(line),
+        warn: (line) => console.error(line),
+        resolveFilmCamera: (takeDir, pairs, theme) => resolveCamera(takeDir, pairs, theme, true),
+      });
+      return scored.judgeUnavailable ? 3 : 0;
+    }
     await makeTake(dir, a);
     return 0;
   } catch (e) {
