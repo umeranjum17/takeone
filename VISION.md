@@ -41,3 +41,5 @@ Releases and their notes are on the [releases page](https://github.com/umeranjum
 
 1. **v0.2.2:** a host app can plan a capture with the user's signed-in AI account instead of passing a key. It ships when its live proof passes.
 2. **Later:** Mac takes get click rings, keycaps and click-driven camera once desklink captures Mac input.
+
+A docs-only edit such as this line should not queue the render gates.
