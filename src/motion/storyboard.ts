@@ -240,6 +240,15 @@ export function validateStoryboard(raw: unknown): Storyboard {
     if (c["frames"] !== undefined && (!Array.isArray(c["frames"]) || c["frames"].length !== c["files"].length || c["frames"].some((f) => !isObj(f) || typeof f["dir"] !== "string" || !f["dir"] || !["count", "width", "height", "aspect"].every((k) => typeof f[k] === "number" && Number.isFinite(f[k]) && (f[k] as number) > 0)))) throw new StoryboardError(`clips.${k}.frames`, "expected one frame set per file; delete it to re-ingest");
   }
 
+  const rawAudio = raw["audio"];
+  let audio: Storyboard["audio"];
+  if (rawAudio !== undefined) {
+    if (!isObj(rawAudio) || typeof rawAudio["file"] !== "string" || !rawAudio["file"]) throw new StoryboardError("audio", "expected {file, start?, volume?}");
+    const start = rawAudio["start"] === undefined ? undefined : num(rawAudio["start"], "audio.start", 0, 3600);
+    const volume = rawAudio["volume"] === undefined ? undefined : num(rawAudio["volume"], "audio.volume", 0, 1);
+    audio = { file: rawAudio["file"], ...(start === undefined ? {} : { start }), ...(volume === undefined ? {} : { volume }) };
+  }
+
   const regions = raw["regions"] ?? [];
   if (!Array.isArray(regions)) throw new StoryboardError("regions", "expected an array");
   const regionIds = new Set<string>();
@@ -287,6 +296,7 @@ export function validateStoryboard(raw: unknown): Storyboard {
     source: source as Storyboard["source"],
     ...(Object.keys(crops).length ? { crops: crops as Storyboard["crops"] } : {}),
     ...(Object.keys(clips).length ? { clips: clips as Storyboard["clips"] } : {}),
+    ...(audio ? { audio } : {}),
     screens: screens as unknown as Storyboard["screens"],
     regions: regions as Storyboard["regions"],
     layout,
