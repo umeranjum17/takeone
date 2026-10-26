@@ -35,6 +35,8 @@ interface Target {
   screenChange?: boolean;
   /** A long-idle widen: quiet by definition, so exempt from the rate cap. */
   breathe?: boolean;
+  /** A cut brings in the screen this shot frames: it replaces the page, so the shot arrives on time. */
+  cut?: boolean;
   /** A disappearing subject cannot wait behind ordinary shot holds. */
   reveal?: { t: number; bbox: Zone["bbox"] };
   /** Position in the draft order; the emitted move graph keys guard windows by it. */
@@ -762,6 +764,7 @@ interface Draft {
   startAfter?: number;
   screenChange?: boolean;
   breathe?: boolean;
+  cut?: boolean;
   reveal?: { t: number; bbox: Zone["bbox"] };
 }
 
@@ -796,6 +799,7 @@ function buildDrafts(
       subject: withContext(shot.zoneA, inShot(shot.zoneA), width, height, d),
       boxes: inShot(shot.zoneA),
       screenChange: shot.beat.kind === "change",
+      cut: beats.some((beat) => beat.kind === "cut" && beat.anchor_t >= shot.arrival && beat.anchor_t <= shot.beat.anchor_t),
       startAfter: shot.beat.kind === "cut" ? (narrow ? undefined : cutSettledAt(shot.beat, shot.arrival, d))
         : shot.beat.kind === "change" ? shot.beat.anchor_t
         : shot.zoneA.type === "res" ? shot.zoneA.t_change ?? shot.beat.t0 : undefined,
@@ -1269,10 +1273,11 @@ function sampleCamera(
       // Include result and breathe targets: arrivals alone do not enforce
       // a visible hold between opposite zooms once the spring settles.
       // A pan back the way the page last moved waits out a shot's rest, even for a reveal: else it
-      // reads as a bounce.
+      // reads as a bounce. A shot a cut brings in still arrives on time: its screen replaces the page.
       const here = origin(toFrame(state, width, height, d), d), there = origin(toFrame(target.state, width, height, d), d);
-      const panHold = Math.max(-Infinity, ...[0, 1].filter(k => Math.abs(there[k]! - here[k]!) >= 1
-        && Math.sign(there[k]! - here[k]!) === -lastPanDirection[k]!).map(k => lastPan[k]! + d.min_shot));
+      const panHold = Math.min(target.cut ? createMove(state, target.state, target.t, baseW, d).start : Infinity,
+        Math.max(-Infinity, ...[0, 1].filter(k => Math.abs(there[k]! - here[k]!) >= 1
+          && Math.sign(there[k]! - here[k]!) === -lastPanDirection[k]!).map(k => lastPan[k]! + d.min_shot)));
       const zoomHold = Math.max(heldUntil, reversing ? lastZoomMotion + d.min_shot : -Infinity, panHold);
       const earliest = urgent ? Math.max(start + d.establish_s, target.startAfter ?? start, previousTime, panHold)
         : Math.max(start + d.establish_s, target.startAfter ?? 0, zoomHold, previousTime,
