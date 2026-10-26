@@ -1406,5 +1406,5 @@ test("push-ins, a pan across the page and the outro never bounce the page edge",
   assert.ok(contains(at(6.6), b.zones[0]!.bbox) && at(6.6).w < 3840 * 0.6, "then on the second");
   assert.equal(frames.at(-1)!.w, 3840, "and the outro closes on the whole stage");
   const metrics = cameraMetrics(frames, DEFAULTS.fps, DEFAULTS.out_w, DEFAULTS.out_h, DEFAULTS.min_shot);
-  assert.equal(metrics.pan_bounce.value, 0);
+  assert.equal(metrics.pan_bounce?.value, 0);
 });
