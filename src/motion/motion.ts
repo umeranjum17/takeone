@@ -14,11 +14,12 @@ import { ffmpegVersion, MOTION_CRF, renderFrames, withPage } from "./render.ts";
 import { pinnedShell } from "./shell.ts";
 import { filmDuration, validateStoryboard } from "./storyboard.ts";
 import { motionTokens } from "./theme.ts";
-import type { Storyboard } from "./types.ts";
+import type { MotionEngine, Storyboard } from "./types.ts";
 
 
 export interface RenderManifest {
   version: 1;
+  engine?: MotionEngine;
   storyboard_sha256: string;
   out: string;
   frames: number;
@@ -26,16 +27,17 @@ export interface RenderManifest {
   width: number;
   height: number;
   workers: number;
-  warmup: number;
-  raster_scale: number;
-  shell: { version: string; sha256: string; flags: string[] };
-  ffmpeg: string;
-  encode: { codec: "libx264"; profile: "high"; crf: number; preset: string; pix_fmt: "yuv420p"; colour: "bt709/tv" };
   render_s: number;
+  warmup?: number;
+  raster_scale?: number;
+  shell?: { version: string; sha256: string; flags: string[] };
+  ffmpeg?: string;
+  encode?: { codec: "libx264"; profile: "high"; crf: number; preset: string; pix_fmt: "yuv420p"; colour: "bt709/tv" };
   concat_s: number;
-  frame_md5: string;
-  motion_blur: unknown;
-  camera: boolean;
+  frame_md5?: string;
+  motion_blur?: unknown;
+  camera?: boolean;
+  hyperframes?: { version: string; cli: string; shell_version: string; shell_sha256: string; browser: string };
 }
 
 export function readStoryboard(dir: string): Storyboard {
@@ -55,26 +57,38 @@ export function pageData(dir: string, sb: Storyboard, cameras: Record<string, un
     if (!c.frames) throw new Error(`clips.${id}: not ingested`);
     for (const f of c.frames) if (!existsSync(resolve(dir, f.dir))) throw new Error(`clips.${id}: ${f.dir} is missing; re-run ingest`);
     const f = c.frames.reduce((a, b) => (off(b) < off(a) ? b : a));
-    return [id, { url: pathToFileURL(resolve(dir, f.dir)).href + "/", count: f.count, width: f.width, height: f.height, fps: 60 }];
+    const file = c.files[c.frames.indexOf(f)];
+    if (file === undefined) throw new Error(`clips.${id}: no source file for the selected frame set`);
+    const video = isAbsolute(file) ? file : resolve(dir, file);
+    if (!existsSync(video)) throw new Error(`clips.${id}: ${file} is missing`);
+    return [id, { url: pathToFileURL(resolve(dir, f.dir)).href + "/", count: f.count, width: f.width, height: f.height, fps: 60,
+      video: pathToFileURL(video).href, start: c.start }];
   }));
+  const audio = sb.audio ? (() => {
+    const file = isAbsolute(sb.audio.file) ? sb.audio.file : resolve(dir, sb.audio.file);
+    if (!existsSync(file)) throw new Error(`audio: ${sb.audio.file} is missing`);
+    return { url: pathToFileURL(file).href, start: sb.audio.start ?? 0, volume: sb.audio.volume ?? 1 };
+  })() : undefined;
   const first = Object.values(sb.screens)[0];
   const palette = first ? samplePalette(isAbsolute(first.file) ? first.file : resolve(dir, first.file)) : null;
-  return { storyboard: sb, screens, clips, cameras, palette, tokens: motionTokens(sb.theme.name, sb.theme.overrides) };
+  return { storyboard: sb, screens, clips, ...(audio ? { audio } : {}), cameras, palette, tokens: motionTokens(sb.theme.name, sb.theme.overrides) };
 }
 
 /** Write the page for a storyboard and return its path (dir/.motion/film.html). */
-export function writePage(dir: string, sb: Storyboard): { html: string; cameras: ReturnType<typeof sceneCameras> } {
+export function writePage(dir: string, sb: Storyboard): { html: string; cameras: ReturnType<typeof sceneCameras>; data: ReturnType<typeof pageData> } {
   const cameras = sceneCameras(sb, dir);
   const data = pageData(dir, sb, cameras);
   mkdirSync(join(dir, ".motion"), { recursive: true });
   const html = join(dir, ".motion", "film.html");
   writeFileSync(html, motionPage(data, data.tokens, sb.output.out_w, sb.output.out_h));
-  return { html, cameras };
+  return { html, cameras, data };
 }
 
 export interface RenderOptions {
   workers?: number;
   framesDir?: string;
+  /** "hyperframes" renders through the pinned HyperFrames pair; "legacy" is the in-repo capture path. */
+  engine?: MotionEngine;
   /** Render the same timeline at another frame size (an aspect preset): out/<id>-<w>x<h>.mp4 and render-<w>x<h>.json. */
   size?: [number, number];
   /** Write one PNG per film time (seconds) instead of the film: out/<id>[-<w>x<h>]-<t>s.png (contact sheets, critique). */
@@ -121,6 +135,15 @@ export async function renderMotion(dir: string, o: RenderOptions = {}): Promise<
   const frames = Math.round(filmDuration(sb) * fps);
   mkdirSync(join(dir, "out"), { recursive: true });
   for (const t of o.stills ?? []) if (!(t >= 0 && t * fps < frames)) throw new Error(`still ${t} s is outside the ${frames / fps} s film`);
+  const engine = o.engine ?? "legacy";
+  if (engine === "hyperframes") {
+    if (o.size) throw new Error("hyperframes engine does not re-lay out --aspect; render with --engine legacy");
+    if (o.stills) throw new Error("hyperframes engine does not write stills; render with --engine legacy");
+    if (o.framesDir) throw new Error("hyperframes engine does not write legacy frame directories; use --engine legacy for frame proofs");
+    const { renderHyperframes } = await import("./hyperframes.ts");
+    return await renderHyperframes(dir, sb, { workers: o.workers });
+  }
+  if (sb.audio) throw new Error("audio is only supported by the hyperframes engine; render with --engine hyperframes");
   await safeAreaGate(dir, tag, html, sb, o.stills ?? Array.from({ length: frames }, (_, i) => i / fps), shell);
   if (o.stills) {
     const stills: string[] = [];
@@ -141,7 +164,7 @@ export async function renderMotion(dir: string, o: RenderOptions = {}): Promise<
   const md5 = r.md5.map((h, i) => `${String(i + 1).padStart(6, "0")} ${h}`).join("\n") + "\n";
   writeFileSync(join(dir, "out", `${sb.id}${tag}.frames.md5`), md5);
   const manifest: RenderManifest = {
-    version: 1, storyboard_sha256: createHash("sha256").update(raw).digest("hex"), out: `out/${sb.id}${tag}.mp4`,
+    version: 1, engine: "legacy", storyboard_sha256: createHash("sha256").update(raw).digest("hex"), out: `out/${sb.id}${tag}.mp4`,
     frames, fps, width, height, workers: r.workers, warmup: 3, raster_scale: rasterScale,
     shell: { version: r.shell.version, sha256: r.shell.sha256, flags: r.flags }, ffmpeg: ffmpegVersion(),
     encode: { codec: "libx264", profile: "high", crf, preset: sb.output.preset, pix_fmt: "yuv420p", colour: "bt709/tv" },

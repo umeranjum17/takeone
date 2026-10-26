@@ -5,16 +5,19 @@ import { renderMotion } from "./motion.ts";
 import { tourSegments } from "./camera.ts";
 import { validateStateNames } from "./ingest.ts";
 import { motionTokens } from "./theme.ts";
+import { installHyperframes } from "./hyperframes.ts";
 import { installShell } from "./shell.ts";
 import { minSceneDuration, validateStoryboard } from "./storyboard.ts";
-import type { Device, PatternName, Region, Scene } from "./types.ts";
+import type { Device, MotionEngine, PatternName, Region, Scene } from "./types.ts";
 
 export const MOTION_USAGE = `takeone motion <image.png|page.html|https://url>... [--out DIR] [--pattern hero-reveal,zoom-tour,end-card,kinetic-type]
   [--theme midnight|paper|aurora|mono|sand|editorial]
   [--title TEXT] [--subtitle TEXT] [--cta TEXT] [--url TEXT] [--logo WORD] [--device browser|phone|laptop|none]
   [--region x,y,w,h[:label][@SCREEN]]... [--state NAME='click #id; type #id "text"; drag #a #b; wait 300']...
   [--workers N] [--blur 0|1] [--storyboard file.json] [--plan-only] [--no-ai]
-takeone motion install-shell     download the pinned chrome-headless-shell (sha256 checked)
+  [--engine hyperframes|legacy]
+takeone motion install-shell         download the pinned chrome-headless-shell (sha256 checked)
+takeone motion install-hyperframes   install hyperframes@0.8.200 + chrome-headless-shell@156.0.8078.47
 
   motion writes a take-shaped directory (take.json, sources/, storyboard.json, out/<id>.mp4, render.json);
   takeone render <dir> rerenders it. AI image planning is off until screenshots can be redacted, so every
@@ -26,11 +29,11 @@ takeone motion install-shell     download the pinned chrome-headless-shell (sha2
 export interface MotionArgs {
   inputs: string[]; out?: string; patterns?: PatternName[]; theme?: string; title?: string;
   subtitle?: string; cta?: string; url?: string; logo?: string; device?: Device; regions: string[]; states: [string, string][];
-  workers?: number; blur?: number; storyboard?: string; planOnly: boolean; noAi?: boolean;
+  workers?: number; blur?: number; storyboard?: string; planOnly: boolean; noAi?: boolean; engine: MotionEngine;
 }
 
 export function parseMotionArgs(argv: string[]): MotionArgs {
-  const a: MotionArgs = { inputs: [], regions: [], states: [], planOnly: false };
+  const a: MotionArgs = { inputs: [], regions: [], states: [], planOnly: false, engine: "hyperframes" };
   const value = (i: number, flag: string) => {
     const v = argv[i];
     if (v === undefined || v.startsWith("--")) throw new Error(`${flag} needs a value`);
@@ -60,7 +63,10 @@ export function parseMotionArgs(argv: string[]): MotionArgs {
     } else if (s === "--workers") a.workers = Number(v);
     else if (s === "--blur") a.blur = Number(v);
     else if (s === "--storyboard") a.storyboard = v;
-    else throw new Error(`unknown option ${s}`);
+    else if (s === "--engine") {
+      if (v !== "hyperframes" && v !== "legacy") throw new Error(`--engine expects hyperframes or legacy, got ${v}`);
+      a.engine = v;
+    } else throw new Error(`unknown option ${s}`);
   }
   return a;
 }
@@ -316,6 +322,11 @@ export async function runMotion(argv: string[], takesDir: string, o: PlanOptions
     console.log(`chrome-headless-shell ${shell.version} sha256 ${shell.sha256}\n${shell.path}`);
     return 0;
   }
+  if (argv[0] === "install-hyperframes") {
+    const hf = await installHyperframes();
+    console.log(`hyperframes ${hf.version}\n${hf.cli}\n${hf.browserVersion} sha256 ${hf.browserSha256}\n${hf.browser}`);
+    return 0;
+  }
   if (!argv.length || argv.includes("--help") || argv.includes("-h")) { console.error(MOTION_USAGE); return argv.length ? 0 : 2; }
   const a = parseMotionArgs(argv);
   let storyboard: unknown;
@@ -350,7 +361,7 @@ export async function runMotion(argv: string[], takesDir: string, o: PlanOptions
   writeFileSync(join(dir, "take.json"), JSON.stringify({ id: basename(dir), theme: sb.theme.name,
     motion: { pattern: sb.scenes.map((s) => s.pattern).join("+"), storyboard: "storyboard.json" } }, null, 2) + "\n");
   if (a.planOnly) { console.log(join(dir, "storyboard.json")); return 0; }
-  const { out, manifest } = await renderMotion(dir);
+  const { out, manifest } = await renderMotion(dir, { engine: a.engine });
   console.error(`motion: ${manifest.frames} frames ${manifest.width}x${manifest.height}@${manifest.fps} on ${manifest.workers} workers in ${manifest.render_s} s`);
   console.log(out);
   return 0;

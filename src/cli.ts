@@ -237,16 +237,22 @@ export async function main(argv: string[]): Promise<number> {
     if (!dir) { console.error("usage: takeone render <take-dir>"); return 2; }
     if (isMotionTake(dir)) {
       try {
-        // The film is the storyboard; only the frame size (one timeline, every format) and stills are options.
-        let size: [number, number] | undefined, stills: number[] | undefined;
+        // The film is the storyboard; only the frame size (one timeline, every format), stills and engine are options.
+        let size: [number, number] | undefined, stills: number[] | undefined, engine: "hyperframes" | "legacy" | undefined;
         for (let i = 0; i < args.length; i += 2) {
           const [option, value] = [args[i], args[i + 1]];
-          if (value === undefined || !["--aspect", "--stills"].includes(option!)) throw Error("a motion take rerenders from its storyboard.json; edit it, or pass only --aspect <name> and --stills <t,...>");
+          if (value === undefined || !["--aspect", "--stills", "--engine"].includes(option!)) throw Error("a motion take rerenders from its storyboard.json; edit it, or pass only --aspect <name>, --stills <t,...> and --engine hyperframes|legacy");
           if (option === "--aspect") { const d = renderDimensions(value); size = [Number(d.out_w), Number(d.out_h)]; }
-          else stills = value.split(",").map(Number);
+          else if (option === "--engine") {
+            if (value !== "hyperframes" && value !== "legacy") throw Error("--engine expects hyperframes or legacy");
+            engine = value;
+          } else stills = value.split(",").map(Number);
+        }
+        if (engine === undefined) {
+          try { engine = (JSON.parse(readFileSync(join(dir, "render.json"), "utf8")) as { engine?: "hyperframes" | "legacy" }).engine; } catch { /* first render has no manifest */ }
         }
         if (stills) console.log((await renderMotion(dir, { size, stills })).stills.join("\n"));
-        else console.log((await renderMotion(dir, { size })).out);
+        else console.log((await renderMotion(dir, { size, engine })).out);
         return 0;
       } catch (e) {
         console.error(e instanceof Error ? e.message : e);

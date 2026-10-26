@@ -4,6 +4,7 @@ import type { Overrides } from "../camera/defaults.ts";
 
 export type Rect = [number, number, number, number]; // x, y, w, h in source px of its screen
 export type Device = "browser" | "phone" | "laptop" | "none";
+export type MotionEngine = "hyperframes" | "legacy";
 export const PATTERNS = ["hero-reveal", "zoom-tour", "end-card", "fragment", "kinetic-type", "bento", "clip", "statement"] as const;
 export type PatternName = (typeof PATTERNS)[number];
 
@@ -119,6 +120,16 @@ export interface Output {
   preset: string;
 }
 
+/** One film-level audio bed, copied into the HyperFrames project and muxed once. */
+export interface Audio {
+  /** Path relative to the take dir or absolute. */
+  file: string;
+  /** Seconds into the source. */
+  start?: number;
+  /** Linear gain, 0..1 (HyperFrames `data-volume`). */
+  volume?: number;
+}
+
 export interface Storyboard {
   version: 1;
   id: string;
@@ -127,6 +138,7 @@ export interface Storyboard {
   tempo?: Tempo;
   crops?: Record<string, Crop>;
   clips?: Record<string, Clip>;
+  audio?: Audio;
   source: {
     kind: "image" | "html" | "url";
     /** image: files; html: file; url: url. Paths are relative to the take dir or absolute. */

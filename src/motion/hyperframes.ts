@@ -1,0 +1,297 @@
+// Thin adapter from a motion storyboard to a HyperFrames project, and back to one MP4.
+// HyperFrames owns capture + encode; TakeOne owns the storyboard, the local planner and the screen/type grammar.
+// The emitted project is offline: every file:// asset is vendored under assets/, scripts are inlined, and
+// the render fails instead of falling back to a network URL.
+import { execFile, execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { basename, join, resolve } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { promisify } from "node:util";
+import { filmDuration } from "./storyboard.ts";
+import { writePage } from "./motion.ts";
+import type { RenderManifest } from "./motion.ts";
+import type { Storyboard } from "./types.ts";
+
+export const HYPERFRAMES_VERSION = "0.8.200";
+export const HYPERFRAMES_SHELL_VERSION = "156.0.8078.47";
+export const HYPERFRAMES_SHELL_SHA256 = "201ce52b0e6e571702a9bd747f2552e3d17818f1789e0967e6392d5e1a6167da";
+const SHELL_BIN = "chrome-headless-shell-linux64/chrome-headless-shell";
+const GSAP = fileURLToPath(new URL("../../resources/motion/vendor/gsap.min.js", import.meta.url));
+const execFileAsync = promisify(execFile);
+
+
+export interface HyperframesRuntime {
+  version: string;
+  cli: string;
+  browser: string;
+  browserVersion: string;
+  browserSha256: string;
+}
+
+export function hyperframesCache(): string {
+  return join(process.env["XDG_CACHE_HOME"] ?? join(homedir(), ".cache"), "takeone", "hyperframes", HYPERFRAMES_VERSION);
+}
+
+function shellPath(root: string): string {
+  return join(root, "shell", "chrome-headless-shell", `linux-${HYPERFRAMES_SHELL_VERSION}`, SHELL_BIN);
+}
+
+function packageJson(root: string): string {
+  return join(root, "node_modules", "hyperframes", "package.json");
+}
+
+function binPath(root: string): string {
+  return join(root, "node_modules", "hyperframes", "bin", "hyperframes.mjs");
+}
+
+function sha256File(path: string): string {
+  return createHash("sha256").update(readFileSync(path)).digest("hex");
+}
+
+/** The installed pin, or a clear install hint. Also accepts TAKEONE_HYPERFRAMES for an existing checkout. */
+export async function pinnedHyperframes(): Promise<HyperframesRuntime> {
+  const root = hyperframesCache();
+  const envCli = process.env["TAKEONE_HYPERFRAMES"];
+  const cli = envCli ?? binPath(root);
+  if (!existsSync(cli)) {
+    throw new Error(`hyperframes ${HYPERFRAMES_VERSION} is not installed; run \`takeone motion install-hyperframes\` or pass --engine legacy`);
+  }
+  const pkgFile = packageJson(root);
+  if (!envCli) {
+    if (!existsSync(pkgFile)) throw new Error(`hyperframes ${HYPERFRAMES_VERSION} is incomplete at ${root}; run \`takeone motion install-hyperframes\``);
+    const pkg = JSON.parse(readFileSync(pkgFile, "utf8")) as { version?: string };
+    if (pkg.version !== HYPERFRAMES_VERSION) {
+      throw new Error(`hyperframes ${pkg.version ?? "unknown"} at ${root} is not the ${HYPERFRAMES_VERSION} pin; run \`takeone motion install-hyperframes\``);
+    }
+  }
+  const browser = process.env["TAKEONE_HYPERFRAMES_BROWSER"] ?? shellPath(root);
+  if (!existsSync(browser)) {
+    throw new Error(`chrome-headless-shell ${HYPERFRAMES_SHELL_VERSION} is not installed; run \`takeone motion install-hyperframes\``);
+  }
+  const browserSha = sha256File(browser);
+  if (browserSha !== HYPERFRAMES_SHELL_SHA256) {
+    throw new Error(`chrome-headless-shell ${HYPERFRAMES_SHELL_VERSION} sha256 ${browserSha.slice(0, 12)}… is not the pin`);
+  }
+  const browserVersion = execFileSync(browser, ["--version"], { encoding: "utf8", timeout: 10_000 }).trim();
+  if (!browserVersion.endsWith(HYPERFRAMES_SHELL_VERSION)) {
+    throw new Error(`${browser} reports ${browserVersion}, not chrome-headless-shell ${HYPERFRAMES_SHELL_VERSION}`);
+  }
+  return { version: HYPERFRAMES_VERSION, cli, browser, browserVersion, browserSha256: browserSha };
+}
+
+/** Install the pinned pair into TakeOne's cache. Idempotent; needs network, npm and ~370 MB once. */
+export async function installHyperframes(): Promise<HyperframesRuntime> {
+  try { return await pinnedHyperframes(); } catch { /* install a verified pair */ }
+  if (process.platform !== "linux" || process.arch !== "x64") throw new Error("the pinned HyperFrames pair is Linux x86_64 only");
+  const root = hyperframesCache();
+  mkdirSync(root, { recursive: true });
+  execFileSync("npm", ["install", "--prefix", root, "--no-audit", "--no-fund", "--no-save", `hyperframes@${HYPERFRAMES_VERSION}`],
+    { stdio: "inherit", timeout: 300_000 });
+  const browsersCli = join(root, "node_modules", "@puppeteer", "browsers", "lib", "main-cli.js");
+  if (!existsSync(browsersCli)) throw new Error("hyperframes did not install @puppeteer/browsers; reinstall the pin");
+  execFileSync(process.execPath, [browsersCli, "install", `chrome-headless-shell@${HYPERFRAMES_SHELL_VERSION}`, "--path", join(root, "shell")],
+    { stdio: "inherit", timeout: 300_000 });
+  return await pinnedHyperframes();
+}
+
+export interface HyperframesProject {
+  dir: string;
+  html: string;
+  duration: number;
+  frames: number;
+  fps: number;
+  width: number;
+  height: number;
+  videos: number;
+  audio: boolean;
+}
+
+function esc(text: string): string {
+  return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+
+/** The clip pattern's final fitted window, repeated here so the emitted video needs no JS layout pass. */
+function clipWindow(width: number, height: number, W: number, H: number, scale = 1): { left: number; top: number; width: number; height: number; radius: number } {
+  const u = Math.min(W, H);
+  const m = Math.max(u * 0.06, W * 0.06), mb = Math.max(u * 0.06, H * 0.06);
+  const top = Math.max(u * 0.12, H * 0.06 + u * 0.048), cy = (top + H - mb) / 2;
+  const aw = W - 2 * m, ah = H - top - mb, ar = width / height;
+  const fit: [number, number] = aw / ah > ar ? [ah * ar, ah] : [aw, aw / ar];
+  const s = Math.min(scale, 1), w = fit[0] * s, h = fit[1] * s;
+  return { left: (W - w) / 2, top: cy - h / 2, width: w, height: h, radius: u * 0.018 };
+}
+
+function videoLayers(sb: Storyboard, data: { clips: Record<string, { video: string; start: number; width: number; height: number }> }): string {
+  const { out_w: W, out_h: H } = sb.output;
+  return sb.scenes.map((s, i) => {
+    if (s.pattern !== "clip") return "";
+    if (s.cuts?.length) throw new Error("hyperframes engine: clip cuts are not supported yet; render with --engine legacy");
+    const clip = s.clip ? data.clips[s.clip] : undefined;
+    if (!clip) throw new Error(`hyperframes engine: clip scene ${i} names no ingested clip`);
+    const win = clipWindow(clip.width, clip.height, W, H, s.scale ?? 1);
+    const label = s.label
+      ? `<div data-safe style="position:absolute;z-index:${i + 2};left:${win.left}px;top:${win.top}px;transform:translateY(-100%);padding-bottom:${Math.min(W, H) * 0.018}px;color:var(--text);font:${Math.min(W, H) * 0.028}px/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;white-space:pre">${esc(s.label)}</div>`
+      : "";
+    return `<video class="clip" data-start="${s.at ?? 0}" data-duration="${s.d}" data-track-index="${i}" data-playback-start="${clip.start}" data-media-start-basis="global" src="${clip.video}" muted playsinline preload="auto" style="position:absolute;z-index:${i + 1};left:${win.left}px;top:${win.top}px;width:${win.width}px;height:${win.height}px;object-fit:contain;display:block;background:var(--page);border-radius:${win.radius}px;visibility:hidden"></video>${label}`;
+  }).join("\n");
+}
+
+/** Write a self-contained HyperFrames project at <take>/.motion/hyperframes/. */
+export function buildHyperframesProject(dir: string, sb: Storyboard): HyperframesProject {
+  if (sb.layout.kind !== "single") throw new Error("hyperframes engine supports the single layout only; render with --engine legacy");
+  const projectDir = join(dir, ".motion", "hyperframes");
+  rmSync(projectDir, { recursive: true, force: true });
+  const assets = join(projectDir, "assets");
+  mkdirSync(assets, { recursive: true });
+
+  const duration = filmDuration(sb);
+  const frames = Math.round(duration * sb.output.fps);
+  const { html: page, data } = writePage(dir, sb);
+  let doc = readFileSync(page, "utf8");
+
+  const clips = data.clips as Record<string, { video: string; start: number; width: number; height: number }>;
+  const videos = videoLayers(sb, { clips });
+  const audio = data.audio
+    ? `<audio id="hf-audio" src="${data.audio.url}" data-start="0" data-duration="${duration}" data-track-index="0" data-volume="${data.audio.volume}"${data.audio.start ? ` data-playback-start="${data.audio.start}"` : ""} preload="auto"></audio>`
+    : "";
+  doc = doc.replace('<div id="stage">',
+    `<div id="stage" data-composition-id="main" data-start="0" data-duration="${duration}" data-width="${sb.output.out_w}" data-height="${sb.output.out_h}" data-fps="${sb.output.fps}">${videos}${audio}`);
+
+  const scripts: string[] = [];
+  for (const m of doc.matchAll(/<script(?: src="([^"]+)")?>([\s\S]*?)<\/script>/g)) {
+    if (m[1]) {
+      const src = m[1].startsWith("file:") ? fileURLToPath(m[1]) : resolve(dir, m[1]);
+      if (!existsSync(src)) throw new Error(`hyperframes engine: page script ${m[1]} is missing`);
+      scripts.push(readFileSync(src, "utf8"));
+    } else scripts.push(m[2]!);
+  }
+  doc = doc.replace(/<script(?: src="[^"]+")?>[\s\S]*?<\/script>/g, "");
+
+  const inline = `${readFileSync(GSAP, "utf8")}\n${scripts.join("\n")}`;
+  const bridge = `;(async()=>{window.HYPERFRAMES_ENGINE=true;await window.ready;
+const vids=[...document.querySelectorAll('video[data-start]')];
+await Promise.all(vids.map(v=>v.readyState>=2?Promise.resolve():new Promise(ok=>{const done=()=>{clearTimeout(timer);ok();};const timer=setTimeout(done,15000);v.addEventListener('loadeddata',done,{once:true});v.addEventListener('error',done,{once:true});})));
+installSeek(0);
+const dur=${duration};
+window.__hfSeek=(s)=>{const t=Math.max(0,Math.min(dur,s));window.__apply(t*1000);
+ for(const v of document.querySelectorAll('video[data-start]')){const a=Number(v.dataset.start)||0,d=Number(v.dataset.duration)||0,o=Number(v.dataset.playbackStart||v.dataset.mediaStart||0);const on=t>=a&&t<a+d;v.style.visibility=on?'visible':'hidden';if(on){const at=Math.max(0,t-a)+o;if(Math.abs(v.currentTime-at)>1/120){try{v.currentTime=at;}catch{void 0;}}}}
+};
+window.__timelines=window.__timelines||{};
+window.__timelines['main']={duration:()=>dur,totalDuration:()=>dur,pause(){},seek(s){window.__hfSeek(s);return this;},time(s){if(s!==undefined)this.seek(s);return s??0;},totalTime(s){if(s!==undefined)this.seek(s);return s??0;}};
+window.__hfSeek(0);window.__hfReady=true;})();`;
+  doc = doc.replace("</head>", () => `<script>${inline}${bridge}</script>\n</head>`);
+
+  const vendored = new Map<string, string>();
+  const vendor = (url: string): string => {
+    const hit = vendored.get(url);
+    if (hit) return hit;
+    const path = fileURLToPath(url);
+    if (!existsSync(path)) throw new Error(`hyperframes engine: ${path} is missing`);
+    const dirAsset = statSync(path).isDirectory();
+    const name = `${createHash("sha1").update(url).digest("hex").slice(0, 8)}-${basename(path.replace(/\/+$/, ""))}${dirAsset ? "" : ""}`;
+    cpSync(path, join(assets, name), { recursive: dirAsset });
+    const rel = `assets/${name}${dirAsset ? "/" : ""}`;
+    vendored.set(url, rel);
+    return rel;
+  };
+  doc = doc.replace(/file:\/\/\/[^"'\s<>)\\]+/g, (url) => vendor(url));
+  if (doc.includes("file://")) throw new Error("hyperframes engine: a file:// URL survived asset vendoring");
+
+  writeFileSync(join(projectDir, "index.html"), doc);
+  writeFileSync(join(projectDir, "hyperframes.json"), JSON.stringify({ paths: { blocks: "compositions", components: "compositions/components", assets: "assets" } }, null, 2) + "\n");
+  writeFileSync(join(projectDir, "meta.json"), JSON.stringify({ id: sb.id, name: "motion" }, null, 2) + "\n");
+  validateHyperframesProject(projectDir);
+  return { dir: projectDir, html: join(projectDir, "index.html"), duration, frames, fps: sb.output.fps, width: sb.output.out_w, height: sb.output.out_h, videos: sb.scenes.filter((s) => s.pattern === "clip").length, audio: Boolean(data.audio) };
+}
+
+/** Static gates: no network, every referenced asset exists, composition timing is present. */
+export function validateHyperframesProject(projectDir: string): void {
+  const html = readFileSync(join(projectDir, "index.html"), "utf8");
+  if (!html.includes('data-composition-id="main"')) throw new Error("hyperframes engine: composition root is missing");
+  if (!/data-duration="[\d.]+"/.test(html)) throw new Error("hyperframes engine: composition duration is missing");
+  if (!/data-fps="\d+"/.test(html)) throw new Error("hyperframes engine: composition fps is missing");
+  for (const m of html.matchAll(/(?:src|href)="(https?:\/\/[^"]+)"/g)) throw new Error(`hyperframes engine: network reference ${m[1]}`);
+  for (const m of html.matchAll(/url\((['"]?)(https?:\/\/[^)'"]+)\1\)/g)) throw new Error(`hyperframes engine: network reference ${m[2]}`);
+  for (const m of html.matchAll(/assets\/[^"'\s)\\]+/g)) {
+    const rel = m[0].replace(/[?#].*$/, "");
+    if (!existsSync(join(projectDir, rel))) throw new Error(`hyperframes engine: asset ${rel} is missing`);
+  }
+  if (!existsSync(join(projectDir, "assets", "gsap.min.js")) && !html.includes("GSAP 3.13.0")) {
+    throw new Error("hyperframes engine: GSAP is not vendored");
+  }
+  if (!readdirSync(join(projectDir, "assets")).some((f) => f.endsWith(".ttf"))) throw new Error("hyperframes engine: no vendored font");
+}
+
+function probe(out: string): { duration: number; frames: number; width: number; height: number; fps: number; video: string; audioStreams: number } {
+  const info = JSON.parse(execFileSync("ffprobe", ["-v", "error", "-show_entries", "format=duration:stream=codec_type,codec_name,width,height,nb_frames,r_frame_rate,duration", "-of", "json", out], { encoding: "utf8", timeout: 60_000 })) as {
+    format?: { duration?: string };
+    streams?: { codec_type?: string; codec_name?: string; width?: number; height?: number; nb_frames?: string; r_frame_rate?: string; duration?: string }[];
+  };
+  const streams = info.streams ?? [];
+  const video = streams.find((s) => s.codec_type === "video");
+  if (!video) throw new Error(`hyperframes engine: ${out} has no video stream`);
+  const audioStreams = streams.filter((s) => s.codec_type === "audio").length;
+  const [num, den] = (video.r_frame_rate ?? "0/1").split("/").map(Number);
+  const fps = num && den ? num / den : 0;
+  let frames = Number(video.nb_frames ?? 0);
+  if (!frames) {
+    const counted = JSON.parse(execFileSync("ffprobe", ["-v", "error", "-select_streams", "v:0", "-count_frames", "-show_entries", "stream=nb_read_frames", "-of", "json", out], { encoding: "utf8", timeout: 300_000 })) as { streams?: { nb_read_frames?: string }[] };
+    frames = Number(counted.streams?.[0]?.nb_read_frames ?? 0);
+  }
+  const duration = Number(video.duration ?? info.format?.duration ?? 0);
+  return { duration, frames, width: video.width ?? 0, height: video.height ?? 0, fps, video: video.codec_name ?? "", audioStreams };
+}
+
+export interface HyperframesRenderOptions {
+  workers?: number;
+}
+
+/** Render the emitted project and prove the file is the requested duration, frame count and size. */
+export async function renderHyperframes(dir: string, sb: Storyboard, o: HyperframesRenderOptions = {}): Promise<{ out: string; manifest: RenderManifest }> {
+  const hf = await pinnedHyperframes();
+  const project = buildHyperframesProject(dir, sb);
+  const out = join(dir, "out", `${sb.id}.mp4`);
+  mkdirSync(join(dir, "out"), { recursive: true });
+  const workers = Math.max(1, Math.min(o.workers ?? sb.output.workers ?? 2, 16));
+  const started = performance.now();
+  await execFileAsync(process.execPath, [hf.cli, "render", "-c", "index.html", "-o", out, "-w", String(workers),
+    "--fps", String(sb.output.fps), "--crf", "10", "--video-frame-format", "png", "--no-best-effort", "--quiet", "--frames-cache-dir", "off"], {
+    cwd: project.dir,
+    env: { ...process.env, HYPERFRAMES_NO_TELEMETRY: "1", HYPERFRAMES_NO_UPDATE_CHECK: "1", HYPERFRAMES_BROWSER_PATH: hf.browser },
+    maxBuffer: 20 * 1024 * 1024,
+    timeout: 900_000,
+  });
+  const p = probe(out);
+  if (p.frames !== project.frames) throw new Error(`hyperframes engine: rendered ${p.frames} frames, expected ${project.frames}`);
+  if (Math.abs(p.duration - project.duration) > 1.5 / project.fps) throw new Error(`hyperframes engine: rendered ${p.duration.toFixed(3)} s, expected ${project.duration.toFixed(3)} s`);
+  if (p.width !== project.width || p.height !== project.height) throw new Error(`hyperframes engine: rendered ${p.width}x${p.height}, expected ${project.width}x${project.height}`);
+  if (Math.abs(p.fps - project.fps) > 0.01) throw new Error(`hyperframes engine: rendered ${p.fps} fps, expected ${project.fps}`);
+  if (p.audioStreams > (project.audio ? 1 : 0)) throw new Error(`hyperframes engine: expected ${project.audio ? 1 : 0} audio stream, found ${p.audioStreams}`);
+  if (project.audio && p.audioStreams !== 1) throw new Error("hyperframes engine: audio was not muxed");
+  const raw = readFileSync(join(dir, "storyboard.json"));
+  const manifest: RenderManifest = {
+    version: 1,
+    engine: "hyperframes",
+    storyboard_sha256: createHash("sha256").update(raw).digest("hex"),
+    out: `out/${sb.id}.mp4`,
+    frames: p.frames,
+    fps: p.fps,
+    width: p.width,
+    height: p.height,
+    workers,
+    render_s: (performance.now() - started) / 1000,
+    concat_s: 0,
+    hyperframes: {
+      version: hf.version,
+      cli: hf.cli,
+      shell_version: HYPERFRAMES_SHELL_VERSION,
+      shell_sha256: hf.browserSha256,
+      browser: hf.browser,
+    },
+  };
+  writeFileSync(join(dir, "render.json"), `${JSON.stringify(manifest, null, 2)}\n`);
+  return { out, manifest };
+}
+

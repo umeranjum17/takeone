@@ -282,12 +282,14 @@ export async function startCapture(options: CaptureOptions): Promise<Capture> {
   const cursorMode = openedCursor?.mode ?? null;
   const cursorPositions = openedCursor?.positions ?? false;
   const gotCursorFree = cursorMode === "hidden" || cursorMode === "metadata";
-  const cursorFree = gotCursorFree && cursorPositions;
-  const cursorFallback = cursorFree
-    ? null
-    : gotCursorFree
+  // "Cursor-free" describes the pixels: hidden/metadata sources never bake the system cursor into
+  // the frame, so a headless take is cursor-free even when the engine sends no position track.
+  const cursorFree = gotCursorFree;
+  const cursorFallback = !cursorFree
+    ? "cursor-free capture is unavailable on this source; recording with the system cursor"
+    : !cursorPositions
       ? "the capture is cursor-free but the pointer position is unavailable; no cursor will be drawn"
-      : "cursor-free capture is unavailable on this source; recording with the system cursor";
+      : null;
   const interrupted = options.interrupted?.then((): never => {
     throw new RecordError("capture-stopped", "recording stopped during negotiation", "run `takeone record` again");
   });
