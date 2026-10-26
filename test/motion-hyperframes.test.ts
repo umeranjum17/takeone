@@ -81,15 +81,16 @@ test("motion engine defaults to hyperframes and legacy is an explicit opt-out", 
   assert.throws(() => parseMotionArgs(["--engine", "other"]), /hyperframes or legacy/);
 });
 
-test("a fill clip plays edge to edge with its label inside the safe inset", () => {
+test("a fill clip plays edge to edge with its label inside the safe inset, shown long enough to read", () => {
   const { dir, sb } = fixture();
   try {
-    sb.scenes[1] = { ...sb.scenes[1]!, fill: true };
+    sb.scenes[1] = { ...sb.scenes[1]!, fill: true, d: 5 };
     const html = readFileSync(buildHyperframesProject(dir, sb).html, "utf8");
-    assert.match(html, /<video[^>]*data-start="6"[^>]*style="[^"]*left:0;top:0;width:1920px;height:1080px;object-fit:cover/);
-    const chip = /<div data-safe style="[^"]*left:([\d.]+)px;bottom:([\d.]+)px;[^"]*"[^>]*data-start="6" data-duration="2">Footage<\/div>/.exec(html);
-    assert.ok(chip, "the label rides on the footage, timed to its scene");
+    assert.match(html, /<video[^>]*data-start="6" data-duration="5"[^>]*style="[^"]*left:0;top:0;width:1920px;height:1080px;object-fit:cover/);
+    const chip = /<div data-safe style="[^"]*left:([\d.]+)px;bottom:([\d.]+)px;[^"]*font:600 ([\d.]+)px[^"]*"[^>]*data-start="6" data-duration="2">Footage<\/div>/.exec(html);
+    assert.ok(chip, "the label rides on the footage from the scene's start and leaves once read");
     assert.ok(+chip[1]! >= 1920 * 0.05 && +chip[2]! >= 1080 * 0.05, "inside the 5% inset");
+    assert.ok(+chip[3]! >= 1080 / 20, "the label is at least a twentieth of the frame's short side, readable on a phone");
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 

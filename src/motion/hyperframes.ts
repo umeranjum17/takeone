@@ -9,7 +9,7 @@ import { homedir } from "node:os";
 import { basename, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { promisify } from "node:util";
-import { filmDuration } from "./storyboard.ts";
+import { filmDuration, readingFloor } from "./storyboard.ts";
 import { writePage } from "./motion.ts";
 import type { RenderManifest } from "./motion.ts";
 import type { Storyboard } from "./types.ts";
@@ -132,9 +132,11 @@ function videoLayers(sb: Storyboard, data: { clips: Record<string, { video: stri
     if (!clip) throw new Error(`hyperframes engine: clip scene ${i} names no ingested clip`);
     const u = Math.min(W, H);
     if (s.fill) {
-      // Edge to edge: the footage is the frame. The label sits on a chip inside the 5% safe inset.
+      // Edge to edge: the footage is the frame. The label sits on an ink chip inside the 5% safe inset, sized to read on a phone,
+      // and leaves once read so it stops covering the page under it.
+      const shown = s.label ? Math.min(s.d, Math.max(2, readingFloor(s.label))) : 0;
       const label = s.label
-        ? `<div data-safe style="position:absolute;z-index:${i + 2};left:${W * 0.05}px;bottom:${H * 0.05}px;padding:${u * 0.014}px ${u * 0.02}px;border-radius:${u * 0.012}px;background:var(--page);color:var(--text);font:${u * 0.026}px/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;white-space:pre;visibility:hidden" data-start="${s.at ?? 0}" data-duration="${s.d}">${esc(s.label)}</div>`
+        ? `<div data-safe style="position:absolute;z-index:${i + 2};left:${W * 0.05}px;bottom:${H * 0.05}px;padding:${u * 0.022}px ${u * 0.036}px;border-radius:${u * 0.06}px;background:var(--text);color:var(--page);font:600 ${u * 0.05}px/1 var(--body);white-space:pre;visibility:hidden" data-start="${s.at ?? 0}" data-duration="${shown}">${esc(s.label)}</div>`
         : "";
       return `<video class="clip" data-start="${s.at ?? 0}" data-duration="${s.d}" data-track-index="${i}" data-playback-start="${clip.start}" data-media-start-basis="global" src="${clip.video}" muted playsinline preload="auto" style="position:absolute;z-index:${i + 1};left:0;top:0;width:${W}px;height:${H}px;object-fit:cover;display:block;background:var(--page);visibility:hidden"></video>${label}`;
     }
