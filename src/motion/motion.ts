@@ -144,6 +144,7 @@ export async function renderMotion(dir: string, o: RenderOptions = {}): Promise<
     return await renderHyperframes(dir, sb, { workers: o.workers });
   }
   if (sb.audio) throw new Error("audio is only supported by the hyperframes engine; render with --engine hyperframes");
+  if (sb.scenes.some(s => s.fill)) throw new Error("fill clip scenes are only supported by the hyperframes engine; render with --engine hyperframes");
   await safeAreaGate(dir, tag, html, sb, o.stills ?? Array.from({ length: frames }, (_, i) => i / fps), shell);
   if (o.stills) {
     const stills: string[] = [];

@@ -5,7 +5,7 @@ import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, 
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { parseMotionArgs } from "../src/motion/cli.ts";
-import { buildHyperframesProject, validateHyperframesProject } from "../src/motion/hyperframes.ts";
+import { buildHyperframesProject, validateHyperframesProject, writeScenes } from "../src/motion/hyperframes.ts";
 import { validateStoryboard } from "../src/motion/storyboard.ts";
 
 function fixture(): { dir: string; sb: ReturnType<typeof validateStoryboard> } {
@@ -79,4 +79,42 @@ test("motion engine defaults to hyperframes and legacy is an explicit opt-out", 
   assert.equal(parseMotionArgs(["--engine", "legacy"]).engine, "legacy");
   assert.equal(parseMotionArgs(["--engine", "hyperframes"]).engine, "hyperframes");
   assert.throws(() => parseMotionArgs(["--engine", "other"]), /hyperframes or legacy/);
+});
+
+test("a fill clip plays edge to edge with its label inside the safe inset", () => {
+  const { dir, sb } = fixture();
+  try {
+    sb.scenes[1] = { ...sb.scenes[1]!, fill: true };
+    const html = readFileSync(buildHyperframesProject(dir, sb).html, "utf8");
+    assert.match(html, /<video[^>]*data-start="6"[^>]*style="[^"]*left:0;top:0;width:1920px;height:1080px;object-fit:cover/);
+    const chip = /<div data-safe style="[^"]*left:([\d.]+)px;bottom:([\d.]+)px;[^"]*"[^>]*data-start="6" data-duration="2">Footage<\/div>/.exec(html);
+    assert.ok(chip, "the label rides on the footage, timed to its scene");
+    assert.ok(+chip[1]! >= 1920 * 0.05 && +chip[2]! >= 1080 * 0.05, "inside the 5% inset");
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("a rendered film is cut into one file per scene on its exact frames, listed in scenes.json", { timeout: 120_000 }, async () => {
+  const { dir, sb } = fixture();
+  try {
+    sb.output = { ...sb.output, out_w: 320, out_h: 180 };
+    mkdirSync(join(dir, "out"));
+    const film = join(dir, "out", `${sb.id}.mp4`);
+    // A 14 s film whose every frame shows its own number: a cut on the wrong frame shows the wrong one.
+    execFileSync("ffmpeg", ["-nostdin", "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=s=320x180:r=60:d=14", "-f", "lavfi", "-i", "sine=d=14",
+      "-shortest", "-c:v", "libx264", "-crf", "10", "-pix_fmt", "yuv420p", "-c:a", "aac", film]);
+    const cuts = await writeScenes(dir, sb, film);
+    const manifest = JSON.parse(readFileSync(join(dir, "out", "scenes.json"), "utf8"));
+    assert.deepEqual(manifest.scenes, cuts);
+    assert.deepEqual(cuts.map(c => [c.file, c.start, c.end, c.title, c.frames]), [
+      ["out/scenes/01-make-it-move.mp4", 0, 6, "Make it move", 360],
+      ["out/scenes/02-footage.mp4", 6, 8, "Footage", 120],
+      ["out/scenes/03-takeone.mp4", 8, 14, "TakeOne", 360],
+    ]);
+    // The second scene's first frame is the film's frame 360.
+    const frame = (file: string, at: number) => execFileSync("ffmpeg", ["-nostdin", "-v", "error", "-i", file, "-vf", `select=eq(n\\,${at})`, "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "gray", "-"]);
+    const a = frame(join(dir, "out/scenes/02-footage.mp4"), 0), b = frame(film, 360);
+    const diff = a.reduce((m, v, i) => Math.max(m, Math.abs(v - b[i]!)), 0);
+    assert.ok(diff <= 24, `scene 2 starts on film frame 360 (max luma delta ${diff})`);
+    for (const c of cuts) assert.equal(execFileSync("ffprobe", ["-v", "error", "-select_streams", "a", "-show_entries", "stream=codec_name", "-of", "csv=p=0", join(dir, c.file)], { encoding: "utf8" }).trim(), "aac");
+  } finally { rmSync(dir, { recursive: true, force: true }); }
 });
