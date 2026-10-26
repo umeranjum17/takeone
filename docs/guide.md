@@ -255,6 +255,16 @@ from a 1080p proxy of the recording, made once beside the take and reused by eve
 preview, so a theme or `--set` change can be seen in a fraction of the full render's time.
 The full render is unchanged by it: `camera.json` is the same file, byte for byte.
 
+### 5. Score the film and let it improve
+
+Pass a target score to render, judge and improve in rounds:
+
+```sh
+takeone make <id> --target-score 9 --max-rounds 4
+```
+
+The loop extracts single frames, measures them, asks the configured judge for a score against a written rubric, fixes the weakest build inputs and re-renders. It stops at the target, when a round gains nothing, or at `--max-rounds`. The result is `out/score.json` with every round's score and item breakdown, the frame paths, and an explicit below-target list when the bar is not reached. See [the score loop](score-loop.md) and its [call and render cost](score-loop.md#cost-and-time).
+
 ## Motion design from screens
 
 Use `takeone motion` to create a film from images, HTML or a URL without recording:

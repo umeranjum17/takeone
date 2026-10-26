@@ -92,6 +92,7 @@ Isolated installs (CI, throwaway test HOMEs) can set `TAKEONE_NO_KEYRING=1` so t
 - **Paces itself.** Idle stretches play faster, typing can too, and spotlight and blur boxes follow the content.
 - **Private and cheap.** Works fully offline with `--no-ai`. The AI planner is on by default: with no saved choice it [discovers a signed-in account in order](docs/guide.md#discovery-order) before falling back to any configured provider (Jev by default), and its cost is in [docs/cost.md](docs/cost.md). `takeone key set --backend <name> --model <model> [--via typesafe|openrouter]` stores your key and records the choice in `planner.json` (a saved choice is never switched automatically, and Jev is used only when no signed-in account or key is found).
 - **Exports what you need.** MP4 by default, plus GIF, WebM and ProRes 4444, in landscape, portrait, square or 4:5.
+- **Scores its own film.** `takeone make --target-score 9` renders, judges against a written rubric, fixes the weakest items and renders again, with the per-round score in `out/score.json`.
 - **Motion films from screens.** `takeone motion` turns screenshots, HTML or a URL into a short film.
 
 ## Learn more
@@ -103,6 +104,7 @@ Isolated installs (CI, throwaway test HOMEs) can set `TAKEONE_NO_KEYRING=1` so t
 - [Edit controls](docs/edit-controls.md): output size and format, hold-style camera, speed regions
 - [Overlays](docs/overlays.md): spotlight and blur regions, shortcut keycaps
 - [Motion films](docs/motion.md): films from screenshots, HTML or a URL
+- [Score loop](docs/score-loop.md): render, judge, improve and the call cap
 - [Cost](docs/cost.md): measured planner cost per minute and its hard caps
 - [Demo scene](docs/headless-scene.md): reproduce the board demo shown above (needs a [git checkout](#from-source): its scripts are not in the npm package)
 
