@@ -1716,9 +1716,16 @@ export function solveCameraDetailed(
     return { t: f.t, w, h, x: lerp(f.x + f.w / 2, s.x + s.w / 2, u) - w / 2, y: lerp(f.y + f.h / 2, s.y + s.h / 2, u) - h / 2 };
   });
   const wide = d.outro_s > 0 ? toFrame({ cx: width / 2, cy: height / 2, z: 1 }, width, height, d) : null;
-  const arrival = wide ? Math.max(0, end - start - d.outro_s) : 0;
-  const moveStart = arrival - d.move_t_max;
-  if (!wide || moveStart <= d.establish_s) {
+  // The outro gives way to the last action: its pull-back waits until the last shot has landed and
+  // held for min_shot, and when the take ends first the film ends on that shot. Only a take with no
+  // shot at all and no room for the outro holds the whole stage throughout.
+  const settled = quietShots.length ? Math.max(...quietShots.map(shot => shot.arrival)) - start + d.min_shot : 0;
+  const moveStart = wide ? Math.max(end - start - d.outro_s - d.move_t_max, settled) : 0;
+  const arrival = Math.min(end - start, moveStart + d.move_t_max);
+  if (wide && quietShots.length && moveStart + d.move_t_min > end - start) {
+    return { frames: applyDragVisibility(carry(sampled), visibleBeats, width, height, start, d), holds };
+  }
+  if (!wide || (moveStart <= d.establish_s && !quietShots.length)) {
     return { frames: applyDragVisibility(carry(wide ? sampled.map(f => ({ ...wide, t: f.t })) : sampled),
       visibleBeats, width, height, start, d), holds };
   }

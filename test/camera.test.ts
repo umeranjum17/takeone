@@ -1311,6 +1311,19 @@ test("a click shot right after a shot with no gesture keeps its push-in", () => 
   assert.ok(contains(at(after, 5), [3000, 900, 180, 120]) && at(after, 5).w < 3840 * 0.6, "the click gets the push-in");
 });
 
+// The default outro used to pull back to the whole stage over a click near the end of a short take,
+// and when it had no room after the establishing hold it held the whole stage for the entire film.
+test("a click near the end of a short take keeps its push-in under the default outro", () => {
+  const click: Beat = { ...beat("click", 3.6, 1700), actions: [{ k: "click", t: 3600, x: 1790, y: 1000, window_cls: "x" } as Action] };
+  const at = (frames: CameraFrame[], t: number) => frames[Math.round(t * DEFAULTS.fps)]!;
+  const short = solveCamera([click], [decision(click)], { width: 3840, height: 2160, trim_end: 4.2 } as Parameters<typeof solveCamera>[2]);
+  assert.ok(contains(at(short, 4.1), [1700, 900, 180, 120]) && at(short, 4.1).w < 3840 * 0.6, "the film ends pushed in on the click");
+  // With room after the click has landed and held, the outro still closes on the whole stage.
+  const long = solveCamera([click], [decision(click)], { width: 3840, height: 2160, trim_end: 9 } as Parameters<typeof solveCamera>[2]);
+  assert.ok(at(long, 4.6).w < 3840 * 0.6, "the push-in holds through the click");
+  assert.equal(at(long, 8.9).w, 3840, "then the outro returns to the whole stage");
+});
+
 // A dense page leaves no edge-aligned crop that keeps every detected box whole, which used to widen
 // the push-in to the whole screen. When the text guard reads a pushed-in crop's edges clean, the
 // camera takes it: no word is cut, though a box may be.
