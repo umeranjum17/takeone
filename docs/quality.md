@@ -125,7 +125,8 @@ round-off is tolerated, plus, where a fixture declares one, a metric's measured
 spread across machines on frame-identical renders: the scene's judder is allowed
 0.03 px/frame² above its baseline (measured 0.0214 apart on a dev host and the CI
 runner), and a 1 px shift injected every fourth frame still fails it. The baseline
-is 1.1762 since the push-in camera: zooming frames measure higher than pans on
+is 1.1762 since the push-in camera (the dev host's; the CI runner measures
+1.1330): zooming frames measure higher than pans on
 every build, and the push-ins add zooming frames (see the comment in
 `scripts/quality.ts` for the measurements). A missing,
 nonfinite or removed measurement fails.

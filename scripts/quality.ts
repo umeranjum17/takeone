@@ -250,7 +250,8 @@ const FIXTURES: Record<string, { script: string; args?: string[]; video: string;
     // The push-in camera (#191) zooms in and out on the action, and zooming frames measure higher on every
     // build: on one capture, main 1.13 (pans 0.68), this camera 1.18 (pans 0.63). Its baseline 1.1762 is
     // the dev host's (deterministic capture, 2 runs); the excess over main is 30 push-in frames whose edge
-    // accelerates >= 0.3 px/frame² (rms 2.53; main has 2). A 1 px shift every fourth frame measures 1.3482.
+    // accelerates >= 0.3 px/frame² (rms 2.53; main has 2). The CI runner measures 1.1330 on the same camera.
+    // A 1 px shift every fourth frame measures 1.3482 and still fails.
     noise: { subpixel_judder: 0.03 } },
 };
 
