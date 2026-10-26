@@ -7,6 +7,7 @@ import { join, resolve } from "node:path";
 import { parseMotionArgs } from "../src/motion/cli.ts";
 import { buildHyperframesProject, validateHyperframesProject, writeScenes } from "../src/motion/hyperframes.ts";
 import { validateStoryboard } from "../src/motion/storyboard.ts";
+import { compareRenders, MIN_FRAME_PSNR } from "../scripts/motion-determinism.ts";
 
 function fixture(): { dir: string; sb: ReturnType<typeof validateStoryboard> } {
   const dir = mkdtempSync(join(tmpdir(), "takeone-hyperframes-"));
@@ -117,5 +118,22 @@ test("a rendered film is cut into one file per scene on its exact frames, listed
     const diff = a.reduce((m, v, i) => Math.max(m, Math.abs(v - b[i]!)), 0);
     assert.ok(diff <= 24, `scene 2 starts on film frame 360 (max luma delta ${diff})`);
     for (const c of cuts) assert.equal(execFileSync("ffprobe", ["-v", "error", "-select_streams", "a", "-show_entries", "stream=codec_name", "-of", "csv=p=0", join(dir, c.file)], { encoding: "utf8" }).trim(), "aac");
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("two renders pass the determinism check within its PSNR floor, and a changed frame fails it", { timeout: 120_000 }, () => {
+  const dir = mkdtempSync(join(tmpdir(), "takeone-determinism-"));
+  try {
+    const enc = (name: string, crf: number, vf = "null") => {
+      const file = join(dir, name);
+      execFileSync("ffmpeg", ["-nostdin", "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=s=320x180:r=60:d=1", "-vf", vf, "-c:v", "libx264", "-crf", String(crf), "-pix_fmt", "yuv420p", file]);
+      return file;
+    };
+    const a = enc("a.mp4", 0), same = enc("same.mp4", 0), rounding = enc("rounding.mp4", 2), box = enc("box.mp4", 0, "drawbox=x=100:y=60:w=80:h=40:c=red:t=fill");
+    assert.deepEqual(compareRenders(a, same), { frames: 60, differing: 0, minPsnr: Infinity, ok: true });
+    const r = compareRenders(a, rounding);
+    assert.ok(r.differing > 0 && r.minPsnr >= MIN_FRAME_PSNR && r.ok, `low-bit rounding stays within the floor (${r.minPsnr.toFixed(2)} dB)`);
+    const b = compareRenders(a, box);
+    assert.ok(!b.ok && b.minPsnr < MIN_FRAME_PSNR, `a box drawn on every frame fails (${b.minPsnr.toFixed(2)} dB)`);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
