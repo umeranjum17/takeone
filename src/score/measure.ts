@@ -40,9 +40,13 @@ export function pointerCount(dir: string): number {
   let n = 0;
   for (const line of readFileSync(path, "utf8").split("\n")) {
     if (!line.trim()) continue;
+    let event: { k?: unknown };
     try {
-      if ((JSON.parse(line) as { k?: unknown }).k === "ptr") n++;
-    } catch {}
+      event = JSON.parse(line) as { k?: unknown };
+    } catch {
+      continue;
+    }
+    if (event.k === "ptr") n++;
   }
   return n;
 }
