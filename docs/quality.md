@@ -123,8 +123,11 @@ met prints `quality: passed`. For a maximum metric the gate is
 `value ≥ min(goal, baseline)`. Passing metrics keep their goal. Only 1e-6 relative
 round-off is tolerated, plus, where a fixture declares one, a metric's measured
 spread across machines on frame-identical renders: the scene's judder is allowed
-0.03 px/frame² above its baseline (1.0309 on a dev host, 1.0523 on the CI runner),
-and a 1 px shift injected every fourth frame still fails it. A missing,
+0.03 px/frame² above its baseline (measured 0.0214 apart on a dev host and the CI
+runner), and a 1 px shift injected every fourth frame still fails it. The baseline
+is 1.1762 since the push-in camera: zooming frames measure higher than pans on
+every build, and the push-ins add zooming frames (see the comment in
+`scripts/quality.ts` for the measurements). A missing,
 nonfinite or removed measurement fails.
 
 After a quality improvement, run `npm run quality -- --ratchet` and commit the

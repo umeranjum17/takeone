@@ -247,6 +247,10 @@ const FIXTURES: Record<string, { script: string; args?: string[]; video: string;
   portrait: { script: 'synth-portrait.ts', video: 'portrait' }, // a portrait export is never banded
   scene: { script: 'headless-scene.mjs', args: ['--cursor=hidden'], video: 'headless-demo', divider: 570.7,
     // Judder on frame-identical renders: 1.0309 on a dev host (5 runs), 1.0523 on the CI runner; 0.03 clears that 0.0214 spread.
+    // The push-in camera (#191) zooms in and out on the action, and zooming frames measure higher on every
+    // build: on one capture, main 1.13 (pans 0.68), this camera 1.18 (pans 0.63). Its baseline 1.1762 is
+    // the dev host's (deterministic capture, 2 runs); the excess over main is 30 push-in frames whose edge
+    // accelerates >= 0.3 px/frame² (rms 2.53; main has 2). A 1 px shift every fourth frame measures 1.3482.
     noise: { subpixel_judder: 0.03 } },
 };
 
