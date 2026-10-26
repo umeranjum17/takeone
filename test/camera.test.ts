@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { DEFAULTS } from "../src/camera/defaults.ts";
-import { solveCamera, solveCameraDetailed, clippedFractions, wholeCrop, frame, toFrame } from "../src/camera/solver.ts";
+import { solveCamera, solveCameraDetailed, clippedFractions, wholeCrop, frame, toFrame, applyManualZooms } from "../src/camera/solver.ts";
 import type { Beat, CameraFrame, Decision, Zone } from "../src/camera/types.ts";
 import type { Action } from "../src/types.ts";
 import { renderTake, sourceEdgeCuts } from "../src/render/render.ts";
@@ -1277,4 +1277,72 @@ test("a planner shot=false on a click beat removes its camera move", () => {
     .filter((f) => f.w < take.width - 1).length;
   assert.ok(moves(decision(click)) > 0, "the rules move the camera for a click");
   assert.equal(moves({ ...decision(click), shot: false }), 0);
+});
+
+// A page that only scrolls used to hold the whole screen to the end: scroll beats take no shot.
+// Once the scroll settles, the camera pushes in on what it settled on and holds there.
+test("a scroll-only take pushes in on what the scroll settled on", () => {
+  const scroll: Beat = { id: "b1", t0: 0.5, t1: 2.5, anchor_t: 0.5, kind: "scroll",
+    zones: [{ name: "z1", type: "res", bbox: [2200, 700, 1000, 640] }, { name: "z2", type: "all", bbox: [0, 0, 3840, 2160] }],
+    actions: [{ k: "scroll", t0: 500, t1: 2000, x: 1900, y: 1000, dx: 0, dy: -4, detents: 4, window_cls: "x" } as Action] };
+  const d = { ...DEFAULTS, outro_s: 0 };
+  const frames = solveCamera([scroll], [decision(scroll)], { width: 3840, height: 2160, trim_end: 8 } as Parameters<typeof solveCamera>[2], d);
+  const settled = 2 + d.dwell;
+  assert.ok(frames.filter(f => f.t < settled).every(f => f.w === 3840), "the scroll itself plays wide");
+  const held = frames.filter(f => f.t >= settled + d.move_t_max + 0.2);
+  assert.ok(held.length > 60, "a real hold, not one frame");
+  assert.ok(held.every(f => f.w < 3840 * 0.6 && contains(f, [2200, 700, 1000, 640])), "holds pushed in on the settled content, whole");
+});
+
+// The gesture wins a close call: when a pointer-travel shot and the click right after it are
+// under min_shot apart, the click keeps its shot instead of being dropped behind the travel.
+test("a click shot right after a shot with no gesture keeps its push-in", () => {
+  const travel: Beat = { ...beat("look", 2.6, 300), kind: "travel",
+    actions: [{ k: "click", t: 2600, x: 390, y: 960, window_cls: "x" } as Action] };
+  const hover: Beat = { ...beat("hover", 2.6, 300), actions: [] };
+  const click: Beat = { ...beat("click", 3.2, 3000), actions: [{ k: "click", t: 3200, x: 3090, y: 960, window_cls: "x" } as Action] };
+  const take = { width: 3840, height: 2160, trim_end: 8 } as Parameters<typeof solveCamera>[2];
+  const d = { ...DEFAULTS, outro_s: 0 };
+  const at = (frames: CameraFrame[], t: number) => frames[Math.round(t * d.fps)]!;
+  // Control: two gestures under min_shot apart keep the first, as before.
+  const both = solveCamera([travel, click], [decision(travel), decision(click)], take, d);
+  assert.ok(contains(at(both, 4.5), [300, 900, 180, 120]), "the earlier gesture keeps its shot");
+  const after = solveCamera([hover, click], [decision(hover), decision(click)], take, d);
+  assert.ok(contains(at(after, 5), [3000, 900, 180, 120]) && at(after, 5).w < 3840 * 0.6, "the click gets the push-in");
+});
+
+// A dense page leaves no edge-aligned crop that keeps every detected box whole, which used to widen
+// the push-in to the whole screen. When the text guard reads a pushed-in crop's edges clean, the
+// camera takes it: no word is cut, though a box may be.
+test("a push-in on a dense page holds a readable crop instead of widening to the whole screen", () => {
+  const boxes: Zone["bbox"][] = [];
+  // Two staggered layers of boxes: every crop edge runs through one of them.
+  for (let y = 0; y < 2160; y += 90) for (let x = 0; x < 3840; x += 160) boxes.push([x + 4, y + 4, 150, 80], ...(x + 234 < 3840 && y + 129 < 2160 ? [[x + 84, y + 49, 150, 80] as Zone["bbox"]] : []));
+  const click: Beat = { id: "b1", t0: 3, t1: 6, anchor_t: 4, kind: "click",
+    zones: [{ name: "z1", type: "act", bbox: [1600, 900, 300, 200], boxes }],
+    actions: [{ k: "click", t: 4000, x: 1750, y: 1000, window_cls: "x" } as Action] };
+  const take = { width: 3840, height: 2160, trim_end: 8 } as Parameters<typeof solveCamera>[2];
+  const d = { ...DEFAULTS, outro_s: 0 };
+  const width = (cuts?: (v: { w: number }) => number) => Math.min(...solveCamera([click], [decision(click)], take, d, undefined, cuts).map(f => f.w));
+  assert.equal(width(), 3840, "control: with the whole-box rule alone, no push-in fits");
+  assert.ok(width(() => 0) < 3840 * 0.6, "a clean-edged crop pushes in");
+});
+
+// Manual zooms widen for a popup the gesture opened, not for the page repainting under a scroll or a
+// demo animating elsewhere on the page.
+test("a manual zoom is not widened by scroll repaints or changes far from the gesture", () => {
+  const take = { width: 3840, height: 2160, trim_start: 0, trim_end: 8,
+    zooms: [{ t0: 1, t1: 8, bbox: [1400, 600, 900, 600] as [number, number, number, number], level: 2 }] } as Parameters<typeof solveCamera>[2];
+  const d = { ...DEFAULTS, outro_s: 0 };
+  const wide = Array.from({ length: 8 * d.fps + 1 }, (_, i) => ({ t: i / d.fps, x: 0, y: 0, w: 3840, h: 2160 }));
+  const scroll: Beat = { id: "s", t0: 1.5, t1: 2.5, anchor_t: 1.5, kind: "scroll", zones: [], actions: [] };
+  const click: Beat = { id: "c", t0: 4, t1: 6, anchor_t: 4, kind: "click", zones: [],
+    actions: [{ k: "click", t: 4000, x: 1600, y: 800, window_cls: "x" } as Action] };
+  const held = (changes: { t: number; bbox: [number, number, number, number] }[]) =>
+    applyManualZooms(wide, take, d, [scroll, click], changes)[Math.round(7 * d.fps)]!;
+  const plain = held([]);
+  // Control: a popup the click opened, under and past the box, widens the hold to include it.
+  assert.ok(held([{ t: 4.2, bbox: [1500, 1100, 400, 700] }]).h > plain.h + 1);
+  // A repaint during the scroll and a change far from the click leave the hold as it was.
+  assert.deepEqual(held([{ t: 2, bbox: [1300, 500, 700, 1300] }, { t: 4.4, bbox: [2200, 1100, 600, 700] }]), plain);
 });

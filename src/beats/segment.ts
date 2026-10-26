@@ -337,8 +337,10 @@ export function resultParts(frames: FrameRegions[], fromT: number, untilT: numbe
 export function resultBBox(beat: Beat): BBox | null {
   const results = beat.results ?? [];
   if (results.length === 0) return null;
-  const [lx, ly, lw, lh] = results[0]!.bbox;
-  const pushed = (r: Region) => r !== results[0] && r.bbox[1] >= ly + lh - 1
+  // Merged beats append their results, so the largest is not always first.
+  const largest = results.reduce((a, b) => bboxArea(b.bbox) > bboxArea(a.bbox) ? b : a);
+  const [lx, ly, lw, lh] = largest.bbox;
+  const pushed = (r: Region) => r !== largest && r.bbox[1] >= ly + lh - 1
     && r.bbox[0] >= lx - 1 && r.bbox[0] + r.bbox[2] <= lx + lw + 1;
   return results.filter((r) => !pushed(r)).map((r) => r.bbox).reduce(unionBBox);
 }
