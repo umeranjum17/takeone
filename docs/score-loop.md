@@ -36,7 +36,7 @@ Round one is the plain baseline. From round two, the judge sees the round-one me
 ## Output
 
 - The film: `out/<id>.mp4`, the best-scoring round.
-- The report: `out/score.json` with the per-round score, every item's score and measured note, the actions taken, the frame paths, the model route, the call count, the remaining defects and `limitations`. A limitation is a capability the loop could not add without changing the product, such as a requested push-in that the camera's no-cut-text guard widened back to the whole page; it is recorded once instead of being attempted again every round.
+- The report: `out/score.json` with the per-round score, every item's score and measured note, the actions taken, the frame paths, the model route, the call count, the remaining defects and `limitations`. A limitation is a capability the loop could not add without changing the product, such as a requested push-in that the render still measures at under 1.1x; it is recorded once instead of being attempted again every round.
 - Single frames: `out/score/round-N-{page,click,end}.png`.
 
 ## Cost and time
