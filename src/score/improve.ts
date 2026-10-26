@@ -38,7 +38,8 @@ function clip(v: number, lo: number, hi: number): number {
 function addClickZoom(ctx: ImproveContext, facts: MeasuredFacts): string | null {
   if (facts.zoomAtClick >= 1.1) return null;
   if ((ctx.meta.zooms?.length ?? 0) > 0) {
-    ctx.limitations.push("camera push-in unavailable: the no-cut-text camera guard widened the manual zoom back to the whole page");
+    // Say only what was measured: the cause (no source pixels to zoom into, framing rules) is not known here.
+    ctx.limitations.push(`camera push-in unavailable: with a manual zoom at the click the render still measures ${facts.zoomAtClick.toFixed(2)}x there`);
     return null;
   }
   const click = clickAt(ctx.dir);
