@@ -14,7 +14,7 @@ export function motionScripts(): string[] {
   const all: string[] = [];
   const walk = (dir: string) => {
     for (const e of readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
-      if (e.isDirectory()) walk(join(dir, e.name));
+      if (e.isDirectory()) { if (e.name !== "vendor") walk(join(dir, e.name)); }
       else if (e.name.endsWith(".js")) all.push(join(dir, e.name));
     }
   };

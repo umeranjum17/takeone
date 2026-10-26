@@ -55,7 +55,7 @@ test("hyperframes project is offline, timed and layer-shaped", () => {
     assert.ok(!html.includes("file://"), "no file:// URLs survive");
     assert.ok(!/(?:src|href)="https?:/.test(html), "no network references");
     assert.ok(!/url\(["']?https?:/.test(html), "no network css references");
-    assert.match(html, /GSAP 3\.13\.0/);
+    assert.equal((html.match(/GSAP 3\.13\.0/g) ?? []).length, 1, "GSAP is inlined exactly once");
     assert.match(html, /data-track-index="/);
     assert.ok(readdirSync(join(p.dir, "assets")).some((f) => f.endsWith(".ttf")));
     for (const m of html.matchAll(/assets\/[^"'\s)\\]+/g)) {
