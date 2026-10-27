@@ -1,14 +1,14 @@
 {
-  "name": "takeone",
-  "version": "0.2.1",
-  "private": true,
+  "name": "takeone-axi",
+  "version": "0.4.0",
   "description": "Turn a raw screen recording into a polished demo.",
   "type": "module",
   "engines": {
     "node": ">=22.19.0"
   },
   "bin": {
-    "takeone": "./bin/takeone.mjs"
+    "takeone": "./bin/takeone.mjs",
+    "takeone-axi": "./bin/takeone.mjs"
   },
   "files": [
     "bin",

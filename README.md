@@ -55,10 +55,14 @@ Verification and evidence: [done-done journeys and feature recipes](docs/verific
 On Linux or macOS, with [Node.js](https://nodejs.org/) 22.19 or newer and [ffmpeg](https://ffmpeg.org/) on your PATH:
 
 ```sh
-npm install -g \
-  --allow-remote=all \
-  https://github.com/umeranjum17/takeone/releases/latest/download/takeone.tgz
+npm install -g takeone-axi
 takeone doctor
+```
+
+If you prefer the GitHub release tarball:
+
+```sh
+npm install -g --allow-remote=all https://github.com/umeranjum17/takeone/releases/latest/download/takeone.tgz
 ```
 
 npm 12 refuses the tarball URL without `--allow-remote=all`. npm 11 may print `npm warn Unknown cli config "--allow-remote"` for the same flag; that warning is harmless and the install still succeeds.
