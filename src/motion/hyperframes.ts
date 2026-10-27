@@ -149,7 +149,7 @@ function videoLayers(sb: Storyboard, data: { clips: Record<string, { video: stri
 }
 
 /** Write a self-contained HyperFrames project at <take>/.motion/hyperframes/. */
-export function buildHyperframesProject(dir: string, sb: Storyboard): HyperframesProject {
+export function buildHyperframesProject(dir: string, sb: Storyboard, alpha = false): HyperframesProject {
   if (sb.layout.kind !== "single") throw new Error("hyperframes engine supports the single layout only; render with --engine legacy");
   const projectDir = join(dir, ".motion", "hyperframes");
   rmSync(projectDir, { recursive: true, force: true });
@@ -193,6 +193,8 @@ window.__timelines=window.__timelines||{};
 window.__timelines['main']={duration:()=>dur,totalDuration:()=>dur,pause(){},seek(s){window.__hfSeek(s);return this;},time(s){if(s!==undefined)this.seek(s);return s??0;},totalTime(s){if(s!==undefined)this.seek(s);return s??0;}};
 window.__hfSeek(0);window.__hfReady=true;})();`;
   doc = doc.replace("</head>", () => `<script>${inline}${bridge}</script>\n</head>`);
+  // An alpha film is the motion layer alone: the themed backdrop (page, stage and every scene's fill) is dropped, not matted out.
+  if (alpha) doc = doc.replace("</head>", () => "<style>html,body,#stage,.layer{background:transparent!important}</style>\n</head>");
 
   const vendored = new Map<string, string>();
   const vendor = (url: string): string => {
@@ -257,18 +259,37 @@ function probe(out: string): { duration: number; frames: number; width: number; 
 
 export interface HyperframesRenderOptions {
   workers?: number;
+  /** Write out/<id>.mov, ProRes 4444 with a real alpha channel over a transparent backdrop, instead of the opaque MP4. */
+  alpha?: boolean;
+}
+
+/** [lowest alpha, share of fully transparent pixels] over the first, middle and last frames of an alpha film. */
+async function alphaCoverage(file: string, frames: number, width: number, height: number): Promise<{ min: number; clear: number }> {
+  let min = 255, clear = 0, seen = 0;
+  for (const n of [0, Math.floor(frames / 2), frames - 1]) {
+    const { stdout } = await execFileAsync("ffmpeg", ["-nostdin", "-v", "error", "-threads", "2", "-filter_threads", "2", "-i", file,
+      "-vf", `select=eq(n\\,${n}),format=rgba,alphaextract,format=gray`, "-frames:v", "1", "-f", "rawvideo", "-"],
+      { encoding: "buffer", maxBuffer: width * height + 1024, timeout: 300_000 }) as { stdout: Buffer };
+    if (stdout.length !== width * height) throw new Error(`hyperframes engine: could not read the alpha of frame ${n} of ${file}`);
+    let zero = 0;
+    for (const a of stdout) { if (a < min) min = a; if (a === 0) zero++; }
+    clear += zero / stdout.length;
+    seen++;
+  }
+  return { min, clear: clear / seen };
 }
 
 /** Render the emitted project and prove the file is the requested duration, frame count and size. */
 export async function renderHyperframes(dir: string, sb: Storyboard, o: HyperframesRenderOptions = {}): Promise<{ out: string; manifest: RenderManifest }> {
   const hf = await pinnedHyperframes();
-  const project = buildHyperframesProject(dir, sb);
-  const out = join(dir, "out", `${sb.id}.mp4`);
+  const project = buildHyperframesProject(dir, sb, o.alpha);
+  const ext = o.alpha ? "mov" : "mp4";
+  const out = join(dir, "out", `${sb.id}.${ext}`);
   mkdirSync(join(dir, "out"), { recursive: true });
   const workers = Math.max(1, Math.min(o.workers ?? sb.output.workers ?? 2, 16));
   const started = performance.now();
   await execFileAsync(process.execPath, [hf.cli, "render", "-c", "index.html", "-o", out, "-w", String(workers),
-    "--fps", String(sb.output.fps), "--crf", "10", "--video-frame-format", "png", "--no-best-effort", "--quiet", "--frames-cache-dir", "off"], {
+    "--fps", String(sb.output.fps), ...(o.alpha ? ["--format", "mov"] : ["--crf", "10"]), "--video-frame-format", "png", "--no-best-effort", "--quiet", "--frames-cache-dir", "off"], {
     cwd: project.dir,
     env: { ...process.env, HYPERFRAMES_NO_TELEMETRY: "1", HYPERFRAMES_NO_UPDATE_CHECK: "1", HYPERFRAMES_BROWSER_PATH: hf.browser },
     maxBuffer: 20 * 1024 * 1024,
@@ -281,12 +302,17 @@ export async function renderHyperframes(dir: string, sb: Storyboard, o: Hyperfra
   if (Math.abs(p.fps - project.fps) > 0.01) throw new Error(`hyperframes engine: rendered ${p.fps} fps, expected ${project.fps}`);
   if (p.audioStreams > (project.audio ? 1 : 0)) throw new Error(`hyperframes engine: expected ${project.audio ? 1 : 0} audio stream, found ${p.audioStreams}`);
   if (project.audio && p.audioStreams !== 1) throw new Error("hyperframes engine: audio was not muxed");
+  if (o.alpha) {
+    if (p.video !== "prores") throw new Error(`hyperframes engine: alpha film is ${p.video}, not ProRes`);
+    const { min, clear } = await alphaCoverage(out, p.frames, p.width, p.height);
+    if (min !== 0 || clear < 0.01) throw new Error(`hyperframes engine: the ProRes film has no transparent backdrop (lowest alpha ${min}, ${(clear * 100).toFixed(1)}% clear)`);
+  }
   const raw = readFileSync(join(dir, "storyboard.json"));
   const manifest: RenderManifest = {
     version: 1,
     engine: "hyperframes",
     storyboard_sha256: createHash("sha256").update(raw).digest("hex"),
-    out: `out/${sb.id}.mp4`,
+    out: `out/${sb.id}.${ext}`,
     frames: p.frames,
     fps: p.fps,
     width: p.width,
@@ -303,7 +329,7 @@ export async function renderHyperframes(dir: string, sb: Storyboard, o: Hyperfra
     },
   };
   writeFileSync(join(dir, "render.json"), `${JSON.stringify(manifest, null, 2)}\n`);
-  await writeScenes(dir, sb, out);
+  if (!o.alpha) await writeScenes(dir, sb, out);
   return { out, manifest };
 }
 

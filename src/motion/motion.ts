@@ -93,6 +93,8 @@ export interface RenderOptions {
   size?: [number, number];
   /** Write one PNG per film time (seconds) instead of the film: out/<id>[-<w>x<h>]-<t>s.png (contact sheets, critique). */
   stills?: number[];
+  /** Write out/<id>.mov, ProRes 4444 with real alpha and no themed backdrop (hyperframes engine). */
+  alpha?: boolean;
 }
 
 /** Render storyboard.json in dir to out/<id>.mp4 plus render.json and out/<id>.frames.md5. */
@@ -136,13 +138,14 @@ export async function renderMotion(dir: string, o: RenderOptions = {}): Promise<
   mkdirSync(join(dir, "out"), { recursive: true });
   for (const t of o.stills ?? []) if (!(t >= 0 && t * fps < frames)) throw new Error(`still ${t} s is outside the ${frames / fps} s film`);
   const engine = o.engine ?? "legacy";
+  if (o.alpha && engine !== "hyperframes") throw new Error("--alpha needs the hyperframes engine");
   if (engine === "hyperframes") {
     if (o.size) throw new Error("hyperframes engine does not re-lay out --aspect; render with --engine legacy");
     if (o.stills) throw new Error("hyperframes engine does not write stills; render with --engine legacy");
     if (o.framesDir) throw new Error("hyperframes engine does not write legacy frame directories; use --engine legacy for frame proofs");
     await safeAreaGate(dir, tag, html, sb, Array.from({ length: frames }, (_, i) => i / fps), shell);
     const { renderHyperframes } = await import("./hyperframes.ts");
-    return await renderHyperframes(dir, sb, { workers: o.workers });
+    return await renderHyperframes(dir, sb, { workers: o.workers, alpha: o.alpha });
   }
   if (sb.audio) throw new Error("audio is only supported by the hyperframes engine; render with --engine hyperframes");
   if (sb.scenes.some(s => s.fill)) throw new Error("fill clip scenes are only supported by the hyperframes engine; render with --engine hyperframes");

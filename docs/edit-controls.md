@@ -52,6 +52,15 @@ These three formats are transcoded from the rendered MP4, which is retained;
 ProRes cannot restore detail or chroma discarded by that intermediate.
 The MP4, WebM and ProRes exports carry BT.709 colour tags; GIF is palette-based
 and has no colour tags.
+
+A recorded take's stage is opaque, so its `prores4444` file is opaque too: the
+alpha plane is fully on. Transparency comes from motion films. `takeone motion
+<input> --alpha` (or `takeone render <motion-take> --alpha`) renders through the
+HyperFrames engine to `out/<id>.mov`, ProRes 4444 with a real alpha channel and
+the themed backdrop dropped, so the title, device and footage composite over
+anything. No MP4 is made or transcoded for it, and the render fails if the file
+is not ProRes or has no transparent pixels. It needs the hyperframes engine, so
+`--engine legacy` is refused; the scene-cut clips are not written for an alpha film.
 For example:
 
 ```sh
