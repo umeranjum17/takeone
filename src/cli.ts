@@ -245,8 +245,8 @@ export async function main(argv: string[]): Promise<number> {
     try {
       return await runMotion(rest, takesDir());
     } catch (e) {
-      console.error(`takeone motion: ${e instanceof Error ? e.message : e}`);
-      return 1;
+      console.error(e instanceof PlannerUnavailable && e.credentialMissing ? e.message : `takeone motion: ${e instanceof Error ? e.message : e}`);
+      return e instanceof PlannerUnavailable ? 3 : 1;
     }
   }
   if (cmd === "render") {
