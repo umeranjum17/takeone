@@ -185,11 +185,21 @@ export async function planEditorial(a: EditorialArgs, id: string, log: (line: st
     screen: { width: size.width, height: size.height },
     lines: lines.map(l => ({ id: l.id, box: l.box, words: redactText(l.text), ...(wraps(l, lines, size.width) ? { wraps: true } : {}) })),
   };
-  const outcome = await askChunk(state, { film: { kind: "yesno", question: ASK, answerFields: [...FIELDS] } }, planner, new MemoryCache(),
-    { timeoutMs: 180_000, keepAnswers: true });
-  const answer: Answer | undefined = outcome.answers?.["film"];
-  if (!answer || answer.abstained || answer.answer !== true) {
-    throw new Error(`editorial planner gave no plan (${outcome.failure ?? answer?.reason ?? "no answer"}); rerun to ask again`);
+  const grey = screenGrey(file, size);
+  // A broken field is asked again once, with the model's own answer and what it broke; a second miss stops.
+  for (let retry: Record<string, unknown> | undefined, attempt = 0; ; attempt++) {
+    const outcome = await askChunk(retry ? { ...state, retry } : state, { film: { kind: "yesno", question: ASK, answerFields: [...FIELDS] } }, planner, new MemoryCache(),
+      { timeoutMs: 180_000, keepAnswers: true });
+    const answer: Answer | undefined = outcome.answers?.["film"];
+    if (!answer || answer.abstained || answer.answer !== true) {
+      throw new Error(`editorial planner gave no plan (${outcome.failure ?? answer?.reason ?? "no answer"}); rerun to ask again`);
+    }
+    try {
+      return editorialStoryboard(a, id, size, lines, answer as unknown as Record<string, unknown>, grey);
+    } catch (e) {
+      if (attempt > 0 || !(e instanceof Error) || !e.message.startsWith("editorial planner:")) throw e;
+      log(`motion: ${e.message.replace(/; rerun to ask again$/, "")}; asking again`);
+      retry = { previous_answer: answer, problem: e.message.replace(/^editorial planner: |; rerun to ask again$/g, "") };
+    }
   }
-  return editorialStoryboard(a, id, size, lines, answer as unknown as Record<string, unknown>, screenGrey(file, size));
 }
