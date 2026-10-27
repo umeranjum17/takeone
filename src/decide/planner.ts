@@ -78,16 +78,16 @@ type CliPlannerConfig = { backend: "claude-code" | "codex"; auth: "account"; acc
 type PiPlannerConfig = { backend: "pi"; bin: string; model: string };
 type PlannerConfig = DecideConfig | CliPlannerConfig | PiPlannerConfig;
 
-export function plannerConfigPath(o: KeyOptions = {}): string {
-  return join(takeoneConfigDir(o), "planner.json");
+export function plannerConfigPath(o: KeyOptions = {}, file = "planner.json"): string {
+  return join(takeoneConfigDir(o), file);
 }
 
 /** Stored BYOKit decide config, or the Jev default when the user picked
  * nothing. Throws ConfigError on an invalid file (fix or delete it); an
  * account-auth file this host cannot serve is the same user error, so its
  * kit error is reported as one. */
-export function loadPlannerConfig(o: KeyOptions = {}): { config: PlannerConfig; defaulted: boolean } {
-  const path = plannerConfigPath(o);
+export function loadPlannerConfig(o: KeyOptions = {}, file = "planner.json"): { config: PlannerConfig; defaulted: boolean } {
+  const path = plannerConfigPath(o, file);
   if (!existsSync(path)) return { config: { ...DEFAULT_PLANNER_CONFIG }, defaulted: true };
   const raw = readFileSync(path, "utf8");
   let config: PlannerConfig;
@@ -192,12 +192,14 @@ export interface ResolvePlannerOptions extends KeyOptions {
   /** Presence probe (doctor, capture hello): read the store without migrating
    * the legacy env file. */
   probe?: boolean;
+  /** Saved config file in the config folder; planner.json when absent. */
+  file?: string;
 }
 
 /** Load the stored config and probe only whether its credential exists. Never
  * prints or returns a credential. */
 export async function resolvePlanner(o: ResolvePlannerOptions = {}): Promise<ResolvedPlanner> {
-  const loaded = loadPlannerConfig(o);
+  const loaded = loadPlannerConfig(o, o.file);
   let config = loaded.config;
   const { defaulted } = loaded;
   const env = o.env ?? process.env;
@@ -434,6 +436,36 @@ async function discoverCliAccount(env: NodeJS.ProcessEnv, configDir: string | un
     return { config, refusal: null, skipped, cli: ready.launch };
   }
   return { config: null, refusal, skipped, cli: null };
+}
+
+/** The model the score judge asks of the signed-in Claude CLI by default: its
+ * `haiku` family alias, which the CLI resolves to the current Haiku when the
+ * ask is made, so no model id is kept here to go stale. */
+export const JUDGE_MODEL = "haiku";
+/** The judge's own saved route, in the planner.json shapes; absent means the Haiku default. */
+export const JUDGE_CONFIG_FILE = "judge.json";
+
+/** The route the score judge asks: a saved judge.json when the person wrote
+ * one, else Claude Haiku through the installed Claude CLI's subscription
+ * sign-in, the account route the planner discovers first. Never a key. */
+export async function resolveJudge(o: ResolvePlannerOptions = {}): Promise<ResolvedPlanner> {
+  if (existsSync(plannerConfigPath(o, JUDGE_CONFIG_FILE))) return resolvePlanner({ ...o, file: JUDGE_CONFIG_FILE });
+  const env = o.env ?? process.env;
+  const bin = executable("claude", env);
+  const config: CliPlannerConfig = { backend: "claude-code", auth: "account", account: "installed-claude", bin: bin ?? "claude", model: JUDGE_MODEL };
+  const none = (refusal: string): ResolvedPlanner => ({
+    config, defaulted: true, label: plannerLabel(config, false), member: null, key: null,
+    accountPresent: false, active: false, refusal, skipped: null, cliLaunch: null,
+  });
+  if (!bin) return none("the Claude CLI is not installed");
+  const ready = await cliReady(config, env, o.configDir);
+  if (!ready.ok) return none(ready.message);
+  const why = unusableClaudeLogin(ready.launch.account.method);
+  if (why) return none(why);
+  return {
+    config, defaulted: true, label: plannerLabel(config, true), member: plannerMember(o), key: null,
+    accountPresent: true, active: true, refusal: null, skipped: null, cliLaunch: ready.launch,
+  };
 }
 
 /** The user picked nothing, and the order is the one this module owns: a

@@ -29,9 +29,16 @@ Round one is the plain baseline. From round two, the judge sees the round-one me
 
 1. **Build and render.** Round one runs `make` as usual. Later rounds re-render from the saved plan with the adjusted build inputs; they do not re-plan the take.
 2. **Measure.** The loop extracts three single frames (a settled page, the click moment, the final shot) and measures the page area share, pointer track, drawn cursor, click emphasis, camera zoom at the click, caption size, beat count, longest actionless span and frame count.
-3. **Judge.** One model call through the same BYOKit route the planner uses. The judge receives the written rubric, the measurements and the frame list; when the route reads images, it also receives up to three frames. On a text-only route it scores the measured facts. The judge is a separate pass, and a different route is used when the configured planner offers one; on a single free route it stays a separate pass.
+3. **Judge.** One model call per scored round, to Claude Haiku through the signed-in Claude CLI's subscription (see "The judge route"). The judge receives the written rubric, the measurements and the frame list, plus up to three frames; it is a separate pass from the builder.
 4. **Improve.** Up to two of the weakest weighted items are fixed by changing build inputs: `stage_margin` for page size, `cursor_free` and cursor/ripple settings for the pointer, a manual camera zoom around the click for the push-in, `caption_size` for drawn type, `idle_speed` for pacing, and a single-pass render for determinism. When the take has no pointer track or no drawn text, the loop records the missing capability in `out/score.json` instead of inventing it.
 5. **Stop** when the score reaches the target, when a round gains less than 0.2, when there is nothing left to change, or at `--max-rounds`.
+
+## The judge route
+
+- **Default:** Claude Haiku through the installed Claude CLI's own subscription sign-in, the same account route the planner discovers first. The model is the CLI's `haiku` family alias, resolved to the current Haiku at the moment of the call, so no model id is stored in TakeOne. No API key and no extra credits are used; an API-key or cloud-provider Claude login is refused.
+- **Own route:** save `judge.json` next to `planner.json` (`~/.config/takeone/judge.json`) in the same shapes `planner.json` takes (for example `{"backend":"pi","bin":"/abs/path/to/pi","model":"<model>"}`). When it exists it replaces the default.
+- **Different from the builder:** the default Haiku differs from the planner's default model. If you point the planner and the judge at the same model, the judge is still a separate pass.
+- **Unavailable:** if the route cannot serve (no Claude CLI, not signed in, an API-key login, or the call is refused), the loop says `score judge: unavailable - ...` and exits 3 before rendering. A refusal mid-loop stops with `judge-unavailable` and the report; no score is ever invented.
 
 ## Output
 
