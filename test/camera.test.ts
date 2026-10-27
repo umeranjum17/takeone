@@ -323,8 +323,21 @@ test("render without trim_end uses the latest beat end", { timeout: 480_000, ski
     const prePaint = widened.filter(f => f.t >= 8.1 && f.t < 8.5);
     assert.ok(prePaint.every(f => f.x === prePaint[0]!.x && f.w === prePaint[0]!.w),
       `a manual zoom never pushes in before its box paints: ${JSON.stringify(prePaint)}`);
+    // Reaching the card by 9.6 s would take about 2 ln/s once the cut settles, twice the 1 ln/s motion
+    // bar. A manual move that would exceed it arrives late and reports the exact amount (relay 205),
+    // so the early-arrival claim no longer holds in this fixture; that claim must now fail.
+    assert.throws(() =>
     assert.ok(widened.filter(f => f.t >= 9.5 && f.t <= 9.6).every(f => contains(f, [600, 400, 1000, 700]) && 3840 / f.w > 2),
-      "once the cut settles it arrives on the painted card");
+      "once the cut settles it arrives on the painted card"));
+    // Instead the render names the late arrival, and the camera lands on the card at that time.
+    const lateRun = spawnSync(process.execPath, ["bin/takeone.mjs", "render", dir, ...["out_w=960", "out_h=540", "fps=10",
+      "preset=ultrafast", "motion_blur=0", "idle_speed=1", "ripple_ms=0"].flatMap(v => ["--set", v])],
+    { encoding: "utf8", env: { ...process.env, TAKEONE_DIR: dir, TAKEONE_STATE_DIR: join(dir, "state") } });
+    const late = /zoom 2 ([\d.]+) s after its requested time, because it waits for the screen to paint/.exec(lateRun.stderr);
+    assert.ok(lateRun.status === 0 && late, `a hold that waits for its box to paint reports how late it arrives: ${lateRun.stderr}`);
+    const landed = widened.reduce((a, b) => Math.abs(b.t - 8.6 - Number(late[1])) < Math.abs(a.t - 8.6 - Number(late[1])) ? b : a);
+    assert.ok(contains(landed, [600, 400, 1000, 700]) && 3840 / landed.w > 2,
+      `once the cut settles it arrives on the painted card at the reported time: ${JSON.stringify(landed)}`);
     await writeFile(join(dir, "take.json"), JSON.stringify({ ...plannedMeta,
       cuts: [{ t0: 1, t1: 1.5 }], speed: [{ t0: 3, t1: 4.2, rate: 2 }],
       zooms: [{ t0: 3, t1: 4.2, bbox: [1344, 504, 1152, 940], level: 3 }] }));
@@ -519,6 +532,46 @@ test("a render split into parallel segments matches the single pass", { timeout:
   } finally {
     if (previous === undefined) delete process.env["TAKEONE_RENDER_SEGMENTS"];
     else process.env["TAKEONE_RENDER_SEGMENTS"] = previous;
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+// A phone take exported at its own portrait shape, or in square, has no automatic camera motion,
+// but the user's own zoom still arrives at its requested time and holds its box whole to the end.
+// One that starts too soon after the clip start keeps its full move and reports how late it lands.
+test("a manual zoom arrives and holds on a phone take at its own shape and in square", { timeout: 120_000 }, async () => {
+  if (!hasFfmpeg()) throw new Error("requires system ffmpeg and ffprobe on PATH");
+  const dir = await mkdtemp(join(tmpdir(), "takeone:phone-zoom-"));
+  try {
+    await mkdir(join(dir, "analysis"));
+    execFileSync("ffmpeg", ["-v", "error", "-f", "lavfi", "-i", "testsrc2=s=540x1200:r=30:d=8",
+      "-c:v", "mpeg4", "-q:v", "2", "-f", "matroska", "-y", join(dir, "screen.webm")]);
+    await writeFile(join(dir, "analysis/beats.json"), "[]");
+    await writeFile(join(dir, "analysis/decisions.jsonl"), "");
+    const box = [60, 700, 240, 180];
+    const render = async (zoom: { t0: number; t1: number }, out_w: number, out_h: number) => {
+      await writeFile(join(dir, "take.json"), JSON.stringify({ id: "phone-zoom", width: 540, height: 1200, device: "android",
+        trim_start: 0, trim_end: 8, zooms: [{ ...zoom, bbox: box, level: 3 }] }));
+      const warned: string[] = [];
+      const warn = console.warn;
+      console.warn = (...args: unknown[]) => { warned.push(args.join(" ")); };
+      try { await renderTake(dir, { ...FAST, preset: "ultrafast", motion_blur: 0, out_w, out_h, idle_speed: 1, max_upscale: 1.5 }); } finally { console.warn = warn; }
+      return { warned, frames: JSON.parse(await readFile(join(dir, "camera.json"), "utf8")) as CameraFrame[] };
+    };
+    for (const [out_w, out_h] of [[360, 640], [360, 360]] as const) {
+      const { warned, frames } = await render({ t0: 5, t1: 6.5 }, out_w, out_h);
+      const rest = frames[0]!;
+      const held = frames.filter(f => f.t >= 5 && f.t <= 6.5);
+      assert.ok(held.length >= 80 && held.every(f => f.w < rest.w * 0.75 && contains(f, box)),
+        `${out_w}x${out_h}: the zoom has arrived on its whole box at 5 s and holds it to 6.5 s: ${JSON.stringify(held[0])}`);
+      assert.ok(held.every(f => f.x === held[0]!.x && f.y === held[0]!.y && f.w === held[0]!.w), `${out_w}x${out_h}: the hold stays still`);
+      assert.ok(frames.some(f => f.t > 0.3 && f.t < 5 && f.w < rest.w && f.w > held[0]!.w), `${out_w}x${out_h}: the move starts before 5 s`);
+      assert.ok(!warned.some(w => /late|disabled/.test(w)), `${out_w}x${out_h}: ${warned.join("\n")}`);
+    }
+    const { warned } = await render({ t0: 0.2, t1: 6.5 }, 360, 640);
+    assert.ok(warned.some(w => /zoom 1 \d\.\d\d s after its requested time, because the clip starts too close to it/.test(w)),
+      `a zoom whose move cannot fit after the clip start reports how late it arrives: ${warned.join("\n")}`);
+  } finally {
     await rm(dir, { recursive: true, force: true });
   }
 });
@@ -1404,7 +1457,7 @@ test("a manual zoom is not widened by scroll repaints or changes far from the ge
   const click: Beat = { id: "c", t0: 4, t1: 6, anchor_t: 4, kind: "click", zones: [],
     actions: [{ k: "click", t: 4000, x: 1600, y: 800, window_cls: "x" } as Action] };
   const held = (changes: { t: number; bbox: [number, number, number, number] }[]) =>
-    applyManualZooms(wide, take, d, [scroll, click], changes)[Math.round(7 * d.fps)]!;
+    applyManualZooms(wide, take, d, [scroll, click], changes).frames[Math.round(7 * d.fps)]!;
   const plain = held([]);
   // Control: a popup the click opened, under and past the box, widens the hold to include it.
   assert.ok(held([{ t: 4.2, bbox: [1500, 1100, 400, 700] }]).h > plain.h + 1);

@@ -20,7 +20,15 @@ these presets. When the output is narrower than the source (for example a 9:16,
 centred on each shot's subject — so the screen is never scaled down into a
 letterboxed strip; the app fills the whole frame. The camera moves in wide
 exports and in portrait (9:16), 4:5 and square (1:1) exports of a wider desktop
-screen, re-aiming each shot on the action; phone takes keep the centred crop.
+screen, re-aiming each shot on the action; phone takes, and exports no narrower
+than their source, keep the centred crop. Manual `zooms` in `take.json` move the
+camera in every shape, phone takes included: each move starts early, long enough
+that the shown view keeps within the camera's zoom speed, zoom acceleration and
+pan acceleration gates, so the hold arrives at its `t0`. Short of room (the clip
+start or the previous hold is too close, or the box paints during the approach),
+the move speeds up only as far as those gates allow; a hold that still cannot
+make its time, or that a drag on screen keeps wide, prints how many seconds late
+it arrives.
 When such a crop cannot hold a click or scroll beside its shot's subject (a far
 top-bar button, a side feed), the camera pans to the control from the pointer's
 approach through the press, holds at least one shot length, and returns. The

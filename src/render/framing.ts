@@ -14,7 +14,7 @@ type Subject = { beat: Beat; zone: Zone; box: Rect };
 export type FrameAt = (t: number) => Uint8Array;
 
 // Gate limits with headroom under scripts/quality.ts (1 ln/s, 4 ln/s², 9000 px/s²).
-const ZOOM_V = 0.9, ZOOM_A = 3.2, PAN_A = 8000;
+export const ZOOM_V = 0.9, ZOOM_A = 3.2, PAN_A = 8000;
 const SETTLE = 0.002, MIN_HOLD_S = 0.2, MOVE_MAX_S = 2.5;
 const INK_STEP = 12, LANDMARK_INK = 0.01, GUARD = 6, GAP = 8, SAMPLES = 9, TEXT_SPAN = 32, TEXT_INK = 6, PANEL_GROW = 4;
 /** One dense text stretch an edge runs through counts as one cut word. */
