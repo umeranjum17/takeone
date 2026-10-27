@@ -98,6 +98,8 @@ export interface Scene {
   chips?: string[];
   /** phone-story: the pressed control, in source px of the screen the crop was cut from. */
   tap?: Rect;
+  /** phone-story: a crop of the tapped row, lifted out of the phone at reading size after the tap. */
+  lens?: string;
   /** canon: the master film time each of the four tiles shows at the canon's first frame. */
   offsets?: number[];
 }

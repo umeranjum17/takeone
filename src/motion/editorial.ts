@@ -37,6 +37,12 @@ const ASK = "Plan an editorial launch film for this product from its pitch and t
   + "Write plain words from the pitch; never invent a feature the pitch or the screen does not show.";
 
 const words = (s: string) => s.trim().split(/\s+/).filter(Boolean).length;
+
+/** Mirrors phone-story in editorial.js: the whole phone's screen width at 1080p, and the lens that lifts the tapped row
+ *  out at reading size (its text this share of the frame's short side, no wider than this share of a 16:9 frame). */
+export const PHONE_SCREEN_W = 1080 * 0.86 * 0.47 * 0.92;
+export const LENS_TEXT = 0.04;
+export const LENS_W = 0.44;
 const grid = (s: number) => Math.ceil(s * 2 - 1e-9) / 2; // every cut on the 0.5 s beat of 120 BPM
 
 /** The text lines worth offering: readable size, real words, at most 60 from the top. */
@@ -57,6 +63,14 @@ function line(a: Record<string, unknown>, k: string, lines: Line[]): Line {
   const hit = lines.find(l => l.id === a[k]);
   if (!hit) throw new Error(`editorial planner: ${k} names no offered line (${JSON.stringify(a[k])}); rerun to ask again`);
   return hit;
+}
+
+/** Room above and below a line before its neighbours: its own background, never more than half the gap to the next line. */
+function margins(l: Line, lines: Line[]): [number, number] {
+  const [x, y, w, h] = l.box;
+  const beside = lines.filter(n => n !== l && n.box[0] < x + w && n.box[0] + n.box[2] > x);
+  return [Math.min(h * 0.55, ...beside.filter(n => n.box[1] + n.box[3] <= y).map(n => (y - n.box[1] - n.box[3]) / 2)),
+    Math.min(h * 0.55, ...beside.filter(n => n.box[1] >= y + h).map(n => (n.box[1] - y - h) / 2))];
 }
 
 /** A crop of the screen clamped to it, in device px. */
@@ -117,10 +131,7 @@ export function editorialStoryboard(a: EditorialArgs, id: string, size: { width:
   // Chips are the screen's own pixels: each line with a margin of its own background around it, never more
   // than half the gap to the line above or below, so no neighbour's ascenders or descenders ride along.
   const chips = chipIds.map((cid, i) => {
-    const l = line({ c: cid }, "c", lines), [x, y, w, h] = l.box;
-    const beside = lines.filter(n => n !== l && n.box[0] < x + w && n.box[0] + n.box[2] > x);
-    const above = Math.min(h * 0.55, ...beside.filter(n => n.box[1] + n.box[3] <= y).map(n => (y - n.box[1] - n.box[3]) / 2));
-    const below = Math.min(h * 0.55, ...beside.filter(n => n.box[1] >= y + h).map(n => (n.box[1] - y - h) / 2));
+    const l = line({ c: cid }, "c", lines), [x, y, w, h] = l.box, [above, below] = margins(l, lines);
     const rect = clamp(x - h * 0.8, y - above, w + h * 1.6, h + above + below, W, H);
     crops[`chip${i + 1}`] = { screen: "S1", rect: grey ? trim(rect, l.box, grey) : rect, exact: true };
     return `chip${i + 1}`;
@@ -129,18 +140,31 @@ export function editorialStoryboard(a: EditorialArgs, id: string, size: { width:
   // (never magnified past 1.6x), opening a little above phone_open and tall enough to pan down to the tap.
   const open = line(answer, "phone_open", lines), tap = line(answer, "tap", lines);
   const textH = Math.min(open.box[3], tap.box[3]);
-  const scale = Math.min(1.6, Math.max(0.6, 30 / textH)), pw = 1080 * 0.52 * 0.92;
+  const scale = Math.min(1.6, Math.max(0.6, 30 / textH)), pw = PHONE_SCREEN_W;
   const cw = Math.max(pw / scale, tap.box[2] + textH * 2);
   const top = Math.min(open.box[1], tap.box[1]) - textH * 3;
   const ch = Math.max(cw * 2.6, tap.box[1] + tap.box[3] - top + textH * 6);
   // A portrait screen is already a phone's: it fills the phone at its own width and pans down to the tap.
   crops["phone"] = { screen: "S1", rect: H >= W ? [0, 0, W, H] : clamp(tap.box[0] + tap.box[2] / 2 - cw / 2, top, cw, ch, W, H) };
+  // The lens: the tapped line, with the lines beside it on its row when they still fit at reading size.
+  const lensW = (w: number) => (w + tap.box[3] * 1.6) * (LENS_TEXT * 1080) / tap.box[3];
+  const gap = (n: Line) => Math.max(n.box[0] - tap.box[0] - tap.box[2], tap.box[0] - n.box[0] - n.box[2]);
+  const row = lines.filter(n => n === tap || (Math.abs(n.box[1] + n.box[3] / 2 - (tap.box[1] + tap.box[3] / 2)) < tap.box[3] * 0.5
+    && Math.abs(n.box[3] - tap.box[3]) < tap.box[3] * 0.3 && gap(n) < tap.box[3] * 2));
+  const x0 = Math.min(...row.map(n => n.box[0])), x1 = Math.max(...row.map(n => n.box[0] + n.box[2]));
+  const [lx, lw] = lensW(x1 - x0) <= LENS_W * 1920 ? [x0, x1 - x0] : [tap.box[0], tap.box[2]];
+  if (lensW(lw) > LENS_W * 1920) {
+    throw new Error(`editorial planner: tap names a line too long to read in the phone's lens (${JSON.stringify(tap.text)}); name a shorter button, row or control; rerun to ask again`);
+  }
+  const [above, below] = margins(tap, lines);
+  const lensRect = clamp(lx - tap.box[3] * 0.8, tap.box[1] - above, lw + tap.box[3] * 1.6, tap.box[3] + above + below, W, H);
+  crops["lens"] = { screen: "S1", rect: grey ? trim(lensRect, [lx, tap.box[1], lw, tap.box[3]], grey) : lensRect, exact: true };
 
   const logo = a.logo ?? text(answer, "logo", 1, 4, 24);
   const fit = (s: Scene, floor: number): Scene => ({ ...s, d: grid(Math.max(floor, minSceneDuration(s))) });
   const scenes: Scene[] = [
     fit({ pattern: "word-swap", d: 0, title: text(answer, "lead", 2, 6), swaps: swaps.map(s => s.trim()), cut: true }, 3),
-    fit({ pattern: "phone-story", d: 0, title: text(answer, "phone_line", 2, 5), screen: "phone", tap: tap.box, text: text(answer, "toast", 2, 4, 32), invert: true, cut: true }, 5),
+    fit({ pattern: "phone-story", d: 0, title: text(answer, "phone_line", 2, 5), screen: "phone", tap: tap.box, lens: "lens", text: text(answer, "toast", 2, 4, 32), invert: true, cut: true }, 5),
     fit({ pattern: "chip-stack", d: 0, title: text(answer, "chips_line", 2, 5), chips, cut: true }, 1.5 + 0.5 * chips.length),
   ];
   // Canon: the three beats again at once, each tile on its own clock, the way the reference recaps.
