@@ -17,9 +17,11 @@ Harness: Shell (bash), with ffmpeg and ffprobe to decode frames.
 3. Check the proof, not the exit code: `out/<id>-preview.mp4` exists, ffprobe reports
    864x486 at 30 fps for a 1080p export (the short edge is at most 500 px, the aspect exact), and `camera.json` is byte-identical
    to the one the full render wrote: the preview frames the film like the full render.
+   The render prints a `preview timing:` line on stderr (camera solve, proxy built or cached, render, total); a second
+   run must say the proxy is reused (a 1080p synth take needs none).
 4. Capture: extract one still from the preview MP4 to
    $DONE_DONE_EVIDENCE_ROOT/render-a-fast-preview-of-the-same-film.png, and save the ffprobe
-   output and the camera.json comparison to $DONE_DONE_EVIDENCE_ROOT/render-a-fast-preview-of-the-same-film.txt.
+   output and the camera.json comparison and the `preview timing:` line to $DONE_DONE_EVIDENCE_ROOT/render-a-fast-preview-of-the-same-film.txt.
 5. Stop what you started.
 
 The drive changes no repo file: note findings in the run's report; after the drive, run done-done maintain to see what drifted, then fix the skill.

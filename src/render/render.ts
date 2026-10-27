@@ -27,7 +27,7 @@ import { withFilmText } from "../decide/film.ts";
 import { runFfmpeg } from "./ffmpeg.ts";
 import { addSound } from "./sound.ts";
 import { encodePng } from "../motion/png.ts";
-import { ensureProxy, previewDefaults, proxySize, scaleBand, scaleBeat, scaleEvent, scaleFrames, scaleMeta, type PreviewSpec } from "./preview.ts";
+import { ensureProxy, previewDefaults, previewTiming, proxySize, scaleBand, scaleBeat, scaleEvent, scaleFrames, scaleMeta, type PreviewSpec } from "./preview.ts";
 import {
   backgroundPixels, bandCamera, bandFrames, bandLayout, bandText, beatClicks, captionAss, captionLayouts, cardFilter, clickAss, insideScreen, measureAss, sourceViewport, stageFrames, stageGeometry, stageImageFilter,
   takeCaptions, type Band, type Caption, type CaptionInk,
@@ -323,9 +323,13 @@ export async function renderTake(dir: string, camera?: CameraDefaults, preview?:
   let source = join(dir, "screen.webm");
   let workDir = dir;
   let scaledEvents: Event[] | undefined;
+  const solveSeconds = (performance.now() - started) / 1000;
+  let proxyBuilt = false, proxySeconds = 0;
   if (preview) {
     const proxy = proxySize(meta.width, meta.height);
-    source = await ensureProxy(dir, meta.width, meta.height, proxy.w, proxy.h);
+    const proxyStart = performance.now();
+    ({ file: source, built: proxyBuilt } = await ensureProxy(dir, meta.width, meta.height, proxy.w, proxy.h));
+    proxySeconds = (performance.now() - proxyStart) / 1000;
     const scale = proxy.w / meta.width;
     meta = scaleMeta(meta, scale, proxy.w, proxy.h);
     d = previewDefaults(d, preview.out_w, preview.out_h, preview.fps);
@@ -519,11 +523,16 @@ export async function renderTake(dir: string, camera?: CameraDefaults, preview?:
     "-movflags", "+faststart", out,
   ], signal);
 
+  const renderStart = performance.now();
+  const timing = () => {
+    if (preview) console.warn(previewTiming({ solve: solveSeconds, proxy: proxySeconds, proxyBuilt, render: (performance.now() - renderStart) / 1000 }));
+  };
   // Keep camera.cmd on failure for straightforward diagnosis and re-rendering.
   const starts = segmentStarts(shutter.counts, renderSegments(shutter.counts.length, d.fps));
   if (starts.length === 1) {
     await writeFile(join(workDir, "render.log"), await pass(commandFile, [], output, ditherKeys(0, shutter.counts.length)));
     await addSound(dir, output, d, clicks.map(c => c.t - trimStart), duration);
+    timing();
     return { out: output, seconds: duration };
   }
   // One ffmpeg filter graph runs on one thread apart from slice work, and the
@@ -549,6 +558,7 @@ export async function renderTake(dir: string, camera?: CameraDefaults, preview?:
   await writeFile(join(workDir, "render.log"), [`render segments start at frames ${starts.join(", ")}`, ...logs].join("\n"));
   await Promise.all([list, ...parts, ...parts.map((_, k) => join(dir, `camera-part${k}.cmd`))].map(file => rm(file, { force: true })));
   await addSound(dir, output, d, clicks.map(c => c.t - trimStart), duration);
+  timing();
   return { out: output, seconds: duration };
 }
 

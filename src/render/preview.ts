@@ -67,19 +67,29 @@ export function proxySize(width: number, height: number): { w: number; h: number
 }
 
 /** The proxy file for a take, made once and reused by every later preview. The source
- * is the recording; a re-recorded take is newer than the proxy, so the proxy is remade. */
-export async function ensureProxy(dir: string, width: number, height: number, w: number, h: number): Promise<string> {
+ * is the recording; a re-recorded take is newer than the proxy, so the proxy is remade.
+ * `built` says whether this call paid for it. */
+export async function ensureProxy(dir: string, width: number, height: number, w: number, h: number): Promise<{ file: string; built: boolean }> {
   const source = join(dir, "screen.webm");
-  if (w === width && h === height) return source;
+  if (w === width && h === height) return { file: source, built: false };
   const target = join(dir, `proxy-${w}x${h}.mp4`);
-  if (existsSync(target) && statSync(target).mtimeMs >= statSync(source).mtimeMs) return target;
+  if (existsSync(target) && statSync(target).mtimeMs >= statSync(source).mtimeMs) return { file: target, built: false };
   const temp = `${target}.part`;
   await runFfmpeg(["-y", "-v", "error", "-i", source, "-vf", `scale=${w}:${h}:flags=lanczos`,
     "-c:v", "libx264", "-preset", "veryfast", "-crf", "18", "-pix_fmt", "yuv420p",
     "-color_primaries", "bt709", "-color_trc", "bt709", "-colorspace", "bt709", "-color_range", "tv",
     "-movflags", "+faststart", "-f", "mp4", temp]);
   await rename(temp, target);
-  return target;
+  return { file: target, built: true };
+}
+
+/** Where a preview's time went, in plain words: the camera solve runs at full resolution
+ * on every preview (it is what keeps the framing identical), the proxy is paid once. */
+export function previewTiming(t: { solve: number; proxy: number; proxyBuilt: boolean; render: number }): string {
+  const s = (n: number) => `${n.toFixed(1)}s`;
+  return `preview timing: camera solve ${s(t.solve)} (full resolution, every preview), `
+    + `proxy ${t.proxyBuilt ? `${s(t.proxy)} (built now, reused by later previews)` : "reused (cached)"}, `
+    + `render ${s(t.render)}, total ${s(t.solve + t.proxy + t.render)}`;
 }
 
 /** Scale a source-pixel box to the proxy. */
@@ -176,7 +186,8 @@ export function scaleBand(band: Band, scale: number): Band {
     top: band.top * scale,
     titleY: band.titleY * scale,
     captionY: band.captionY * scale,
-    titleH: band.titleH * scale,
-    captionH: band.captionH * scale,
+    // A row also gets the 2 px that rounding the preview's ceil'd text heights and rises can add.
+    titleH: band.titleH ? band.titleH * scale + 2 : 0,
+    captionH: band.captionH ? band.captionH * scale + 2 : 0,
   };
 }
