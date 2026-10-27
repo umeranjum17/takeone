@@ -1,7 +1,7 @@
 // Shared by the screen-in-a-frame patterns (spotlight, feature-callouts, before-after, device-orbit): the whole screen fitted to 88%
 // of the width and 62% of the height in its device frame, centred over `reserve` px kept free below it for a caption or card.
 window.stageFrame = (layer, s, ctx, reserve = 0) => {
-  const { W, H } = ctx, scr = ctx.screen(s.screen), requested = Math.min(W * 0.88, H * 0.62 * scr.width / scr.height);
+  const { W, H } = ctx, scr = ctx.screen(s.screen), requested = Math.min(W * 0.88, Math.min(H * 0.62, H * 0.66 - reserve) * scr.width / scr.height);
   const { width: cw, height: ch } = bitmapSize(scr, requested, requested * scr.height / scr.width);
   const { frame, viewport, img } = deviceFrame(scr, s.device ?? "browser", cw, ch);
   layer.append(frame);
