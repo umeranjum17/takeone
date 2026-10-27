@@ -5,8 +5,8 @@ import { resolveTheme } from "../themes.ts";
 import type { TakeMeta } from "../camera/types.ts";
 import { makeTake, type MakeOptions, type MakeResult } from "../make.ts";
 import { renderTake } from "../render/render.ts";
-import { PlannerFileCache, PlannerUnavailable, resolvePlanner, type ResolvedPlanner } from "../decide/planner.ts";
-import { judgeRound } from "./judge.ts";
+import { PlannerFileCache, resolveJudge, type ResolvedPlanner } from "../decide/planner.ts";
+import { JudgeUnavailable, judgeRound } from "./judge.ts";
 import { improveRound } from "./improve.ts";
 import { runScoreLoop, type LoopResult } from "./loop.ts";
 import { clearOverlays, compareFrames, frameHashes, measureFilm } from "./measure.ts";
@@ -63,13 +63,11 @@ function relative(dir: string, path: string): string {
 }
 
 export async function makeWithScore(o: ScoreRunOptions): Promise<ScoreRunResult> {
-  const judgePlanner: ResolvedPlanner = await resolvePlanner({
+  const judgePlanner: ResolvedPlanner = await resolveJudge({
     ...(o.configDir === undefined ? {} : { configDir: o.configDir }),
   });
   if (!judgePlanner.active) {
-    throw new PlannerUnavailable(judgePlanner.label, judgePlanner.refusal ?? "cannot serve the score judge", {
-      credentialMissing: true,
-    });
+    throw new JudgeUnavailable(`unavailable - ${judgePlanner.label} cannot serve: ${judgePlanner.refusal ?? "no sign-in"}. Sign in with \`claude\`, or save another route in judge.json`);
   }
   const cache = new PlannerFileCache(join(o.dir, "analysis", "score-cache.jsonl"), o.warn);
   let camera = o.make.camera ?? resolveTheme(readMeta(o.dir).theme);

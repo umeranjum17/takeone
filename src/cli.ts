@@ -19,6 +19,7 @@ import { renderMotion } from "./motion/motion.ts";
 import { applyOverrides, type CameraDefaults, type Overrides } from "./camera/defaults.ts";
 import { filmOverrides, type FilmDecision } from "./decide/film.ts";
 import { packageVersion } from "./version.ts";
+import { JudgeUnavailable } from "./score/judge.ts";
 import { makeWithScore } from "./score/run.ts";
 import { DEFAULT_MAX_ROUNDS, DEFAULT_TARGET_SCORE } from "./score/loop.ts";
 
@@ -377,7 +378,7 @@ export async function main(argv: string[]): Promise<number> {
       console.error(`takeone make: ${e.message}`);
       return 2;
     }
-    if (e instanceof PlannerUnavailable) {
+    if (e instanceof PlannerUnavailable || e instanceof JudgeUnavailable) {
       console.error(`takeone make: ${e.message}`);
       return 3;
     }
