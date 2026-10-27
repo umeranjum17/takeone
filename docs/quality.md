@@ -156,6 +156,66 @@ always regenerates every fixture. When renderer changes are being evaluated,
 use the normal command so the first encode and deterministic rerender come
 from the same candidate.
 
+## Source and aspect matrix
+
+`npm run quality` gates three fixtures at their default shape. The matrix in
+`scripts/verification/smooth-matrix.ts` measures the same absolute bars (it calls the harness's own
+`measureRender`) on real renders of every source at every export shape the product offers, so a
+shape the gate never renders cannot hide a miss:
+
+```sh
+node scripts/verification/smooth-matrix.ts <work-dir> scene-landscape:portrait synth:4:5 ...
+# sources: scene-landscape scene-portrait scene-square (headless board captures), synth, phone
+# exports: landscape portrait square 4:5; one cell = one take made with `make --no-ai`, rendered at 60 fps
+```
+
+A cell writes `matrix-row.json` (every metric, `unmet`, the render's wall seconds). Run each cell as its
+own job through the render slot and read its CPU from the whole job. Judder tracks a banded card's
+straight source edge; the scene's portrait and square layouts have none, so those cells report judder
+**not measured** rather than tracking a wrong edge. The untitled board take is not used: it
+fails render's safe-area gate on its push-ins (see [headless scene](headless-scene.md#safe-area)).
+
+Measured on 2026-10-27, revision 08112eb plus this change, a dev host with the render slot at nice 19
+(`determinism` is not part of a cell; `npm run quality` still gates it):
+
+| cell (source:export) | size | render s | cell CPU s | pan accel px/s² (9000) | bounces (0) | judder (0.15) | banding px (64) | cuts at rest / creeping (0) | other bars missed |
+|---|---|---:|---:|---:|---:|---:|---:|---:|---|
+| synth:landscape | 1920x1080 | 54 | 1014 | 0 | 0 | none (no moving edge) | 7 | 0 / 0 | - |
+| synth:portrait | 1080x1920 | 251 | 3443 | 11,464 | 1 | 0.413 | 8 | 346 / 78 | max_upscale 1.52, caption_ocr_errors 4 |
+| synth:square | 1080x1080 | 96 | 1468 | 6,154 | 4 | 0.296 | 9 | 38 / 122 | caption_ocr_errors 3 |
+| synth:4:5 | 1080x1350 | 176 | 2441 | 8,723 | 4 | 0.355 | 6 | 33 / 94 | max_upscale 1.06, caption_ocr_errors 3 |
+| phone:portrait | 1080x1920 | 27 | 440 | 0 | 0 | none (no moving edge) | 6 | 0 / 0 | - |
+| phone:4:5 | 1080x1350 | 21 | 365 | 0 | 0 | none (no moving edge) | 8 | 0 / 0 | - |
+| scene-landscape:landscape | 1920x1080 | 665 | 8004 | 6,743 | 0 | 0.499 | 7 | 0 / 0 | - |
+| scene-landscape:portrait | 1080x1920 | 351 | 5751 | 2,884,158 | 3 | 0.572 | 8 | 132 / 83 | - |
+| scene-landscape:square | 1080x1080 | 316 | 4895 | 1,356,513 | 9 | 0.876 | 7 | 54 / 127 | zoom_opposite_hold 0 |
+| scene-landscape:4:5 | 1080x1350 | 387 | 5544 | 1,908,639 | 4 | 0.886 | 6 | 71 / 124 | zoom_opposite_hold 0.02 |
+| scene-portrait:portrait | 1080x1920 | 84 | 2168 | 0 | 0 | none (no moving edge) | 8 | 0 / 0 | - |
+| scene-portrait:4:5 | 1080x1350 | 74 | 1779 | 0 | 0 | none (no moving edge) | 6 | 0 / 0 | - |
+| scene-square:square | 1080x1080 | 61 | 1171 | 0 | 0 | none (no moving edge) | 7 | 0 / 0 | - |
+| scene-square:4:5 | 1080x1350 | 212 | 3404 | 887,084 | 3 | not measured | 6 | 307 / 226 | - |
+
+How to read it:
+
+- **Same-shape exports are smooth because the camera does not move.** Every cell that renders a source at its own
+  shape (synth:landscape, phone, scene-portrait:portrait, scene-square:square, scene-portrait:4:5) has
+  zero pan, zero zoom and no judder samples. That meets the bars but proves nothing about smoothness under motion.
+- **Only one cell moves the camera and passes pan acceleration and bounce:** scene-landscape:landscape. Its judder is
+  0.499 against 0.15, while the stored scene baseline says 1.1762 for the same fixture at the revision that set it;
+  the two have not been reconciled here.
+- **Every landscape-to-portrait/square/4:5 export of the board misses the pan bars by orders of magnitude**
+  (1.4 to 2.9 million px/s², 3 to 9 bounces, 54 to 132 frames of text cut at rest). The peak is one frame:
+  frames 996-999 of scene-landscape:square show the card snapping sideways in a single frame (frame 997), with a
+  word cut at the left edge, then a blurred transition. It is a hard re-aim snap, not a pan. The same holds for the
+  scene-square:4:5 export.
+- **The synthetic landscape take exported to portrait/square/4:5** misses judder, bounce, text cuts and three or four
+  caption OCR checks, and portrait also exceeds the 1.0 upscale goal (1.52).
+- Banding (6 to 9 px of 64), 60 fps, bt709 and hitches pass in every cell.
+- Cost: a board render is 5 to 11 minutes of wall time on one slot (665 s landscape) and 21 to 251 s for the
+  synthetic and phone takes; the CPU column is the whole cell job (capture, plan, render, measure).
+
+These misses are not fixed by this change; it only makes them measurable. They are the work A10 still owes.
+
 ## Drag framing
 
 Drag framing has a separate visibility check. On two camera paths with the

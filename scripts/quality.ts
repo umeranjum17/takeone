@@ -237,6 +237,60 @@ function captions(video: string, dir: string, meta: TakeMeta, d: typeof DEFAULTS
   return checks;
 }
 
+/** Every absolute bar measured on one rendered take. `deterministic` is null when no second encode was made to compare. */
+export async function measureRender(dir: string, video: string, d: typeof DEFAULTS, { requireJudder = false, divider, deterministic }: { requireJudder?: boolean; divider?: number; deterministic: boolean | null }) {
+  const meta = json<TakeMeta>(join(dir, 'take.json'));
+  const camera = json<CameraFrame[]>(join(dir, 'camera.json'));
+  let band: Band | null = null;
+  if (meta.title || meta.captions?.length) {
+    const duration = camera.at(-1)!.t + 1 / d.fps;
+    const captions = outputCaptions(dir, meta, d, duration);
+    const initial = bandText(captions, [], d);
+    let ink = await measureCaptions(dir, captions, initial);
+    const text = bandText(captions, ink, initial);
+    if (text !== initial) ink = await measureCaptions(dir, captions, text);
+    band = bandLayout(meta.width, meta.height, text, captions, ink);
+  }
+  const frames = band ? bandFrames(camera, band, d) : stageFrames(camera, meta.width, meta.height, stageGeometry(meta.width, meta.height, d), d);
+  const probe = JSON.parse(command('ffprobe', ['-v', 'error', '-count_frames', '-show_streams', '-of', 'json', video]).toString());
+  const stream = probe.streams[0];
+  const timestamps = JSON.parse(command('ffprobe', ['-v', 'error', '-select_streams', 'v:0', '-show_frames', '-show_entries', 'frame=best_effort_timestamp_time', '-of', 'json', video]).toString()).frames.map((f: { best_effort_timestamp_time: string }) => Number(f.best_effort_timestamp_time));
+  const hashes = ffmpeg(['-i', video, '-f', 'framemd5', '-']).toString().split('\n').filter(l => l && !l.startsWith('#')).map(l => l.split(',').at(-1)!.trim());
+  let hitches = 0;
+  hashes.forEach((h, i) => { if (i && h === hashes[i - 1] && frames[i] && peak(['x', 'y', 'w'].map(k => frames[i]![k as 'x'] - frames[i - 1]![k as 'x'])) > 0.01) hitches++; });
+  const rest = frames.find(f => f.t >= 0.7 && f.t < 1.2) ?? frames[0]!;
+  const row = ffmpeg(['-ss', String(rest.t), '-i', video, '-vf', 'crop=iw:1:0:10:exact=1', '-frames:v', '1', '-pix_fmt', 'gray', '-f', 'rawvideo', '-']);
+  const edge = judder(video, frames, meta, d, requireJudder, band, divider);
+  const ocr = captions(video, dir, meta, d, frames.at(-1)!.t, band);
+  // Every frame of the real render, on the end the render bound: an end that does not reproduce
+  // camera.json's clock, or a source frame that will not decode, throws instead of reading clean.
+  const cuts = auditTake(dir, d);
+  const metrics: Metrics = {
+    ...cameraMetrics(frames, d.fps, d.out_w, d.out_h, d.min_shot),
+    default_fps_error: metric(Math.abs(DEFAULTS.fps - 60), 0, 'fps'),
+    fps_error: metric(Math.abs(Number(stream.avg_frame_rate.split('/')[0]) / Number(stream.avg_frame_rate.split('/')[1]) - 60), 0, 'fps'),
+    cadence_error: metric(peak(delta(timestamps).map(v => v - 1 / 60)), 0.000002, 's'),
+    size_error: metric(Math.abs(stream.width - d.out_w) + Math.abs(stream.height - d.out_h), 0, 'px'),
+    codec_error: metric(Number(stream.codec_name !== 'h264') + Number(stream.profile !== 'High') + Number(stream.pix_fmt !== 'yuv420p'), 0),
+    colour_error: metric(['color_space', 'color_transfer', 'color_primaries'].filter(k => stream[k] !== 'bt709').length + Number(stream.color_range !== 'tv'), 0),
+    frame_count_error: metric(Math.abs(Number(stream.nb_read_frames) - camera.length), 1, 'frames'),
+    hitches: metric(hitches, 0, 'frames'),
+    ...(deterministic === null ? {} : { determinism_error: metric(Number(!deterministic), 0) }),
+    ...(edge ? { subpixel_judder: metric(edge.rms, 0.15, 'px/frame²') } : {}),
+    caption_ocr_errors: metric(ocr.filter(c => !c.exact).length, 0, 'checkpoints'),
+    banding: metric(widestRun(row), 64, 'px'),
+    text_cut_at_rest: metric(cuts.cutAtRest, 0, 'frames'),
+    text_cut_creeping: metric(cuts.cutCreeping, 0, 'frames'),
+  };
+  for (const key of ['color_space', 'color_transfer', 'color_primaries', 'color_range']) metrics[key + '_error'] = metric(Number(stream[key] !== (key === 'color_range' ? 'tv' : 'bt709')), 0);
+  const texts = [meta.title, ...(meta.captions ?? []).map(c => c.text)].filter((t): t is string => Boolean(t));
+  texts.forEach((text, index) => {
+    const checks = ocr.filter(c => c.expected.includes(text));
+    metrics[`caption_ocr_item_${index}`] = metric(Number(!checks.length || checks.some(c => !c.exact)), 0);
+  });
+  return { metrics, meta, camera, stream, hashes, edge, ocr, cuts, band };
+}
+
 // Each fixture's producer script, the MP4 make writes and the sidebar divider judder tracks in a
 // banded card. The scene is real UI, the headless capture of scripts/e2e/scene.html, so the gates
 // never pass on synthetic takes alone. Its nav border sits at design x 280.5 in the 5% safe inset:
@@ -325,55 +379,7 @@ async function main() {
     const original = sha(video);
     await renderTake(dir, d);
     const deterministic = original === sha(video);
-    const meta = json<TakeMeta>(join(dir, 'take.json'));
-    const camera = json<CameraFrame[]>(join(dir, 'camera.json'));
-    let band: Band | null = null;
-    if (meta.title || meta.captions?.length) {
-      const duration = camera.at(-1)!.t + 1 / d.fps;
-      const captions = outputCaptions(dir, meta, d, duration);
-      const initial = bandText(captions, [], d);
-      let ink = await measureCaptions(dir, captions, initial);
-      const text = bandText(captions, ink, initial);
-      if (text !== initial) ink = await measureCaptions(dir, captions, text);
-      band = bandLayout(meta.width, meta.height, text, captions, ink);
-    }
-    const frames = band ? bandFrames(camera, band, d) : stageFrames(camera, meta.width, meta.height, stageGeometry(meta.width, meta.height, d), d);
-    const probe = JSON.parse(command('ffprobe', ['-v', 'error', '-count_frames', '-show_streams', '-of', 'json', video]).toString());
-    const stream = probe.streams[0];
-    const timestamps = JSON.parse(command('ffprobe', ['-v', 'error', '-select_streams', 'v:0', '-show_frames', '-show_entries', 'frame=best_effort_timestamp_time', '-of', 'json', video]).toString()).frames.map((f: { best_effort_timestamp_time: string }) => Number(f.best_effort_timestamp_time));
-    const hashes = ffmpeg(['-i', video, '-f', 'framemd5', '-']).toString().split('\n').filter(l => l && !l.startsWith('#')).map(l => l.split(',').at(-1)!.trim());
-    let hitches = 0;
-    hashes.forEach((h, i) => { if (i && h === hashes[i - 1] && frames[i] && peak(['x', 'y', 'w'].map(k => frames[i]![k as 'x'] - frames[i - 1]![k as 'x'])) > 0.01) hitches++; });
-    const rest = frames.find(f => f.t >= 0.7 && f.t < 1.2) ?? frames[0]!;
-    const row = ffmpeg(['-ss', String(rest.t), '-i', video, '-vf', 'crop=iw:1:0:10:exact=1', '-frames:v', '1', '-pix_fmt', 'gray', '-f', 'rawvideo', '-']);
-    const edge = judder(video, frames, meta, d, fixture === 'synth', band, divider);
-    const ocr = captions(video, dir, meta, d, frames.at(-1)!.t, band);
-    // Every frame of the real render, on the end the render bound: an end that does not reproduce
-    // camera.json's clock, or a source frame that will not decode, throws instead of reading clean.
-    const cuts = auditTake(dir, d);
-    const metrics: Metrics = {
-      ...cameraMetrics(frames, d.fps, d.out_w, d.out_h, d.min_shot),
-      default_fps_error: metric(Math.abs(DEFAULTS.fps - 60), 0, 'fps'),
-      fps_error: metric(Math.abs(Number(stream.avg_frame_rate.split('/')[0]) / Number(stream.avg_frame_rate.split('/')[1]) - 60), 0, 'fps'),
-      cadence_error: metric(peak(delta(timestamps).map(v => v - 1 / 60)), 0.000002, 's'),
-      size_error: metric(Math.abs(stream.width - d.out_w) + Math.abs(stream.height - d.out_h), 0, 'px'),
-      codec_error: metric(Number(stream.codec_name !== 'h264') + Number(stream.profile !== 'High') + Number(stream.pix_fmt !== 'yuv420p'), 0),
-      colour_error: metric(['color_space', 'color_transfer', 'color_primaries'].filter(k => stream[k] !== 'bt709').length + Number(stream.color_range !== 'tv'), 0),
-      frame_count_error: metric(Math.abs(Number(stream.nb_read_frames) - camera.length), 1, 'frames'),
-      hitches: metric(hitches, 0, 'frames'),
-      determinism_error: metric(Number(!deterministic), 0),
-      ...(edge ? { subpixel_judder: metric(edge.rms, 0.15, 'px/frame²') } : {}),
-      caption_ocr_errors: metric(ocr.filter(c => !c.exact).length, 0, 'checkpoints'),
-      banding: metric(widestRun(row), 64, 'px'),
-      text_cut_at_rest: metric(cuts.cutAtRest, 0, 'frames'),
-      text_cut_creeping: metric(cuts.cutCreeping, 0, 'frames'),
-    };
-    for (const key of ['color_space', 'color_transfer', 'color_primaries', 'color_range']) metrics[key + '_error'] = metric(Number(stream[key] !== (key === 'color_range' ? 'tv' : 'bt709')), 0);
-    const texts = [meta.title, ...(meta.captions ?? []).map(c => c.text)].filter((t): t is string => Boolean(t));
-    texts.forEach((text, index) => {
-      const checks = ocr.filter(c => c.expected.includes(text));
-      metrics[`caption_ocr_item_${index}`] = metric(Number(!checks.length || checks.some(c => !c.exact)), 0);
-    });
+    const { metrics, meta, camera, stream, hashes, edge, ocr, cuts } = await measureRender(dir, video, d, { requireJudder: fixture === 'synth', divider, deterministic });
     // Motion blur does not exist yet. Never invent a passing ghosting measurement.
     const golden = join(baselineDir, `${fixture}.mp4`);
     const known = stored[fixture] ?? {};
