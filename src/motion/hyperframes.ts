@@ -186,9 +186,12 @@ export function chipPlacement(video: string, start: number, d: number, want: num
   return null;
 }
 
-function videoLayers(sb: Storyboard, data: { clips: Record<string, { video: string; start: number; width: number; height: number }> }): string {
+function videoLayers(sb: Storyboard, data: { clips: Record<string, { video: string; start: number; width: number; height: number }>; segments: Record<string, { video: string }> }): string {
   const { out_w: W, out_h: H } = sb.output;
   return sb.scenes.map((s, i) => {
+    if (s.pattern === "segment") { // a model-written page rendered at the film's size: the frame itself, like fill footage
+      return `<video class="clip" data-start="${s.at ?? 0}" data-duration="${s.d}" data-track-index="${i}" data-playback-start="0" data-media-start-basis="global" src="${data.segments[s.segment!]!.video}" muted playsinline preload="auto" style="position:absolute;z-index:${i + 1};left:0;top:0;width:${W}px;height:${H}px;object-fit:cover;display:block;background:var(--page);visibility:hidden"></video>`;
+    }
     if (s.pattern !== "clip") return "";
     if (s.cuts?.length) throw new Error("hyperframes engine: clip cuts are not supported yet; render with --engine legacy");
     const clip = s.clip ? data.clips[s.clip] : undefined;
@@ -233,7 +236,7 @@ export function buildHyperframesProject(dir: string, sb: Storyboard, alpha = fal
   let doc = readFileSync(page, "utf8");
 
   const clips = data.clips as Record<string, { video: string; start: number; width: number; height: number }>;
-  const videos = videoLayers(sb, { clips });
+  const videos = videoLayers(sb, { clips, segments: data.segments });
   const audio = data.audio
     ? `<audio id="hf-audio" src="${data.audio.url}" data-start="0" data-duration="${duration}" data-track-index="0" data-volume="${data.audio.volume}"${data.audio.start ? ` data-playback-start="${data.audio.start}"` : ""} preload="auto"></audio>`
     : "";
@@ -287,7 +290,7 @@ window.__hfSeek(0);window.__hfReady=true;})();`;
   writeFileSync(join(projectDir, "hyperframes.json"), JSON.stringify({ paths: { blocks: "compositions", components: "compositions/components", assets: "assets" } }, null, 2) + "\n");
   writeFileSync(join(projectDir, "meta.json"), JSON.stringify({ id: sb.id, name: "motion" }, null, 2) + "\n");
   validateHyperframesProject(projectDir);
-  return { dir: projectDir, html: join(projectDir, "index.html"), duration, frames, fps: sb.output.fps, width: sb.output.out_w, height: sb.output.out_h, videos: sb.scenes.filter((s) => s.pattern === "clip").length, audio: Boolean(data.audio) };
+  return { dir: projectDir, html: join(projectDir, "index.html"), duration, frames, fps: sb.output.fps, width: sb.output.out_w, height: sb.output.out_h, videos: sb.scenes.filter((s) => s.pattern === "clip" || s.pattern === "segment").length, audio: Boolean(data.audio) };
 }
 
 /** Static gates: no network, every referenced asset exists, composition timing is present. */
@@ -436,7 +439,7 @@ export async function writeScenes(dir: string, sb: Storyboard, film: string): Pr
   const cuts: SceneCut[] = [];
   for (const [i, s] of sb.scenes.entries()) {
     const a = Math.round((s.at ?? 0) * fps), b = Math.round(((s.at ?? 0) + s.d) * fps);
-    const title = s.title ?? s.label ?? s.logo ?? s.text ?? s.pattern;
+    const title = s.title ?? s.label ?? s.logo ?? s.text ?? s.segment ?? s.pattern;
     const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 40) || s.pattern;
     const name = `${String(i + 1).padStart(2, "0")}-${slug}.mp4`;
     await execFileAsync("ffmpeg", ["-nostdin", "-v", "error", "-y", "-i", film,

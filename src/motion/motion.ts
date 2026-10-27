@@ -9,6 +9,7 @@ import type { FrozenReport, LoudnessReport } from "./gates.ts";
 import { allTimelines } from "./layout.ts";
 import { sceneCameras } from "./camera.ts";
 import { ingest, ingestClips, clipStale } from "./ingest.ts";
+import { ingestSegments, segmentStale } from "./segment.ts";
 import { samplePalette } from "./palette.ts";
 import { motionPage } from "./page.ts";
 import { ffmpegVersion, MOTION_CRF, renderFrames, withPage } from "./render.ts";
@@ -66,6 +67,11 @@ export function pageData(dir: string, sb: Storyboard, cameras: Record<string, un
     return [id, { url: pathToFileURL(resolve(dir, f.dir)).href + "/", count: f.count, width: f.width, height: f.height, fps: 60,
       video: pathToFileURL(video).href, start: c.start }];
   }));
+  const segments = Object.fromEntries(Object.entries(sb.segments ?? {}).map(([id, seg]) => {
+    const video = seg.video ? resolve(dir, seg.video) : "";
+    if (!video || !existsSync(video)) throw new Error(`segments.${id}: not rendered; re-run ingest`);
+    return [id, { video: pathToFileURL(video).href }];
+  }));
   const audio = sb.audio ? (() => {
     const file = isAbsolute(sb.audio.file) ? sb.audio.file : resolve(dir, sb.audio.file);
     if (!existsSync(file)) throw new Error(`audio: ${sb.audio.file} is missing`);
@@ -73,7 +79,7 @@ export function pageData(dir: string, sb: Storyboard, cameras: Record<string, un
   })() : undefined;
   const first = Object.values(sb.screens)[0];
   const palette = first ? samplePalette(isAbsolute(first.file) ? first.file : resolve(dir, first.file)) : null;
-  return { storyboard: sb, screens, clips, ...(audio ? { audio } : {}), cameras, palette, tokens: motionTokens(sb.theme.name, sb.theme.overrides) };
+  return { storyboard: sb, screens, clips, segments, ...(audio ? { audio } : {}), cameras, palette, tokens: motionTokens(sb.theme.name, sb.theme.overrides) };
 }
 
 /** Write the page for a storyboard and return its path (dir/.motion/film.html). */
@@ -108,6 +114,13 @@ export async function renderMotion(dir: string, o: RenderOptions = {}): Promise<
   if (!Object.keys(sb.screens).length || Object.values(sb.clips ?? {}).some(c => clipStale(dir, c))) { // first render of a hand-written storyboard: ingest once, keep the result
     if (!Object.keys(sb.screens).length) await ingest(dir, sb);
     ingestClips(dir, sb);
+    raw = Buffer.from(JSON.stringify(sb, null, 2) + "\n");
+    writeFileSync(join(dir, "storyboard.json"), raw);
+    sb = validateStoryboard(JSON.parse(raw.toString("utf8")));
+  }
+  const staleSegments = Object.keys(sb.segments ?? {}).filter(id => segmentStale(dir, sb, id));
+  if (staleSegments.length) {
+    await ingestSegments(dir, sb, line => console.error(line));
     raw = Buffer.from(JSON.stringify(sb, null, 2) + "\n");
     writeFileSync(join(dir, "storyboard.json"), raw);
     sb = validateStoryboard(JSON.parse(raw.toString("utf8")));
@@ -150,6 +163,7 @@ export async function renderMotion(dir: string, o: RenderOptions = {}): Promise<
     return await renderHyperframes(dir, sb, { workers: o.workers, alpha: o.alpha });
   }
   if (sb.audio) throw new Error("audio is only supported by the hyperframes engine; render with --engine hyperframes");
+  if (sb.scenes.some(s => s.pattern === "segment")) throw new Error("segment scenes are only supported by the hyperframes engine; render with --engine hyperframes");
   if (sb.scenes.some(s => s.fill)) throw new Error("fill clip scenes are only supported by the hyperframes engine; render with --engine hyperframes");
   await safeAreaGate(dir, tag, html, sb, o.stills ?? Array.from({ length: frames }, (_, i) => i / fps), shell);
   if (o.stills) {

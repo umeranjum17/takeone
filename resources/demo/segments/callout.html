@@ -1,0 +1,42 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Callout: camera work, afterwards</title>
+<style>
+  html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: #0b0d10; }
+  canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+  #cap { position: absolute; left: 8%; bottom: 9%; margin: 0; color: #f4f1ea; font: 600 6.4vh/1.1 system-ui, "Liberation Sans", sans-serif; letter-spacing: -0.015em; }
+  #tag { position: absolute; left: 8%; bottom: calc(9% + 8vh); margin: 0; color: #7fd6b0; font: 500 2.6vh/1 ui-monospace, "DejaVu Sans Mono", monospace; letter-spacing: 0.14em; text-transform: uppercase; }
+</style></head>
+<body>
+<canvas id="c"></canvas>
+<p id="tag">Feature</p>
+<p id="cap">Camera work, decided afterwards.</p>
+<script>
+const canvas = document.getElementById("c");
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setSize(innerWidth, innerHeight, false); renderer.setClearColor(0x0b0d10, 1);
+const scene = new THREE.Scene(), camera = new THREE.PerspectiveCamera(40, innerWidth / innerHeight, 0.1, 100);
+scene.add(new THREE.AmbientLight(0xffffff, 0.55));
+const key = new THREE.DirectionalLight(0xffffff, 0.9); key.position.set(3, 4, 5); scene.add(key);
+// A film strip of frames curling around the viewer's focus; each frame is a lit slab, the focus frame is the one the camera rests on.
+const frames = [];
+for (let i = 0; i < 14; i++) {
+  const m = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.9, 0.04), new THREE.MeshStandardMaterial({ color: new THREE.Color().setHSL(0.42 + i * 0.01, 0.5, 0.45 + 0.02 * (i % 3)), roughness: 0.5, metalness: 0.1 }));
+  scene.add(m); frames.push(m);
+}
+const ease = (x) => 1 - Math.pow(1 - Math.min(1, Math.max(0, x)), 3);
+const cap = document.getElementById("cap"), tag = document.getElementById("tag");
+window.takeoneSegment = { seek(t) {
+  frames.forEach((m, i) => {
+    const a = (i / frames.length) * Math.PI * 2 + t * 0.55, radius = 3.4;
+    m.position.set(Math.sin(a) * radius, Math.sin(a * 2 + t) * 0.35, Math.cos(a) * radius - radius);
+    m.rotation.y = a; m.rotation.z = Math.sin(a) * 0.1;
+  });
+  const push = ease(t / 2.2);
+  camera.position.set(0, 0.2, 7.2 - 2.4 * push); camera.lookAt(0, 0, -3.4);
+  renderer.render(scene, camera);
+  tag.style.opacity = String(ease((t - 0.2) / 0.4));
+  const p = ease((t - 0.45) / 0.55); cap.style.opacity = String(p); cap.style.transform = `translateY(${(1 - p) * 0.4}em)`;
+} };
+window.takeoneSegment.seek(0);
+</script>
+</body></html>

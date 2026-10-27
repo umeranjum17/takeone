@@ -141,6 +141,7 @@ function scene(raw: unknown, path: string): Scene {
   for (const k of ["label", "note"] as const) if (raw[k] !== undefined) s[k] = str(raw[k], `${path}.${k}`, k === "label" ? 60 : 120);
   for (const k of ["scale", "from"] as const) if (raw[k] !== undefined) s[k] = num(raw[k], `${path}.${k}`, 0.1, 1.5);
   if (s.pattern === "statement" && (typeof s.title !== "string" || !s.title.trim())) throw new StoryboardError(`${path}.title`, "statement needs a non-empty title");
+  if (s.pattern === "segment" && !ID.test(String(raw["segment"]))) throw new StoryboardError(`${path}.segment`, "expected a segment id");
   if (s.pattern === "clip") {
     if (!ID.test(String(raw["clip"]))) throw new StoryboardError(`${path}.clip`, "expected a clip id");
     const cuts = raw["cuts"] ?? [];
@@ -289,6 +290,15 @@ export function validateStoryboard(raw: unknown): Storyboard {
     if (c["frames"] !== undefined && (!Array.isArray(c["frames"]) || c["frames"].length !== c["files"].length || c["frames"].some((f) => !isObj(f) || typeof f["dir"] !== "string" || !f["dir"] || !["count", "width", "height", "aspect"].every((k) => typeof f[k] === "number" && Number.isFinite(f[k]) && (f[k] as number) > 0)))) throw new StoryboardError(`clips.${k}.frames`, "expected one frame set per file; delete it to re-ingest");
   }
 
+  const segments = raw["segments"] ?? {};
+  if (!isObj(segments)) throw new StoryboardError("segments", "expected an object");
+  for (const [k, v] of Object.entries(segments)) {
+    if (!ID.test(k) || !isObj(v) || typeof v["file"] !== "string" || !v["file"]) throw new StoryboardError(`segments.${k}`, "expected {file: path of an html page, d: seconds}");
+    num(v["d"], `segments.${k}.d`, 0.25, MAX_DURATION_S);
+    const made = v["made"];
+    if (v["video"] !== undefined && (typeof v["video"] !== "string" || !isObj(made) || typeof made["sha256"] !== "string")) throw new StoryboardError(`segments.${k}.video`, "expected a rendered video with its made {sha256, width, height}");
+  }
+
   const rawAudio = raw["audio"];
   let audio: Storyboard["audio"];
   if (rawAudio !== undefined) {
@@ -345,6 +355,7 @@ export function validateStoryboard(raw: unknown): Storyboard {
     source: source as Storyboard["source"],
     ...(Object.keys(crops).length ? { crops: crops as Storyboard["crops"] } : {}),
     ...(Object.keys(clips).length ? { clips: clips as Storyboard["clips"] } : {}),
+    ...(Object.keys(segments).length ? { segments: segments as Storyboard["segments"] } : {}),
     ...(audio ? { audio } : {}),
     screens: screens as unknown as Storyboard["screens"],
     regions: regions as Storyboard["regions"],
@@ -385,6 +396,11 @@ export function validateStoryboard(raw: unknown): Storyboard {
         if (!c) throw new StoryboardError(`scenes[${i}].clip`, `unknown clip ${p.clip}`);
         if (c.d + 1e-9 < p.d) throw new StoryboardError(`scenes[${i}].clip`, `clip ${p.clip} is ${c.d} s, shorter than the ${p.d.toFixed(2)} s it plays`);
       }
+    }
+    if (s.pattern === "segment") {
+      const seg = (segments as Record<string, { d: number }>)[s.segment!];
+      if (!seg) throw new StoryboardError(`scenes[${i}].segment`, `unknown segment ${s.segment}`);
+      if (seg.d + 1e-9 < s.d) throw new StoryboardError(`scenes[${i}].segment`, `segment ${s.segment} is ${seg.d} s, shorter than the ${s.d.toFixed(2)} s it plays`);
     }
     for (const stop of s.stops ?? []) if (!regionIds.has(stop.region)) throw new StoryboardError(`scenes[${i}].stops`, "unknown region");
     const owner = s.screen ?? Object.keys(screens)[0] ?? Object.keys((source["states"] ?? {}) as object)[0] ?? "S1";
