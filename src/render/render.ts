@@ -131,6 +131,9 @@ export async function renderTake(dir: string, camera?: CameraDefaults, preview?:
   let d: CameraDefaults = camera ?? resolveTheme(meta.theme);
   const phone = meta.device !== undefined && meta.height > meta.width;
   if (phone) d = { ...d, corner_radius: 36, stage_margin: Math.max(0.16, d.stage_margin) };
+  // A portrait phone's whole push-in is the handset's margin easing away, a few percent of the
+  // solver's zoom range, so the default deadzone would swallow every tap shot.
+  if (phone && d.out_h >= d.out_w) d = { ...d, deadzone_zoom: Math.min(d.deadzone_zoom, 1.02) };
   validateZooms(meta.zooms, meta.width, meta.height);
   validateEdits(meta);
   const beats = JSON.parse(await readFile(join(dir, "analysis/beats.json"), "utf8")) as Beat[];
@@ -146,10 +149,10 @@ export async function renderTake(dir: string, camera?: CameraDefaults, preview?:
 
   const trimStart = meta.trim_start ?? 0;
   const wide = d.out_w > d.out_h;
-  // Automatic wide motion and crop-to-fill motion (a portrait, 4:5 or square cut from a wider
-  // desktop screen) are qualified. Phone and other exports rest at the centred framing; the
-  // user's own zooms direct every shape.
-  const moving = wide || (!phone && d.out_w / d.out_h < meta.width / meta.height);
+  // Automatic wide motion, crop-to-fill motion (a portrait, 4:5 or square cut from a wider
+  // desktop screen) and a phone's tap-directed motion are qualified. Any other export rests at
+  // the centred framing; the user's own zooms direct every shape.
+  const moving = wide || phone || d.out_w / d.out_h < meta.width / meta.height;
   const cameraWarning = manualZoomLimitWarning(meta, d);
   if (cameraWarning) console.warn(cameraWarning);
   const trimEnd = meta.trim_end ?? purposefulEnd(beats, trimStart,
@@ -208,8 +211,19 @@ export async function renderTake(dir: string, camera?: CameraDefaults, preview?:
   // every camera path, so no target, hold, reveal or push-in can park a crop edge in a word.
   const cuts = moving ? sourceEdgeCuts(dir, meta, (t) => sourceAt(t - trimStart)) : undefined;
   // A handset's controls span its narrow screen. Keep that entire width while pushing in and
-  // following the tapped row; the guard judges this re-framed view, not the raw solver crop.
+  // following the tapped row; the guard judges this re-framed view, not the raw solver crop. A
+  // portrait export pushes in from the handset's margin to the screen filling the frame, so its
+  // floor is the narrowest view that still shows the screen's whole width.
   const phoneReframe = (f: CameraFrame): CameraFrame => {
+    if (!wide) {
+      const at = (w: number): CameraFrame => ({ t: f.t, x: f.x + (f.w - w) / 2, y: f.y + (f.h - w * f.h / f.w) / 2, w, h: w * f.h / f.w });
+      // A band card shows only screen: its floor is the screen's own width.
+      if (banded) return f.w >= meta.width ? f : at(meta.width);
+      if (project(f).w >= meta.width) return f;
+      let lo = f.w, hi = baseWidth(meta.width, meta.height, cam);
+      for (let k = 0; k < 30; k++) { const mid = (lo + hi) / 2; if (project(at(mid)).w < meta.width) lo = mid; else hi = mid; }
+      return at(hi);
+    }
     const w = Math.max(f.w, meta.width * cam.hold_pad);
     const h = w * cam.out_h / cam.out_w;
     const cy = f.y + f.h / 2;
