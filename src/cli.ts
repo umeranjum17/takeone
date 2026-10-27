@@ -379,7 +379,7 @@ export async function main(argv: string[]): Promise<number> {
       return 2;
     }
     if (e instanceof PlannerUnavailable || e instanceof JudgeUnavailable) {
-      console.error(`takeone make: ${e.message}`);
+      console.error(e instanceof PlannerUnavailable && e.credentialMissing ? e.message : `takeone make: ${e.message}`);
       return 3;
     }
     throw e;

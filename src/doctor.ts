@@ -171,9 +171,8 @@ export async function runDoctor(): Promise<DoctorCheck[]> {
     }
   }
 
-  // AI planner: presence only, never the credential itself. Absent means
-  // planned films fall back to local rules; the row is informational and does
-  // not change the exit code.
+  // AI planner: presence only, never the credential itself. Without one,
+  // make refuses before analysis; this row remains informational for doctor.
   const planner = await plannerStatus();
   checks.push({ check: "ai-planner", ok: planner.available, detail: planner.detail });
 

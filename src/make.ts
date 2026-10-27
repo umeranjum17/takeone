@@ -69,9 +69,8 @@ export interface MakeOptions {
   /** Host-passed BYOKit credential override for the configured backend;
    * null disables the planner, undefined loads the configured store. */
   apiKey?: string | null;
-  /** Host opt-in: resolve the user's own planner (signed-in account or stored
-   * key) and stop with PlannerUnavailable when none can serve the run, instead
-   * of falling back to local rules. `capture make --planner-account`. */
+  /** Host opt-in for capture's account route; normal make also stops when no
+   * engine can serve the run. `capture make --planner-account`. */
   requireAi?: boolean;
   /** Config dir holding planner.json and the sealed store; defaults to the
    * platform config dir. Tests point it at a throwaway dir. */
@@ -232,19 +231,17 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
         ...(opts.configDir === undefined ? {} : { configDir: opts.configDir }),
       });
     } catch (e) {
-      // A corrupt planner.json is user error: fail fast instead of hiding it
-      // behind the fallback. An unreadable secret store falls back, and the
-      // banner names it.
+      // A corrupt planner.json is user error. An unreadable secret store
+      // also stops normal make before any analysis is written.
       if (e instanceof ConfigError) throw e;
       if (!(e instanceof SecretStoreUnavailable) &&
           !(e instanceof KeystoreError && ["unavailable", "unsupported"].includes(e.code))) throw e;
       planner = null;
       plannerOff = "the secret store cannot be read";
-      if (opts.requireAi) throw accountMissing(`could not be checked: ${plannerOff}`);
+      if (opts.requireAi || !opts.noAi) throw accountMissing(`could not be checked: ${plannerOff}`);
     }
     if (planner && !planner.active) {
-      // The user chose a provider but its credential is missing: stop with
-      // the choices instead of silently falling back (or switching provider).
+      // A saved provider whose credential is missing stops without switching.
       const auth = (planner.config as { auth?: string }).auth;
       if (!planner.defaulted && opts.apiKey === undefined) {
         throw new PlannerUnavailable(planner.label, planner.refusal ?? `no ${auth === "account" ? "sign-in" : "key"} for ${planner.label}`);
@@ -252,7 +249,7 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
       // A host that passed --planner-account asked for the user's own planner:
       // with none to serve the run, stop and name the cause instead of
       // planning with local rules it did not ask for.
-      if (opts.requireAi) throw accountMissing(planner.refusal ?? planner.skipped ?? "was not found");
+      if (opts.requireAi || !opts.noAi) throw accountMissing(planner.refusal ?? planner.skipped ?? "was not found");
       if (planner.refusal ?? planner.skipped) plannerOff = (planner.refusal ?? planner.skipped) as string;
       planner = null;
     }
@@ -260,8 +257,7 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
     // the run: say so rather than letting the switch pass unnoticed.
     if (planner?.skipped) warn(`planner: ${planner.skipped}`);
   }
-  const aiActive = planner !== null;
-  const readScreenText = aiActive && !opts.noScreenText && (!opts.capture || opts.screenText === true);
+  const readScreenText = planner !== null && !opts.noScreenText && (!opts.capture || opts.screenText === true);
 
   // 1 perceive ------------------------------------------------------------
   let videoStartMs: number;
@@ -380,17 +376,6 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
   writeFileSync(join(analysisDir, "beats.json"), JSON.stringify(renderBeats, null, 1));
 
   // 3 decide --------------------------------------------------------------
-  if (!planner && !opts.noAi) {
-    warn(
-      "──────────────────────────────────────────────────────────────\n" +
-      ` AI planner is OFF: ${plannerOff}. This film uses fallback rules:\n` +
-      " generic framing, every pause sped up, no captions, default theme.\n" +
-      " Set a key:  read -rs k; printf %s \"$k\" | takeone key set\n" +
-      " Hide this:  takeone make <id> --no-ai\n" +
-      "──────────────────────────────────────────────────────────────",
-    );
-  }
-
   // heuristic pre-pass, in shot order, to fill current_shot
   const heuristics: Decision[] = [];
   let viewport: BBox | null = null; // null = full screen

@@ -161,6 +161,8 @@ function assertedArgs(line) {
   const m = /assert\.[A-Za-z]+\s*\(|expect\s*\(/.exec(t);
   if (!m) return [t];
   const args = []; // split the call's argument list at top-level commas
+  // match's regex may contain quotes; only its first argument is the asserted subject.
+  const firstOnly = /^assert\.(?:match|doesNotMatch)\s*\(/.test(m[0]);
   let depth = 0, cur = "", quote = null;
   const start = m.index + m[0].length;
   let i = start;
@@ -173,7 +175,7 @@ function assertedArgs(line) {
       if (!depth) break;
       depth--; cur += c; continue;
     }
-    if (c === "," && !depth) { args.push(cur); cur = ""; continue; }
+    if (c === "," && !depth) { if (firstOnly) return [cur]; args.push(cur); cur = ""; continue; }
     cur += c;
   }
   if (i >= t.length) return [t]; // unbalanced: strict fallback

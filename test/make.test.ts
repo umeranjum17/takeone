@@ -242,12 +242,24 @@ test("CLI rejects malformed --max-tokens values", async () => {
   }
 });
 
-test("without a credential the run falls back loudly and records planner.mode fallback", async () => {
+test("without an engine make refuses before writing analysis or film", async () => {
+  const dir = newTake();
+  try {
+    await assert.rejects(fastTake(dir), (e: unknown) => e instanceof PlannerUnavailable &&
+      e.credentialMissing && /takeone needs an AI engine/.test(e.message));
+    assert.ok(!existsSync(join(dir, "analysis")));
+    assert.ok(!existsSync(join(dir, "out")));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("explicit legacy no-ai still records its decision provenance", async () => {
   const dir = newTake();
   try {
     const warns: string[] = [];
-    const r = await fastTake(dir, { apiKey: null, log: () => {}, warn: (s) => warns.push(s) });
-    assert.ok(warns.join("\n").includes("AI planner is OFF"), `no fallback banner: ${warns.join("\n")}`);
+    const r = await fastTake(dir, { noAi: true, log: () => {}, warn: (s) => warns.push(s) });
+    assert.equal(warns.join("\n").includes("AI planner is OFF"), false);
     assert.ok(r.decisions.every((d) => d.decided_by === "heuristic"));
     const take = JSON.parse(readFileSync(join(dir, "take.json"), "utf8")) as TakeMeta;
     assert.equal(take.planner?.mode, "fallback");
@@ -460,7 +472,7 @@ test("a signed-in Claude CLI that refuses the ask stops the run instead of falli
         assert.match(e.message, /claude could not answer/);
         assert.match(e.message, /Claude subscription sign-in/);
         assert.match(e.message, /claude auth status/);
-        assert.match(e.message, /--no-ai/);
+        assert.match(e.message, /choose another provider/);
         return true;
       },
     );
@@ -657,7 +669,8 @@ test("a chosen provider without its credential stops instead of falling back", a
       (e: unknown) => {
         assert.ok(e instanceof PlannerUnavailable);
         assert.ok(e.message.includes("opencode-go"), `provider not named: ${e.message}`);
-        assert.ok(e.message.includes("--no-ai"), `fallback choice missing: ${e.message}`);
+        assert.ok(e.message.includes("choose another provider"), `provider choice missing: ${e.message}`);
+        assert.equal(e.message.includes("--no-ai"), false);
         return true;
       },
     );
@@ -683,7 +696,8 @@ test("a chosen pi planner that cannot run stops with pi's own check instead of f
         assert.ok(e instanceof PlannerUnavailable);
         assert.ok(e.message.includes("deepseek/deepseek-flash"), `model not named: ${e.message}`);
         assert.ok(e.message.includes("not installed at"), `missing pi not named: ${e.message}`);
-        assert.ok(e.message.includes("--no-ai"), `fallback choice missing: ${e.message}`);
+        assert.ok(e.message.includes("choose another provider"), `provider choice missing: ${e.message}`);
+        assert.equal(e.message.includes("--no-ai"), false);
         return true;
       },
     );
@@ -702,8 +716,9 @@ test("a rate-limited provider stops before render instead of falling back", asyn
       (e: unknown) => {
         assert.ok(e instanceof PlannerUnavailable);
         assert.ok(e.message.includes("jev"), `provider not named: ${e.message}`);
-        assert.ok(e.message.includes("--no-ai"), `fallback choice missing: ${e.message}`);
-        assert.ok(e.message.includes("takeone key set"), `switch choice missing: ${e.message}`);
+        assert.ok(e.message.includes("choose another provider"), `provider choice missing: ${e.message}`);
+        assert.equal(e.message.includes("--no-ai"), false);
+        assert.equal(e.message.includes("takeone key set"), false);
         return true;
       },
     );
@@ -719,7 +734,7 @@ test("an unauthorized provider stops before render instead of falling back", asy
     const fetchImpl = (async () => new Response("no", { status: 401 })) as typeof fetch;
     await assert.rejects(
       fastTake(dir, { apiKey: KEY, fetchImpl, log: () => {}, warn: () => {} }),
-      (e: unknown) => e instanceof PlannerUnavailable && /--no-ai/.test(e.message),
+      (e: unknown) => e instanceof PlannerUnavailable && /choose another provider/.test(e.message),
     );
     assert.ok(!existsSync(join(dir, "out", "t1.mp4")), "rendered despite PlannerUnavailable");
   } finally {
@@ -733,7 +748,7 @@ test("a forbidden provider stops before render instead of falling back", async (
     const fetchImpl = (async () => new Response("forbidden", { status: 403 })) as typeof fetch;
     await assert.rejects(
       fastTake(dir, { apiKey: KEY, fetchImpl, log: () => {}, warn: () => {} }),
-      (e: unknown) => e instanceof PlannerUnavailable && /--no-ai/.test(e.message),
+      (e: unknown) => e instanceof PlannerUnavailable && /choose another provider/.test(e.message),
     );
     assert.ok(!existsSync(join(dir, "out", "t1.mp4")), "rendered despite PlannerUnavailable");
   } finally {

@@ -69,6 +69,26 @@ test("floor guard passes renamed assertions, still flags real removals and new s
   }
 });
 
+test("floor guard keeps the checked subject when a match regex contains a quote", () => {
+  const setup = `const output = "a", otherOutput = "b";\n`;
+  const r = repo(setup + `test("doctor", () => {
+  assert.match(output, /planner,false,"?off/, output);
+});
+`);
+  try {
+    assert.equal(r.guard(setup + `test("doctor", () => {
+  assert.match(output, /planner,false,unavailable/, output);
+});
+`), 0, "changing the expected status still checks output");
+    assert.equal(r.guard(setup + `test("doctor", () => {
+  assert.match(otherOutput, /planner,false,unavailable/, otherOutput);
+});
+`), 1, "switching the checked output remains a removal");
+  } finally {
+    r.done();
+  }
+});
+
 // The preflight reserve of the chunked planner: the reserve rule moved from "every request twice"
 // to "one re-asked chunk", so the old inequality no longer holds on a take with two chunks. The
 // same test states the new rule instead.
