@@ -69,6 +69,13 @@ test("all bundled themes render with bundled faces; midnight decoded frames equa
     assert.equal(hashes((await renderTake(dir,applyOverrides(small))).out),base,
       "missing pointer samples do not break the footage");
     writeFileSync(join(dir,"take.json"),JSON.stringify(meta));
+    // Narration and a music bed mux into one audio stream the length of the picture; the default stays silent.
+    for (const [file,src] of [["voice.wav","sine=f=220:d=1"],["bed.wav","sine=f=660:d=1"]]) execFileSync("ffmpeg",["-v","error","-y","-f","lavfi","-i",src!,"-ac","2",join(dir,file!)]);
+    const streams = (file:string)=>execFileSync("ffprobe",["-v","error","-show_entries","stream=codec_type,duration","-of","csv=p=0",file],{encoding:"utf8"}).trim().split("\n");
+    assert.deepEqual(streams((await renderTake(dir,applyOverrides(small))).out).map(l=>l.split(",")[0]),["video"]);
+    const sound = streams((await renderTake(dir,applyOverrides({...small,narration:"voice.wav",music:"bed.wav",click_sound:1}))).out).map(l=>l.split(","));
+    assert.deepEqual(sound.map(l=>l[0]),["video","audio"]);
+    assert.ok(Math.abs(Number(sound[0]![1])-Number(sound[1]![1]))<0.1,"the sound runs the length of the film");
     const selected: Record<string,string>={};
     for (const name of Object.keys(THEMES)) {
       const d=resolveTheme(name,small);

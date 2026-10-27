@@ -25,6 +25,7 @@ import { clipDrags, typingBursts, editBeats, editTimeline, validateEdits, valida
 import { applyPlan, readPlan, validatePlan } from "../decide/plan.ts";
 import { withFilmText } from "../decide/film.ts";
 import { runFfmpeg } from "./ffmpeg.ts";
+import { addSound } from "./sound.ts";
 import { ensureProxy, previewDefaults, proxySize, scaleBand, scaleBeat, scaleEvent, scaleFrames, scaleMeta, type PreviewSpec } from "./preview.ts";
 import {
   bandCamera, bandFrames, bandLayout, bandText, beatClicks, captionAss, captionLayouts, cardFilter, clickAss, insideScreen, measureAss, sourceViewport, stageFrames, stageGeometry, stageImageFilter,
@@ -472,6 +473,7 @@ export async function renderTake(dir: string, camera?: CameraDefaults, preview?:
   const starts = segmentStarts(shutter.counts, renderSegments(shutter.counts.length, d.fps));
   if (starts.length === 1) {
     await writeFile(join(workDir, "render.log"), await pass(commandFile, [], output, ditherKeys(0, shutter.counts.length)));
+    await addSound(dir, output, d, clicks.map(c => c.t - trimStart), duration);
     return { out: output, seconds: duration };
   }
   // One ffmpeg filter graph runs on one thread apart from slice work, and the
@@ -496,6 +498,7 @@ export async function renderTake(dir: string, camera?: CameraDefaults, preview?:
   logs.push(await runFfmpeg(["-y", "-v", "error", "-f", "concat", "-safe", "0", "-i", list, "-c", "copy", "-movflags", "+faststart", output], cancel.signal));
   await writeFile(join(workDir, "render.log"), [`render segments start at frames ${starts.join(", ")}`, ...logs].join("\n"));
   await Promise.all([list, ...parts, ...parts.map((_, k) => join(dir, `camera-part${k}.cmd`))].map(file => rm(file, { force: true })));
+  await addSound(dir, output, d, clicks.map(c => c.t - trimStart), duration);
   return { out: output, seconds: duration };
 }
 

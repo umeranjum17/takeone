@@ -11,6 +11,10 @@ export interface CameraDefaults {
   bg_style: "linear" | "solid" | "radial" | "mesh" | "image";
   bg_stops: string; // comma-separated #RRGGBB, 2–8 stops; empty uses background/background_to
   background_image: string; // local image path, used only with bg_style=image
+  click_sound: number; // 0 silent .. 1; a short tick under every click ring
+  narration: string; // local audio file laid from the film start, loudness-normalised
+  music: string; // local audio file bed, ducked under the narration
+  music_volume: number; // 0..1 bed level before ducking
   grain: number;
   shadow_blur: number;
   shadow_y: number;
@@ -93,6 +97,10 @@ export const DEFAULTS: CameraDefaults = {
   bg_style: "linear",
   bg_stops: "",
   background_image: "",
+  click_sound: 0,
+  narration: "",
+  music: "",
+  music_volume: 0.3,
   grain: 4,
   shadow_blur: 40,
   shadow_y: 18,
@@ -200,6 +208,11 @@ export function applyOverrides(overrides: Overrides, base: CameraDefaults = DEFA
       out.background_image = v;
       continue;
     }
+    if (key === "narration" || key === "music") {
+      if (typeof v !== "string" || /[\x00-\x1f]/.test(v) || v.length > 4096) throw new Error(`unknown or invalid --set ${k}=${v}`);
+      out[key] = v;
+      continue;
+    }
     if (key === "keycap_style") {
       if (v !== "linux" && v !== "mac") throw new Error(`unknown or invalid --set ${k}=${v}`);
       out.keycap_style = v;
@@ -240,6 +253,7 @@ export function applyOverrides(overrides: Overrides, base: CameraDefaults = DEFA
       || (["shadow", "glow", "caption_rounding", "caption_opacity"].includes(k) && v > 1)
       || (["border", "caption_border"].includes(k) && v > 16)
       || (k === "grain" && v > 100)
+      || (["click_sound", "music_volume"].includes(k) && v > 1)
       || (k === "spring_zeta" && (v < 0.75 || v > 2))
       || (k === "pace" && (v < 0.25 || v > 4))
       || (k === "motion_blur" && v > 1)
