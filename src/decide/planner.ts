@@ -3,9 +3,8 @@
 // (`parseConfig` / `createDecider` shape: backend, auth, model, via).
 //
 // THIS MODULE OWNS THE DISCOVERY ORDER. With nothing saved, an
-// already-signed-in Claude or Codex CLI account is offered first, then a
-// signed-in ChatGPT or OpenCode Go plan account, then the stored key, then
-// local rules. Every other place states the order by pointing here
+// signed-in BYOKit plan account is offered first, then a signed-in Claude or
+// Codex CLI account, then the stored key. A normal make refuses without one. Every other place states the order by pointing here
 // (docs/guide.md "Discovery order"). A saved choice is never switched:
 // limits, refusals, auth errors and timeouts stop with PlannerUnavailable
 // instead of silently falling back.
@@ -469,23 +468,19 @@ export async function resolveJudge(o: ResolvePlannerOptions = {}): Promise<Resol
 }
 
 /** The user picked nothing, and the order is the one this module owns: a
- * signed-in installed CLI that can serve, then a signed-in BYOKit plan account
- * whose own list names a model, then the stored key and local rules below. The
+ * signed-in BYOKit plan account whose own list names a model, then a signed-in
+ * installed CLI that can serve, then the stored key. The
  * model of a discovered CLI comes from the backend's own default. */
 async function discoverAccount(member: string, env: NodeJS.ProcessEnv, configDir: string | undefined): Promise<Discovered> {
-  const cli = await discoverCliAccount(env, configDir);
-  if (cli.config) return cli;
   if (await openAIAccountPresent(member, env)) {
     const model = await planAccountModel(member, "chatgpt", env);
-    if (model) return { config: { backend: "openai", auth: "account", model }, refusal: cli.refusal, skipped: cli.skipped, cli: null };
-    cli.refusal ??= "the signed-in ChatGPT account named no model this planner can ask";
+    if (model) return { config: { backend: "openai", auth: "account", model }, refusal: null, skipped: null, cli: null };
   }
   if (await goAccountPresent(member, env)) {
     const model = await planAccountModel(member, "opencode:plan_key:opencode-go", env);
-    if (model) return { config: { backend: "opencode-go", auth: "account", model }, refusal: cli.refusal, skipped: cli.skipped, cli: null };
-    cli.refusal ??= "the signed-in OpenCode Go account named no model this planner can ask";
+    if (model) return { config: { backend: "opencode-go", auth: "account", model }, refusal: null, skipped: null, cli: null };
   }
-  return { config: null, refusal: cli.refusal, skipped: cli.skipped, cli: null };
+  return discoverCliAccount(env, configDir);
 }
 
 /** Presence of the member's Go plan login. Reads the stored key into memory
@@ -518,8 +513,8 @@ export async function plannerStatus(o: ResolvePlannerOptions = {}): Promise<{
       return {
         available: false,
         detail: r.refusal
-          ? `AI planner off: ${r.refusal}; films use fallback rules (set a key: read -rs k; printf %s "$k" | takeone key set)`
-          : "AI planner off: no signed-in account or stored key was found; films use fallback rules (set a key: read -rs k; printf %s \"$k\" | takeone key set)",
+          ? `AI planner unavailable: ${r.refusal}; sign in with claude or codex login`
+          : "AI planner unavailable: sign in with claude or codex login",
         config: r.config,
         label: r.label,
       };
@@ -528,7 +523,7 @@ export async function plannerStatus(o: ResolvePlannerOptions = {}): Promise<{
       available: false,
       detail: r.refusal
         ? `AI planner off: ${r.refusal}`
-        : `AI planner off: films use fallback rules (no ${c.auth === "account" ? "sign-in" : "key"} for ${r.label})`,
+        : `AI planner unavailable: no ${c.auth === "account" ? "sign-in" : "key"} for ${r.label}`,
       config: r.config,
       label: r.label,
     };
@@ -681,14 +676,9 @@ export class PlannerUnavailable extends Error {
   readonly credentialMissing: boolean;
   constructor(provider: string, reason: string, o: { credentialMissing?: boolean } = {}) {
     const missing = o.credentialMissing === true;
-    super(
-      `AI planner: ${provider} ${reason}. ` +
-        (missing
-          ? `Choose: sign that account in, store a key with takeone key set, ` +
-            `or run with --no-ai for fallback rules.`
-          : `Choose: wait and rerun, run with --no-ai for fallback rules, ` +
-            `or switch provider yourself with takeone key set --backend <name> --model <model>.`),
-    );
+    super(missing
+      ? "takeone needs an AI engine. Sign in with: claude (Claude), or: codex login (Codex), or: opencode auth login (OpenCode)."
+      : `AI planner: ${provider} ${reason}. Check that engine's sign-in and retry, or choose another provider.`);
     this.name = "PlannerUnavailable";
     this.provider = provider;
     this.reason = reason;
