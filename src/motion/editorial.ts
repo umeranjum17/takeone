@@ -16,7 +16,7 @@ import type { Crop, Rect, Scene } from "./types.ts";
 
 export interface EditorialArgs { inputs: string[]; pitch?: string; logo?: string; url?: string; cta?: string; audio?: string; workers?: number }
 
-interface Line { id: string; text: string; box: Rect }
+export interface Line { id: string; text: string; box: Rect }
 
 /** What the model must return, beside its yes: every field is checked before a frame is planned. */
 const FIELDS = ["logo", "lead", "swaps", "phone_line", "phone_open", "tap", "toast", "chips_line", "chips", "payoff", "cta"] as const;
@@ -51,17 +51,17 @@ export function candidateLines(lines: { text: string; box: number[] }[], height:
     .slice(0, 60).map((l, i) => ({ id: `L${i + 1}`, text: l.text, box: l.box as Rect }));
 }
 
-function text(a: Record<string, unknown>, k: string, lo: number, hi: number, chars = 60): string {
+export function text(a: Record<string, unknown>, k: string, lo: number, hi: number, chars = 60, who = "editorial"): string {
   const v = a[k];
   if (typeof v !== "string" || !v.trim() || v.length > chars || words(v) < lo || words(v) > hi) {
-    throw new Error(`editorial planner: ${k} must be ${lo}-${hi} words in at most ${chars} characters, got ${JSON.stringify(v)}; rerun to ask again`);
+    throw new Error(`${who} planner: ${k} must be ${lo}-${hi} words in at most ${chars} characters, got ${JSON.stringify(v)}; rerun to ask again`);
   }
   return v.trim();
 }
 
-function line(a: Record<string, unknown>, k: string, lines: Line[]): Line {
+export function line(a: Record<string, unknown>, k: string, lines: Line[], who = "editorial"): Line {
   const hit = lines.find(l => l.id === a[k]);
-  if (!hit) throw new Error(`editorial planner: ${k} names no offered line (${JSON.stringify(a[k])}); rerun to ask again`);
+  if (!hit) throw new Error(`${who} planner: ${k} names no offered line (${JSON.stringify(a[k])}); rerun to ask again`);
   return hit;
 }
 
@@ -74,7 +74,7 @@ function margins(l: Line, lines: Line[]): [number, number] {
 }
 
 /** A crop of the screen clamped to it, in device px. */
-function clamp(x: number, y: number, w: number, h: number, W: number, H: number): Rect {
+export function clamp(x: number, y: number, w: number, h: number, W: number, H: number): Rect {
   w = Math.min(w, W); h = Math.min(h, H);
   return [Math.round(Math.max(0, Math.min(x, W - w))), Math.round(Math.max(0, Math.min(y, H - h))), Math.round(w), Math.round(h)];
 }
@@ -111,7 +111,7 @@ function trim(rect: Rect, box: Rect, g: Grey): Rect {
 }
 
 /** A long line whose sentence runs on into the line just below it, in the same column at the same size. */
-function wraps(l: Line, lines: Line[], W: number): boolean {
+export function wraps(l: Line, lines: Line[], W: number): boolean {
   const [x, y, w, h] = l.box;
   return w > W * 0.35 && lines.some(n => n.box[1] > y + h * 0.5 && n.box[1] - y - h < h * 0.8 && Math.abs(n.box[0] - x) < h * 1.5 && Math.abs(n.box[3] - h) < h * 0.25);
 }
@@ -201,14 +201,20 @@ export async function signedInPlanner() {
 }
 
 /** Read the screen, ask the signed-in engine once, and plan the film. Stops when no engine can answer. */
-export async function planEditorial(a: EditorialArgs, id: string, log: (line: string) => void): Promise<unknown> {
-  if (a.inputs.length !== 1 || !/\.(png|jpe?g|webp)$/i.test(a.inputs[0]!)) throw new Error("--recipe editorial takes exactly one screenshot (png, jpg or webp)");
-  if (!a.pitch?.trim()) throw new Error("--recipe editorial needs --pitch \"what the product does, in a few lines\"");
+export function planEditorial(a: EditorialArgs, id: string, log: (line: string) => void): Promise<unknown> {
+  return planWithEngine("editorial", a, ASK, FIELDS, (size, lines, answer, grey) => editorialStoryboard(a, id, size, lines, answer, grey), log);
+}
+
+/** The shared recipe flow: one screenshot and a pitch in, the model's checked answer laid out by `build`. */
+export async function planWithEngine(recipe: string, a: EditorialArgs, ask: string, fields: readonly string[],
+  build: (size: { width: number; height: number }, lines: Line[], answer: Record<string, unknown>, grey: Grey) => unknown, log: (line: string) => void): Promise<unknown> {
+  if (a.inputs.length !== 1 || !/\.(png|jpe?g|webp)$/i.test(a.inputs[0]!)) throw new Error(`--recipe ${recipe} takes exactly one screenshot (png, jpg or webp)`);
+  if (!a.pitch?.trim()) throw new Error(`--recipe ${recipe} needs --pitch "what the product does, in a few lines"`);
   const planner = await signedInPlanner();
   const file = resolve(a.inputs[0]!), size = imageSize(file);
   const lines = candidateLines(await screenLines(file), size.height);
-  if (lines.length < 6) throw new Error(`editorial: read only ${lines.length} text lines off ${a.inputs[0]}; the recipe needs a screen with real UI text`);
-  log(`motion: editorial recipe planned by ${planner.label} from ${lines.length} redacted screen lines`);
+  if (lines.length < 6) throw new Error(`${recipe}: read only ${lines.length} text lines off ${a.inputs[0]}; the recipe needs a screen with real UI text`);
+  log(`motion: ${recipe} recipe planned by ${planner.label} from ${lines.length} redacted screen lines`);
   // Only redacted words leave the machine, the same rule as make's screen text; the screenshot never does.
   const state = {
     pitch: a.pitch.trim(), ...(a.logo ? { product: a.logo } : {}),
@@ -218,18 +224,18 @@ export async function planEditorial(a: EditorialArgs, id: string, log: (line: st
   const grey = screenGrey(file, size);
   // A broken field is asked again once, with the model's own answer and what it broke; a second miss stops.
   for (let retry: Record<string, unknown> | undefined, attempt = 0; ; attempt++) {
-    const outcome = await askChunk(retry ? { ...state, retry } : state, { film: { kind: "yesno", question: ASK, answerFields: [...FIELDS] } }, planner, new MemoryCache(),
+    const outcome = await askChunk(retry ? { ...state, retry } : state, { film: { kind: "yesno", question: ask, answerFields: [...fields] } }, planner, new MemoryCache(),
       { timeoutMs: 180_000, keepAnswers: true });
     const answer: Answer | undefined = outcome.answers?.["film"];
     if (!answer || answer.abstained || answer.answer !== true) {
-      throw new Error(`editorial planner gave no plan (${outcome.failure ?? answer?.reason ?? "no answer"}); rerun to ask again`);
+      throw new Error(`${recipe} planner gave no plan (${outcome.failure ?? answer?.reason ?? "no answer"}); rerun to ask again`);
     }
     try {
-      return editorialStoryboard(a, id, size, lines, answer as unknown as Record<string, unknown>, grey);
+      return build(size, lines, answer as unknown as Record<string, unknown>, grey);
     } catch (e) {
-      if (attempt > 0 || !(e instanceof Error) || !e.message.startsWith("editorial planner:")) throw e;
+      if (attempt > 0 || !(e instanceof Error) || !e.message.startsWith(`${recipe} planner:`)) throw e;
       log(`motion: ${e.message.replace(/; rerun to ask again$/, "")}; asking again`);
-      retry = { previous_answer: answer, problem: e.message.replace(/^editorial planner: |; rerun to ask again$/g, "") };
+      retry = { previous_answer: answer, problem: e.message.replace(/^\w+ planner: |; rerun to ask again$/g, "") };
     }
   }
 }
