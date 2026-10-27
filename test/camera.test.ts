@@ -1447,7 +1447,7 @@ test("a manual zoom is not widened by scroll repaints or changes far from the ge
   const click: Beat = { id: "c", t0: 4, t1: 6, anchor_t: 4, kind: "click", zones: [],
     actions: [{ k: "click", t: 4000, x: 1600, y: 800, window_cls: "x" } as Action] };
   const held = (changes: { t: number; bbox: [number, number, number, number] }[]) =>
-    applyManualZooms(wide, take, d, [scroll, click], changes)[Math.round(7 * d.fps)]!;
+    applyManualZooms(wide, take, d, [scroll, click], changes).frames[Math.round(7 * d.fps)]!;
   const plain = held([]);
   // Control: a popup the click opened, under and past the box, widens the hold to include it.
   assert.ok(held([{ t: 4.2, bbox: [1500, 1100, 400, 700] }]).h > plain.h + 1);
