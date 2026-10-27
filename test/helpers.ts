@@ -3,7 +3,7 @@
 
 import type { Event, FrameRegions, Region } from "../src/types.ts";
 import { execFileSync } from "node:child_process";
-import { writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 let ffmpegCache: boolean | undefined;
@@ -102,12 +102,14 @@ export function beatViews(body: string): string[] {
 /** Film answers that keep the base look: midnight theme, pace 1 (quick), the
  * establish hold and the lively camera. No ending is answered, so the take
  * keeps its last beat. */
-export function filmAnswers(): Record<string, unknown> {
+export function filmAnswers(body?: string): Record<string, unknown> {
+  const ending = body === undefined ? [] : Object.keys((JSON.parse(body) as { questions: { ending?: { criteria: Record<string, string> } } }).questions.ending?.criteria ?? {});
   return {
     theme: { choice: "midnight", probabilities: { midnight: 1, paper: 0, aurora: 0, mono: 0, sand: 0, editorial: 0 }, confidence: 1 },
     pace: { probabilities: [0, 1, 0, 0], confidence: 1 },
     opening: { choice: "establish", probabilities: { establish: 1, short: 0, straight: 0 }, confidence: 1 },
     camera_style: { choice: "lively", probabilities: { calm: 0, lively: 1 }, confidence: 1 },
+    ...(ending.length ? { ending: { choice: ending[0], probabilities: Object.fromEntries(ending.map((id, i) => [id, i === 0 ? 1 : 0])), confidence: 1 } } : {}),
   };
 }
 
@@ -115,7 +117,44 @@ export function filmAnswers(): Record<string, unknown> {
  * under bare question names, given its zone names; keys get the beat prefix. */
 export function chunkAnswers(body: string, perBeat: (names: string[], k: number) => Record<string, unknown>): Record<string, unknown> {
   const beats = (JSON.parse(body) as { state: { beats?: Record<string, { zones: Record<string, unknown> }> } }).state.beats;
-  if (beats === undefined) return filmAnswers();
+  if (beats === undefined) return filmAnswers(body);
   return Object.fromEntries(Object.entries(beats ?? {}).flatMap(([id, beat], k) =>
     Object.entries(perBeat(Object.keys(beat.zones), k)).map(([q, a]) => [`${id}_${q}`, a])));
 }
+
+const recorded = JSON.parse(readFileSync(new URL("./fixtures/recorded-planner.json", import.meta.url), "utf8")) as {
+  film: Record<string, unknown>;
+  beat: Record<string, unknown>;
+};
+
+/** A test-only fetch response from sanitized real model answers. Zone/beat ids
+ * are renamed to this request's choices; production never imports this seam.
+ * ponytail: one recorded click answer is repeated for every beat; capture more
+ * distinct responses when a test asserts model taste rather than pipeline wiring. */
+export function recordedPlannerReply(body: string, firstZone = false): Response {
+  const { state, questions } = JSON.parse(body) as {
+    state: { beats?: Record<string, { zones: Record<string, unknown> }> };
+    questions: Record<string, { criteria?: Record<string, unknown> }>;
+  };
+  let answers: Record<string, unknown>;
+  if (!state.beats) {
+    answers = Object.fromEntries(Object.entries(questions).map(([key, question]) => [key,
+      key === "ending" ? { choice: Object.keys(question.criteria ?? {})[0], probabilities: Object.fromEntries(Object.keys(question.criteria ?? {}).map((id, i) => [id, i === 0 ? 1 : 0])), confidence: 1 }
+        : recorded.film[key],
+    ]));
+  } else {
+    answers = Object.fromEntries(Object.entries(state.beats).flatMap(([id, beat]) => {
+      const names = Object.keys(beat.zones);
+      const chosen = firstZone ? names[0]! : names[1] ?? names[0]!;
+      return Object.entries(recorded.beat).map(([field, value]) => {
+        if (!field.startsWith("focus_")) return [`${id}_${field}`, value];
+        const answer = value as { probabilities: Record<string, number>; confidence: number };
+        return [`${id}_${field}`, { choice: chosen, probabilities: Object.fromEntries(names.map((name) => [name, name === chosen ? (names.length === 1 ? 1 : answer.probabilities.z2) : answer.probabilities.z1! / (names.length - 1)])), confidence: answer.confidence }];
+      });
+    }));
+  }
+  return new Response(JSON.stringify({ answers, usage: { input_tokens: 800 } }), { status: 200 });
+}
+
+export const recordedPlannerFetch = (async (_url: string | URL | Request, init?: RequestInit) =>
+  recordedPlannerReply(String(init?.body))) as typeof fetch;

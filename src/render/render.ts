@@ -19,8 +19,7 @@ import { motionBlurGraph, shutterPlan } from "./motion-blur.ts";
 import { idleSqueezes, purposefulEnd, setptsExpr, warp, warpBeats } from "./pace.ts";
 import { cursorAss, pointerSamples } from "./cursor.ts";
 import { firstFrameTimeMs, readEvents } from "../perceive/decode.ts";
-import { phoneTapShots } from "./phone.ts";
-import { edgeCuts, cutCount, holdPath, lastFrameSecond, videoFrames } from "./framing.ts";
+import { edgeCuts, holdPath, lastFrameSecond, videoFrames } from "./framing.ts";
 import { SAFE_INSET, safeAreaReport, type Rect } from "./safe-area.ts";
 import { clipDrags, typingBursts, editBeats, editTimeline, validateEdits, validateZooms } from "./edits.ts";
 import { applyPlan, readPlan, validatePlan, withUserFilm } from "../decide/plan.ts";
@@ -71,6 +70,12 @@ async function takeChanges(dir: string, meta: TakeMeta, start: number, end: numb
   });
 }
 
+// Pure guard shared by the solver and its edge regression test.
+export function sourceEdgeMask(frames: Uint8Array[], width: number, height: number): (view: Pick<CameraFrame, "x" | "y" | "w" | "h">) => number {
+  const mask = edgeCuts(frames, width, height, 8);
+  return (view) => Number(mask(view) > 0);
+}
+
 /** Source seconds one guard decode keeps, and how many such decodes stay cached. */
 const DECODE_WINDOW = 0.5, DECODE_WINDOWS = 4;
 
@@ -78,15 +83,15 @@ const DECODE_WINDOW = 0.5, DECODE_WINDOWS = 4;
  * midpoint and the hold end, unioned. The solver runs its whole-element search against this, so
  * every camera path (targets, holds, reveals and the shortcut/search push-ins) rejects any crop
  * whose visible edges cut a word or control, instead of relying on each beat's planner boxes. The
- * predicate is the acceptance check's own: no guard band, one dense text stretch per cut word
- * (see cutCount). `at` maps a solver time to a source second; each hold's mask is reused across
+ * predicate reserves eight source pixels around the visible edge, so even a single glyph stroke
+ * cannot be shaved by an otherwise clean model-directed crop. `at` maps a solver time to a source second; each hold's mask is reused across
  * its search. Returns undefined with no source. `strict` (an audit) fails where no frame decodes,
  * instead of reading the view as clean. */
 export function sourceEdgeCuts(dir: string, meta: TakeMeta, at: (t: number) => number, strict = false): EdgeCuts | undefined {
   const file = join(dir, "screen.webm");
   if (!existsSync(file)) return undefined;
   const { width: W, height: H } = meta;
-  const cache = new Map<string, ReturnType<typeof edgeCuts>>();
+  const cache = new Map<string, ReturnType<typeof sourceEdgeMask>>();
   // Decoded source frames, shared across every guard window of this solve. A guard window asks
   // for frames a tenth of a second apart, in a few interleaved runs, and one ffmpeg spawn that
   // seeks into the recording (back to its previous keyframe) is the cost of a 4K decode, so a miss
@@ -135,11 +140,11 @@ export function sourceEdgeCuts(dir: string, meta: TakeMeta, at: (t: number) => n
         warnedDecodes = true;
         console.warn("source frames would not decode; the camera text guard is off");
       }
-      mask = frames.length ? edgeCuts(frames, W, H, 0) : () => 0;
+      mask = frames.length ? sourceEdgeMask(frames, W, H) : () => 0;
       if (cache.size >= 2) cache.clear();
       cache.set(key, mask);
     }
-    return cutCount(mask(view));
+    return mask(view);
   };
 }
 
@@ -197,9 +202,12 @@ export async function planCamera(dir: string, camera?: CameraDefaults, take?: Ta
   // plan.json holds the camera choices the user may have edited; they win over decisions.jsonl.
   // Refuse an edit this take cannot honour before any camera path is built.
   const plan = readPlan(dir);
-  validatePlan(plan, beats, { androidFallback: meta.device === "android" && meta.planner?.mode === "fallback" });
+  validatePlan(plan, beats);
   const decisions = applyPlan(decisionLines.split(/\r?\n/).filter(Boolean)
     .map((line) => JSON.parse(line) as Decision), plan);
+  if (meta.planner?.mode === "fallback" || decisions.some((decision) => decision.decided_by === "heuristic")) {
+    throw new Error("the take contains legacy heuristic decisions; replan with an AI engine before rendering");
+  }
 
   // The film's title and ending the user edited in plan.json. Make's own ending set trim_end
   // with film.end_beat; a trim_end without it is the user's, and the edit would be ignored.
@@ -238,8 +246,6 @@ export async function planCamera(dir: string, camera?: CameraDefaults, take?: Ta
     const B = kept(decision.B) ? decision.B : A;
     return [{ ...decision, A, B }];
   }) : decisions;
-  const tapShots = meta.device === "android" && meta.planner?.mode === "fallback"
-    ? phoneTapShots(outBeats, meta.width, meta.height) : null;
   const shown = withFilmText(meta);
   const captions = takeCaptions(clock ? { ...shown, captions: shown.captions?.filter(c => clock.contains(c.t)) } : shown, outTime, duration);
   // Every take with text gets the band, a phone in its handset too: text never covers the app.
@@ -305,7 +311,7 @@ export async function planCamera(dir: string, camera?: CameraDefaults, take?: Ta
   const key = take ? undefined : solveKey(dir, [meta, d, outBeats, outDecisions, solveLayout.band, solveLayout.stage, squeezes, typing, changes, trimStart, trimEnd]);
   const cached = key ? readSolve(dir, key) : undefined;
   const solve = cached ?? (() => {
-    const solved = solveCamera(tapShots?.beats ?? outBeats, tapShots?.decisions ?? outDecisions, { ...meta, trim_end: trimStart + duration },
+    const solved = solveCamera(outBeats, outDecisions, { ...meta, trim_end: trimStart + duration },
       { ...cam, min_shot: d.min_shot * d.pace, dwell: d.dwell * d.pace, dwell_k2: d.dwell_k2 * d.pace },
       banded ? fit && (phone ? (frame) => fit(phoneReframe(frame)) : fit) : phone ? (frame) => project(phoneReframe(frame)) : project, cuts, changes);
     const solvedFrames = phone ? solved.map(phoneReframe) : solved;

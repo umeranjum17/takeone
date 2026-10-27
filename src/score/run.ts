@@ -39,10 +39,9 @@ function writeMeta(dir: string, meta: TakeMeta): void {
   writeFileSync(join(dir, "take.json"), JSON.stringify(meta, null, 1) + "\n");
 }
 
-function builderLabel(meta: TakeMeta, noAi: boolean | undefined): string {
-  if (noAi || meta.planner?.mode !== "ai") return "local rules";
-  const planner = meta.planner as { backend?: string | null; model?: string | null };
-  return [planner.backend, planner.model].filter(Boolean).join(" ") || "configured planner";
+function builderLabel(meta: TakeMeta): string {
+  const planner = meta.planner as { backend?: string | null; model?: string | null } | undefined;
+  return [planner?.backend, planner?.model].filter(Boolean).join(" ") || "configured planner";
 }
 
 async function determinismRound(dir: string, film: string, camera: CameraDefaults, log: (line: string) => void) {
@@ -73,7 +72,7 @@ export async function makeWithScore(o: ScoreRunOptions): Promise<ScoreRunResult>
   let camera = o.make.camera ?? resolveTheme(readMeta(o.dir).theme);
   let det = { frames: 0, identical: 0, tolerance: 0.995 };
   let made: MakeResult | undefined;
-  let builder = o.make.noAi ? "local rules" : "configured planner";
+  let builder = "configured planner";
   const limitations: string[] = [];
 
   const result = await runScoreLoop({
@@ -86,7 +85,7 @@ export async function makeWithScore(o: ScoreRunOptions): Promise<ScoreRunResult>
         made = await makeTake(o.dir, { ...o.make, camera, log: o.log, warn: o.warn });
         if (!made.out) throw new Error("make produced no film");
         camera = o.resolveFilmCamera(o.dir, o.make.set ?? [], o.make.theme);
-        builder = builderLabel(readMeta(o.dir), o.make.noAi);
+        builder = builderLabel(readMeta(o.dir));
         det = await determinismRound(o.dir, made.out, camera, o.log);
       } else {
         clearOverlays(o.dir);

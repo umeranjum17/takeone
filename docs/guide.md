@@ -288,7 +288,7 @@ See [Motion renders](motion.md) for shell setup, capture states, pattern options
 ## Plan and render
 
 ```sh
-node bin/takeone.mjs make <id> [--no-ai] [--goal "sentence"] [--style "word"] [--no-screen-text] [--replan] [--max-tokens N] [--theme midnight|paper|aurora|mono|neon|brutalist|sand|terminal|editorial] [--set key=value]
+node bin/takeone.mjs make <id> [--goal "sentence"] [--style "word"] [--no-screen-text] [--replan] [--max-tokens N] [--theme midnight|paper|aurora|mono|neon|brutalist|sand|terminal|editorial] [--set key=value]
 node bin/takeone.mjs render /path/to/take [--theme midnight|paper|aurora|mono|neon|brutalist|sand|terminal|editorial] [--set fps=24] [--aspect landscape|portrait|square|4:5] [--resolution 4k] [--format mp4|gif|webm|prores4444] [--preview]
 ```
 

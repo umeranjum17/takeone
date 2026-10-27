@@ -153,22 +153,22 @@ function buildFilmPart(ctx: FilmCtx, beats: Beat[], before: string | undefined, 
   };
   const filmWide: Record<string, Question> = {
     theme: {
-      kind: "choice",
+      kind: "choice", floor: 0,
       options: Object.fromEntries(Object.entries(THEME_NOTES)),
       instructions: "Which theme fits this take? Match a light app to a light theme. Use style and goal when given.",
     },
     pace: {
-      kind: "score",
+      kind: "score", floor: 0,
       levels: PACE_LEVELS,
       instructions: "How calm should the film be? brisk: quick moves and short holds; calm: longer holds between moves. Use style when given.",
     },
     opening: {
-      kind: "choice",
+      kind: "choice", floor: 0,
       options: Object.fromEntries(Object.entries(OPENINGS).map(([k, v]) => [k, v.label])),
       instructions: "How should the film open, before the first move?",
     },
     camera_style: {
-      kind: "choice",
+      kind: "choice", floor: 0,
       options: Object.fromEntries(Object.entries(CAMERA_STYLES).map(([k, v]) => [k, v.label])),
       instructions: "Calm: hold each framing and move only between them. Lively: the camera follows the action.",
     },
@@ -183,19 +183,19 @@ function buildFilmPart(ctx: FilmCtx, beats: Beat[], before: string | undefined, 
   const questions: Record<string, Question> = {
     ...(askFilmWide ? filmWide : {}),
     ...(last ? { ending: {
-      kind: "choice",
+      kind: "choice", floor: 0,
       options: Object.fromEntries(endings.map((b) => [b.id, whatHappened(b)])),
       instructions: "Which beat should the film end on? The film keeps a short outro after it.",
     } } : {}),
     // The title is the film's, so only the first part asks for it; the later
     // parts caption their own beats under the first part's title.
     ...(ctx.text ? { titled: first ? {
-      kind: "yesno",
+      kind: "yesno", floor: 0,
       question: "Does a viewer need a title and captions to follow this film? Answer yes when the subject or a step is not clear from the screen alone. " +
         `When yes, also give title: the film's subject in at most ${TITLE_MAX} characters; and ${captions}`,
       answerFields: ["title", "captions"],
     } as Question : {
-      kind: "yesno",
+      kind: "yesno", floor: 0,
       question: "Does a viewer need a caption on any of these beats? Answer yes when a step or its result is not clear from the screen alone. " +
         `The film's title and the earlier beats are already written. When yes, also give ${captions}`,
       answerFields: ["captions"],
@@ -377,9 +377,9 @@ export function mapFilm(answers: Record<string, Answer>, endings: string[], span
   const end = pick("ending", oneOf(endings));
   const style = pick("camera_style", oneOf(Object.keys(CAMERA_STYLES)));
   const text = filmText(answers.titled, spans);
-  if (answers.titled !== undefined) by.titled = text.title !== undefined || text.captions.length > 0 ? "ai" : "rule";
+  if (answers.titled !== undefined) by.titled = (!answers.titled.abstained && answers.titled.answer === false) || text.title !== undefined || text.captions.length > 0 ? "ai" : "rule";
   const marks = filmMarks(answers.marked, spans);
-  if (answers.marked !== undefined) by.marked = Object.keys(marks).length > 0 ? "ai" : "rule";
+  if (answers.marked !== undefined) by.marked = (!answers.marked.abstained && answers.marked.answer === false) || Object.keys(marks).length > 0 ? "ai" : "rule";
   return {
     ...(theme !== undefined ? { theme } : {}),
     ...(pace !== undefined ? { pace: PACE_VALUES[pace]! } : {}),

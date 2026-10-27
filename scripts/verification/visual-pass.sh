@@ -14,7 +14,7 @@
 # Dark is midnight, light is paper. <out-dir> gets <cell>.mp4, stills, <cell>-t<time>-side.png sheets
 # (the still next to --ref's film at the same moment, or the motion contact sheets), defect crops,
 # <cell>.json, pass.log and index.md, all flat. Set TAKEONE_GATE to a command prefix (a memory gate)
-# for every render and check; make always runs --no-ai in an isolated TAKEONE_DIR/TAKEONE_STATE_DIR.
+# for every render and check; make uses recorded model replies in isolated TAKEONE_DIR/TAKEONE_STATE_DIR.
 set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd); repo=$(cd "$here/../.." && pwd)
 out=; ref=; work=; only=; nodesign=; cells="desktop-dark desktop-light portrait-dark portrait-light 45-dark 45-light font-dark font-light motion-dark motion-light"
@@ -45,12 +45,12 @@ say "visual pass $(git rev-parse --short HEAD) $(date -u +%FT%TZ) cells: $cells"
 
 run npm --prefix "$repo" run build >>"$log" 2>&1 || { say "FAIL visual pass: npm run build failed, see $log"; exit 2; }
 
-# One planned base per fixture (make --no-ai: no model calls), then one copy per cell.
+# One fixture-backed model plan per source, then one copy per cell.
 base() { # <name> <generator...>
   local d=$TAKEONE_DIR/base-$1; shift
   [ -n "$only" ] && [ -s "$d/take.json" ] && [ -d "$d/analysis" ] && return
   rm -rf "$d"; run node "$@" "$d" >/dev/null
-  run node bin/takeone.mjs make "$d" --no-ai > "$d.make.log" 2>&1 || { cat "$d.make.log" >&2; return 1; }
+  run node scripts/test-planner.mjs make "$d" > "$d.make.log" 2>&1 || { cat "$d.make.log" >&2; return 1; }
 }
 cell() { # <cell> <base> [render args...]: prints the cell's take dir
   local c=$1 b=$TAKEONE_DIR/base-$2 d=$TAKEONE_DIR/$1; shift 2

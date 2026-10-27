@@ -3,6 +3,7 @@ import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync, copyFileSync } from "node:fs";
 import { resolve, join } from "node:path";
 import { makeTake } from "../../src/make.ts";
+import { recordedPlannerFetch } from "../../test/helpers.ts";
 import { zonesForBeat } from "../../src/beats/zones.ts";
 import { heuristicDecision } from "../../src/decide/heuristics.ts";
 import { renderTake } from "../../src/render/render.ts";
@@ -16,7 +17,7 @@ const dir = resolve("tmp/uiboxes-proof");
 const ffmpeg = (args: string[]) => execFileSync("ffmpeg", ["-nostdin", "-v", "error", "-y", ...args], { stdio: "inherit" });
 const clicks: number[][] = JSON.parse(readFileSync(join(dir, "proof-clicks.json"), "utf8"));
 const camera = { ...DEFAULTS, preset: "veryfast", idle_speed: 1 };
-const planned = await makeTake(dir, { noAi: true, apiKey: null, camera, planOnly: true });
+const planned = await makeTake(dir, { apiKey: "test-key-000", fetchImpl: recordedPlannerFetch, camera });
 const changes = JSON.parse(readFileSync(join(dir, "analysis/regions.json"), "utf8")).frames as FrameRegions[];
 for (const [t] of clicks) {
   const near = changes.filter(f => Math.abs(f.t - t!) <= 200);

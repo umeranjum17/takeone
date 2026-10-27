@@ -8,7 +8,7 @@ import { setKeyFromStdin } from "./secrets.ts";
 import { parseConfig, ConfigError } from "@byokit/decide";
 import { savePlannerConfig, describePlanner } from "./decide/planner.ts";
 import { runCapture } from "./capture.ts";
-import { makeTake, PreflightRefusal, TakeInputError } from "./make.ts";
+import { makeTake, PreflightRefusal, TakeInputError, type MakeOptions } from "./make.ts";
 import { PlannerUnavailable } from "./decide/planner.ts";
 import { PlanError, readPlan, withUserFilm } from "./decide/plan.ts";
 import { renderTake, renderThreads } from "./render/render.ts";
@@ -30,7 +30,6 @@ export function takesDir(): string {
 
 interface Args {
   id?: string;
-  noAi: boolean;
   goal?: string;
   style?: string;
   noScreenText: boolean;
@@ -138,11 +137,10 @@ export function renderDimensions(aspect?: string, resolution?: string, source: "
 const GOAL_STYLE_MAX_CHARS = 500;
 
 function parseArgs(argv: string[]): Args {
-  const a: Args = { noAi: false, noScreenText: false, replan: false, set: [], scoreRequested: false };
+  const a: Args = { noScreenText: false, replan: false, set: [], scoreRequested: false };
   for (let i = 0; i < argv.length; i++) {
     const s = argv[i]!;
-    if (s === "--no-ai") a.noAi = true;
-    else if (s === "--theme") {
+    if (s === "--theme") {
       const value = argv[++i];
       if (!value || value.startsWith("--")) throw Error("--theme needs a theme name");
       a.theme = value;
@@ -191,7 +189,7 @@ function parseArgs(argv: string[]): Args {
 
 function usage(code: number): never {
   const themes = Object.keys(THEMES).join("|");
-  console.error(`takeone make <id> [--no-ai] [--goal "<sentence>"] [--style "<word>"] [--no-screen-text] [--replan] [--max-tokens N] [--theme ${themes}] [--set key=value] [--target-score N] [--max-rounds M]
+  console.error(`takeone make <id> [--goal "<sentence>"] [--style "<word>"] [--no-screen-text] [--replan] [--max-tokens N] [--theme ${themes}] [--set key=value] [--target-score N] [--max-rounds M]
 takeone render <take-dir> [--theme ${themes}] [--set key=value] [--aspect landscape|portrait|square|4:5] [--resolution 4k] [--format mp4|gif|webm|prores4444] [--preview]
 takeone render <motion-dir> [--aspect landscape|portrait|square|4:5] [--stills <seconds,...>]
 ${MOTION_USAGE}
@@ -204,7 +202,6 @@ takeone --version|-v    print the installed version
   render creates a camera path and MP4 from a planned take.
   key set --backend <name> stores that provider's key and records the planner choice.
 
-  --no-ai         decide every beat with the local heuristic; zero network calls
   --goal          what the demo is for; sharpens key moments (--about is an alias)
   --style         style hint for the film, e.g. calm, brisk
   --no-screen-text  do not send redacted screen words (sent by default with a planner)
@@ -215,9 +212,11 @@ takeone --version|-v    print the installed version
   process.exit(code);
 }
 
-export async function main(argv: string[]): Promise<number> {
+/** The optional in-process overrides let test runners inject recorded model replies;
+ * bin/takeone.mjs calls this with argv only. */
+export async function main(argv: string[], testPlanner: Pick<MakeOptions, "apiKey" | "fetchImpl" | "configDir"> = {}): Promise<number> {
   const [cmd, ...rest] = argv;
-  if (cmd === "capture") return runCapture(rest);
+  if (cmd === "capture") return runCapture(rest, {}, testPlanner);
   if (cmd === "key") {
     if (rest.length !== 1 || rest[0] !== "set") {
       // Flag form records the provider choice as well as the key.
@@ -398,7 +397,7 @@ export async function main(argv: string[]): Promise<number> {
     if (a.scoreRequested) {
       const scored = await makeWithScore({
         dir,
-        make: a,
+        make: { ...a, ...testPlanner },
         target: a.targetScore ?? DEFAULT_TARGET_SCORE,
         maxRounds: a.maxRounds ?? DEFAULT_MAX_ROUNDS,
         log: (line) => console.log(line),
@@ -407,7 +406,7 @@ export async function main(argv: string[]): Promise<number> {
       });
       return scored.judgeUnavailable ? 3 : 0;
     }
-    await makeTake(dir, a);
+    await makeTake(dir, { ...a, ...testPlanner });
     return 0;
   } catch (e) {
     if (e instanceof PreflightRefusal || e instanceof TakeInputError || e instanceof PlanError || e instanceof ConfigError) {
