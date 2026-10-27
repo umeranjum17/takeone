@@ -66,7 +66,7 @@ function pad(b: BBox, f: number): BBox {
   return [b[0] - (w - b[2]) / 2, b[1] - (h - b[3]) / 2, w, h];
 }
 
-/** Probabilities must sum to 1 +/- 0.01 or the answer falls back to heuristic. */
+/** Probabilities must sum to 1 +/- 0.01 or the answer is unusable. */
 export function sumsTo1(probs: Record<string, number> | number[] | undefined): boolean {
   if (!probs) return false;
   const values = Object.values(probs);
@@ -94,7 +94,7 @@ export function medianLevel(probs: number[] | undefined): number | null {
 /**
  * Map one beat's Jev answers to a decision, with the uncertainty rules.
  * `viewport` is the bbox of the shot on screen when the beat starts.
- * Returns null when the answers are unusable (the caller then applies the heuristic).
+ * Returns null when the answers are unusable (the caller refuses the film).
  */
 export function mapAnswers(
   beat: Beat,
@@ -120,9 +120,8 @@ export function mapAnswers(
   const confB = fe.confidence ?? choiceConfidence(fe.probabilities);
 
   let A = resolveChoice(zA, confA, fs.probabilities, beat);
-  // B stays Jev's end zone even when it fits A's frame: a wide A (a full-width
-  // header click) would otherwise drop the subject; the solver holds a B its
-  // deadzone already shows, as it does for heuristic decisions.
+  // B stays the model's end zone even when it fits A's frame: a wide A
+  // would otherwise drop the subject; the solver holds a B its deadzone shows.
   const B = resolveChoice(zB, confB, fe.probabilities, beat);
   // An uncertain start that widened to the whole screen defers to a confident
   // end: that zone is the beat's subject.
@@ -143,17 +142,12 @@ export function mapAnswers(
   if (p === undefined || !Number.isFinite(p) || p < 0 || p > 1) return null;
 
   // key moment (always asked; a goal sharpens it but is not required)
-  let K: 0 | 1 | 2 = 1;
-  {
-    if (answers.key_moment?.probabilities?.length !== 3) return null;
-    const kl = argmaxLevel(answers.key_moment?.probabilities);
-    if (kl === null) return null;
-    {
-      K = Math.min(2, kl) as 0 | 1 | 2;
-      const confK = answers.key_moment?.confidence ?? 0;
-      if (K === 2 && confK >= LOW_CONF) L = Math.min(3, L + KEY_MOMENT_TIGHTEN) as Tightness;
-    }
-  }
+  if (answers.key_moment?.probabilities?.length !== 3) return null;
+  const kl = argmaxLevel(answers.key_moment?.probabilities);
+  if (kl === null) return null;
+  const K = Math.min(2, kl) as 0 | 1 | 2;
+  const confK = answers.key_moment?.confidence ?? 0;
+  if (K === 2 && confK >= LOW_CONF) L = Math.min(3, L + KEY_MOMENT_TIGHTEN) as Tightness;
 
   return {
     beat: beat.id,
@@ -165,7 +159,6 @@ export function mapAnswers(
     conf: { A: confA, B: confB, L: confL, K: answers.key_moment?.confidence },
     decided_by: "ai",
     model: ctx.model,
-    // Only the camera choices the planner actually answered; the rest stay unset for the rules.
     ...(answers.shot === undefined ? {} : { shot: answers.shot }),
     ...(answers.idle === undefined ? {} : { idle: answers.idle }),
     ...(answers.follow === undefined ? {} : { follow: answers.follow }),

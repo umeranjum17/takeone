@@ -10,7 +10,7 @@ libraries installed:
 ```sh
 node scripts/install-headless-shell.mjs
 node scripts/headless-scene.mjs tmp/board-demo
-node bin/takeone.mjs make tmp/board-demo --no-ai --set fps=60 --set max_upscale=0.5
+node bin/takeone.mjs make tmp/board-demo --set fps=60 --set max_upscale=0.5
 node bin/takeone.mjs render tmp/board-demo --set fps=60 --set max_upscale=0.5
 ```
 
@@ -22,7 +22,7 @@ the matching `--aspect`, so the output shows the whole layout without a crop:
 
 ```sh
 node scripts/headless-scene.mjs tmp/board-portrait --aspect=portrait
-node bin/takeone.mjs make tmp/board-portrait --no-ai --set fps=60 --aspect portrait
+node bin/takeone.mjs make tmp/board-portrait --set fps=60 --aspect portrait
 ```
 
 `--no-title` leaves the board's title out of `take.json`. A 16:9 render of a titled take keeps
@@ -108,7 +108,7 @@ node scripts/test-headless-scene.mjs --aspect=portrait  # or --aspect=square
 
 It captures the full sequence twice, checks every decoded frame with `framemd5`,
 compares event logs and frame clocks, probes dimensions, 60 Hz timestamps and
-frame count, then runs `make --no-ai` (rest framing, so its safe-area gate applies) and requires click,
+frame count, then runs model-backed `make` (whose safe-area gate applies) and requires click,
 drag and typing beats. WebM timestamps have millisecond precision: the gate
 allows only the rounding of a 60 Hz sample to that timebase. A JSON report, decoded frame hashes (`a/frames.framemd5`) and a 4×4 contact sheet of the render are retained under `tmp/headless-validation/` and uploaded by CI.
 

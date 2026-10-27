@@ -2,7 +2,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readdirSync, rmSync, writeFileSync, readFileSync, existsSync, statSync } from "node:fs";
+import { mkdtempSync, readdirSync, rmSync, writeFileSync, readFileSync, existsSync, statSync, openSync, closeSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { makeTake, type MakeOptions, type MakeResult } from "../src/make.ts";
@@ -10,7 +10,7 @@ import { main } from "../src/cli.ts";
 import { PlannerFileCache, askChunk, resolvePlanner } from "../src/decide/planner.ts";
 import { DEFAULTS } from "../src/camera/defaults.ts";
 import type { TakeMeta } from "../src/types.ts";
-import { hasFfmpeg, buildLongTake, chunkAnswers } from "./helpers.ts";
+import { hasFfmpeg, buildLongTake, chunkAnswers, recordedPlannerFetch } from "./helpers.ts";
 
 const needsFfmpeg = hasFfmpeg() ? undefined : "requires system ffmpeg and ffprobe on PATH";
 const TITLE = "Quarterly report";
@@ -80,6 +80,7 @@ function stubPlanner(bodies: string[]): typeof fetch {
         tightness: { probabilities: [0.1, 0.1, 0.7, 0.1], confidence: 0.9 },
         new_subject: { noul: 0.2 },
         key_moment: { probabilities: [0.7, 0.2, 0.1], confidence: 0.8 },
+        shot: { noul: 0.8 }, idle: { noul: 0.2 }, follow: { noul: 0.2 },
       };
     });
     return new Response(JSON.stringify({ answers, usage: { input_tokens: 800 } }), { status: 200 });
@@ -181,7 +182,16 @@ test("capture make via the CLI scrubs the take dir; takeone make does not", { sk
   try {
     const sets = ["--set", "preset=veryfast", "--set", "out_w=320", "--set", "out_h=180",
       "--set", "ripple_ms=0", "--set", "fade_s=0"];
-    assert.equal(await main(["capture", "make", dir, "--no-planner", ...sets]), 0);
+    const keyFile = join(dir, "test-key.txt");
+    writeFileSync(keyFile, KEY);
+    const fd = openSync(keyFile, "r");
+    try {
+      assert.equal(await main(["capture", "make", dir, "--planner-key-fd", String(fd), ...sets],
+        { fetchImpl: recordedPlannerFetch, configDir: join(dir, "test-config") }), 0);
+    } finally {
+      closeSync(fd);
+      rmSync(keyFile);
+    }
     assert.ok(statSync(join(dir, "out", "t1.mp4")).size > 0);
     for (const f of takeFiles(dir)) {
       assert.ok(!readFileSync(f, "utf8").includes(TITLE), `no title in ${f}`);
@@ -193,7 +203,8 @@ test("capture make via the CLI scrubs the take dir; takeone make does not", { sk
   try {
     const sets = ["--set", "preset=veryfast", "--set", "out_w=320", "--set", "out_h=180",
       "--set", "ripple_ms=0", "--set", "fade_s=0"];
-    assert.equal(await main(["make", plain, "--no-ai", ...sets]), 0);
+    assert.equal(await main(["make", plain, ...sets],
+      { apiKey: KEY, fetchImpl: recordedPlannerFetch, configDir: join(plain, "test-config") }), 0);
     assert.ok(readFileSync(join(plain, "events.jsonl"), "utf8").includes(TITLE),
       "standalone make leaves events.jsonl alone");
   } finally {

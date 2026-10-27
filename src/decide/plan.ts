@@ -145,7 +145,6 @@ export function writePlan(dir: string, decisions: BeatChoices[], beats: BeatKey[
 
 /** The render's view of a beat, for checking that a user edit can be honoured. */
 interface PlanBeatView { id: string; kind: string; key?: string; actions?: unknown[] }
-interface PlanCheck { androidFallback?: boolean }
 
 const ACTION_KINDS = new Set(["click", "type", "drag", "shortcut"]);
 
@@ -159,7 +158,7 @@ function hasAction(beat: PlanBeatView): boolean {
  * the render already does stay valid: shot=false on a scroll beat, follow=false
  * on a click beat and idle=false on a non-idle beat are no-ops, not disputes.
  */
-export function validatePlan(plan: Plan | null, beats: PlanBeatView[], check: PlanCheck = {}): void {
+export function validatePlan(plan: Plan | null, beats: PlanBeatView[]): void {
   const byId = new Map(beats.map((beat) => [beat.id, beat]));
   for (const planBeat of plan?.beats ?? []) {
     const edits = FIELDS.filter((field) => planBeat[field]?.by === "user" && planBeat[field]!.value !== undefined);
@@ -178,10 +177,6 @@ export function validatePlan(plan: Plan | null, beats: PlanBeatView[], check: Pl
       throw new PlanError(`${where} the edit was made for a different beat `
         + `(key ${planBeat.key}, but ${beat.id} is now ${beat.key}) - the take was re-cut; `
         + `set the key to ${beat.key} to apply the edit to this beat, or remove the edit`);
-    }
-    if (check.androidFallback) {
-      throw new PlanError(`${where} ${edits.join(", ")} cannot be honoured - this Android take renders the `
-        + `rule-only tap fallback, which builds its beats from the taps and ignores plan.json; remove the user edit`);
     }
     for (const field of edits) {
       if (planBeat[field]!.value !== true) continue; // false matches the render's rule on these beats

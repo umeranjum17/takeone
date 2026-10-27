@@ -8,11 +8,12 @@ import { DEFAULTS } from "../src/camera/defaults.ts";
 import { solveCamera, solveCameraDetailed, clippedFractions, wholeCrop, frame, toFrame, applyManualZooms } from "../src/camera/solver.ts";
 import type { Beat, CameraFrame, Decision, Zone } from "../src/camera/types.ts";
 import type { Action } from "../src/types.ts";
-import { renderTake, sourceEdgeCuts } from "../src/render/render.ts";
+import { renderTake, sourceEdgeCuts, sourceEdgeMask } from "../src/render/render.ts";
 import { idleSqueezes, warp, warpBeats } from "../src/render/pace.ts";
 import { sourceViewport, stageGeometry, stageFrames, minStageMargin } from "../src/render/stage.ts";
 import { edgeCuts, cutCount } from "../src/render/framing.ts";
 import { resolveTheme } from "../src/themes.ts";
+import { resolveCamera } from "../src/cli.ts";
 import { edgeSpeed, still, SWEEP_EDGE_SPEED } from "../src/camera/sweep.ts";
 import { contains, settledFrames } from "../scripts/check-framing.ts";
 import { auditTake } from "../scripts/cut-audit.ts";
@@ -70,6 +71,14 @@ test("render CLI rejects unknown and malformed override arguments", () => {
   }
 });
 
+test("the source camera guard reserves eight pixels before a late text stroke", () => {
+  const width = 80, height = 48, frame = new Uint8Array(width * height).fill(200);
+  for (let y = 20; y < 32; y++) for (let x = 24; x < 32; x++) frame[y * width + x] = 20;
+  const cuts = sourceEdgeMask([frame], width, height);
+  assert.ok(cuts({ x: 19, y: 0, w: 50, h: 48 }) > 0, "five pixels of clearance cuts the required eight-pixel inset");
+  assert.equal(cuts({ x: 12, y: 0, w: 57, h: 48 }), 0, "twelve pixels of clearance is safe");
+});
+
 // One consumer journey: inferred duration, then the real make -> saved render path over
 // typing, a revealed dialog result, drags trimmed at the video boundary, released and not,
 // and a drop whose settled layout the camera reframes.
@@ -102,8 +111,8 @@ test("render without trim_end uses the latest beat end", { timeout: 480_000, ski
     await writeFile(join(dir, "analysis/decisions.jsonl"),
       [decision(later), decision(earlier)].map((d) => JSON.stringify(d)).join("\n") + "\n");
     const cli = (command: string, ...args: string[]) => execFileSync(process.execPath,
-      ["bin/takeone.mjs", command, dir,
-        ...["preset=veryfast", "out_w=320", "out_h=180", "ripple_ms=0", "fade_s=0", "max_upscale=1.5"]
+      [command === "make" ? "scripts/test-planner.mjs" : "bin/takeone.mjs", command, dir,
+        ...["preset=veryfast", "out_w=320", "out_h=180", "ripple_ms=0", "fade_s=0", "max_upscale=1.5", "camera_path=solver"]
           .flatMap(value => ["--set", value]), ...args],
       { encoding: "utf8", env: { ...process.env, TAKEONE_DIR: dir, TAKEONE_STATE_DIR: join(dir, "state") } });
     cli("render");
@@ -143,7 +152,7 @@ test("render without trim_end uses the latest beat end", { timeout: 480_000, ski
       await writeFile(join(dir, "events.jsonl"), [...history,
         ...(released ? [{ k: "btn", t: 8500, b: "left", down: false }] : [])]
         .map(event => JSON.stringify(event)).join("\n") + "\n");
-      cli("make", "--no-ai");
+      cli("make");
       const saved: Beat[] = JSON.parse(await readFile(join(dir, "analysis/beats.json"), "utf8"));
       const actions = saved.flatMap(b => b.actions as Action[]);
       const drags = actions.filter(a => a.k === "drag");
@@ -223,6 +232,7 @@ test("render without trim_end uses the latest beat end", { timeout: 480_000, ski
       `outro_s=0 exported to ${bareLast.t}s, not the result at ${warp(10.9, trimmed, bare.idle_speed)}s`);
 
     // Real 4K make journey: a form beside a tall panel, not a solver-only fixture.
+    // Pin the solver path: the recorded film answer picked calm hold camera.
     // Keep the export small; the source geometry and native-pixel ceiling are real.
     execFileSync("ffmpeg", ["-y", "-v", "error", "-filter_threads", "2", "-threads", "2",
       "-f", "lavfi", "-i", "color=c=0x202328:s=3840x2160:r=10:d=10",
@@ -254,11 +264,11 @@ test("render without trim_end uses the latest beat end", { timeout: 480_000, ski
       { k: "btn", t: 6080, b: "left", down: false },
     ].map(e => JSON.stringify(e)).join("\n") + "\n");
     const drive4K = (command: string, ...args: string[]) => execFileSync(process.execPath,
-      ["bin/takeone.mjs", command, dir, ...["out_w=960", "out_h=540", "fps=10",
-        "preset=ultrafast", "motion_blur=0", "idle_speed=1", "ripple_ms=0"]
+      [command === "make" ? "scripts/test-planner.mjs" : "bin/takeone.mjs", command, dir, ...["out_w=960", "out_h=540", "fps=10",
+        "preset=ultrafast", "motion_blur=0", "idle_speed=1", "ripple_ms=0", "camera_path=solver"]
         .flatMap(v => ["--set", v]), ...args],
-      { env: { ...process.env, TAKEONE_DIR: dir, TAKEONE_STATE_DIR: join(dir, "state") } });
-    drive4K("make", "--no-ai");
+      { env: { ...process.env, TAKEONE_DIR: dir, TAKEONE_STATE_DIR: join(dir, "state"), TAKEONE_TEST_FOCUS_FIRST: "1" } });
+    drive4K("make");
     const camera4K = async () => JSON.parse(await readFile(join(dir, "camera.json"), "utf8")) as
       { t: number; x: number; y: number; w: number; h: number }[];
     const auto = await camera4K();
@@ -278,7 +288,7 @@ test("render without trim_end uses the latest beat end", { timeout: 480_000, ski
     await writeFile(join(dir, "take.json"), JSON.stringify({ ...plannedMeta, trim_end: 4.3,
       zooms: [{ t0: 3, t1: 4.2, bbox: [2400, 600, 500, 400], level: 1 }] }));
     drive4K("render", "--set", "out_w=540", "--set", "out_h=960", "--set", "outro_s=0");
-    const tall = { ...resolveTheme(undefined), out_w: 540, out_h: 960 };
+    const tall = resolveCamera(dir, ["out_w=540", "out_h=960", "outro_s=0", "camera_path=solver"]);
     const tallStage = stageGeometry(3840, 2160, tall);
     const pushed = (await camera4K()).filter(f => f.t >= 3 && f.t <= 4.2)
       .map(f => sourceViewport(f, 3840, 2160, tallStage, tall));
@@ -410,7 +420,7 @@ test("render without trim_end uses the latest beat end", { timeout: 480_000, ski
       { k: "btn", t: 500, b: "left", down: true }, { k: "btn", t: 2300, b: "left", down: false },
     ].sort((a, b) => a.t - b.t).map(e => JSON.stringify(e)).join("\n") + "\n");
     await writeFile(join(dir, "take.json"), JSON.stringify({ ...fourK, trim: { start: 0, end: 8000 } }));
-    drive4K("make", "--no-ai", "--set", "out_w=540", "--set", "out_h=960", "--set", "outro_s=0");
+    drive4K("make", "--set", "out_w=540", "--set", "out_h=960", "--set", "outro_s=0");
     const dropped = (await camera4K()).map(f => ({ ...sourceViewport(f, 3840, 2160, tallStage, tall), t: f.t }));
     const at = (t: number) => dropped[Math.round(t * 10)]!;
     assert.ok(dropped.at(-1)!.t >= 7.8, "the render holds the settled drop to the take end");
