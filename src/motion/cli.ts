@@ -1,6 +1,7 @@
 // `takeone motion` argument parsing and the local planner: a complete storyboard from flags alone.
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, extname, join, resolve } from "node:path";
+import { redactScreenshot } from "./redact.ts";
 import { renderMotion } from "./motion.ts";
 import { tourSegments } from "./camera.ts";
 import { validateStateNames } from "./ingest.ts";
@@ -16,14 +17,14 @@ export const MOTION_USAGE = `takeone motion <image.png|page.html|https://url>...
   [--title TEXT] [--subtitle TEXT] [--cta TEXT] [--url TEXT] [--logo WORD] [--device browser|phone|laptop|none]
   [--region x,y,w,h[:label][@SCREEN]]... [--state NAME='click #id; type #id "text"; drag #a #b; wait 300']...
   [--workers N] [--blur 0|1] [--storyboard file.json] [--plan-only] [--no-ai]
-  [--engine hyperframes|legacy]
+  [--engine hyperframes|legacy] [--redaction-dry-run --out DIR] [--public-domain example.com]...
 takeone motion <screenshot.png> --recipe editorial --pitch TEXT [--logo WORD] [--cta TEXT] [--url TEXT] [--audio FILE] [--out DIR]
 takeone motion install-shell         download the pinned chrome-headless-shell (sha256 checked)
 takeone motion install-hyperframes   install hyperframes@0.8.200 + chrome-headless-shell@156.0.8078.47
 
   motion writes a take-shaped directory (take.json, sources/, storyboard.json, out/<id>.mp4, render.json);
-  takeone render <dir> rerenders it. AI image planning is off until screenshots can be redacted, so every
-  run is planned by the local rules and no screenshot is sent to a planner. With no --pattern the local
+  takeone render <dir> rerenders it. Image planning is disabled; --redaction-dry-run writes a local
+  masked PNG and mask report without planning, rendering or sending an image. With no --pattern the local
   rules plan hero-reveal, zoom-tour and end-card; with three or more screens they plan a launch film
   instead: a kinetic-type title, each labelled screen announced by its own full-type beat ahead of a clean
   tour, and the end card, with black and cream beats alternating by scene order.
@@ -38,10 +39,11 @@ export interface MotionArgs {
   subtitle?: string; cta?: string; url?: string; logo?: string; device?: Device; regions: string[]; states: [string, string][];
   workers?: number; blur?: number; storyboard?: string; planOnly: boolean; noAi?: boolean; engine: MotionEngine;
   recipe?: "editorial"; pitch?: string; audio?: string;
+  redactionDryRun?: boolean; publicDomains: string[];
 }
 
 export function parseMotionArgs(argv: string[]): MotionArgs {
-  const a: MotionArgs = { inputs: [], regions: [], states: [], planOnly: false, engine: "hyperframes" };
+  const a: MotionArgs = { inputs: [], regions: [], states: [], planOnly: false, engine: "hyperframes", publicDomains: [] };
   const value = (i: number, flag: string) => {
     const v = argv[i];
     if (v === undefined || v.startsWith("--")) throw new Error(`${flag} needs a value`);
@@ -51,9 +53,13 @@ export function parseMotionArgs(argv: string[]): MotionArgs {
     const s = argv[i]!;
     if (!s.startsWith("--")) { a.inputs.push(s); continue; }
     if (s === "--plan-only") { a.planOnly = true; continue; }
+    if (s === "--redaction-dry-run") { a.redactionDryRun = true; continue; }
     if (s === "--no-ai") { a.noAi = true; continue; }
     const v = value(++i, s);
-    if (s === "--out") a.out = v;
+    if (s === "--public-domain") {
+      if (!/^(?:[a-z0-9-]+\.)+[a-z]{2,}$/i.test(v)) throw new Error("--public-domain expects one public domain, without scheme or path");
+      a.publicDomains.push(v.toLowerCase());
+    } else if (s === "--out") a.out = v;
     else if (s === "--pattern") a.patterns = v.split(",") as PatternName[];
     else if (s === "--theme") a.theme = v;
     else if (s === "--title") a.title = v;
@@ -342,6 +348,23 @@ export async function runMotion(argv: string[], takesDir: string, o: PlanOptions
   }
   if (!argv.length || argv.includes("--help") || argv.includes("-h")) { console.error(MOTION_USAGE); return argv.length ? 0 : 2; }
   const a = parseMotionArgs(argv);
+  if (a.publicDomains.length && !a.redactionDryRun) throw new Error("--public-domain applies only to --redaction-dry-run");
+  if (a.redactionDryRun) {
+    if (!a.out || !a.inputs.length || a.storyboard || a.inputs.some(f => inputKind(f) !== "image"))
+      throw new Error("--redaction-dry-run needs PNG image inputs and --out DIR; no storyboard or URL");
+    for (const f of a.inputs) if (!existsSync(f)) throw new Error("redaction input missing; image not sent");
+    const dir = resolve(a.out);
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
+    const report = a.inputs.map((f, i) => redactScreenshot(f, join(dir, `screen-${i + 1}.png`), a.publicDomains));
+    writeFileSync(join(dir, "redaction-report.json"), JSON.stringify(report, null, 2) + "\n", { mode: 0o600 });
+    const failed = report.flatMap(r => r.scanClean ? [] : r.residual.filter(h => h.pass === 3));
+    if (failed.length) {
+      const counts = [...new Set(failed.map(h => h.kind))].map(k => `${k}:${failed.filter(h => h.kind === k).length}`).join(", ");
+      throw new Error(`redaction still detects ${counts} after 3 passes; image not sent. Inspect redaction-report.json`);
+    }
+    console.log(join(dir, "redaction-report.json"));
+    return 0;
+  }
   let storyboard: unknown;
   let id: string;
   if (a.storyboard) {
