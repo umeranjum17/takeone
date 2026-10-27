@@ -95,6 +95,38 @@ test("a fill clip plays edge to edge with its label inside the safe inset, shown
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
+/** Re-encode the fixture's clip with rows of text-like strokes (2 px apart columns of ink) at the named spots. */
+function inkCorners(dir: string, corners: ("bl" | "br" | "tl" | "tr" | "bc" | "tc")[]): void {
+  const at = { bl: [12, 150], br: [252, 150], tl: [12, 10], tr: [252, 10], bc: [132, 150], tc: [132, 10] } as const;
+  const strokes = corners.flatMap((c) => Array.from({ length: 14 }, (_, k) =>
+    `drawbox=x=${at[c][0] + k * 4}:y=${at[c][1]}:w=2:h=18:c=white:t=fill`));
+  execFileSync("ffmpeg", ["-nostdin", "-v", "error", "-y", "-f", "lavfi", "-i", "color=c=0x335577:s=320x180:d=2:r=30",
+    "-vf", strokes.join(","), "-pix_fmt", "yuv420p", join(dir, "sources", "clip.mp4")]);
+}
+
+test("a fill clip's label moves off the page's text to a clear corner", () => {
+  const { dir, sb } = fixture();
+  try {
+    sb.scenes[1] = { ...sb.scenes[1]!, fill: true, d: 5 };
+    inkCorners(dir, ["bl"]);
+    const html = readFileSync(buildHyperframesProject(dir, sb).html, "utf8");
+    assert.match(html, /<div data-safe style="[^"]*right:96px;bottom:54px;[^"]*"[^>]*>Footage<\/div>/, "text under the bottom-left corner sends the chip right");
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("a fill clip whose page text crosses every label spot plays framed, with its label above the footage for the scene", () => {
+  const { dir, sb } = fixture();
+  try {
+    sb.scenes[1] = { ...sb.scenes[1]!, fill: true, d: 5 };
+    inkCorners(dir, ["bl", "br", "tl", "tr", "bc", "tc"]);
+    const html = readFileSync(buildHyperframesProject(dir, sb).html, "utf8");
+    assert.match(html, /<video[^>]*data-start="6" data-duration="5"[^>]*style="[^"]*object-fit:contain/, "the footage sits in a window, not edge to edge");
+    assert.match(html, /<div data-safe style="[^"]*transform:translateY\(-100%\);[^"]*var\(--mono\)[^"]*" data-start="6" data-duration="5">Footage<\/div>/,
+      "the label sits above the window, off the footage, for the scene only");
+    assert.doesNotMatch(html, /font:600[^>]*>Footage</, "no chip is drawn on the footage");
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
 test("a rendered film is cut into one file per scene on its exact frames, listed in scenes.json", { timeout: 120_000 }, async () => {
   const { dir, sb } = fixture();
   try {

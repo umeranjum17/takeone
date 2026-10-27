@@ -123,6 +123,68 @@ function clipWindow(width: number, height: number, W: number, H: number, scale =
   return { left: (W - w) / 2, top: cy - h / 2, width: w, height: h, radius: u * 0.018 };
 }
 
+type Spot = "bottom-left" | "bottom-right" | "top-left" | "top-right" | "bottom-center" | "top-center";
+const SPOTS: Spot[] = ["bottom-left", "bottom-right", "top-left", "top-right", "bottom-center", "top-center"];
+/** Frames a second the chip's clearance is measured at. */
+const CHIP_FPS = 10;
+/** Share of a chip box's 32 px row stretches that hold three or more glyph strokes, above which page text sits under it.
+ * Measured on real page footage: headings and body copy read 5-23%; illustrations, photos and flat panels under 0.5%. */
+const TEXT_RUNS = 0.02;
+/** Luma step between neighbouring pixels that reads as a glyph stroke's edge. */
+const STROKE_STEP = 24;
+
+/** A fill clip's label chip box in output px. The text width is set at 0.62 em a character, wider than the semibold
+ * body face's mean, so the box measured for text covers at least the drawn chip. */
+function chipBox(label: string, spot: Spot, W: number, H: number): { x: number; y: number; w: number; h: number } {
+  const u = Math.min(W, H), w = label.length * u * 0.05 * 0.62 + 2 * u * 0.036, h = u * 0.05 + 2 * u * 0.022;
+  const x = spot.endsWith("left") ? W * 0.05 : spot.endsWith("right") ? W * 0.95 - w : (W - w) / 2;
+  return { x, y: spot.startsWith("bottom") ? H * 0.95 - h : H * 0.05, w, h };
+}
+
+/** Whether page text sits under a box of a grey frame: rows of glyph strokes, not the edges of a drawing or a panel. */
+function textUnder(g: Uint8Array, W: number, H: number, b: { x: number; y: number; w: number; h: number }): boolean {
+  const pad = Math.min(W, H) * 0.01;
+  const x0 = Math.max(1, Math.round(b.x - pad)), x1 = Math.min(W, Math.round(b.x + b.w + pad));
+  const y0 = Math.max(0, Math.round(b.y - pad)), y1 = Math.min(H, Math.round(b.y + b.h + pad));
+  let runs = 0, stretches = 0;
+  for (let y = y0; y < y1; y++) for (let x = x0; x + 32 <= x1; x += 16) {
+    let strokes = 0, inside = false;
+    for (let j = x; j < x + 32; j++) {
+      const step = Math.abs(g[y * W + j]! - g[y * W + j - 1]!) > STROKE_STEP;
+      if (step && !inside) strokes++;
+      inside = step;
+    }
+    stretches++;
+    if (strokes >= 3) runs++;
+  }
+  return stretches > 0 && runs > TEXT_RUNS * stretches;
+}
+
+/**
+ * Where and when a fill clip's label chip can sit without covering the page's own text: the earliest window in the scene,
+ * in the first spot that is clear of text for the whole time the chip is shown, measured on the clip's frames as the film
+ * draws them (cover-fitted to the output, ten a second). When no spot stays clear that long, the chip is shown for its
+ * reading time only; null when even that finds no clear window.
+ */
+export function chipPlacement(video: string, start: number, d: number, want: number, label: string, W: number, H: number): { spot: Spot; at: number; shown: number } | null {
+  const n = Math.ceil(d * CHIP_FPS);
+  const raw = execFileSync("ffmpeg", ["-nostdin", "-v", "error", "-threads", "2", "-filter_threads", "2", "-ss", start.toFixed(3), "-t", d.toFixed(3), "-i", video,
+    "-vf", `fps=${CHIP_FPS},scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H},format=gray`, "-f", "rawvideo", "-"], { maxBuffer: W * H * (n + 2) });
+  const decoded = Math.floor(raw.length / (W * H));
+  if (decoded === 0) throw new Error(`hyperframes engine: ${video} has no frame at ${start.toFixed(3)} s to place the label ${JSON.stringify(label)} on`);
+  // A clip that ends inside its scene holds its last frame there, as the video element does.
+  const frames = Array.from({ length: Math.max(n, decoded) }, (_, k) => raw.subarray(Math.min(k, decoded - 1) * W * H, (Math.min(k, decoded - 1) + 1) * W * H));
+  const covered = SPOTS.map((spot) => frames.map((g) => textUnder(g, W, H, chipBox(label, spot, W, H))));
+  for (const shown of [want, Math.min(want, readingFloor(label))]) {
+    const span = Math.ceil(shown * CHIP_FPS - 1e-9);
+    for (let k = 0; k + span <= n; k++) {
+      const spot = SPOTS.findIndex((_, i) => covered[i]!.slice(k, k + span).every((c) => !c));
+      if (spot >= 0) return { spot: SPOTS[spot]!, at: k / CHIP_FPS, shown };
+    }
+  }
+  return null;
+}
+
 function videoLayers(sb: Storyboard, data: { clips: Record<string, { video: string; start: number; width: number; height: number }> }): string {
   const { out_w: W, out_h: H } = sb.output;
   return sb.scenes.map((s, i) => {
@@ -131,18 +193,26 @@ function videoLayers(sb: Storyboard, data: { clips: Record<string, { video: stri
     const clip = s.clip ? data.clips[s.clip] : undefined;
     if (!clip) throw new Error(`hyperframes engine: clip scene ${i} names no ingested clip`);
     const u = Math.min(W, H);
-    if (s.fill) {
+    // A fill clip's label chip never covers the page's own text: it takes the earliest clear window in the first clear spot.
+    const want = s.label ? Math.min(s.d, Math.max(2, readingFloor(s.label))) : 0;
+    const chip = s.fill && s.label ? chipPlacement(fileURLToPath(clip.video), clip.start, s.d, want, s.label, W, H) : undefined;
+    if (chip === null) {
+      console.warn(`motion: scene ${i + 1}: page text crosses every spot the label ${JSON.stringify(s.label)} could sit in for ${readingFloor(s.label!).toFixed(1)} s, `
+        + "so the clip plays framed with the label above it instead of edge to edge");
+    }
+    if (s.fill && chip !== null) {
       // Edge to edge: the footage is the frame. The label sits on an ink chip inside the 5% safe inset, sized to read on a phone,
       // and leaves once read so it stops covering the page under it.
-      const shown = s.label ? Math.min(s.d, Math.max(2, readingFloor(s.label))) : 0;
+      const [v, h] = (chip?.spot ?? "bottom-left").split("-") as [string, string];
+      const across = h === "center" ? `left:50%;transform:translateX(-50%)` : `${h}:${W * 0.05}px`;
       const label = s.label
-        ? `<div data-safe style="position:absolute;z-index:${i + 2};left:${W * 0.05}px;bottom:${H * 0.05}px;padding:${u * 0.022}px ${u * 0.036}px;border-radius:${u * 0.06}px;background:var(--text);color:var(--page);font:600 ${u * 0.05}px/1 var(--body);white-space:pre;visibility:hidden" data-start="${s.at ?? 0}" data-duration="${shown}">${esc(s.label)}</div>`
+        ? `<div data-safe style="position:absolute;z-index:${i + 2};${across};${v}:${H * 0.05}px;padding:${u * 0.022}px ${u * 0.036}px;border-radius:${u * 0.06}px;background:var(--text);color:var(--page);font:600 ${u * 0.05}px/1 var(--body);white-space:pre;visibility:hidden" data-start="${(s.at ?? 0) + chip!.at}" data-duration="${chip!.shown}">${esc(s.label)}</div>`
         : "";
       return `<video class="clip" data-start="${s.at ?? 0}" data-duration="${s.d}" data-track-index="${i}" data-playback-start="${clip.start}" data-media-start-basis="global" src="${clip.video}" muted playsinline preload="auto" style="position:absolute;z-index:${i + 1};left:0;top:0;width:${W}px;height:${H}px;object-fit:cover;display:block;background:var(--page);visibility:hidden"></video>${label}`;
     }
     const win = clipWindow(clip.width, clip.height, W, H, s.scale ?? 1);
     const label = s.label
-      ? `<div data-safe style="position:absolute;z-index:${i + 2};left:${win.left}px;top:${win.top}px;transform:translateY(-100%);padding-bottom:${Math.min(W, H) * 0.018}px;color:var(--text);font:${Math.min(W, H) * 0.028}px/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;white-space:pre">${esc(s.label)}</div>`
+      ? `<div data-safe style="position:absolute;z-index:${i + 2};left:${win.left}px;top:${win.top}px;transform:translateY(-100%);padding-bottom:${Math.min(W, H) * 0.018}px;color:var(--text);font:${Math.min(W, H) * 0.028}px/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;white-space:pre;visibility:hidden" data-start="${s.at ?? 0}" data-duration="${s.d}">${esc(s.label)}</div>`
       : "";
     return `<video class="clip" data-start="${s.at ?? 0}" data-duration="${s.d}" data-track-index="${i}" data-playback-start="${clip.start}" data-media-start-basis="global" src="${clip.video}" muted playsinline preload="auto" style="position:absolute;z-index:${i + 1};left:${win.left}px;top:${win.top}px;width:${win.width}px;height:${win.height}px;object-fit:contain;display:block;background:var(--page);border-radius:${win.radius}px;visibility:hidden"></video>${label}`;
   }).join("\n");
