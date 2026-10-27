@@ -347,7 +347,14 @@ test("doctor, make and capture never read the planner key from the environment",
     assert.equal(storeDown.status, 3, storeDown.stderr);
     assert.match(storeDown.stderr, /takeone needs an AI engine/);
     assert.ok(!existsSync(join(dir, "analysis")) && !existsSync(join(dir, "out")));
-    for (const r of [doctor, hello, made]) assert.ok(!r.stdout.includes("bogus-env-key") && !r.stderr.includes("bogus-env-key"));
+    // Until its removal, the explicit legacy mode remains separately covered.
+    const local = run(["make", dir, "--no-ai", ...FAST_SET], { env });
+    assert.equal(local.status, 0, local.stderr);
+    assert.equal(JSON.parse(readFileSync(join(dir, "take.json"), "utf8")).planner.mode, "fallback");
+    const localStoreDown = run(["make", dir, "--no-ai", ...FAST_SET], { env: { ...env, TAKEONE_TEST_KEYRING_FAILURE: "1" } });
+    assert.equal(localStoreDown.status, 0, localStoreDown.stderr);
+    assert.equal(JSON.parse(readFileSync(join(dir, "take.json"), "utf8")).planner.mode, "fallback");
+    for (const r of [doctor, hello, made, storeDown, local, localStoreDown]) assert.ok(!r.stdout.includes("bogus-env-key") && !r.stderr.includes("bogus-env-key"));
     // A bogus env key must behave exactly like no key: zero planned tokens and
     // no preflight refusal even under --max-tokens 1.
     const r = run(["capture", "make", dir, "--plan-only", "--max-tokens", "1"], { env });

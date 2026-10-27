@@ -254,6 +254,21 @@ test("without an engine make refuses before writing analysis or film", async () 
   }
 });
 
+test("explicit legacy no-ai still records its decision provenance", async () => {
+  const dir = newTake();
+  try {
+    const warns: string[] = [];
+    const r = await fastTake(dir, { noAi: true, log: () => {}, warn: (s) => warns.push(s) });
+    assert.equal(warns.join("\n").includes("AI planner is OFF"), false);
+    assert.ok(r.decisions.every((d) => d.decided_by === "heuristic"));
+    const take = JSON.parse(readFileSync(join(dir, "take.json"), "utf8")) as TakeMeta;
+    assert.equal(take.planner?.mode, "fallback");
+    assert.deepEqual(r.planner, { input_tokens: 0, output_tokens: 0, usd: 0, failed: 0, requests: 0, cached: 0, request_tokens: 0 });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("key moment is asked on every beat even without --goal", async () => {
   const dir = newTake();
   try {
@@ -655,6 +670,7 @@ test("a chosen provider without its credential stops instead of falling back", a
         assert.ok(e instanceof PlannerUnavailable);
         assert.ok(e.message.includes("opencode-go"), `provider not named: ${e.message}`);
         assert.ok(e.message.includes("choose another provider"), `provider choice missing: ${e.message}`);
+        assert.equal(e.message.includes("--no-ai"), false);
         return true;
       },
     );
@@ -681,6 +697,7 @@ test("a chosen pi planner that cannot run stops with pi's own check instead of f
         assert.ok(e.message.includes("deepseek/deepseek-flash"), `model not named: ${e.message}`);
         assert.ok(e.message.includes("not installed at"), `missing pi not named: ${e.message}`);
         assert.ok(e.message.includes("choose another provider"), `provider choice missing: ${e.message}`);
+        assert.equal(e.message.includes("--no-ai"), false);
         return true;
       },
     );
@@ -700,6 +717,8 @@ test("a rate-limited provider stops before render instead of falling back", asyn
         assert.ok(e instanceof PlannerUnavailable);
         assert.ok(e.message.includes("jev"), `provider not named: ${e.message}`);
         assert.ok(e.message.includes("choose another provider"), `provider choice missing: ${e.message}`);
+        assert.equal(e.message.includes("--no-ai"), false);
+        assert.equal(e.message.includes("takeone key set"), false);
         return true;
       },
     );
