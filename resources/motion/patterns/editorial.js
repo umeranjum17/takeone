@@ -56,26 +56,28 @@ PATTERNS["phone-story"] = (layer, s, ctx) => {
   if (!crop) throw new Error(`phone-story: ${s.screen} is not a crop`);
   if (s.title) sideCopy(layer, s.title, ctx);
   const pw = H * 0.52, bez = pw * 0.04, iw = pw - 2 * bez, k = iw / scr.width, ih = scr.height * k, top = H * 0.1, cx = W * 0.68;
+  // The screen starts under the island, as an app does; the bar above it is the screen's dominant colour.
+  const sb = pw * 0.12;
   const phone = h(`<div data-moves style="position:absolute;left:${cx - pw / 2}px;top:${top}px;width:${pw}px;height:${H * 1.3}px;border-radius:${pw * 0.15}px;background:var(--text)"></div>`);
-  const view = h(`<div style="position:absolute;left:${bez}px;top:${bez}px;right:${bez}px;bottom:${bez}px;border-radius:${pw * 0.12}px;overflow:hidden;background:#ffffff"></div>`);
-  const img = h(`<img src="${scr.url}" style="position:absolute;left:0;top:0;width:${iw}px;height:${ih}px;display:block">`);
+  const view = h(`<div style="position:absolute;left:${bez}px;top:${bez}px;right:${bez}px;bottom:${bez}px;border-radius:${pw * 0.12}px;overflow:hidden;background:${STORYBOARD.palette?.background ?? "#ffffff"}"></div>`);
+  const img = h(`<img src="${scr.url}" style="position:absolute;left:0;top:${sb}px;width:${iw}px;height:${ih}px;display:block">`);
   view.append(img); phone.append(view);
   phone.append(h(`<div style="position:absolute;left:50%;top:${bez + pw * 0.03}px;width:${pw * 0.28}px;height:${pw * 0.075}px;transform:translateX(-50%);border-radius:999px;background:#0b0b0b"></div>`));
   layer.append(phone);
   // Pan so the tapped control settles at 58% of the frame, never past the end of the screen.
   const [tx, ty, tw, th] = s.tap, [cx0, cy0] = crop.rect;
-  const tapX = (tx + tw / 2 - cx0) * k, tapY = (ty + th / 2 - cy0) * k;
-  const pan = Math.max(0, Math.min(ih - (H - top - bez), top + bez + tapY - H * 0.58));
+  const tapX = (tx + tw / 2 - cx0) * k, tapY = sb + (ty + th / 2 - cy0) * k;
+  const pan = Math.max(0, Math.min(sb + ih - (H - top - bez), top + bez + tapY - H * 0.58));
   K(phone, [[0, { transform: `translateY(${H}px)` }, EXPO], [600, { transform: "none" }]]);
   K(img, [[0, { transform: "none" }], [900, { transform: "none" }, INOUT], [2100, { transform: `translateY(${-pan}px)` }]]);
   // The tap: an accent outline on the real control, a press ring, and the cursor dipping.
-  const tapBox = h(`<div style="position:absolute;left:${(tx - cx0) * k - u * 0.008}px;top:${(ty - cy0) * k - pan - u * 0.008}px;width:${tw * k + u * 0.016}px;height:${th * k + u * 0.016}px;border:${Math.max(2, u * 0.004)}px solid ${ACCENT};border-radius:${u * 0.012}px"></div>`);
+  const tapBox = h(`<div style="position:absolute;left:${(tx - cx0) * k - u * 0.008}px;top:${sb + (ty - cy0) * k - pan - u * 0.008}px;width:${tw * k + u * 0.016}px;height:${th * k + u * 0.016}px;border:${Math.max(2, u * 0.004)}px solid ${ACCENT};border-radius:${u * 0.012}px"></div>`);
   const ring = h(`<div style="position:absolute;left:${tapX}px;top:${tapY - pan}px;width:${u * 0.12}px;height:${u * 0.12}px;margin:${-u * 0.06}px;border-radius:50%;border:${Math.max(2, u * 0.004)}px solid ${ACCENT}"></div>`);
   view.append(tapBox, ring);
   K(tapBox, [[0, { opacity: 0 }], ...SW(2650, { opacity: 0 }, { opacity: 1 })]);
   K(ring, [[0, { opacity: 0, transform: "scale(.2)" }], ...SW(2650, { opacity: 0, transform: "scale(.2)" }, { opacity: 1, transform: "scale(.2)" }), [2650, { opacity: 1, transform: "scale(.2)" }, EXPO], [3050, { opacity: 0, transform: "scale(1)" }]]);
   // The cursor tip lands on the control's lower right, so its label stays readable under the press.
-  const cur = cursorSvg(u * 0.05), pin = h(`<div data-moves style="position:absolute;left:${bez + (tx - cx0 + tw * 0.85) * k}px;top:${bez + (ty - cy0 + th * 0.8) * k - pan}px;width:0;height:0"></div>`);
+  const cur = cursorSvg(u * 0.05), pin = h(`<div data-moves style="position:absolute;left:${bez + (tx - cx0 + tw * 0.85) * k}px;top:${bez + sb + (ty - cy0 + th * 0.8) * k - pan}px;width:0;height:0"></div>`);
   pin.append(cur); phone.append(pin);
   K(pin, [[0, { opacity: 0, transform: `translate(${pw * 0.9}px,${H * 0.35}px)` }], [2100, { opacity: 0, transform: `translate(${pw * 0.9}px,${H * 0.35}px)` }, EXPO],
     [2600, { opacity: 1, transform: "none" }], [2650, { opacity: 1, transform: "scale(.88)" }], [2800, { opacity: 1, transform: "none" }]]);
