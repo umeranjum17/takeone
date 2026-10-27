@@ -555,7 +555,7 @@ test("a manual zoom arrives and holds on a phone take at its own shape and in sq
       const warned: string[] = [];
       const warn = console.warn;
       console.warn = (...args: unknown[]) => { warned.push(args.join(" ")); };
-      try { await renderTake(dir, { ...FAST, out_w, out_h, idle_speed: 1, max_upscale: 1.5 }); } finally { console.warn = warn; }
+      try { await renderTake(dir, { ...FAST, preset: "ultrafast", motion_blur: 0, out_w, out_h, idle_speed: 1, max_upscale: 1.5 }); } finally { console.warn = warn; }
       return { warned, frames: JSON.parse(await readFile(join(dir, "camera.json"), "utf8")) as CameraFrame[] };
     };
     for (const [out_w, out_h] of [[360, 640], [360, 360]] as const) {
