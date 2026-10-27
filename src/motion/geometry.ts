@@ -36,3 +36,11 @@ export function bentoViewport(W: number, H: number, t: MotionTokens, grid: "2x2"
   if (unit <= 0 || height <= 0) throw new Error("layout: bento margins and gutters must leave positive tile width and height");
   return {width:grid === "2x2" || list === 1 || list === 2 ? unit : 2 * unit + gx,height};
 }
+
+/** spotlight and feature-callouts: each stop's start in scene seconds after a 0.8 s lead, and where the last one ends.
+ *  A stop lasts the caption's reading floor (0.3 s a word plus 0.8 s) plus 0.9 s, never under 2.4 s. */
+export function stopTimes(captions: string[], lead = .8) {
+  let t = lead;
+  const starts = captions.map(c => { const at = t; t += Math.max(2.4, .3 * c.trim().split(/\s+/).filter(Boolean).length + 1.7); return at; });
+  return { starts, end: t };
+}

@@ -5,7 +5,7 @@ import type { Overrides } from "../camera/defaults.ts";
 export type Rect = [number, number, number, number]; // x, y, w, h in source px of its screen
 export type Device = "browser" | "phone" | "laptop" | "none";
 export type MotionEngine = "hyperframes" | "legacy";
-export const PATTERNS = ["hero-reveal", "zoom-tour", "end-card", "fragment", "kinetic-type", "bento", "clip", "statement", "word-swap", "phone-story", "chip-stack", "canon"] as const;
+export const PATTERNS = ["hero-reveal", "zoom-tour", "end-card", "fragment", "kinetic-type", "bento", "clip", "statement", "word-swap", "phone-story", "chip-stack", "canon", "logo-sting", "spotlight", "feature-callouts", "before-after", "device-orbit"] as const;
 export type PatternName = (typeof PATTERNS)[number];
 
 /** DOM-driven ingest ops (L8-h), played in order in one capture page; each named state is captured after its ops. */
@@ -100,6 +100,8 @@ export interface Scene {
   tap?: Rect;
   /** phone-story: a crop of the tapped row, lifted out of the phone at reading size after the tap. */
   lens?: string;
+  /** before-after: the screen the wipe reveals; `screen` is the before, `label` and `note` the corner names. */
+  after?: string;
   /** canon: the master film time each of the four tiles shows at the canon's first frame. */
   offsets?: number[];
 }

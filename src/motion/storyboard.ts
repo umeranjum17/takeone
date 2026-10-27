@@ -1,5 +1,5 @@
 // storyboard.json v1 validation at the trust boundary. Errors name the offending field (JSON path).
-import { bentoViewport } from "./geometry.ts";
+import { bentoViewport, stopTimes } from "./geometry.ts";
 import { motionTokens } from "./theme.ts";
 import { allTimelines, layoutDuration, validateLayout } from "./layout.ts";
 import { parseStateOp, validateStateNames } from "./ingest.ts";
@@ -39,6 +39,8 @@ export function sceneTexts(s: Scene): string[] {
   if (s.pattern === "phone-story" || s.pattern === "chip-stack") return [s.title, s.text].filter((t): t is string => !!t);
   if (s.pattern === "clip") return clipLabels(s).slice(-1).map(l => l.label);
   if (s.pattern === "bento") return (s.tiles ?? []).map(t => t.title);
+  if (s.pattern === "logo-sting") return [s.logo].filter((t): t is string => !!t);
+  if (s.pattern === "before-after") return [s.title].filter((t): t is string => !!t);
   if (s.pattern === "end-card") return [s.logo, s.cta, s.url].filter((t): t is string => !!t);
   if (s.pattern === "fragment") {
     if (s.kind === "counter") return ["60"];
@@ -71,6 +73,10 @@ function sceneRevealDuration(s: Scene): number {
     reveal = .67 + .5 * Math.max(0, (s.chips ?? []).length - 1);
   } else if (s.pattern === "bento") {
     reveal = .5 + .3 * Math.max(0, (s.tiles ?? []).length - 1);
+  } else if (s.pattern === "logo-sting") { // letters settle by 0.9 s
+    reveal = .9;
+  } else if (s.pattern === "before-after") { // the delta line fades up once the wipe has settled
+    reveal = 2.2;
   } else if (s.pattern === "end-card") {
     const glyphs = [...new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(s.logo!)].filter(ch => ch.segment.trim()).length;
     reveal = Math.max(glyphs ? .55 + .035 * (glyphs - 1) : 0, s.cta ? .65 : 0, s.url ? .75 : 0);
@@ -85,9 +91,15 @@ function sceneRevealDuration(s: Scene): number {
 function sceneHolds(s: Scene): { text: string; reveal: number }[] {
   // A word-swap reads as its title and the word it settles on; the struck words are beats, not copy.
   const text = s.pattern === "word-swap" ? [s.title, s.swaps?.at(-1)].join(" ") : sceneTexts(s).join(" ");
-  const holds = s.pattern === "zoom-tour" ? [] : [{ text, reveal: sceneRevealDuration(s) }];
+  let holds = s.pattern === "zoom-tour" ? [] : [{ text, reveal: sceneRevealDuration(s) }];
+  if (s.pattern === "spotlight" || s.pattern === "feature-callouts") {
+    // Each stop is read on its own window; the last one, then the numbered summary, are what the scene's end must clear.
+    const caps = (s.stops ?? []).map(x => x.caption ?? ""), { starts, end } = stopTimes(caps);
+    holds = [{ text: caps.at(-1) ?? "", reveal: starts.at(-1)! + .8 }];
+    if (s.pattern === "feature-callouts") holds.push({ text: caps.join(" "), reveal: end + .5 });
+  }
   if (s.pattern === "statement" && s.note) holds.push({ text: s.note, reveal: .8 }); // footnote fades up from 0.5 s
-  const chromed = s.pattern === "hero-reveal" || s.pattern === "zoom-tour" || (s.pattern === "kinetic-type" && !!s.device && s.device !== "none");
+  const chromed = ["hero-reveal", "zoom-tour", "spotlight", "feature-callouts", "before-after", "device-orbit"].includes(s.pattern) || (s.pattern === "kinetic-type" && !!s.device && s.device !== "none");
   if (chromed) {
     const device = s.device ?? "browser";
     const text = device === "browser" ? "Design preview" : device === "phone" ? "9:41" : "";
@@ -155,7 +167,11 @@ function scene(raw: unknown, path: string): Scene {
       return { title: str(t["title"], `${path}.tiles[${j}].title`, 60), ...(t["screen"] === undefined ? {} : { screen: String(t["screen"]) }) };
     });
   } else if (s.pattern === "bento") throw new StoryboardError(`${path}.tiles`, "bento needs exactly four {title} tiles");
-  if (s.pattern === "end-card") s.logo ??= "TakeOne";
+  if (s.pattern === "end-card" || s.pattern === "logo-sting") s.logo ??= "TakeOne";
+  const stopCount = Array.isArray(raw["stops"]) ? raw["stops"].length : 0;
+  if (s.pattern === "spotlight" && !stopCount) throw new StoryboardError(`${path}.stops`, "spotlight needs at least one stop");
+  if (s.pattern === "feature-callouts" && (stopCount < 2 || stopCount > 5 || (raw["stops"] as unknown[]).some(x => !isObj(x) || typeof x["caption"] !== "string"))) throw new StoryboardError(`${path}.stops`, "feature-callouts needs 2 to 5 stops, each with a caption");
+  if (s.pattern === "before-after" && (typeof s.screen !== "string" || typeof raw["after"] !== "string" || raw["after"] === s.screen)) throw new StoryboardError(`${path}.after`, "before-after needs two different screens: screen (before) and after");
   if (s.pattern === "word-swap") {
     const sw = raw["swaps"];
     if (!s.title?.trim() || !Array.isArray(sw) || sw.length < 1 || sw.length > 4) throw new StoryboardError(`${path}.swaps`, "word-swap needs a title and 1 to 4 swap words");
@@ -177,7 +193,7 @@ function scene(raw: unknown, path: string): Scene {
     if (!Array.isArray(o) || o.length !== 4) throw new StoryboardError(`${path}.offsets`, "canon needs four tile offsets");
     s.offsets = o.map((v, j) => num(v, `${path}.offsets[${j}]`, 0, MAX_DURATION_S));
   }
-  for (const k of ["screen", "focus"] as const) if (raw[k] !== undefined && !ID.test(String(raw[k]))) throw new StoryboardError(`${path}.${k}`, "expected an id");
+  for (const k of ["screen", "focus", "after"] as const) if (raw[k] !== undefined && !ID.test(String(raw[k]))) throw new StoryboardError(`${path}.${k}`, "expected an id");
   if (raw["device"] !== undefined && !DEVICES.includes(String(raw["device"]))) throw new StoryboardError(`${path}.device`, `choose ${DEVICES.join(", ")}`);
   if (raw["push"] !== undefined) s.push = num(raw["push"], `${path}.push`, 0, 0.1);
   if (s.pattern === "fragment") {
@@ -356,6 +372,7 @@ export function validateStoryboard(raw: unknown): Storyboard {
     if (s.focus && !regionIds.has(s.focus)) throw new StoryboardError(`scenes[${i}].focus`, "unknown region");
     for (const t of s.tiles ?? []) if (t.screen && Object.keys(screens).length && !Object.hasOwn(screens, t.screen)) throw new StoryboardError(`scenes[${i}].tiles`, "unknown screen");
     if (s.screen && Object.keys(screens).length && !Object.hasOwn(screens, s.screen)) throw new StoryboardError(`scenes[${i}].screen`, "unknown screen");
+    if (s.after && Object.keys(screens).length && !Object.hasOwn(screens, s.after)) throw new StoryboardError(`scenes[${i}].after`, "unknown screen");
     for (const c of s.chips ?? []) if (Object.keys(screens).length && !Object.hasOwn(screens, c)) throw new StoryboardError(`scenes[${i}].chips`, `unknown screen ${c}`);
     if (s.pattern === "phone-story" && !Object.hasOwn(crops, s.screen!)) throw new StoryboardError(`scenes[${i}].screen`, "phone-story shows a crop: name one of crops");
     if (s.lens !== undefined && !Object.hasOwn(crops, s.lens)) throw new StoryboardError(`scenes[${i}].lens`, "the lens shows a crop: name one of crops");
