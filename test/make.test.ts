@@ -4,9 +4,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync, existsSync, chmodSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync, existsSync, chmodSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, relative } from "node:path";
+import { join, relative, delimiter } from "node:path";
 import { makeTake, PreflightRefusal, TakeInputError, type MakeOptions, type MakeResult } from "../src/make.ts";
 import { PlannerUnavailable, askChunk, loadPlannerConfig, resolvePlanner } from "../src/decide/planner.ts";
 import { ConfigError, type Answer } from "@byokit/decide";
@@ -18,10 +18,11 @@ import { measureCaptions, renderTake } from "../src/render/render.ts";
 import { bandLayout, bandText, captionLayouts, takeCaptions } from "../src/render/stage.ts";
 import { mapFilm, planFilm } from "../src/decide/film.ts";
 import type { Beat, Decision, TakeMeta } from "../src/types.ts";
-import { STREAM, hasFfmpeg, buildLongTake, beatViews, chunkAnswers, filmAnswers } from "./helpers.ts";
+import { STREAM, hasFfmpeg, buildLongTake, beatViews, chunkAnswers, filmAnswers, recordedPlannerFetch, recordedPlannerReply } from "./helpers.ts";
 import { DEFAULTS } from "../src/camera/defaults.ts";
 import { THEMES } from "../src/themes.ts";
 
+const fixturePlanner = { apiKey: "test-key-000", fetchImpl: recordedPlannerFetch };
 const STREAM_W = 320;
 const STREAM_H = 180;
 const KEY = "test-key-000";
@@ -97,6 +98,7 @@ function plannerAnswers(): unknown {
     tightness: { probabilities: [0.1, 0.1, 0.7, 0.1], confidence: 0.9 },
     new_subject: { noul: 0.2 },
     key_moment: { probabilities: [0.7, 0.2, 0.1], confidence: 0.8 },
+    shot: { noul: 0.8 }, idle: { noul: 0.2 }, follow: { noul: 0.2 },
   };
   return { answers, usage: { input_tokens: 800 } };
 }
@@ -117,13 +119,13 @@ function newLongTake(): string {
   return buildLongTake(mkdtempSync(join(tmpdir(), "takeone-take-")));
 }
 
-test("make --no-ai renders the agreed beat/decision files into a tiny test MP4", async () => {
+test("fixture-backed make renders the agreed beat/decision files into a tiny test MP4", async () => {
   const dir = newTake();
   try {
     // --set is test-only plumbing: full-size slow output stays the default.
-    assert.equal(await main(["make", dir, "--no-ai", "--theme", "paper",
+    assert.equal(await main(["make", dir, "--theme", "paper",
       "--set", "preset=veryfast", "--set", "out_w=320", "--set", "out_h=180",
-      "--set", "ripple_ms=0", "--set", "fade_s=0"]), 0);
+      "--set", "ripple_ms=0", "--set", "fade_s=0"], fixturePlanner), 0);
     assert.equal(JSON.parse(readFileSync(join(dir, "take.json"), "utf8")).theme, "paper");
     const output = join(dir, "out", "t1.mp4");
     assert.ok(existsSync(output));
@@ -157,7 +159,7 @@ test("render --preview frames the film like the full render, at preview speed", 
     const wander = Array.from({ length: 40 }, (_, i) => ({ t: 700 + i * 200, k: "ptr", x: 200 - i * 4, y: 90 - i }));
     const events = [...readFileSync(eventsPath, "utf8").trim().split("\n").map((line) => JSON.parse(line)), ...wander].sort((a, b) => a.t - b.t);
     writeFileSync(eventsPath, events.map((e) => JSON.stringify(e)).join("\n") + "\n");
-    assert.equal(await main(["make", dir, "--no-ai", ...look]), 0);
+    assert.equal(await main(["make", dir, ...look], fixturePlanner), 0);
     const fullPath = join(dir, "camera.json");
     const fullCamera = readFileSync(fullPath, "utf8");
     // The preview writes its own file and leaves the full render's export alone.
@@ -196,7 +198,7 @@ test("make handles an empty focused window without retaining the previous window
     events.push({ t: 2000, k: "win", cls: "", title: "", rect: null });
     events.sort((a, b) => a.t - b.t);
     writeFileSync(path, events.map((e) => JSON.stringify(e)).join("\n") + "\n");
-    await fastTake(dir, { noAi: true });
+    await fastTake(dir, { apiKey: KEY, fetchImpl: recordedPlannerFetch });
     const actions = JSON.parse(readFileSync(join(dir, "analysis", "actions.json"), "utf8")).actions;
     assert.ok(actions.some((a: { k: string; t: number; window_cls: string }) => a.k === "click" && a.t > 2000 && a.window_cls === ""));
     const beats = JSON.parse(readFileSync(join(dir, "analysis", "beats.json"), "utf8"));
@@ -218,7 +220,7 @@ test("make renders partly and wholly off-screen windows", { skip: needsFfmpeg },
     events.sort((a, b) => a.t - b.t);
     writeFileSync(eventsPath, events.map((e) => JSON.stringify(e)).join("\n") + "\n");
 
-    await fastTake(dir, { noAi: true, log: () => {}, warn: () => {} });
+    await fastTake(dir, { apiKey: KEY, fetchImpl: recordedPlannerFetch, log: () => {}, warn: () => {} });
     const beats = JSON.parse(readFileSync(join(dir, "analysis", "beats.json"), "utf8"));
     assert.ok(beats.some((b: { window_rect?: number[] }) => JSON.stringify(b.window_rect) === "[0,0,190,100]"));
     assert.ok(beats.some((b: { anchor_t: number; window_rect?: number[] }) => b.anchor_t >= 6 && b.window_rect === undefined));
@@ -244,26 +246,50 @@ test("CLI rejects malformed --max-tokens values", async () => {
 
 test("without an engine make refuses before writing analysis or film", async () => {
   const dir = newTake();
+  const home = mkdtempSync(join(tmpdir(), "takeone-no-engine-"));
+  const bin = join(home, "bin");
+  mkdirSync(bin);
+  for (const name of ["ffmpeg", "ffprobe"]) {
+    const executable = (process.env.PATH ?? "").split(delimiter).map((p) => join(p, name)).find(existsSync);
+    assert.ok(executable, `${name} is required for the CLI journey`);
+    symlinkSync(executable, join(bin, name));
+  }
   try {
     await assert.rejects(fastTake(dir), (e: unknown) => e instanceof PlannerUnavailable &&
       e.credentialMissing && /takeone needs an AI engine/.test(e.message));
+    const cli = spawnSync(process.execPath, ["bin/takeone.mjs", "make", dir], {
+      encoding: "utf8", env: { ...process.env, HOME: home, XDG_CONFIG_HOME: join(home, ".config"),
+        PATH: bin, TAKEONE_NO_KEYRING: "1", CODEX_HOME: join(home, "codex"),
+        CLAUDE_CONFIG_DIR: join(home, "claude"), TAKEONE_DIR: dir, TAKEONE_STATE_DIR: join(dir, "state") },
+    });
+    assert.equal(cli.status, 3, cli.stderr);
+    assert.equal(cli.stdout, "");
+    assert.match(cli.stderr.trim(), /^takeone needs an AI engine\. Sign in with: claude \(Claude\), or: codex login \(Codex\), or: opencode auth login \(OpenCode\)\.$/);
     assert.ok(!existsSync(join(dir, "analysis")));
     assert.ok(!existsSync(join(dir, "out")));
   } finally {
+    rmSync(home, { recursive: true, force: true });
     rmSync(dir, { recursive: true, force: true });
   }
 });
 
-test("explicit legacy no-ai still records its decision provenance", async () => {
+test("recorded responses decide every beat without local substitutes", async () => {
   const dir = newTake();
   try {
     const warns: string[] = [];
-    const r = await fastTake(dir, { noAi: true, log: () => {}, warn: (s) => warns.push(s) });
+    const r = await fastTake(dir, { ...fixturePlanner, log: () => {}, warn: (s) => warns.push(s) });
     assert.equal(warns.join("\n").includes("AI planner is OFF"), false);
-    assert.ok(r.decisions.every((d) => d.decided_by === "heuristic"));
+    assert.equal(r.decisions.length, r.beats.length);
+    assert.ok(r.decisions.every((d) => d.decided_by === "ai"));
     const take = JSON.parse(readFileSync(join(dir, "take.json"), "utf8")) as TakeMeta;
-    assert.equal(take.planner?.mode, "fallback");
-    assert.deepEqual(r.planner, { input_tokens: 0, output_tokens: 0, usd: 0, failed: 0, requests: 0, cached: 0, request_tokens: 0 });
+    assert.equal(take.planner?.mode, "ai");
+    assert.ok(r.planner.requests > 0);
+    assert.deepEqual(r.planner, {
+      input_tokens: r.planner.requests * 800, output_tokens: 0, usd: r.planner.usd,
+      failed: 0, requests: r.planner.requests, cached: 0, request_tokens: r.planner.request_tokens,
+    });
+    assert.ok(r.planner.usd !== null && r.planner.usd > 0);
+    assert.ok(r.planner.request_tokens > 0);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -545,14 +571,16 @@ test("a planner request that fails says why: the reply shape, not just a failed 
     mkdirSync(join(configDir, "takeone"), { recursive: true });
     writeFileSync(join(configDir, "takeone", "planner.json"), JSON.stringify({ backend: "minimax", auth: "apiKey", model: "MiniMax-M3.1-Flash-Preview" }));
     // A reply that spent its budget thinking and never called the decisions tool.
-    const fetchImpl = (async () => new Response(JSON.stringify({
+    let calls = 0;
+    const fetchImpl = (async () => { calls++; return new Response(JSON.stringify({
       stop_reason: "max_tokens",
       content: [{ type: "thinking", thinking: "private model text" }],
       usage: { input_tokens: 10, output_tokens: 1024 },
-    }), { status: 200, headers: { "content-type": "application/json" } })) as typeof fetch;
+    }), { status: 200, headers: { "content-type": "application/json" } }); }) as typeof fetch;
     const warns: string[] = [];
-    const r = await fastTake(dir, { apiKey: KEY, fetchImpl, log: () => {}, warn: (s) => warns.push(s) });
-    assert.ok(r.planner.failed > 0);
+    await assert.rejects(fastTake(dir, { apiKey: KEY, fetchImpl, log: () => {}, warn: (s) => warns.push(s) }), PlannerUnavailable);
+    assert.ok(calls > 0);
+    assert.ok(!existsSync(join(dir, "out", "t1.mp4")));
     const why = warns.filter((w) => w.startsWith("planner: a ") && w.includes("failed:")).join("\n");
     assert.ok(why.includes("stop_reason max_tokens"), why || warns.join("\n"));
     assert.ok(why.includes("content [thinking]"), why);
@@ -610,7 +638,7 @@ function minimaxReply(body: string, broken: boolean): Response {
   const input = Object.fromEntries(Object.entries(questions).flatMap(([name, q]) => {
     if (q.kind === "choice") {
       const options = Object.keys(q.options ?? {});
-      return [[name, { pick: options[0], probabilities: Object.fromEntries(options.map((o, i) => [o, i === 0 ? 0.9 : 0.1 / Math.max(1, options.length - 1)])), rationale: "first zone" }]];
+      return [[name, { pick: options[0], probabilities: Object.fromEntries(options.map((o, i) => [o, options.length === 1 ? 1 : i === 0 ? 0.9 : 0.1 / (options.length - 1)])), rationale: "first zone" }]];
     }
     if (q.kind === "score") {
       const levels = (q.levels ?? []).map((_, i) => String(i));
@@ -635,17 +663,17 @@ test("MiniMax plans two beats a call and repairs a malformed reply with one more
     const fetchImpl = (async (_url, init) => {
       const body = String(init?.body);
       const names = Object.keys((JSON.parse(JSON.parse(body).messages[0].content[0].text) as { questions: object }).questions);
-      if (!names.some((n) => /^b\d+_/.test(n))) return new Response(JSON.stringify({ stop_reason: "tool_use", content: [{ type: "tool_use", name: "decisions", input: {} }] }), { status: 200 });
+      if (!names.some((n) => /^b\d+_/.test(n))) return minimaxReply(body, false);
       beatCalls.push(names);
       const key = names.join(",");
-      const first = !seen.has(key);
+      const first = beatCalls.length === 1;
       seen.add(key);
-      return minimaxReply(body, first); // the first ask of every chunk is malformed, the repair ask is good
+      return minimaxReply(body, first); // one malformed chunk exercises the bounded repair ask
     }) as typeof fetch;
     const r = await fastTake(dir, { apiKey: KEY, fetchImpl, film: false, log: () => {}, warn: () => {} });
     const beatsAsked = new Set(beatCalls.flat().map((n) => n.split("_")[0]));
     assert.ok(beatCalls.every((names) => new Set(names.map((n) => n.split("_")[0])).size <= 2), "at most two beats a call");
-    assert.equal(beatCalls.length, seen.size * 2, "every chunk is asked once more after its malformed reply");
+    assert.equal(beatCalls.length, seen.size + 1, "the malformed chunk is asked once more");
     assert.equal(r.decisions.filter((d) => d.decided_by === "ai").length, beatsAsked.size, "every asked beat is decided by the model");
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -893,9 +921,9 @@ function buildKindsTake(dir: string): string {
 test("a user edit follows its beat across a re-cut, is dropped when the cut removes it, and is refused when it names another beat", { skip: needsFfmpeg }, async () => {
   const dir = buildKindsTake(mkdtempSync(join(tmpdir(), "takeone-recut-")));
   const fast = ["out_w=160", "out_h=90", "preset=veryfast", "ripple_ms=0", "fade_s=0"];
-  // --no-ai: this journey must never ask a model, and the plan edits are the point.
+  // Recorded model replies keep the plan-edit journey deterministic.
   const cli = (command: string, ...flags: string[]) => spawnSync(process.execPath,
-    ["bin/takeone.mjs", command, dir, ...flags, ...fast.flatMap((value) => ["--set", value])],
+    [command === "make" ? "scripts/test-planner.mjs" : "bin/takeone.mjs", command, dir, ...flags, ...fast.flatMap((value) => ["--set", value])],
     { encoding: "utf8", env: { ...process.env, TAKEONE_DIR: dir, TAKEONE_STATE_DIR: join(dir, "state") } });
   const planFile = join(dir, "analysis", "plan.json");
   const takeFile = join(dir, "take.json");
@@ -906,10 +934,12 @@ test("a user edit follows its beat across a re-cut, is dropped when the cut remo
     if (trim) meta.trim = trim;
     else delete meta.trim;
     writeFileSync(takeFile, JSON.stringify(meta));
-    return cli("make", "--no-ai");
+    return cli("make");
   };
   try {
-    assert.equal(cli("make", "--no-ai").status, 0);
+    assert.equal(cli("make", "--no-ai").status, 2, "the removed switch cannot make a local plan");
+    assert.ok(!existsSync(join(dir, "analysis")) && !existsSync(join(dir, "out")));
+    assert.equal(cli("make").status, 0);
     // The user takes the shot off the typing beat by hand, as they would in the file.
     const before = baseline();
     const edited = before.beats.find((beat) => beat.id === "b4")!;
@@ -966,9 +996,9 @@ test("a user edit follows its beat across a re-cut, is dropped when the cut remo
 test("plan edits the render cannot honour stop the CLI with a clear error", { skip: needsFfmpeg }, async () => {
   const dir = buildKindsTake(mkdtempSync(join(tmpdir(), "takeone-kinds-")));
   const fast = ["out_w=160", "out_h=90", "preset=veryfast", "ripple_ms=0", "fade_s=0", "idle_speed=1"];
-  // --no-ai: this journey must never ask a model, and the fallback rules are the point.
+  // Recorded model replies keep the unsupported-edit journey deterministic.
   const cli = (command: string) => spawnSync(process.execPath,
-    ["bin/takeone.mjs", command, dir, "--no-ai", ...fast.flatMap((value) => ["--set", value])],
+    [command === "make" ? "scripts/test-planner.mjs" : "bin/takeone.mjs", command, dir, ...fast.flatMap((value) => ["--set", value])],
     { encoding: "utf8", env: { ...process.env, TAKEONE_DIR: dir, TAKEONE_STATE_DIR: join(dir, "state") } });
   const planFile = join(dir, "analysis", "plan.json");
   const baseline = (): Plan => JSON.parse(readFileSync(planFile, "utf8")) as Plan;
@@ -1015,15 +1045,18 @@ test("plan edits the render cannot honour stop the CLI with a clear error", { sk
     const kept = baseline();
     assert.equal(kept.beats.find((beat) => beat.id === "b1")?.shot?.by, "user");
 
-    // The Android tap fallback builds its own beats: no user edit reaches it.
+    // A legacy Android fallback cannot render; a fresh model make accepts the edit.
     const meta = JSON.parse(readFileSync(join(dir, "take.json"), "utf8"));
     writeFileSync(join(dir, "take.json"), JSON.stringify({ ...meta, device: "android", planner: { ...meta.planner, mode: "fallback" } }));
     const android = JSON.parse(clean) as Plan;
     android.beats.find((beat) => beat.id === "b1")!.shot = { value: false, by: "user" };
     writePlanFile(android);
-    const refused = cli("make");
-    assert.equal(refused.status, 2, refused.stderr);
-    assert.match(refused.stderr, /beat b1 \(click\): shot cannot be honoured - this Android take renders the rule-only tap fallback/);
+    const refused = cli("render");
+    assert.equal(refused.status, 1, refused.stderr);
+    assert.match(refused.stderr, /legacy heuristic decisions; replan with an AI engine/);
+    const remade = cli("make");
+    assert.equal(remade.status, 0, remade.stderr);
+    assert.equal(baseline().beats.find((beat) => beat.id === "b1")?.shot?.by, "user");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -1036,7 +1069,7 @@ test("make accepts video-only missing events and silent recorded streams", { ski
       const path = join(dir, file);
       const original = readFileSync(path);
       rmSync(path);
-      await assert.rejects(fastTake(dir, { noAi: true, log: () => {}, warn: () => {} }), (e: unknown) => e instanceof TakeInputError && e.file === file);
+      await assert.rejects(fastTake(dir, { apiKey: KEY, fetchImpl: recordedPlannerFetch, log: () => {}, warn: () => {} }), (e: unknown) => e instanceof TakeInputError && e.file === file);
       writeFileSync(path, original);
     }
     const eventsPath = join(dir, "events.jsonl");
@@ -1044,21 +1077,23 @@ test("make accepts video-only missing events and silent recorded streams", { ski
     take.events = "on";
     writeFileSync(join(dir, "take.json"), JSON.stringify(take));
     writeFileSync(eventsPath, "not-json\n");
-    await assert.rejects(makeTake(dir, { noAi: true, log: () => {}, warn: () => {} }), (e: unknown) => e instanceof TakeInputError && e.file === "events.jsonl");
+    await assert.rejects(makeTake(dir, { apiKey: KEY, fetchImpl: recordedPlannerFetch, log: () => {}, warn: () => {} }), (e: unknown) => e instanceof TakeInputError && e.file === "events.jsonl");
     writeFileSync(eventsPath, "");
-    const silent = await makeTake(dir, { noAi: true, log: () => {}, warn: () => {} });
+    const silent = await makeTake(dir, { apiKey: KEY, fetchImpl: recordedPlannerFetch, log: () => {}, warn: () => {} });
     assert.ok(silent.beats.length > 0);
     take.events = "none";
     take.trim = { start: 1000, end: 9000 };
     writeFileSync(join(dir, "take.json"), JSON.stringify(take));
-    const result = await fastTake(dir, { noAi: true, log: () => {}, warn: () => {} });
-    assert.equal(result.planner.input_tokens, 0);
+    const result = await fastTake(dir, { apiKey: KEY, fetchImpl: recordedPlannerFetch, log: () => {}, warn: () => {} });
+    assert.notEqual(result.planner.input_tokens, 0);
     assert.deepEqual(result.beats.map((b) => [b.kind, b.t0, b.t1]), [["idle", 1000, 9000]]);
-    assert.equal(result.decisions[0]?.decided_by, "heuristic");
+    assert.equal(result.decisions[0]?.decided_by, "ai");
     rmSync(eventsPath);
-    const missing = await makeTake(dir, { noAi: true, log: () => {}, warn: () => {} });
+    const missing = await makeTake(dir, { apiKey: KEY, fetchImpl: recordedPlannerFetch, log: () => {}, warn: () => {} });
     assert.deepEqual(missing.beats, result.beats);
-    assert.deepEqual(missing.decisions, result.decisions);
+    assert.deepEqual(missing.decisions, result.decisions.map((d) => ({ ...d, input_tokens: undefined })));
+    assert.deepEqual(missing.decisions.map(({ input_tokens, ...d }) => d), result.decisions.map(({ input_tokens, ...d }) => d));
+    assert.ok(missing.planner.cached > 0, "repeated response came from the cache");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -1066,6 +1101,7 @@ test("make accepts video-only missing events and silent recorded streams", { ski
 
 test("make intersects trim with available video before rendering", { skip: needsFfmpeg }, async () => {
   const dir = newTake();
+  const trimTake = () => fastTake(dir, { ...fixturePlanner, film: false, log: () => {}, warn: () => {} });
   try {
     const framesPath = join(dir, "frames.tsv");
     const lines = readFileSync(framesPath, "utf8").trimEnd().split("\n");
@@ -1074,7 +1110,7 @@ test("make intersects trim with available video before rendering", { skip: needs
     const meta = JSON.parse(readFileSync(join(dir, "take.json"), "utf8"));
     meta.trim = { start: 0, end: 9000 };
     writeFileSync(join(dir, "take.json"), JSON.stringify(meta));
-    await fastTake(dir, { noAi: true, log: () => {}, warn: () => {} });
+    await trimTake();
     const saved = JSON.parse(readFileSync(join(dir, "take.json"), "utf8"));
     const beats = JSON.parse(readFileSync(join(dir, "analysis", "beats.json"), "utf8"));
     assert.equal(saved.trim_start, 0);
@@ -1086,7 +1122,7 @@ test("make intersects trim with available video before rendering", { skip: needs
     const remade = JSON.parse(readFileSync(join(dir, "take.json"), "utf8"));
     delete remade.trim;
     writeFileSync(join(dir, "take.json"), JSON.stringify(remade));
-    const rerun = await fastTake(dir, { noAi: true, log: () => {}, warn: () => {} });
+    const rerun = await trimTake();
     assert.equal(JSON.parse(readFileSync(join(dir, "take.json"), "utf8")).trim_end, undefined);
     assert.ok(rerun.seconds < 8, `stale trim_end still bounded the export at ${rerun.seconds}s`);
 
@@ -1095,7 +1131,7 @@ test("make intersects trim with available video before rendering", { skip: needs
     writeFileSync(join(dir, "take.json"), JSON.stringify({
       ...remade, auto_trim: true, duration_ms: 9000, trim: { start: 0, end: 9000 },
     }));
-    await fastTake(dir, { noAi: true, log: () => {}, warn: () => {} });
+    await trimTake();
     const auto = JSON.parse(readFileSync(join(dir, "take.json"), "utf8"));
     assert.equal(auto.duration, 10);
     assert.equal(auto.trim_end, undefined);
@@ -1112,7 +1148,7 @@ test("make intersects trim with available video before rendering", { skip: needs
     writeFileSync(join(dir, "take.json"), JSON.stringify({
       ...remade, auto_trim: true, duration_ms: 11000, trim: { start: 1500, end: 10000 },
     }));
-    await fastTake(dir, { noAi: true, log: () => {}, warn: () => {} });
+    await trimTake();
     const collision = JSON.parse(readFileSync(join(dir, "take.json"), "utf8"));
     assert.equal(collision.trim_end, 9, "an end the operator edited away from record's must be honoured");
 
@@ -1122,7 +1158,7 @@ test("make intersects trim with available video before rendering", { skip: needs
     writeFileSync(join(dir, "take.json"), JSON.stringify({
       ...remade, auto_trim: undefined, duration_ms: undefined, trim: { start: 0, end: 10900 },
     }));
-    await fastTake(dir, { noAi: true, log: () => {}, warn: () => {} });
+    await trimTake();
     const legacy = JSON.parse(readFileSync(join(dir, "take.json"), "utf8"));
     assert.equal(legacy.trim_end, undefined, "an unmarked trim at the capture length must not bound the export");
     const legacySeconds = Number((JSON.parse(execFileSync("ffprobe", ["-v", "error", "-show_entries", "format=duration",
@@ -1135,7 +1171,7 @@ test("make intersects trim with available video before rendering", { skip: needs
     writeFileSync(join(dir, "take.json"), JSON.stringify({
       ...remade, auto_trim: undefined, duration_ms: undefined, trim: { start: 0, end: 11100 },
     }));
-    await fastTake(dir, { noAi: true, log: () => {}, warn: () => {} });
+    await trimTake();
     const rounded = JSON.parse(readFileSync(join(dir, "take.json"), "utf8"));
     assert.equal(rounded.trim_end, undefined,
       "a pre-marker trim within one analysis frame of the video end must not bound the export");
@@ -1148,7 +1184,7 @@ test("make intersects trim with available video before rendering", { skip: needs
     writeFileSync(join(dir, "take.json"), JSON.stringify({
       ...remade, auto_trim: undefined, duration_ms: undefined, trim: { start: 0, end: 6000 },
     }));
-    await fastTake(dir, { noAi: true, log: () => {}, warn: () => {} });
+    await trimTake();
     assert.equal(JSON.parse(readFileSync(join(dir, "take.json"), "utf8")).trim_end, 5,
       "an unmarked trim inside the recording must survive");
   } finally {
@@ -1167,7 +1203,7 @@ test("make rejects trims with no video overlap before writing analysis", { skip:
     const original = JSON.parse(readFileSync(takePath, "utf8"));
     for (const trim of [{ start: 0, end: 500 }, { start: 12000, end: 13000 }]) {
       writeFileSync(takePath, JSON.stringify({ ...original, trim }));
-      await assert.rejects(fastTake(dir, { noAi: true, log: () => {}, warn: () => {} }),
+      await assert.rejects(fastTake(dir, { apiKey: KEY, fetchImpl: recordedPlannerFetch, log: () => {}, warn: () => {} }),
         (e: unknown) => e instanceof TakeInputError && e.file === "take.json" && /trim does not overlap video/.test(e.message));
       assert.ok(!existsSync(join(dir, "analysis")));
       assert.ok(!existsSync(join(dir, "out", "t1.mp4")));
@@ -1182,24 +1218,24 @@ test("invalid first frame clocks report frames.tsv before planning", { skip: nee
   try {
     for (const contents of ["", "oops\t0\n", "0\tbad\n"]) {
       writeFileSync(join(dir, "frames.tsv"), contents);
-      await assert.rejects(fastTake(dir, { noAi: true, log: () => {}, warn: () => {} }), (e: unknown) => e instanceof TakeInputError && e.file === "frames.tsv" && /invalid first frame timestamp/.test(e.message));
+      await assert.rejects(fastTake(dir, { apiKey: KEY, fetchImpl: recordedPlannerFetch, log: () => {}, warn: () => {} }), (e: unknown) => e instanceof TakeInputError && e.file === "frames.tsv" && /invalid first frame timestamp/.test(e.message));
     }
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
 });
 
-test("make --no-ai writes analysis files and heuristic decisions", async () => {
+test("fixture-backed make writes analysis files and only model decisions", async () => {
   const dir = newTake();
   try {
-    const r = await fastTake(dir, { noAi: true, log: () => {}, warn: () => {} });
+    const r = await fastTake(dir, { apiKey: KEY, fetchImpl: recordedPlannerFetch, log: () => {}, warn: () => {} });
     assert.ok(existsSync(join(dir, "analysis", "regions.json")));
     assert.ok(existsSync(join(dir, "analysis", "actions.json")));
     assert.ok(existsSync(join(dir, "analysis", "beats.json")));
     assert.ok(existsSync(join(dir, "analysis", "decisions.jsonl")));
     assert.equal(r.decisions.length, r.beats.length);
     assert.ok(r.beats.length >= 2, `expected several beats, got ${r.beats.length}`);
-    for (const d of r.decisions) assert.equal(d.decided_by, "heuristic");
+    for (const d of r.decisions) assert.equal(d.decided_by, "ai");
     for (const b of r.beats) {
       assert.ok(b.zones.length >= 1);
       assert.ok(b.zones.length <= 6);
@@ -1207,7 +1243,13 @@ test("make --no-ai writes analysis files and heuristic decisions", async () => {
     }
     // take.json gains the planner accounting
     const take = JSON.parse(readFileSync(join(dir, "take.json"), "utf8")) as TakeMeta;
-    assert.deepEqual(take.planner, { mode: "fallback", backend: null, model: null, input_tokens: 0, output_tokens: 0, usd: 0, failed: 0, requests: 0, cached: 0, request_tokens: 0, calls_per_min: 0, request_tokens_per_min: 0 });
+    assert.equal(take.planner?.mode, "ai");
+    assert.equal(take.planner?.backend, "jev");
+    assert.ok((take.planner?.requests ?? 0) > 0);
+    assert.equal(take.planner?.input_tokens, r.planner.input_tokens);
+    assert.equal(take.planner?.failed, 0);
+    assert.deepEqual(take.planner, { mode: "ai", backend: "jev", model: "jev-latest", ...r.planner,
+      calls_per_min: take.planner?.calls_per_min, request_tokens_per_min: take.planner?.request_tokens_per_min });
     // events.jsonl titles stay local: nothing in the analysis files carries the title
     const allAnalysis =
       readFileSync(join(dir, "analysis", "beats.json"), "utf8") +
@@ -1230,7 +1272,7 @@ test("perceived cuts enter actions and start cut beats", { skip: needsFfmpeg }, 
       "-filter_complex", "[0:v][1:v]concat=n=2:v=1:a=0", "-c:v", "mpeg4", "-q:v", "2",
       "-f", "matroska", "-y", join(dir, "screen.webm"),
     ], { stdio: "ignore" });
-    const r = await fastTake(dir, { noAi: true, log: () => {}, warn: () => {} });
+    const r = await fastTake(dir, { apiKey: KEY, fetchImpl: recordedPlannerFetch, log: () => {}, warn: () => {} });
     const cuts = r.beats.filter((b) => b.kind === "cut");
     assert.ok(cuts.length > 0);
     assert.ok(cuts.some((b) => b.actions.some((a) => a.k === "cut")));
@@ -1357,12 +1399,17 @@ test("a user-set trim end is kept and the film ending does not replace it", asyn
   }
 });
 
-/** Anthropic answers: the film's forced `decisions` tool input. Beat calls get no
- * answers, so the rules keep them. Text fields only come back on this wire shape. */
+/** Anthropic answers: all beat and film questions use a valid tool response;
+ * the text fields under test override its recorded-shape film answer. */
 function anthropicFilmFetch(film: (timeline: string[]) => Record<string, unknown>): typeof fetch {
   return (async (_url, init) => {
-    const { state } = JSON.parse(JSON.parse(String(init?.body)).messages[0].content[0].text) as { state: { timeline?: string[] } };
-    const input = state.timeline === undefined ? {} : film(state.timeline);
+    const body = String(init?.body);
+    const { state } = JSON.parse(JSON.parse(body).messages[0].content[0].text) as { state: { timeline?: string[] } };
+    const base = await minimaxReply(body, false).json() as { content: { input: Record<string, unknown> }[] };
+    const { questions } = JSON.parse(JSON.parse(body).messages[0].content[0].text) as { questions: { ending?: { options: Record<string, string> } } };
+    const ends = Object.keys(questions.ending?.options ?? {});
+    const input = { ...base.content[0]!.input, ...(ends.length ? { ending: { pick: ends.at(-1), probabilities: Object.fromEntries(ends.map((id, i) => [id, i === ends.length - 1 ? 1 : 0])) } } : {}),
+      ...(state.timeline === undefined ? {} : film(state.timeline)) };
     return new Response(JSON.stringify({ content: [{ type: "tool_use", name: "decisions", input }], usage: { input_tokens: 500, output_tokens: 80 } }), { status: 200 });
   }) as typeof fetch;
 }
@@ -1495,11 +1542,7 @@ test("a long take's film is planned in chunks under the cap and joined into one 
         answers = chunkAnswers(String(init?.body), firstZoneAnswers) as Record<string, unknown>;
       } else {
         quietParts.push({ state: state as { timeline: string[] }, questions });
-        const ends = questions.ending ? Object.keys((questions.ending as { criteria: Record<string, string> }).criteria) : [];
-        answers = {
-          ...(questions.theme ? filmAnswers() : {}),
-          ...(questions.ending ? { ending: { pick: ends[0], probabilities: Object.fromEntries(ends.map((id) => [id, id === ends[0] ? 1 : 0])), confidence: 1 } } : {}),
-        };
+        answers = filmAnswers(String(init?.body));
       }
       return new Response(JSON.stringify({ answers, usage: { input_tokens: 800 } }), { status: 200 });
     }) as typeof fetch;
@@ -1525,16 +1568,18 @@ test("a long take's film is planned in chunks under the cap and joined into one 
     const fetchImpl = (async (_url, init) => {
       const { state, questions } = JSON.parse(JSON.parse(String(init?.body)).messages[0].content[0].text) as { state: { timeline?: string[] }; questions: Record<string, unknown> };
       let input: Record<string, unknown>;
+      const base = await minimaxReply(String(init?.body), false).json() as { content: { input: Record<string, unknown> }[] };
       if (state.timeline === undefined) {
-        input = chunkAnswers(String(init?.body), firstZoneAnswers) as Record<string, unknown>;
+        input = base.content[0]!.input;
       } else {
         parts.push({ state, questions } as (typeof parts)[number]);
         const first = state.timeline[0]!.split(",")[0]!;
         // The first call asks the film-wide questions; every call captions its own beats.
         input = {
+          ...base.content[0]!.input,
           ...(questions.theme ? {
             theme: { pick: "paper", probabilities: { midnight: 0, paper: 1, aurora: 0, mono: 0, sand: 0, editorial: 0 }, confidence: 1 },
-            pace: { probabilities: [0, 1, 0, 0], confidence: 1 },
+            pace: { pick: "1", probabilities: { 0: 0, 1: 1, 2: 0, 3: 0 }, confidence: 1 },
             opening: { pick: "establish", probabilities: { establish: 1, short: 0, straight: 0 }, confidence: 1 },
             camera_style: { pick: "calm", probabilities: { calm: 1, lively: 0 }, confidence: 1 },
             titled: { pick: "true", probabilities: { true: 1, false: 0 }, title: "Quarterly board", captions: [{ beat: first, text: `opens on ${first}` }] },
@@ -1643,12 +1688,12 @@ test("live API shape: Android tap hints stay planner decisions", async () => {
     writeFileSync(takePath, JSON.stringify({ ...JSON.parse(readFileSync(takePath, "utf8")), device: "android" }));
     const tapStates: { beat: { hint?: string }; zones: Record<string, { shows: string }> }[] = [];
     const fake = (async (_url: string | URL | Request, init?: RequestInit) => {
-      const beats = JSON.parse(String(init?.body)).state.beats as Record<string, { device_hint?: string; zones: Record<string, { shows: string }> }>;
-      for (const b of Object.values(beats)) if (b.device_hint) tapStates.push({ beat: { hint: b.device_hint }, zones: b.zones });
+      const beats = JSON.parse(String(init?.body)).state.beats as Record<string, { device_hint?: string; zones: Record<string, { shows: string }> }> | undefined;
+      for (const b of Object.values(beats ?? {})) if (b.device_hint) tapStates.push({ beat: { hint: b.device_hint }, zones: b.zones });
       const answer = {
         model: "jev-1.13.0",
         answers: chunkAnswers(String(init?.body), (names) => {
-          const choiceProbs = Object.fromEntries(names.map((name, i) => [name, i === 0 ? 0.95 : 0.05 / (names.length - 1 || 1)]));
+          const choiceProbs = Object.fromEntries(names.map((name, i) => [name, names.length === 1 ? 1 : i === 0 ? 0.95 : 0.05 / (names.length - 1)]));
           return {
           focus_start: { type: "choice", choice: names[0], confidence: 0.93, probabilities: choiceProbs },
           focus_end: { type: "choice", choice: names[0], confidence: 0.65, probabilities: choiceProbs },
@@ -1657,6 +1702,7 @@ test("live API shape: Android tap hints stay planner decisions", async () => {
           tightness: { type: "score", score: 1.45, confidence: 0.27, probabilities: { 0: 0.22, 1: 0.2, 2: 0.49, 3: 0.09 } },
           new_subject: { type: "noul", noul: 0.27 },
           key_moment: { type: "score", score: 0.01, confidence: 0.99, probabilities: { 0: 1, 1: 0, 2: 0 } },
+          shot: { noul: 0.8 }, idle: { noul: 0.1 }, follow: { noul: 0.1 },
           };
         }),
         usage: { input_tokens: 874, output_tokens: 131 },
@@ -1680,7 +1726,7 @@ test("live API shape: Android tap hints stay planner decisions", async () => {
   }
 });
 
-test("sparse object-keyed score probabilities fall back to the heuristic", { skip: needsFfmpeg }, async () => {
+test("sparse object-keyed score probabilities refuse rather than substituting a decision", { skip: needsFfmpeg }, async () => {
   const dir = newTake();
   try {
     const fake = (async (_url: string | URL | Request, init?: RequestInit) => {
@@ -1699,15 +1745,14 @@ test("sparse object-keyed score probabilities fall back to the heuristic", { ski
       };
       return new Response(JSON.stringify(answer), { status: 200 });
     }) as typeof fetch;
-    const r = await fastTake(dir, { apiKey: KEY, fetchImpl: fake, log: () => {}, warn: () => {} });
-    assert.ok(r.decisions.every((d) => d.decided_by === "heuristic"));
-    assert.ok(r.planner.failed >= 1);
+    await assert.rejects(fastTake(dir, { apiKey: KEY, fetchImpl: fake, log: () => {}, warn: () => {} }), PlannerUnavailable);
+    assert.ok(!existsSync(join(dir, "out", "t1.mp4")));
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
 });
 
-test("single-zone beats use the heuristic without planner tokens", async () => {
+test("single-zone beats are asked and decided by the model", async () => {
   const dir = newTake();
   try {
     const bodies: string[] = [];
@@ -1720,8 +1765,10 @@ test("single-zone beats use the heuristic without planner tokens", async () => {
     }) as typeof fetch });
     const single = r.beats.map((b, i) => ({ b, d: r.decisions[i]! })).filter(({ b }) => b.zones.length === 1);
     assert.ok(single.length > 0);
-    assert.ok(single.every(({ d }) => d.decided_by === "heuristic" && d.input_tokens === undefined));
-    assert.ok(bodies.every((body) => Object.keys(JSON.parse(body).state.zones).length >= 2));
+    assert.ok(single.every(({ d }) => d.decided_by === "ai"));
+    assert.equal(single.every(({ d }) => d.decided_by === "heuristic" && d.input_tokens === undefined), false);
+    assert.ok(bodies.some((body) => Object.keys(JSON.parse(body).state.zones).length === 1));
+    assert.equal(bodies.every((body) => Object.keys(JSON.parse(body).state.zones).length >= 2), false);
     assert.equal(r.planner.input_tokens, calls * 800);
     assert.equal(r.planner.failed, 0);
   } finally {
@@ -1756,16 +1803,20 @@ test("preflight reserves re-asks and current shots distinguish viewport position
   try {
     const bodies: string[] = [];
     const logs: string[] = [];
+    let first = true;
     await fastTake(dir, { apiKey: KEY, film: false, maxTokens: 100000, log: (s) => logs.push(s), warn: () => {}, fetchImpl: (async (_url, init) => {
-      bodies.push(String(init?.body));
-      return new Response("boom", { status: 500 });
+      const body = String(init?.body);
+      bodies.push(body);
+      if (first) { first = false; return new Response("boom", { status: 500 }); }
+      return recordedPlannerReply(body);
     }) as typeof fetch });
     const planned = Number(logs.find((s) => s.startsWith("preflight:"))!.match(/(\d+) planned tokens/)![1]);
-    // Two chunks fail: the first is asked once more, the second keeps the rules.
+    // One transient failure is retried; the next chunk uses the decided shot.
     assert.equal(bodies.length, 3);
     assert.equal(bodies[1], bodies[0], "the re-ask repeats the first chunk");
     const tokens = (body: string) => Math.ceil(body.length / 3.5);
-    assert.ok(planned >= tokens(bodies[0]!) + tokens(bodies[2]!) + Math.max(tokens(bodies[0]!), tokens(bodies[2]!)));
+    assert.ok(planned >= tokens(bodies[0]!) * 2, "preflight reserved the original retry");
+    assert.ok(bodies.reduce((sum, body) => sum + tokens(body), 0) <= 100000, "rebuilt asks stayed below the caller's hard cap");
     const shots = bodies.map((body) => JSON.parse(body).state.current_shot);
     assert.ok(new Set(shots).size > 1);
     assert.ok(bodies.every((body) => tokens(body) <= 4000), "every chunk stays under the 4,000-token cap");
@@ -1804,7 +1855,7 @@ test("the next chunk starts from the shot the previous chunk decided", async () 
   }
 });
 
-test("every planner failure mode falls back to the heuristic and counts as failed", async () => {
+test("every planner failure mode refuses without rendering a substitute", async () => {
   const modes: Array<{ name: string; tokens: number; impl: (body: string) => Response }> = [
     { name: "500", tokens: 0, impl: () => new Response("boom", { status: 500 }) },
     { name: "malformed", tokens: 0, impl: () => new Response("not json", { status: 200 }) },
@@ -1827,20 +1878,17 @@ test("every planner failure mode falls back to the heuristic and counts as faile
     const dir = newTake();
     let calls = 0;
     try {
-      const r = await fastTake(dir, { apiKey: KEY, fetchImpl: (async (_url, init) => { calls++; return m.impl(String(init?.body)); }) as typeof fetch, log: () => {}, warn: () => {} });
-      assert.equal(r.decisions.filter((d) => d.decided_by === "ai").length, 0, m.name);
-      assert.equal(r.planner.failed, r.beats.filter((b) => b.zones.length >= 2).length, m.name);
-      assert.equal(r.planner.input_tokens, calls * m.tokens, m.name);
-      assert.equal(JSON.parse(readFileSync(join(dir, "take.json"), "utf8")).planner.mode, "fallback", m.name);
-      // nothing ever waits on or fails because of Jev: the run still succeeded
-      assert.ok(r.beats.length >= 2);
+      await assert.rejects(fastTake(dir, { apiKey: KEY, fetchImpl: (async (_url, init) => { calls++; return m.impl(String(init?.body)); }) as typeof fetch, log: () => {}, warn: () => {} }), PlannerUnavailable, m.name);
+      assert.ok(calls > 0, m.name);
+      assert.ok(!existsSync(join(dir, "out", "t1.mp4")), m.name);
+      assert.equal(JSON.parse(readFileSync(join(dir, "take.json"), "utf8")).planner, undefined, m.name);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
   }
 });
 
-test("oversize beat request falls back without aborting other beats", { skip: needsFfmpeg }, async () => {
+test("a failed response never renders the long-shortcut take with substitute choices", { skip: needsFfmpeg }, async () => {
   const dir = newTake();
   try {
     const path = join(dir, "events.jsonl");
@@ -1849,15 +1897,12 @@ test("oversize beat request falls back without aborting other beats", { skip: ne
     events.find((e) => e.k === "win").rect = [0, 0, 280, 150];
     writeFileSync(path, events.map((e) => JSON.stringify(e)).join("\n") + "\n");
     let calls = 0;
-    const r = await fastTake(dir, { apiKey: KEY, maxTokens: 100000, log: () => {}, warn: () => {}, fetchImpl: (async () => {
+    await assert.rejects(fastTake(dir, { apiKey: KEY, maxTokens: 100000, log: () => {}, warn: () => {}, fetchImpl: (async () => {
       calls++;
       return new Response("boom", { status: 500 });
-    }) as typeof fetch });
-    const shortcut = r.beats.find((b) => b.actions.some((a) => a.k === "shortcut"))!;
-    assert.ok(shortcut);
-    assert.equal(r.decisions.find((d) => d.beat === shortcut.id)?.decided_by, "heuristic");
+    }) as typeof fetch }), PlannerUnavailable);
     assert.ok(calls > 0);
-    assert.ok(r.planner.failed >= 1);
+    assert.ok(!existsSync(join(dir, "out", "t1.mp4")));
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -1867,15 +1912,17 @@ test("malformed planner answers are not cached across runs", async () => {
   const dir = newTake();
   try {
     let calls = 0;
-    const fake = (async () => {
+    const fake = (async (_url, init) => {
       calls++;
-      return new Response(JSON.stringify(calls <= 10 ? { answers: { focus_start: { choice: "bad" } } } : plannerAnswers()), { status: 200 });
+      return calls === 1 ? new Response(JSON.stringify({ answers: { focus_start: { choice: "bad" } } }), { status: 200 })
+        : recordedPlannerReply(String(init?.body));
     }) as typeof fetch;
-    const first = await fastTake(dir, { apiKey: KEY, fetchImpl: fake, log: () => {}, warn: () => {} });
-    assert.ok(first.decisions.every((d) => d.decided_by === "heuristic"));
+    await assert.rejects(fastTake(dir, { apiKey: KEY, fetchImpl: fake, log: () => {}, warn: () => {} }), PlannerUnavailable);
+    assert.ok(!existsSync(join(dir, "out", "t1.mp4")));
     const before = calls;
-    await fastTake(dir, { apiKey: KEY, fetchImpl: fake, log: () => {}, warn: () => {} });
+    const recovered = await fastTake(dir, { apiKey: KEY, fetchImpl: fake, log: () => {}, warn: () => {} });
     assert.ok(calls > before);
+    assert.ok(recovered.decisions.every((d) => d.decided_by === "ai"));
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -1904,7 +1951,7 @@ test("preflight refuses above --max-tokens before any call", { skip: needsFfmpeg
     }) as typeof fetch;
     await assert.rejects(
       fastTake(dir, { apiKey: KEY, fetchImpl: fake, maxTokens: 10, log: () => {}, warn: () => {} }),
-      (e: unknown) => e instanceof PreflightRefusal && /--no-ai/.test(e.message),
+      (e: unknown) => e instanceof PreflightRefusal && /raise the cap/.test(e.message),
     );
     assert.equal(calls, 0);
   } finally {
@@ -1920,28 +1967,27 @@ test("screen words are read by default with a planner and titles are redacted", 
     events[0].cls = "PrivateCustomerName";
     events[0].title = "12345abcdefghijklmnop";
     writeFileSync(path, events.map((e) => JSON.stringify(e)).join("\n") + "\n");
-    const boom = (async () => new Response("boom", { status: 500 })) as typeof fetch;
-    const normal = await fastTake(dir, { noAi: true, log: () => {}, warn: () => {} });
+    const normal = await fastTake(dir, { apiKey: KEY, fetchImpl: recordedPlannerFetch, log: () => {}, warn: () => {} });
     assert.ok(!JSON.stringify(normal.beats.flatMap((b) => b.zones.map((z) => z.desc))).includes("PrivateCustomerName"));
     // AI on, no flags: screen words are read (window label appended, redacted)
-    const opted = await fastTake(dir, { apiKey: KEY, fetchImpl: boom, log: () => {}, warn: () => {} });
+    const opted = await fastTake(dir, { apiKey: KEY, fetchImpl: recordedPlannerFetch, log: () => {}, warn: () => {} });
     const descriptions = JSON.stringify(opted.beats.flatMap((b) => b.zones.map((z) => z.desc)));
     assert.ok(descriptions.includes("[redacted]"));
     assert.ok(!descriptions.includes("PrivateCustomerName"));
     assert.ok(descriptions.includes("[redacted]"));
     assert.ok(!descriptions.includes("12345abcdefghijklmnop"));
     // --no-screen-text opts out even with a planner
-    const off = await fastTake(dir, { apiKey: KEY, fetchImpl: boom, noScreenText: true, log: () => {}, warn: () => {} });
+    const off = await fastTake(dir, { apiKey: KEY, fetchImpl: recordedPlannerFetch, noScreenText: true, log: () => {}, warn: () => {} });
     assert.ok(!JSON.stringify(off.beats.flatMap((b) => b.zones.map((z) => z.desc))).includes("[redacted]"));
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
 });
 
-test("zones never leak window titles without a planner; beats carry word-only descriptions", async () => {
+test("zones omit window titles when screen text is disabled; beats carry word-only descriptions", async () => {
   const dir = newTake();
   try {
-    const r = await fastTake(dir, { noAi: true, log: () => {}, warn: () => {} });
+    const r = await fastTake(dir, { apiKey: KEY, fetchImpl: recordedPlannerFetch, noScreenText: true, log: () => {}, warn: () => {} });
     const beats: Beat[] = r.beats;
     for (const b of beats) {
       for (const z of b.zones) {

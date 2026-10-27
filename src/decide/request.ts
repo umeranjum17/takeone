@@ -27,13 +27,6 @@ export const QUESTION_FLOOR = 0;
 
 export class RequestTooLarge extends Error {}
 
-/** What the fallback rules would do for one beat, shown to the planner as advice. */
-export interface BeatHint {
-  suggest_shot: { start: string; end: string; tightness: string; rule: string };
-  /** whether the rule's start zone fits the shot before the beat */
-  fits_current_shot: "yes" | "no";
-}
-
 export interface ChunkCtx {
   /** what the demo is for, from --goal (alias --about) */
   goal?: string;
@@ -43,8 +36,6 @@ export interface ChunkCtx {
   currentShot: string;
   /** the beat after the chunk, for what_happened lookahead */
   nextBeat?: Beat;
-  /** one hint per beat, in chunk order */
-  hints: BeatHint[];
   /** attached thumbnail ids per beat, in chunk order; absent for text-only models */
   images?: string[][];
 }
@@ -56,7 +47,7 @@ export interface ChunkState {
   style?: string;
   rubric: Record<string, string>;
   current_shot: string;
-  beats: Record<string, { length: string; what_happened: string; device_hint?: string; zones: ZoneNotes; hint: BeatHint }>;
+  beats: Record<string, { length: string; what_happened: string; device_hint?: string; zones: ZoneNotes }>;
   after_chunk: string;
 }
 
@@ -147,10 +138,6 @@ function rubric(goal: string | undefined, withImages: boolean): Record<string, s
       "Should the camera pull back during this beat's pause, before a distant next beat? Yes for a long wait with nothing to read; no to keep the shot still.",
     follow:
       "Should the camera follow the pointer through this beat? Yes for a drag or pointer travel the viewer must track; no when the pointer's path is not the point.",
-    hints:
-      "Each beat's hint is what the fallback rules would pick: suggest_shot names the rule's start zone, end zone and tightness, and fits_current_shot says whether that start zone already fits the shot before the beat (current_shot for the first beat, the rule's shot for the previous beat after it). " +
-      "fits_current_shot assumes the previous beat took its suggest_shot; if you chose differently for it, judge new_subject against the shot you chose. " +
-      "Hints are advice: overrule them when the beat calls for something else.",
     ...(withImages ? {
       images:
         "Thumbnails <beat>_act (at the action) and <beat>_res (at the result) show the screen with every zone outlined and labelled by its name. Outside the zones whose text is read the screen is blurred; black boxes are redacted text.",
@@ -234,13 +221,12 @@ export function buildChunk(
     beats: {},
     after_chunk: ctx.nextBeat ? whatHappened(ctx.nextBeat) : "The take ends after these beats.",
   };
-  beats.forEach((b, k) => {
+  beats.forEach((b) => {
     state.beats[b.id] = {
       length: `${((b.t1 - b.t0) / 1000).toFixed(1)} seconds`,
       what_happened: whatHappened(b),
       ...(b.hint ? { device_hint: b.hint } : {}),
       zones: zoneNotes(b),
-      hint: ctx.hints[k]!,
     };
   });
   const questions = () => Object.assign({}, ...beats.map((b, k) => beatQuestions(b.id, state.beats[b.id]!.zones, ctx.images?.[k])));

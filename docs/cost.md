@@ -84,7 +84,7 @@ Notes:
   `planner.usd: null`, and `capture` warns `cost unknown` rather than sending a
   $0. Cost per output minute for this route is unknown by design, not zero.
 - Any `auth: account` config (ChatGPT, OpenCode Go, an installed Claude or Codex CLI) is subscription-billed, so its marginal token cost is $0, and so is an OpenCode Go plan key (`auth: apiKey`); the OpenAI API list price applies only to an OpenAI `auth: apiKey` config, which never falls back to subscription billing.
-- With `--no-ai` the cost is exactly zero tokens on every provider.
+- The removed `--no-ai` switch no longer provides a zero-token make path; cached identical requests can avoid new calls.
 
 ## Historical measured take (Jev, pre-slice-1 shape)
 

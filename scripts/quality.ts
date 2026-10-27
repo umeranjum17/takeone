@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Offline output acceptance: no desktop, credentials, model calls or npm additions.
+// Offline output acceptance: recorded model responses, no desktop, credentials or network calls.
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -9,10 +9,12 @@ import { DEFAULTS } from '../src/camera/defaults.ts';
 import type { CameraFrame, Beat, TakeMeta } from '../src/camera/types.ts';
 import { makeTake } from '../src/make.ts';
 import { encodingOptions, measureCaptions, renderTake } from '../src/render/render.ts';
+import { filmOverrides, type FilmDecision } from '../src/decide/film.ts';
 import { cameraFilter } from '../src/render/camera-filter.ts';
 import { bandFrames, bandLayout, bandText, stageFrames, stageGeometry, takeCaptions, type Band } from '../src/render/stage.ts';
 import { idleSqueezes, purposefulEnd, warp } from '../src/render/pace.ts';
 import { auditTake } from './cut-audit.ts';
+import { recordedPlannerFetch } from '../test/helpers.ts';
 
 export interface Metric { value: number; target: number; direction: 'max' | 'min'; unit: string; goalPassed: boolean }
 export type Metrics = Record<string, Metric>;
@@ -311,7 +313,7 @@ async function main() {
     const { script, args: extra = [], video: name, divider, noise } = FIXTURES[fixture]!;
     console.error(`quality: ${fixture}`);
     const dir = join(root, fixture);
-    const d = { ...DEFAULTS, fps: 60, caption_font: 'Liberation Sans', ...(fixture === 'portrait' ? { out_w: 1080, out_h: 1920 } : {}) };
+    const requested = { ...DEFAULTS, fps: 60, caption_font: 'Liberation Sans', ...(fixture === 'portrait' ? { out_w: 1080, out_h: 1920 } : {}) };
     const video = join(dir, 'out', `${name}.mp4`);
     if (!args.includes('--reuse')) {
       rmSync(dir, { recursive: true, force: true }); // the scene capture refuses to overwrite a take
@@ -320,12 +322,13 @@ async function main() {
         const meta = json<Record<string, unknown>>(join(dir, 'take.json'));
         save(join(dir, 'take.json'), { ...meta, title: 'Explore the demo', captions: [{ t: 3, text: 'Tap to see details' }] });
       }
-      await makeTake(dir, { noAi: true, camera: d });
+      await makeTake(dir, { apiKey: "test-key-000", fetchImpl: recordedPlannerFetch, camera: requested });
     }
+    const meta = json<TakeMeta & { film: FilmDecision }>(join(dir, 'take.json'));
+    const d = { ...requested, ...filmOverrides(meta.film, meta.theme === undefined, []) } as typeof requested;
     const original = sha(video);
     await renderTake(dir, d);
     const deterministic = original === sha(video);
-    const meta = json<TakeMeta>(join(dir, 'take.json'));
     const camera = json<CameraFrame[]>(join(dir, 'camera.json'));
     let band: Band | null = null;
     if (meta.title || meta.captions?.length) {

@@ -1,23 +1,23 @@
 # Render a demo without recording anything
 
-Guide (docs/guide.md) Quickstart 1: generate a fully synthetic take (a scripted 44 s 1920×1080 UI demo drawn entirely with ffmpeg filters, with matching `take.json`, `frames.tsv`, `events.jsonl`), then plan and render it locally. This is the only journey that exercises the full `make` pipeline (beats → regions → decisions → camera → encode) with zero capture hardware, zero network and zero tokens, which makes it the default verification drive.
+Guide (docs/guide.md) Quickstart 1: generate a fully synthetic take (a scripted 44 s 1920×1080 UI demo drawn entirely with ffmpeg filters, with matching `take.json`, `frames.tsv`, `events.jsonl`), then plan and render it with recorded model responses. The CI journey exercises beats → regions → model decisions → camera → encode with zero capture hardware and no paid call; it does not prove a live engine.
 
 ## Sub-features
 
 - Synthetic take generation (`scripts/synth-take.ts`): video + events from one timeline spec.
-- Local-only planning: `make --no-ai` decides every beat with the local heuristic, zero network calls.
+- Recorded-response planning: `scripts/test-planner.mjs make` feeds sanitized model answers to the real pipeline, without credentials or network.
 - Render: stage, click rings, keycaps, idle speed-up, titles and captions from `take.json` baked into a silent H.264 MP4.
 
 ## How to get to it (user POV)
 
-The user runs two commands from the checkout: `node scripts/synth-take.ts <dir>` to create the demo take, then `node bin/takeone.mjs make <dir> --no-ai` to plan and render it. The polished video lands at `<dir>/out/synth-demo.mp4`, next to the plan in `analysis/` and the camera path in `camera.json` + `camera.cmd`.
+The user runs two commands from the checkout: `node scripts/synth-take.ts <dir>` to create the demo take, then `node bin/takeone.mjs make <dir>` with a signed-in AI engine to plan and render it. The polished video lands at `<dir>/out/synth-demo.mp4`, next to the plan in `analysis/` and the camera path in `camera.json` + `camera.cmd`.
 
 ## Driving it with the takeone CLI
 
 ```sh
 export TAKEONE_DIR="$PWD/tmp/verify-takes" && mkdir -p "$TAKEONE_DIR"
 node scripts/synth-take.ts "$TAKEONE_DIR/synth-demo"          # exit 0; writes take.json, screen.webm, frames.tsv, events.jsonl
-node bin/takeone.mjs make "$TAKEONE_DIR/synth-demo" --no-ai  # exit 0; TOON progress on stdout
+node scripts/test-planner.mjs make "$TAKEONE_DIR/synth-demo"  # offline CI fixture; use bin/takeone.mjs for live proof
 test -s "$TAKEONE_DIR/synth-demo/out/synth-demo.mp4"
 node bin/takeone.mjs render "$TAKEONE_DIR/synth-demo" --set idle_speed=3   # optional rerender sanity, no planner
 ```

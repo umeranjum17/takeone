@@ -3,7 +3,7 @@ import { readFileSync, writeFileSync, writeSync } from "node:fs";
 import { resolve } from "node:path";
 import type { KeyOptions } from "./secrets.ts";
 import { plannerStatus, PlannerUnavailable } from "./decide/planner.ts";
-import { makeTake, PreflightRefusal, TakeInputError } from "./make.ts";
+import { makeTake, PreflightRefusal, TakeInputError, type MakeOptions } from "./make.ts";
 import { ConfigError } from "@byokit/decide";
 import { resolveCamera } from "./cli.ts";
 import { packageVersion as recorderVersion } from "./version.ts";
@@ -32,7 +32,6 @@ function invalidArguments(message: string, hint: string): never {
 interface MakeArgs {
   take?: string;
   planOnly: boolean;
-  noPlanner: boolean;
   /** Host opt-in: plan with the user's own signed-in account instead of a host key. */
   plannerAccount: boolean;
   screenText: boolean;
@@ -43,14 +42,13 @@ interface MakeArgs {
   set: string[];
 }
 
-const MAKE_HINT = "run `takeone capture make <take> [--plan-only] [--no-planner] [--max-tokens N]`";
+const MAKE_HINT = "run `takeone capture make <take> [--plan-only] [--planner-account|--planner-key-fd N] [--max-tokens N]`";
 
 function parseMakeArgs(argv: string[]): MakeArgs {
-  const a: MakeArgs = { planOnly: false, noPlanner: false, plannerAccount: false, screenText: false, set: [] };
+  const a: MakeArgs = { planOnly: false, plannerAccount: false, screenText: false, set: [] };
   for (let i = 0; i < argv.length; i++) {
     const s = argv[i]!;
     if (s === "--plan-only") a.planOnly = true;
-    else if (s === "--no-planner") a.noPlanner = true;
     else if (s === "--planner-account") a.plannerAccount = true;
     else if (s === "--screen-text") a.screenText = true;
     else if (s === "--planner-key-fd") {
@@ -172,27 +170,13 @@ function readCaptionsFile(path: string): { t: number; d?: number; text: string }
   });
 }
 
-async function runCaptureMake(argv: string[]): Promise<number> {
+async function runCaptureMake(argv: string[], testPlanner: Pick<MakeOptions, "fetchImpl" | "configDir"> = {}): Promise<number> {
   const a = parseMakeArgs(argv);
   if (a.take === undefined) {
     captureFail({
       code: "invalid-arguments",
       message: "capture make needs a take directory",
       hint: MAKE_HINT,
-    });
-  }
-  if (a.noPlanner && a.plannerKeyFd !== undefined) {
-    captureFail({
-      code: "invalid-arguments",
-      message: "--no-planner and --planner-key-fd conflict",
-      hint: "pass one or the other, not both",
-    });
-  }
-  if (a.plannerAccount && a.noPlanner) {
-    captureFail({
-      code: "invalid-arguments",
-      message: "--planner-account and --no-planner conflict",
-      hint: "--planner-account asks for the user's account; --no-planner plans with local rules",
     });
   }
   if (a.plannerAccount && a.plannerKeyFd !== undefined) {
@@ -221,6 +205,11 @@ async function runCaptureMake(argv: string[]): Promise<number> {
   }
   if (a.title !== undefined) take!.title = a.title;
   if (a.captionsFile !== undefined) take!.captions = readCaptionsFile(a.captionsFile);
+  if (key === null && !viaAccount) captureFail({
+    code: "planner-unavailable",
+    message: "capture make needs an AI engine",
+    hint: "pass the host's key with --planner-key-fd N, or opt into the user's signed-in account with --planner-account",
+  });
   if (a.title !== undefined || a.captionsFile !== undefined) {
     try {
       writeFileSync(`${dir}/take.json`, JSON.stringify(take!, null, 1) + "\n");
@@ -246,12 +235,12 @@ async function runCaptureMake(argv: string[]): Promise<number> {
 
   // Stdout carries exactly one JSON object; the pipeline logs to stderr.
   const warnings: string[] = [];
-  if (key === null && !viaAccount) warnings.push("no planner key; using heuristic policy for all beats");
   try {
     const r = await makeTake(dir, {
       capture: true,
       screenText: a.screenText,
-      ...(viaAccount ? { requireAi: true } : key === null ? { noAi: true } : { apiKey: key }),
+      ...(viaAccount ? { requireAi: true } : { apiKey: key }),
+      ...testPlanner,
       ...(a.maxTokens === undefined ? {} : { maxTokens: a.maxTokens }),
       ...(camera === undefined ? {} : { camera }),
       set: a.set,
@@ -302,7 +291,7 @@ async function runCaptureMake(argv: string[]): Promise<number> {
       const error: CaptureError & { planned?: number; cap?: number } = {
         code: "preflight-refused",
         message: e.message,
-        hint: "raise --max-tokens or pass --no-planner",
+        hint: "raise --max-tokens and rerun with an AI engine",
         ...(e.plannedTokens === undefined ? {} : { planned: e.plannedTokens, cap: e.cap }),
       };
       writeSync(1, JSON.stringify({ error }) + "\n");
@@ -318,11 +307,10 @@ async function runCaptureMake(argv: string[]): Promise<number> {
     if (e instanceof PlannerUnavailable) {
       captureFail({
         code: "planner-unavailable",
-        // capture's off switch is --no-planner, so it words its own choices
         message: `AI planner: ${e.provider} ${e.reason}.`,
         hint: e.credentialMissing
-          ? "sign the user's account in, or pass the host's own key with --planner-key-fd 3; --no-planner plans with local rules"
-          : "wait for the limit to reset and rerun, or rerun with --no-planner",
+          ? "sign the user's account in, or pass the host's own key with --planner-key-fd 3"
+          : "wait for the limit to reset and rerun",
       });
     }
     if (e instanceof ConfigError) {
@@ -471,7 +459,7 @@ async function runCaptureStop(args: string[]): Promise<number> {
   return 0;
 }
 
-export async function runCapture(argv: string[], keys: KeyOptions = {}): Promise<number> {
+export async function runCapture(argv: string[], keys: KeyOptions = {}, testPlanner: Pick<MakeOptions, "fetchImpl" | "configDir"> = {}): Promise<number> {
   const [verb, ...rest] = argv;
   if (verb === "hello" && rest.length === 0) {
     const planner = await plannerStatus(keys);
@@ -495,7 +483,7 @@ export async function runCapture(argv: string[], keys: KeyOptions = {}): Promise
       hint: "run `takeone capture hello`",
     });
   }
-  if (verb === "make") return runCaptureMake(rest);
+  if (verb === "make") return runCaptureMake(rest, testPlanner);
   if (verb === "record") return runCaptureRecord(rest);
   if (verb === "stop") return runCaptureStop(rest);
   captureFail({

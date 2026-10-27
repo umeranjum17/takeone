@@ -808,12 +808,13 @@ export function toPlannerAnswers(answers: Record<string, Answer>): PlannerAnswer
   const new_subject = yesno("new_subject");
   const key_moment = score("key_moment", 3);
   if (!focus_start || !focus_end || !tightness || !new_subject || !key_moment) return null;
-  // Camera choices are optional: an abstained or missing one leaves the rule in charge.
   const flag = (k: string): boolean | undefined => {
     const a = answers[k];
     return a && !a.abstained && typeof a.answer === "boolean" ? a.answer : undefined;
   };
-  return { focus_start, focus_end, tightness, new_subject, key_moment, shot: flag("shot"), idle: flag("idle"), follow: flag("follow") };
+  const shot = flag("shot"), idle = flag("idle"), follow = flag("follow");
+  if (shot === undefined || idle === undefined || follow === undefined) return null;
+  return { focus_start, focus_end, tightness, new_subject, key_moment, shot, idle, follow };
 }
 
 /** The decide host for a resolved planner: its credential or account, and

@@ -48,7 +48,7 @@ Round one is the plain baseline. From round two, the judge sees the round-one me
 
 ## Cost and time
 
-- **One judge call per scored round.** A full loop of four rounds makes at most **four judge calls**, and `--max-rounds` is the hard cap. Round one still makes the builder's normal planner calls (none with `--no-ai`); later rounds make none.
+- **One judge call per scored round.** A full loop of four rounds makes at most **four judge calls**, and `--max-rounds` is the hard cap. Round one makes the builder's required planner calls; later rounds reuse its decisions.
 - One extra render at round one measures determinism. The loop therefore renders at most `max-rounds + 1` times.
 - Frame extraction and measurement use local ffmpeg only. No image or measurement leaves the machine except through the configured judge route.
 - Determinism tolerance: at least **99.5%** of decoded frames must be byte-identical on the second render.

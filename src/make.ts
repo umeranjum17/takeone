@@ -14,13 +14,12 @@ import { decodeAnalysisFrames, firstFrameTimeMs, readEvents } from "./perceive/d
 import { segmentBeats, actStart, resultTime, RESULT_MIN_AREA } from "./beats/segment.ts";
 import { actionVideoSeconds } from "./beats/clock.ts";
 import { zonesForBeat, OCR_MAX_AREA } from "./beats/zones.ts";
-import { beatAnswers, beatsPerCall, buildChunk, planChunks, TIGHTNESS_LEVELS, CHUNK_BEATS, CHUNK_TOKEN_CAP, type BeatHint, type ChunkCtx } from "./decide/request.ts";
+import { beatAnswers, beatsPerCall, buildChunk, planChunks, CHUNK_BEATS, CHUNK_TOKEN_CAP, type ChunkCtx } from "./decide/request.ts";
 import { appBrightness, appliedFilm, captionSpans, filmOverrides, joinFilm, mapFilm, planFilm, type FilmDecision } from "./decide/film.ts";
 import type { Answer, DecideCache, ImageInput } from "@byokit/decide";
 import { ConfigError } from "@byokit/decide";
 import { KeystoreError } from "@byokit/secrets";
 import { SecretStoreUnavailable } from "./secrets.ts";
-import { heuristicDecision, RULE_WORDS } from "./decide/heuristics.ts";
 import { mapAnswers, frameRect } from "./decide/mapping.ts";
 import { writePlan } from "./decide/plan.ts";
 import {
@@ -53,8 +52,6 @@ const ANALYSIS_FRAME_MS = 100;
 export interface MakeOptions {
   /** Capture privacy: drop window titles, cache hashes only, no coords in current_shot. */
   capture?: boolean;
-  /** Decide every beat with the local heuristic; zero network calls. */
-  noAi?: boolean;
   /** What the demo is for; sharpens key moments. Alias --about. */
   goal?: string;
   /** Style hint for the film call. */
@@ -67,7 +64,7 @@ export interface MakeOptions {
   replan?: boolean;
   maxTokens?: number;
   /** Host-passed BYOKit credential override for the configured backend;
-   * null disables the planner, undefined loads the configured store. */
+   * null refuses the run, undefined loads the configured store. */
   apiKey?: string | null;
   /** Host opt-in for capture's account route; normal make also stops when no
    * engine can serve the run. `capture make --planner-account`. */
@@ -222,42 +219,27 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
   // 0 planner -----------------------------------------------------------
   // Resolve the provider-agnostic decider before perception output is built:
   // screen words are read by default only when the planner will actually run.
-  let planner: ResolvedPlanner | null = null;
-  let plannerOff = "no signed-in account or stored key was found";
-  if (!opts.noAi) {
-    try {
-      planner = await resolvePlanner({
-        apiKeyOverride: opts.apiKey,
-        ...(opts.configDir === undefined ? {} : { configDir: opts.configDir }),
-      });
-    } catch (e) {
-      // A corrupt planner.json is user error. An unreadable secret store
-      // also stops normal make before any analysis is written.
-      if (e instanceof ConfigError) throw e;
-      if (!(e instanceof SecretStoreUnavailable) &&
-          !(e instanceof KeystoreError && ["unavailable", "unsupported"].includes(e.code))) throw e;
-      planner = null;
-      plannerOff = "the secret store cannot be read";
-      if (opts.requireAi || !opts.noAi) throw accountMissing(`could not be checked: ${plannerOff}`);
-    }
-    if (planner && !planner.active) {
-      // A saved provider whose credential is missing stops without switching.
-      const auth = (planner.config as { auth?: string }).auth;
-      if (!planner.defaulted && opts.apiKey === undefined) {
-        throw new PlannerUnavailable(planner.label, planner.refusal ?? `no ${auth === "account" ? "sign-in" : "key"} for ${planner.label}`);
-      }
-      // A host that passed --planner-account asked for the user's own planner:
-      // with none to serve the run, stop and name the cause instead of
-      // planning with local rules it did not ask for.
-      if (opts.requireAi || !opts.noAi) throw accountMissing(planner.refusal ?? planner.skipped ?? "was not found");
-      if (planner.refusal ?? planner.skipped) plannerOff = (planner.refusal ?? planner.skipped) as string;
-      planner = null;
-    }
-    // A signed-in account that could not serve, while another provider took
-    // the run: say so rather than letting the switch pass unnoticed.
-    if (planner?.skipped) warn(`planner: ${planner.skipped}`);
+  let planner: ResolvedPlanner;
+  try {
+    planner = await resolvePlanner({
+      apiKeyOverride: opts.apiKey,
+      ...(opts.configDir === undefined ? {} : { configDir: opts.configDir }),
+    });
+  } catch (e) {
+    if (e instanceof ConfigError) throw e;
+    if (!(e instanceof SecretStoreUnavailable) &&
+        !(e instanceof KeystoreError && ["unavailable", "unsupported"].includes(e.code))) throw e;
+    throw accountMissing("could not be checked: the secret store cannot be read");
   }
-  const readScreenText = planner !== null && !opts.noScreenText && (!opts.capture || opts.screenText === true);
+  if (!planner.active) {
+    const auth = (planner.config as { auth?: string }).auth;
+    if (!planner.defaulted && opts.apiKey === undefined) {
+      throw new PlannerUnavailable(planner.label, planner.refusal ?? `no ${auth === "account" ? "sign-in" : "key"} for ${planner.label}`);
+    }
+    throw accountMissing(planner.refusal ?? planner.skipped ?? "was not found");
+  }
+  if (planner.skipped) warn(`planner: ${planner.skipped}`);
+  const readScreenText = !opts.noScreenText && (!opts.capture || opts.screenText === true);
 
   // 1 perceive ------------------------------------------------------------
   let videoStartMs: number;
@@ -376,16 +358,7 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
   writeFileSync(join(analysisDir, "beats.json"), JSON.stringify(renderBeats, null, 1));
 
   // 3 decide --------------------------------------------------------------
-  // heuristic pre-pass, in shot order, to fill current_shot
-  const heuristics: Decision[] = [];
-  let viewport: BBox | null = null; // null = full screen
-  for (const b of beats) {
-    const d = heuristicDecision(b, { viewport: viewport ? { bbox: viewport } : null });
-    heuristics.push(d);
-    viewport = finalFrame(b, d, winFor(b.anchor_t)?.rect ?? null, take.stream, aspect);
-  }
-
-  const decisions: Decision[] = [...heuristics];
+  const decisions: Decision[] = [];
   let filmDecision: FilmDecision | null = null;
   let inputTokens = 0;
   let outputTokens = 0;
@@ -396,11 +369,11 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
   const minutes = Math.max(takeMs / 60000, 1 / 60);
   let usd: number | null = 0;
   let planned: MakeResult["planned"] = { planned_tokens: 0, usd: 0 };
-  const plannerBackend = planner ? (planner.config as { backend: string }).backend : null;
-  const plannerPricing = planner ? { backend: plannerBackend!, auth: (planner.config as { auth?: string }).auth } : null;
-  const plannerModel = planner ? modelOf(planner.config) : null;
+  const plannerBackend = (planner.config as { backend: string }).backend;
+  const plannerPricing = { backend: plannerBackend, auth: (planner.config as { auth?: string }).auth };
+  const plannerModel = modelOf(planner.config);
 
-  if (planner) {
+  {
     const maxTokens = opts.maxTokens ?? Math.ceil(DEFAULT_TOKENS_PER_MIN * minutes);
     if (!Number.isSafeInteger(maxTokens) || maxTokens <= 0) {
       throw new PreflightRefusal("--max-tokens must be a positive integer");
@@ -422,24 +395,11 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
     const chunkCtx = (group: number[], decided: Decision[]): ChunkCtx => {
       const i0 = group[0]!;
       const iN = group.at(-1)!;
-      // The rules' choice for every beat of the chunk, starting from the shot
-      // the previous chunk decided: the hints, and the in-chunk shot guess.
-      const hints = new Map<number, BeatHint>();
-      let shot: BBox | null = i0 === 0 ? null : finalFrame(beats[i0 - 1]!, decided[i0 - 1]!, winFor(beats[i0 - 1]!.anchor_t)?.rect ?? null, take.stream, aspect);
-      for (let i = i0; i <= iN; i++) {
-        const d = heuristicDecision(beats[i]!, { viewport: shot ? { bbox: shot } : null });
-        hints.set(i, {
-          suggest_shot: { start: d.A, end: d.B, tightness: TIGHTNESS_LEVELS[d.L]!, rule: RULE_WORDS[beats[i]!.kind] },
-          fits_current_shot: d.p === 0 ? "yes" : "no",
-        });
-        shot = finalFrame(beats[i]!, d, winFor(beats[i]!.anchor_t)?.rect ?? null, take.stream, aspect);
-      }
       return {
         goal: opts.goal,
         style: opts.style,
         currentShot: shotDescription(beats[i0 - 1] ?? null, decided[i0 - 1] ?? null, i0 > 0 ? winFor(beats[i0 - 1]!.anchor_t)?.rect ?? null : null, take.stream, aspect, opts.capture),
         nextBeat: beats[iN + 1],
-        hints: group.map((i) => hints.get(i)!),
         ...(vision ? { images: group.map((i) => keyframes(beats[i]!).map((k) => k.id).filter((id) => !thumbsRead || images.has(id))) } : {}),
       };
     };
@@ -448,10 +408,10 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
       noteTrimmedContext(chunk.trimmed);
       return chunk;
     };
-    // Beats with one zone have nothing to choose; they keep the rules uncounted.
-    const asked = beats.map((_, i) => i).filter((i) => beats[i]!.zones.length >= 2);
-    const plannerBackend = (planner.config as { backend: string }).backend;
-    const chunks = planChunks(asked, build(heuristics), () => failed++, beatsPerCall(plannerBackend));
+    // Every beat needs a model decision, including beats with one zone.
+    const asked = beats.map((_, i) => i);
+    const tooLarge = (i: number): never => { throw new PreflightRefusal(`beat ${beats[i]!.id} exceeds the planner request cap`); };
+    const chunks = planChunks(asked, build(decisions), tooLarge, beatsPerCall(plannerBackend));
     // The film calls decide the whole take: one call, or a chain of chunks when
     // the take is over one request's cap. The film runs before the beat chunks.
     const filmPlan = beats.length === 0 || opts.film === false ? null : planFilm({
@@ -460,7 +420,7 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
       brightness: appBrightness(dec.frames), beats, text: plannerAnswersText(planner.config),
     });
     const filmCalls = filmPlan?.calls.length ?? 0;
-    if (!filmPlan && beats.length > 0 && opts.film !== false) warn(`film call: one beat is over the ${CHUNK_TOKEN_CAP}-token request cap on its own; the film keeps the base look`);
+    if (beats.length > 0 && opts.film !== false && !filmPlan) throw new PreflightRefusal("film request exceeds the planner request cap");
     const plannedTokens = chunks.reduce((n, c) => n + c.chunk.tokens, 0) + (filmPlan?.tokens ?? 0);
     // A malformed answer is asked once more: one re-ask of the largest chunk is
     // reserved, or of every chunk where calls are small and the model often
@@ -469,11 +429,10 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
     const reservedTokens = plannedTokens + (reaskChunks === chunks ? chunks.reduce((n, c) => n + c.chunk.tokens, 0) : Math.max(0, ...chunks.map((c) => c.chunk.tokens)));
     // The ceiling is estimated in the default request shape; other backends
     // answer the same questions, so the bound still holds within its margin.
-    planned = { planned_tokens: reservedTokens, usd: estimateUsd(plannerPricing!.backend, reservedTokens, plannerPricing!.auth) ?? null };
+    planned = { planned_tokens: reservedTokens, usd: estimateUsd(plannerPricing.backend, reservedTokens, plannerPricing.auth) ?? null };
     if (reservedTokens > maxTokens) {
       throw new PreflightRefusal(
-        `planned ${reservedTokens} tokens exceeds the cap of ${maxTokens} (--max-tokens); ` +
-          `use --no-ai or raise the cap`,
+        `planned ${reservedTokens} tokens exceeds the cap of ${maxTokens} (--max-tokens); raise the cap`,
         { plannedTokens: reservedTokens, cap: maxTokens },
       );
     }
@@ -518,12 +477,12 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
       winRect: winFor(beats[i]!.anchor_t)?.rect ?? null,
       stream: take.stream,
       aspect,
-      model: plannerModel!,
+      model: plannerModel,
     });
     const takeOutcome = (r: AskOutcome): void => {
       if (r.inputTokens) {
         inputTokens += r.inputTokens;
-        const cost = estimateUsd(plannerPricing!.backend, r.inputTokens, plannerPricing!.auth);
+        const cost = estimateUsd(plannerPricing.backend, r.inputTokens, plannerPricing.auth);
         usd = usd === null || cost === undefined ? null : usd + cost;
       }
       if (r.outputTokens) outputTokens += r.outputTokens;
@@ -540,24 +499,23 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
         takeOutcome(r);
         replies.push(r.answers);
       }
+      if (replies.some((answers) => !answers)) throw new PlannerUnavailable(planner.label, "the film request returned no usable model answer; no film was rendered");
       filmDecision = mapFilm(joinFilm(replies), filmPlan.calls.at(-1)!.endings, captionSpans(beats, seconds));
+      const missing = [...new Set(filmPlan.calls.flatMap((part) => Object.keys(part.questions)))]
+        .filter((key) => filmDecision!.by[key] !== "ai");
+      if (missing.length) throw new PlannerUnavailable(planner.label, `film answer missing ${missing.join(", ")}; no film was rendered`);
     }
     let reasks = reaskChunks === chunks ? chunks.length : 1;
-    let overReserve = 0;
     // Chunks run in order: each one starts from the shot the previous chunk decided.
     for (const [c, plannedChunk] of chunks.entries()) {
       const later = chunks.slice(c + 1).reduce((n, next) => n + next.chunk.tokens, 0);
-      const rebuilt = planChunks(plannedChunk.items, build(decisions), () => failed++);
+      const rebuilt = planChunks(plannedChunk.items, build(decisions), tooLarge);
       let remaining = rebuilt.reduce((n, part) => n + part.chunk.tokens, 0);
-      // Reserve every rebuilt sibling, later planned chunk, and the possible re-ask.
-      const covered = (tokens: number) => requestTokens + tokens + (remaining - tokens) + later <= reservedTokens;
+      // A previous model shot can grow a later request after preflight. Use the
+      // caller's hard cap for actual asks; never silently skip a rebuilt beat.
+      const covered = (tokens: number) => requestTokens + tokens + (remaining - tokens) + later <= maxTokens;
       for (const { items, chunk } of rebuilt) {
-        if (!covered(chunk.tokens)) {
-          remaining -= chunk.tokens;
-          failed += items.length;
-          overReserve += items.length;
-          continue;
-        }
+        if (!covered(chunk.tokens)) throw new PreflightRefusal(`rebuilt request for ${items.length} beats exceeds the preflight reserve`);
         const ask = async (from: DecideCache) => {
           const r = await askChunk(chunk.state, chunk.questions, planner, from, { fetchImpl: opts.fetchImpl,
             usable: (answers) => items.every((i) => {
@@ -577,9 +535,8 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
         };
         const outcomes = [await ask(cache)];
         remaining -= chunk.tokens;
-        if (outcomes[0]!.decisionSource === "failed" && reasks > 0 && requestTokens + chunk.tokens + remaining + later <= reservedTokens) {
-          // A malformed chunk is asked once more without the cache; beats the
-          // re-ask still cannot map keep the first answer, then the rules.
+        if (outcomes[0]!.decisionSource === "failed" && reasks > 0 && requestTokens + chunk.tokens + remaining + later <= maxTokens) {
+          // A malformed chunk is asked once more without the cache.
           reasks--;
           outcomes.unshift(await ask({ get: async () => undefined, set: (k, v) => cacheFile.set(k, v) }));
         }
@@ -593,12 +550,12 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
               break;
             }
           }
-          if (d) decisions[i] = d;
-          else failed++;
+          if (!d) throw new PlannerUnavailable(planner.label, `beat ${beats[i]!.id} has no usable model decision; no film was rendered`);
+          decisions[i] = d;
         }
       }
     }
-    if (overReserve) warn(`planner: ${overReserve} beats keep the rules; their rebuilt chunk no longer fit the preflight reserve`);
+
   }
   if (filmDecision) {
     // Theme tokens, then the film's choices, then the user's --set pairs (never replaced) and a picked theme.
@@ -611,11 +568,6 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
       `opening ${f.establish_s ?? "unchanged"} s, ends on ${f.end_beat ?? "unchanged"}, ` +
       `title ${f.title === undefined ? "none" : `"${f.title}"`}, ${f.captions?.length ?? 0} captions ` +
       `(${Object.values(f.by).filter((v) => v === "ai").length} of ${Object.keys(f.by).length} by AI)`);
-  }
-
-  // --plan-only without a planner credential: nothing planned, nothing rendered.
-  if (opts.planOnly) {
-    return { take, beats, decisions, planner: { input_tokens: 0, output_tokens: 0, usd: 0, failed: 0, requests: 0, cached: 0, request_tokens: 0 }, planned, out: null, seconds: 0 };
   }
 
   const renderDecisions: RenderDecision[] = decisions.map((d) => ({
@@ -631,14 +583,13 @@ const plan = writePlan(dir, decisions, renderBeats);
   for (const move of plan.moved) {
     log(`plan: the user's edit for beat ${move.from} follows its beat to ${move.to} (key ${move.key}) - the cut moved it`);
   }
-  const byAi = decisions.filter((d) => d.decided_by === "ai").length;
-  const byRule = decisions.length - byAi;
+  const byAi = decisions.length;
   const plannerStats: PlannerStats = {
     input_tokens: inputTokens, output_tokens: outputTokens, usd, failed,
     requests, cached: cachedRequests, request_tokens: requestTokens,
   };
   take.planner = {
-    mode: byAi > 0 ? "ai" : "fallback",
+    mode: "ai",
     backend: plannerBackend,
     model: plannerModel,
     ...plannerStats,
@@ -672,15 +623,10 @@ const plan = writePlan(dir, decisions, renderBeats);
   writeFileSync(join(dir, "take.json"), JSON.stringify(meta, null, 1) + "\n");
   const { out, seconds: renderSeconds } = await renderTake(dir, camera);
 
-  if (planner) {
-    log(`plan: ${byAi} choices by AI, ${byRule} by rules. ` +
-      `make: ${beats.length} beats; ${byAi} by ai, ${byRule} by heuristic; ` +
-      `${inputTokens} input tokens, ${costText(usd)}, ${failed} failed`);
-    log(`planner: ${requests} requests (${cachedRequests} from cache), ${requestTokens} request tokens; ` +
-      `${take.planner.calls_per_min} calls a minute, ${take.planner.request_tokens_per_min} request tokens a minute`);
-  } else {
-    log(`make: ${beats.length} beats; ${byRule} by heuristic (planner: fallback)`);
-  }
+  log(`plan: ${byAi} choices by AI. make: ${beats.length} beats; ${byAi} by ai; ` +
+    `${inputTokens} input tokens, ${costText(usd)}, ${failed} failed`);
+  log(`planner: ${requests} requests (${cachedRequests} from cache), ${requestTokens} request tokens; ` +
+    `${take.planner.calls_per_min} calls a minute, ${take.planner.request_tokens_per_min} request tokens a minute`);
   return { take, beats, decisions, planner: plannerStats, planned, out, seconds: renderSeconds };
 }
 

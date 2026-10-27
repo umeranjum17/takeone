@@ -4,7 +4,7 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, mkdtempSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
@@ -112,7 +112,7 @@ test("capture error envelopes conform to recorder-protocol-1.json", () => {
       { args: ["capture", "bogus"], status: 2 },
       { args: ["capture", "hello", "extra"], status: 2 },
       { args: ["capture", "make"], status: 2 },
-      { args: ["capture", "make", join(home, "nope"), "--no-planner"], status: 1 },
+      { args: ["capture", "make", join(home, "nope"), "--planner-account"], status: 1 },
     ];
     for (const c of cases) {
       const r = run(c.args, { HOME: home });
@@ -137,7 +137,7 @@ function hasFfmpeg(): boolean {
   return ffmpegCache;
 }
 
-test("capture make --no-planner output conforms to recorder-protocol-1.json", {
+test("fixture-backed capture make output conforms to recorder-protocol-1.json", {
   skip: hasFfmpeg() ? undefined : "requires system ffmpeg on PATH",
 }, () => {
   const home = mkdtempSync(join(tmpdir(), "takeone-capschema-"));
@@ -156,10 +156,19 @@ test("capture make --no-planner output conforms to recorder-protocol-1.json", {
     writeFileSync(join(dir, "take.json"), JSON.stringify({
       id: "t1", stream: { w: 320, h: 180 }, scale: 1, offset_ms: 0, pointer: "hyprland",
     }));
-    const r = run(["capture", "make", dir, "--no-planner",
-      "--set", "preset=veryfast", "--set", "out_w=320", "--set", "out_h=180",
-      "--set", "ripple_ms=0", "--set", "fade_s=0"], { HOME: home });
-    assert.equal(r.status, 0, r.stderr);
+    const key = join(dir, "test-key.txt");
+    writeFileSync(key, "test-key-000");
+    const fd = openSync(key, "r");
+    let r;
+    try {
+      r = spawnSync(process.execPath, ["scripts/test-planner.mjs", "capture", "make", dir, "--planner-key-fd", "3", "--max-tokens", "4000",
+        "--set", "preset=veryfast", "--set", "out_w=320", "--set", "out_h=180",
+        "--set", "ripple_ms=0", "--set", "fade_s=0"],
+        { encoding: "utf8", timeout: 300_000, stdio: ["ignore", "pipe", "pipe", fd], env: { ...process.env, HOME: home, XDG_CONFIG_HOME: join(home, "config") } });
+    } finally {
+      closeSync(fd);
+    }
+    assert.equal(r.status, 0, `${r.stderr}\n${r.stdout}`);
     assert.equal(r.stdout.trim().split("\n").length, 1);
     const out = assertWire("make", r.stdout) as { out: string };
     assert.ok(existsSync(out.out) && out.out.endsWith(".mp4"));

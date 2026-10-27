@@ -1,0 +1,20 @@
+{
+  "source": "Sanitized Claude Code responses to a one-beat, two-zone click request and its film request, captured 2026-10-27. The test seam only renames beat/zone choices to the fixture input; no production path loads this file.",
+  "film": {
+    "theme": { "choice": "paper", "probabilities": { "midnight": 0.05, "paper": 0.4, "aurora": 0.03, "mono": 0.05, "sand": 0.35, "editorial": 0.12 }, "confidence": 0.4 },
+    "pace": { "probabilities": [0.2, 0.4, 0.3, 0.1], "confidence": 0.4 },
+    "opening": { "choice": "short", "probabilities": { "establish": 0.15, "short": 0.6, "straight": 0.25 }, "confidence": 0.6 },
+    "camera_style": { "choice": "calm", "probabilities": { "calm": 0.65, "lively": 0.35 }, "confidence": 0.65 },
+    "titled": { "noul": 0.3 }
+  },
+  "beat": {
+    "focus_start": { "choice": "z2", "probabilities": { "z1": 0.15, "z2": 0.85 }, "confidence": 0.85 },
+    "focus_end": { "choice": "z2", "probabilities": { "z1": 0.35, "z2": 0.65 }, "confidence": 0.65 },
+    "tightness": { "probabilities": [0.08, 0.2, 0.55, 0.17], "confidence": 0.55 },
+    "new_subject": { "noul": 0.75 },
+    "key_moment": { "probabilities": [0.25, 0.55, 0.2], "confidence": 0.55 },
+    "shot": { "noul": 0.75 },
+    "idle": { "noul": 0.15 },
+    "follow": { "noul": 0.1 }
+  }
+}
