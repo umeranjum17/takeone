@@ -268,7 +268,7 @@ The loop extracts single frames, measures them, asks the configured judge for a 
 
 ## Motion design from screens
 
-Use `takeone motion` to create a film from images, HTML or a URL without recording:
+Use `takeone motion` to create a film from images, HTML, a URL or an existing take directory without recording:
 
 ```sh
 takeone motion design.png --out takes/launch --theme editorial --title "Ship your next idea" --device browser

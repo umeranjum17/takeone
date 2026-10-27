@@ -224,7 +224,8 @@ export function validateStoryboard(raw: unknown): Storyboard {
   if (!isObj(overrides)) throw new StoryboardError("theme.overrides", "expected an object");
 
   const source = raw["source"];
-  if (!isObj(source) || !["image", "html", "url"].includes(String(source["kind"]))) throw new StoryboardError("source.kind", "choose image, html, url");
+  if (!isObj(source) || !["image", "html", "url", "take"].includes(String(source["kind"]))) throw new StoryboardError("source.kind", "choose image, html, url, take");
+  if (source["kind"] === "take" && (typeof source["dir"] !== "string" || !source["dir"])) throw new StoryboardError("source.dir", "expected the take directory path");
 
   if (source["kind"] === "html" && (typeof source["file"] !== "string" || !source["file"])) throw new StoryboardError("source.file", "expected HTML file path");
   if (source["kind"] === "url" && (typeof source["url"] !== "string" || !/^https?:\/\//.test(source["url"]))) throw new StoryboardError("source.url", "expected http(s) URL");

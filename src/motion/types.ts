@@ -153,9 +153,10 @@ export interface Storyboard {
   clips?: Record<string, Clip>;
   audio?: Audio;
   source: {
-    kind: "image" | "html" | "url";
-    /** image: files; html: file; url: url. Paths are relative to the take dir or absolute. */
+    kind: "image" | "html" | "url" | "take";
+    /** image: files; html: file; url: url; take: dir (the existing take whose footage the clip plays). Paths are relative to the take dir or absolute. */
     files?: string[];
+    dir?: string;
     file?: string;
     url?: string;
     viewport?: [number, number];

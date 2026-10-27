@@ -126,3 +126,31 @@ test("a flag the local rules reject fails before any planning happens", { timeou
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("an existing take is a motion input: its footage becomes an editable clip film planned without a planner", { timeout: 120000 }, async () => {
+  const dir = mkdtempSync(join(tmpdir(), "takeone-take-input-"));
+  try {
+    const take = join(dir, "take");
+    mkdirSync(join(take, "out"), { recursive: true });
+    writeFileSync(join(take, "take.json"), JSON.stringify({ id: "t1" }));
+    assert.throws(() => planStoryboard(parseMotionArgs([take]), "motion"), /no footage/);
+    execFileSync("ffmpeg", ["-nostdin", "-v", "error", "-f", "lavfi", "-i", "color=c=0x335577:s=320x180:d=3:r=30", "-pix_fmt", "yuv420p", join(take, "out", "t1.mp4")]);
+    const args = parseMotionArgs([take, "--title", "My take", "--cta", "Get it", "--url", "example.com"]);
+    const warns: string[] = [];
+    const sb = validateStoryboard(await planMotion(args, "motion", { warn: (s) => warns.push(s) }));
+    assert.deepEqual(warns, []);
+    assert.deepEqual(sb.source, { kind: "take", dir: take });
+    assert.deepEqual(sb.planner, { by: "local", abstained: [] });
+    assert.deepEqual(sb.scenes.map((s) => s.pattern), ["statement", "clip", "statement"]);
+    assert.deepEqual(sb.clips!["footage"]!.files, [join(take, "out", "t1.mp4")]);
+    assert.ok(Math.abs(sb.clips!["footage"]!.d - 3) < 0.1);
+    assert.equal(sb.scenes[1]!.fill, true);
+    assert.deepEqual(sb.scenes.map((s) => s.title), ["My take", undefined, "Get it"]);
+    assert.equal(sb.scenes[2]!.note, "example.com");
+    const out = join(dir, "film");
+    assert.equal(await main(["motion", take, "--out", out, "--plan-only"]), 0);
+    assert.equal(validateStoryboard(JSON.parse(readFileSync(join(out, "storyboard.json"), "utf8"))).source.kind, "take");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

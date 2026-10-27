@@ -97,7 +97,7 @@ Isolated installs (CI, throwaway test HOMEs) can set `TAKEONE_NO_KEYRING=1` so t
 - **AI planning.** A normal `takeone make` needs a signed-in AI engine: it [discovers an existing account](docs/guide.md#discovery-order) or uses a configured key, and stops before analysis if none is available. Sign in with `claude` or `codex login`; no token needs to be pasted into TakeOne. The legacy explicit `--no-ai` mode is still present pending removal. Planner cost is in [docs/cost.md](docs/cost.md).
 - **Exports what you need.** MP4 by default, plus GIF, WebM and ProRes 4444, in landscape, portrait, square or 4:5.
 - **Scores its own film.** `takeone make --target-score 9` renders, judges against a written rubric, fixes the weakest items and renders again, with the per-round score in `out/score.json`.
-- **Motion films from screens.** `takeone motion` turns screenshots, HTML or a URL into a short film.
+- **Motion films from screens.** `takeone motion` turns screenshots, HTML, a URL or a take you already made into a short film.
 
 ## Learn more
 
@@ -107,7 +107,7 @@ Isolated installs (CI, throwaway test HOMEs) can set `TAKEONE_NO_KEYRING=1` so t
 - [Look and pacing](docs/look.md): themes, stage, zoom, captions and every look setting
 - [Edit controls](docs/edit-controls.md): output size and format, hold-style camera, speed regions
 - [Overlays](docs/overlays.md): spotlight and blur regions, shortcut keycaps
-- [Motion films](docs/motion.md): films from screenshots, HTML or a URL
+- [Motion films](docs/motion.md): films from screenshots, HTML, a URL or an existing take
 - [Score loop](docs/score-loop.md): render, judge, improve and the call cap
 - [Cost](docs/cost.md): measured planner cost per minute and its hard caps
 - [Demo scene](docs/headless-scene.md): reproduce the board demo shown above (needs a [git checkout](#from-source): its scripts are not in the npm package)
