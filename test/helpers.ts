@@ -139,7 +139,7 @@ export function recordedPlannerReply(body: string, firstZone = false): Response 
   let answers: Record<string, unknown>;
   if (!state.beats) {
     answers = Object.fromEntries(Object.entries(questions).map(([key, question]) => [key,
-      key === "ending" ? { choice: Object.keys(question.criteria ?? {})[0], probabilities: Object.fromEntries(Object.keys(question.criteria ?? {}).map((id, i) => [id, i === 0 ? 1 : 0])), confidence: 1 }
+      key === "ending" ? { choice: Object.keys(question.criteria ?? {}).at(-1), probabilities: Object.fromEntries(Object.keys(question.criteria ?? {}).map((id, i, ids) => [id, i === ids.length - 1 ? 1 : 0])), confidence: 1 }
         : recorded.film[key],
     ]));
   } else {
