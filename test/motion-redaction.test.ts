@@ -17,6 +17,7 @@ test("each sensitive text class is classified without retaining its value", () =
     ["ip-address", "192.0.2.5"],
   ]);
   for (const [kind, text] of examples) assert.ok(classifyText(text).includes(kind), kind);
+  assert.ok(classifyText("demo@example.test", ["example.test"]).includes("email"), "allowlisting a domain must not expose an email");
 });
 
 test("dry-run masks synthetic personal text, QR and barcode without contacting a planner", { timeout: 120000 }, async () => {
@@ -43,6 +44,9 @@ test("dry-run masks synthetic personal text, QR and barcode without contacting a
     }
     assert.equal(await runMotion([fixture, "--redaction-dry-run", "--out", dir], dir), 0);
     assert.deepEqual(JSON.parse(readFileSync(join(dir, "redaction-report.json"), "utf8")), report);
+    assert.equal(await runMotion([fixture, "--redaction-dry-run", "--public-domain", "example.test", "--out", dir], dir), 0);
+    const allowed = JSON.parse(readFileSync(join(dir, "redaction-report.json"), "utf8")) as typeof report;
+    assert.ok(allowed[0]!.masks.some(m => m.kind === "email"));
   } finally { console.log = savedLog; rmSync(dir, { recursive: true, force: true }); }
 });
 

@@ -5,11 +5,14 @@ import { basename } from "node:path";
 import { decodePng, encodePng } from "./png.ts";
 
 type Box = [number, number, number, number];
-type Mask = { kind: string; box: Box };
+type Mask = { kind: string; box: Box; textLength: number };
 type Word = { text: string; box: Box; line: string };
 
 // The report contains categories and geometry, never OCR text, decoded codes or source paths.
-export interface RedactionReport { image: string; width: number; height: number; masks: Mask[]; scanClean: boolean }
+export interface RedactionReport {
+  image: string; width: number; height: number; masks: Mask[];
+  residual: (Mask & { pass: number })[]; scanClean: boolean;
+}
 
 const rules: [string, RegExp][] = [
   ["email", /[\w.+-]+\s*@\s*[\w.-]+\s*\.\s*[a-z]{2,}/i],
@@ -26,7 +29,11 @@ function command(bin: string, args: string[]): string {
   catch { throw new Error(`redaction cannot run ${bin}; image not sent`); }
 }
 
-export function classifyText(text: string): string[] {
+export function classifyText(text: string, publicDomains: string[] = []): string[] {
+  for (const domain of publicDomains) {
+    const escaped = domain.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    text = text.replace(new RegExp(`(?<![@\\w.-])(?:https?:\\/\\/)?${escaped}(?![\\w.-])`, "gi"), "");
+  }
   return rules.filter(([, pattern]) => pattern.test(text)).map(([kind]) => kind);
 }
 
@@ -54,11 +61,11 @@ function codes(file: string): Mask[] {
     if (!points?.length) throw new Error("redaction cannot locate a barcode; image not sent");
     const xy = points.map(p => p.split(",").map(Number));
     const xs = xy.map(p => p[0]!), ys = xy.map(p => p[1]!);
-    return { kind: line.startsWith("QR-Code:") ? "qr-code" : "barcode", box: [Math.min(...xs), Math.min(...ys), Math.max(...xs) - Math.min(...xs) + 1, Math.max(...ys) - Math.min(...ys) + 1] as Box };
+    return { kind: line.startsWith("QR-Code:") ? "qr-code" : "barcode", box: [Math.min(...xs), Math.min(...ys), Math.max(...xs) - Math.min(...xs) + 1, Math.max(...ys) - Math.min(...ys) + 1] as Box, textLength: 0 };
   });
 }
 
-function covering(words: Word[]): Mask[] {
+function covering(words: Word[], publicDomains: string[]): Mask[] {
   const lines = new Map<string, Word[]>();
   for (const w of words) lines.set(w.line, [...(lines.get(w.line) ?? []), w]);
   const masks: Mask[] = [];
@@ -71,42 +78,52 @@ function covering(words: Word[]): Mask[] {
       else current.push(w);
     }
     for (const line of chunks) {
-      const kinds = classifyText(line.map(w => w.text).join(" "));
-      // All recognized text is hidden, not just regex matches: OCR can split a secret.
-      for (const w of line) masks.push({ kind: "text", box: w.box });
+      const text = line.map(w => w.text).join(" ");
+      const kinds = classifyText(text, publicDomains);
       if (kinds.length) {
         const x = Math.min(...line.map(w => w.box[0])), y = Math.min(...line.map(w => w.box[1]));
         const right = Math.max(...line.map(w => w.box[0] + w.box[2]));
         const bottom = Math.max(...line.map(w => w.box[1] + w.box[3]));
-        for (const kind of kinds) masks.push({ kind, box: [x, y, right - x, bottom - y] });
+        const pad = Math.ceil((bottom - y) / 2);
+        for (const kind of kinds) masks.push({ kind, box: [x - pad, y - pad, right - x + 2 * pad, bottom - y + 2 * pad], textLength: text.length });
       }
     }
   }
   return masks;
 }
 
-/** Write a local PNG preview and inspect its remaining readable text/codes. Never sends an image. */
-export function redactScreenshot(input: string, output: string): RedactionReport {
+/** Local preview with up to three same-detector passes. Never sends an image. */
+export function redactScreenshot(input: string, output: string, publicDomains: string[] = []): RedactionReport {
   let raw;
   try { raw = decodePng(readFileSync(input)); }
   catch { throw new Error("redaction supports only non-interlaced 8-bit RGB/RGBA PNG screenshots; image not sent"); }
   if (!raw.width || !raw.height || raw.width > 16384 || raw.height > 16384) throw new Error("redaction invalid screenshot dimensions; image not sent");
-  const detected = [...words(input, "11"), ...words(input, "6")];
-  const masks = [...new Map([...covering(detected), ...codes(input)].map(m => [JSON.stringify(m), m])).values()];
-  if (!detected.length) throw new Error("redaction could not recognize any screen text; cannot prove clean, image not sent");
   const { width, height, channels, data } = raw;
-  for (const { box } of masks) {
-    const [x, y, w, h] = box;
-    for (let row = Math.max(0, y - 5); row < Math.min(height, y + h + 5); row++)
-      for (let col = Math.max(0, x - 5); col < Math.min(width, x + w + 5); col++) {
-        const at = (row * width + col) * channels;
-        data[at] = data[at + 1] = data[at + 2] = 0;
-        if (channels === 4) data[at + 3] = 255;
-      }
+  const allMasks: Mask[] = [], residual: (Mask & { pass: number })[] = [];
+  let file = input;
+  for (let pass = 1; pass <= 3; pass++) {
+    const detected = [...words(file, "11"), ...words(file, "6")];
+    if (pass === 1 && !detected.length) throw new Error("redaction could not recognize any screen text; cannot prove clean, image not sent");
+    const hits = [...new Map([...covering(detected, publicDomains), ...codes(file)].map(m => [JSON.stringify(m), m])).values()];
+    if (pass > 1) residual.push(...hits.map(hit => ({ ...hit, pass: pass - 1 })));
+    if (!hits.length) {
+      if (pass === 1) writeFileSync(output, encodePng(raw), { mode: 0o600 });
+      return { image: basename(output), width, height, masks: allMasks, residual, scanClean: true };
+    }
+    allMasks.push(...hits);
+    for (const { box } of hits) {
+      const [x, y, w, h] = box;
+      for (let row = Math.max(0, y - 5); row < Math.min(height, y + h + 5); row++)
+        for (let col = Math.max(0, x - 5); col < Math.min(width, x + w + 5); col++) {
+          const at = (row * width + col) * channels;
+          data[at] = data[at + 1] = data[at + 2] = 0;
+          if (channels === 4) data[at + 3] = 255;
+        }
+    }
+    writeFileSync(output, encodePng(raw), { mode: 0o600 });
+    file = output;
   }
-  writeFileSync(output, encodePng(raw), { mode: 0o600 });
-  if (words(output, "11").length || words(output, "6").length || codes(output).length) {
-    throw new Error("redaction verification found readable text or a barcode; image not sent. Review the local preview only.");
-  }
-  return { image: basename(output), width, height, masks, scanClean: true };
+  const finalHits = [...covering([...words(output, "11"), ...words(output, "6")], publicDomains), ...codes(output)];
+  residual.push(...finalHits.map(hit => ({ ...hit, pass: 3 })));
+  return { image: basename(output), width, height, masks: allMasks, residual, scanClean: finalHits.length === 0 };
 }
