@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { join } from "node:path";
 import { homedir } from "node:os";
-import { existsSync, readFileSync, realpathSync, unlinkSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync, statSync, unlinkSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 import { setKeyFromStdin } from "./secrets.ts";
@@ -94,6 +94,9 @@ function isPortraitTake(dir: string): boolean {
   return sourceAspect(dir) === "portrait";
 }
 
+/** GIF size cap (the 15 MiB social upload limit) and the (longest side, fps) steps tried to meet it. */
+const GIF_MAX_BYTES = 15 * 2 ** 20;
+const GIF_STEPS: [number, number][] = [[1080, 15], [720, 12], [540, 10], [360, 8]];
 const ASPECTS = ["landscape", "portrait", "square", "4:5"] as const;
 type Aspect = (typeof ASPECTS)[number];
 
@@ -313,7 +316,12 @@ export async function main(argv: string[]): Promise<number> {
         const output = rendered.replace(/\.mp4$/, `.${suffix}`);
         const threads = renderThreads();
         if (format === "gif") {
-          execFileSync("ffmpeg", ["-nostdin", "-y", "-threads", threads, "-i", rendered, "-filter_threads", threads, "-threads", threads, "-vf", "fps=15,scale='min(1080,iw)':'min(1080,ih)':force_original_aspect_ratio=decrease:flags=lanczos,split[s0][s1];[s0]palettegen[p];[s1][p]paletteuse", output], { stdio: ["ignore", "ignore", "inherit"] });
+          // A GIF grows with the take: step the size and rate down until it fits what chat and social uploads take.
+          for (const [side, fps] of GIF_STEPS) {
+            execFileSync("ffmpeg", ["-nostdin", "-y", "-threads", threads, "-i", rendered, "-filter_threads", threads, "-threads", threads, "-vf", `fps=${fps},scale='min(${side},iw)':'min(${side},ih)':force_original_aspect_ratio=decrease:flags=lanczos,split[s0][s1];[s0]palettegen[p];[s1][p]paletteuse`, output], { stdio: ["ignore", "ignore", "inherit"] });
+            if (statSync(output).size <= GIF_MAX_BYTES) break;
+          }
+          if (statSync(output).size > GIF_MAX_BYTES) throw Error(`the GIF is still ${Math.round(statSync(output).size / 2 ** 20)} MiB at the smallest size; trim the take or use --format webm`);
         } else if (format === "webm") {
           execFileSync("ffmpeg", ["-nostdin", "-y", "-threads", threads, "-i", rendered, "-threads", threads, "-c:v", "libvpx-vp9", "-b:v", "0", "-crf", "32", "-color_primaries", "bt709", "-color_trc", "bt709", "-colorspace", "bt709", "-color_range", "tv", output], { stdio: ["ignore", "ignore", "inherit"] });
         } else {
