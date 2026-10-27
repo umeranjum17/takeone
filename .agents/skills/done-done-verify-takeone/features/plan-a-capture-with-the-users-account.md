@@ -7,8 +7,9 @@ Part of the takeone verification map. Source: `src/capture.ts`, `src/make.ts`, `
 A host app (a program that calls `takeone capture`) has no planner key of its own, and the
 user's only AI access is the signed-in subscription on this machine. The host passes
 `--planner-account` to say it allows takeone to plan with that account; the account is
-resolved exactly as `takeone make` resolves it. Without the flag capture keeps its
-host-owned credential contract and plans with local rules.
+resolved exactly as `takeone make` resolves it. Without the flag capture requires its
+host-owned planner credential. Both routes refuse when no engine is available or a
+model answer is unusable; neither substitutes local rules.
 
 ## Driving it
 
@@ -27,8 +28,8 @@ Harness: Shell (bash), with ffmpeg and ffprobe to decode frames.
 3. The three states to drive: with the flag and a signed-in account (above); with the flag and
    no account (isolated HOME, PATH holding only ffmpeg, no stored key) capture exits 1 with
    `error.code: "planner-unavailable"`, a message naming the cause, and no `out/` directory —
-   never a silent local-rules film; and without the flag (default) capture plans locally even
-   when an account is signed in, warning "no planner key; using heuristic policy for all beats".
+   never a silent local-rules film; and without the flag, capture refuses unless a host-owned
+   planner key is available, even when an account is signed in.
 4. Capture: one still decoded from the planned MP4 at 5 s to
    $DONE_DONE_EVIDENCE_ROOT/takeone-capture-account-after.png, the JSON object and the stderr
    line to $DONE_DONE_EVIDENCE_ROOT/takeone-capture-account-after.txt, and the ffprobe output
