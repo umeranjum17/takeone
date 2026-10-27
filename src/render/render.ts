@@ -124,10 +124,10 @@ export function sourceEdgeCuts(dir: string, meta: TakeMeta, at: (t: number) => n
   };
 }
 
-/** Read the take's durable inputs, write its camera path and render the silent MP4.
- * A preview renders the same camera path from a smaller source, at a smaller export. */
-export async function renderTake(dir: string, camera?: CameraDefaults, preview?: PreviewSpec): Promise<{ out: string; seconds: number }> {
-  let meta = JSON.parse(await readFile(join(dir, "take.json"), "utf8")) as TakeMeta;
+/** Solve a take's camera path from its durable inputs without rendering: the frames the film would show, on the
+ * output clock, and everything the render draws around them. `take` replaces take.json (a trial of unsaved edits). */
+export async function planCamera(dir: string, camera?: CameraDefaults, take?: TakeMeta) {
+  const meta = take ?? JSON.parse(await readFile(join(dir, "take.json"), "utf8")) as TakeMeta;
   let d: CameraDefaults = camera ?? resolveTheme(meta.theme);
   const phone = meta.device !== undefined && meta.height > meta.width;
   if (phone) d = { ...d, corner_radius: 36, stage_margin: Math.max(0.16, d.stage_margin) };
@@ -165,7 +165,7 @@ export async function renderTake(dir: string, camera?: CameraDefaults, preview?:
   const outTime = clock?.at ?? ((t: number) => warp(t - trimStart, squeezes, d.idle_speed));
   const duration = outTime(trimEnd);
   const shownBeats = clipDrags(beats, clock?.spans.filter(s => s.rate > 0) ?? [{ t0: trimStart, t1: trimEnd }]);
-  let outBeats = clock ? editBeats(shownBeats, clock, trimStart) : warpBeats(shownBeats, trimStart, squeezes, d.idle_speed);
+  const outBeats = clock ? editBeats(shownBeats, clock, trimStart) : warpBeats(shownBeats, trimStart, squeezes, d.idle_speed);
   const byId = new Map(outBeats.map(b => [b.id, b]));
   const outDecisions = clock ? decisions.flatMap(decision => {
     const beat = byId.get(decision.beat);
@@ -226,7 +226,6 @@ export async function renderTake(dir: string, camera?: CameraDefaults, preview?:
   const held = wide && d.camera_path === "hold" && !phone ? holdPath(solvedFrames, outBeats, outDecisions,
     { band: solveLayout.band, stage: solveLayout.stage, width: meta.width, height: meta.height, d: cam, minShot: d.min_shot * d.pace },
     videoFrames(join(dir, "screen.webm"), meta.width, meta.height, sourceAt)) : undefined;
-  if (held) await writeFile(join(dir, "camera-holds.json"), JSON.stringify(held.holds, null, 2));
   // Manual spans are source-video seconds; use the same edit clock as footage.
   // Applying them after holdPath prevents its automatic composition from erasing
   // the director's explicit framing. Drag visibility remains the final safety gate.
@@ -274,6 +273,17 @@ export async function renderTake(dir: string, camera?: CameraDefaults, preview?:
     const moveCuts = sourceEdgeCuts(dir, meta, (t) => sourceAt(t - trimStart))!;
     return (f) => { const at = Math.round((trimStart + f.t) * 10) / 10; return moveCuts(banded ? f : project(f), at - 0.05, at + 0.05) > 0; };
   }, cam);
+  return { meta, d, phone, trimStart, trimEnd, squeezes, clock, outTime, duration, outBeats, outDecisions, captions,
+    layout, solveLayout, sourceAt, held, frames };
+}
+
+/** Read the take's durable inputs, write its camera path and render the silent MP4.
+ * A preview renders the same camera path from a smaller source, at a smaller export. */
+export async function renderTake(dir: string, camera?: CameraDefaults, preview?: PreviewSpec): Promise<{ out: string; seconds: number }> {
+  const plan = await planCamera(dir, camera);
+  const { phone, trimStart, trimEnd, squeezes, clock, outTime, duration, outDecisions, captions, layout, solveLayout, sourceAt, held } = plan;
+  let { meta, d, outBeats, frames } = plan;
+  if (held) await writeFile(join(dir, "camera-holds.json"), JSON.stringify(held.holds, null, 2));
   await writeFile(join(dir, "camera.json"), JSON.stringify(frames));
   // A preview renders the same camera path from a smaller source: the source-space inputs
   // and the camera frames scale with the proxy, the export-space constants with the

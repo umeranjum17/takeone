@@ -100,7 +100,11 @@ export async function runScoreLoop(hooks: LoopHooks): Promise<LoopResult> {
     if (round === maxRounds) { stop = "max-rounds"; break; }
     actions = await hooks.improve(card, measured, round);
     record.actions = actions;
-    if (actions.length === 0) { stop = "no-improvement"; break; }
+    if (actions.length === 0) {
+      stop = "no-improvement";
+      logLine(hooks, `score: stop after round ${round} - no gain left: no remaining build-input change measurably changes the film`);
+      break;
+    }
     for (const action of actions) logLine(hooks, `score: round ${round + 1} will ${action}`);
   }
 

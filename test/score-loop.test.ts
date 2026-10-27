@@ -4,6 +4,8 @@ import { runScoreLoop, type BuildOutput, type LoopHooks } from "../src/score/loo
 import { DETERMINISM_TOLERANCE, RUBRIC, scoreCard, type MeasuredFacts, type ScoreCard } from "../src/score/rubric.ts";
 import { improveRound } from "../src/score/improve.ts";
 import { DEFAULTS } from "../src/camera/defaults.ts";
+import { planCamera } from "../src/render/render.ts";
+import { clickShot } from "../src/score/measure.ts";
 import type { TakeMeta } from "../src/camera/types.ts";
 import { readFileSync, writeFileSync } from "node:fs";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
@@ -146,7 +148,7 @@ test("a dead opening the warp cannot squeeze is trimmed so the take starts just 
     const pacing = { ...card(9, 1), items: card(9, 1).items.map((i) => i.id === "pacing" ? { ...i, score: 3 } : { ...i, score: 10 }) };
     const limitations: string[] = [];
     const actions = await improveRound(pacing, hold, {
-      dir, camera: { ...DEFAULTS }, meta, writeMeta: () => writeFileSync(join(dir, "take.json"), JSON.stringify(meta)), singlePass: () => {}, limitations,
+      dir, camera: { ...DEFAULTS }, meta, writeMeta: () => writeFileSync(join(dir, "take.json"), JSON.stringify(meta)), singlePass: () => true, solve: async () => [], limitations,
     });
     const lead = DEFAULTS.establish_s / 2 + DEFAULTS.anchor_early + DEFAULTS.move_t_max;
     assert.deepEqual(limitations, []);
@@ -157,10 +159,88 @@ test("a dead opening the warp cannot squeeze is trimmed so the take starts just 
     // A take that ends soon after its action keeps the 3 s the rubric asks of a film.
     const short = { id: "short", width: 4800, height: 2700, duration: 4.2, stream: { w: 4800, h: 2700 } } as unknown as TakeMeta;
     await improveRound(pacing, facts(1, { longestHold: 3.683, longestHoldAt: 0, duration: 3.9 }), {
-      dir, camera: { ...DEFAULTS }, meta: short, writeMeta: () => {}, singlePass: () => {}, limitations,
+      dir, camera: { ...DEFAULTS }, meta: short, writeMeta: () => {}, singlePass: () => true, solve: async () => [], limitations,
     });
     assert.equal(short.trim_start, 0.9);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
+});
+
+/** A page take's saved analysis: an opening rest, then a click on `act` whose result appears in `res` at 3.7 s. */
+async function clickTake(act: [number, number, number, number], res: [number, number, number, number]): Promise<{ dir: string; meta: TakeMeta }> {
+  const dir = await mkdtemp(join(tmpdir(), "takeone-widen-"));
+  const beats = [
+    { id: "b1", kind: "idle", t0: 0, t1: 1.45, anchor_t: 0, zones: [{ name: "all", type: "all", bbox: [0, 0, 4800, 2700] }],
+      actions: [{ k: "focus", t: 0 }, { k: "dwell", t0: 0, t1: 1.45 }] },
+    { id: "b2", kind: "click", t0: 2.767, t1: 4.2, anchor_t: 2.767,
+      zones: [{ name: "control", type: "act", bbox: act }, { name: "result", type: "res", bbox: res, t_change: 3.7 }],
+      actions: [{ k: "dwell", t0: 2.767, t1: 3.6 }, { k: "click", t: 3.683, x: act[0] + act[2] / 2, y: act[1] + act[3] / 2 }] },
+  ];
+  const decisions = [
+    { beat: "b1", A: "all", L: 0, p: 0, K: 1, conf: {}, decided_by: "heuristic" },
+    { beat: "b2", A: "control", L: 2, p: 0, K: 1, conf: {}, decided_by: "heuristic" },
+  ];
+  await mkdir(join(dir, "analysis"));
+  await writeFile(join(dir, "analysis/beats.json"), JSON.stringify(beats));
+  await writeFile(join(dir, "analysis/decisions.jsonl"), decisions.map((d) => JSON.stringify(d)).join("\n") + "\n");
+  const meta = { id: "widen", width: 4800, height: 2700, duration: 5.4, stream: { w: 4800, h: 2700 }, cursor_free: true } as unknown as TakeMeta;
+  await writeFile(join(dir, "take.json"), JSON.stringify(meta));
+  return { dir, meta };
+}
+
+function interactionCard(): ScoreCard {
+  const base = card(9, 2);
+  return { ...base, items: base.items.map((i) => ({ ...i, score: i.id === "interaction" ? 5 : i.id === "pacing" ? 6 : 10 })) };
+}
+
+test("a wider push-in that the solved camera path shows no differently is not spent; the next-best item's change is", async () => {
+  // A small control: its padded push-in asks for more than the 2.5x a 4800 px source allows into 1920 px, so a third more
+  // padding still solves to the same capped shot (the landing-page take spent a round on exactly this).
+  const { dir, meta } = await clickTake([3100, 1340, 180, 90], [2400, 1600, 2000, 1000]);
+  try {
+    const camera = { ...DEFAULTS, stage_margin: 0 };
+    const frames = (await planCamera(dir, camera, meta)).frames;
+    const before = clickShot(dir, meta, camera, frames);
+    assert.ok(before.resultInFrame !== undefined && before.resultInFrame < 0.5, `result ${before.resultInFrame}`);
+    const limitations: string[] = [];
+    const actions = await improveRound(interactionCard(), facts(2, { resultInFrame: before.resultInFrame, zoomAtClick: before.zoomAtClick, longestHold: 3.683, longestHoldAt: 0, duration: 6 }), {
+      dir, camera, meta, writeMeta: () => writeFileSync(join(dir, "take.json"), JSON.stringify(meta)), singlePass: () => true, limitations,
+      solve: async (c, m) => (await planCamera(dir, c, m)).frames,
+    });
+    assert.equal(camera.l2_pad, DEFAULTS.l2_pad, "the padding is left as it was");
+    assert.match(limitations.join("\n"), /no change: shot padding 1\.8 -> 2\.4 leaves \d+% of the click's result in the last frame \(was \d+%; needs 5% more\)/);
+    assert.equal(actions.length, 1, actions.join("; "));
+    assert.match(actions[0]!, /^trim the dead opening/, "the round goes to the next-best item, pacing");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("a wider push-in that shows more of the click's result is kept, with the solved before and after", async () => {
+  // A wide control under the upscale cap: a third more padding pulls the shot out over the result below it.
+  const { dir, meta } = await clickTake([1800, 900, 1200, 500], [1600, 1500, 1800, 1000]);
+  try {
+    const camera = { ...DEFAULTS, stage_margin: 0 };
+    const before = clickShot(dir, meta, camera, (await planCamera(dir, camera, meta)).frames);
+    const limitations: string[] = [];
+    const actions = await improveRound(interactionCard(), facts(2, { resultInFrame: before.resultInFrame, zoomAtClick: before.zoomAtClick }), {
+      dir, camera, meta, writeMeta: () => {}, singlePass: () => true, limitations,
+      solve: async (c, m) => (await planCamera(dir, c, m)).frames,
+    });
+    const widened = actions.find((a) => a.startsWith("widen the push-in"));
+    assert.ok(widened, `${actions.join("; ")} | ${limitations.join("; ")}`);
+    const [, from, to] = /result in the last frame (\d+)% -> (\d+)%$/.exec(widened)!;
+    assert.ok(Number(to) - Number(from) >= 5, widened);
+    assert.equal(camera.l2_pad, 2.4);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("a round with no change left that measurably changes the film stops with no gain", async () => {
+  const lines: string[] = [];
+  const result = await runScoreLoop({ ...hooks([6], { actions: () => [] }), log: (line) => lines.push(line) });
+  assert.equal(result.stop, "no-improvement");
+  assert.match(lines.join("\n"), /score: stop after round 1 - no gain left: no remaining build-input change measurably changes the film/);
 });
