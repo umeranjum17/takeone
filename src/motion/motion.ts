@@ -140,6 +140,7 @@ export async function renderMotion(dir: string, o: RenderOptions = {}): Promise<
     if (o.size) throw new Error("hyperframes engine does not re-lay out --aspect; render with --engine legacy");
     if (o.stills) throw new Error("hyperframes engine does not write stills; render with --engine legacy");
     if (o.framesDir) throw new Error("hyperframes engine does not write legacy frame directories; use --engine legacy for frame proofs");
+    await safeAreaGate(dir, tag, html, sb, Array.from({ length: frames }, (_, i) => i / fps), shell);
     const { renderHyperframes } = await import("./hyperframes.ts");
     return await renderHyperframes(dir, sb, { workers: o.workers });
   }
@@ -178,8 +179,8 @@ export async function renderMotion(dir: string, o: RenderOptions = {}): Promise<
 
 interface SafeHit { t: number; pattern: string; text: string; box: number[] }
 
-/** Fail before any frame is drawn when a title, note, label or footage window crosses the frame's 5% inset at any
- * of these film times; the full list goes to safe-area[-WxH].json. */
+/** Fail before any frame is drawn when a title, note, label or footage window crosses the frame's 5% inset, or a clipping
+ * box cuts a shown word part-way, at any of these film times; the full list goes to safe-area[-WxH].json. */
 async function safeAreaGate(dir: string, tag: string, html: string, sb: Storyboard, times: number[], shell: Awaited<ReturnType<typeof pinnedShell>>): Promise<void> {
   const report = join(dir, `safe-area${tag}.json`);
   const hits = await withPage<SafeHit[]>(html, sb.output.out_w, sb.output.out_h,
@@ -187,5 +188,5 @@ async function safeAreaGate(dir: string, tag: string, html: string, sb: Storyboa
   if (!hits.length) { rmSync(report, { force: true }); return; }
   writeFileSync(report, JSON.stringify(hits, null, 2) + "\n");
   const [x0, y0, x1, y1] = hits[0]!.box;
-  throw new Error(`safe area: ${hits.length} box(es) cross the 5% inset; first at ${hits[0]!.t.toFixed(3)} s, ${hits[0]!.pattern} "${hits[0]!.text}" at ${x0},${y0}-${x1},${y1} (all in ${report})`);
+  throw new Error(`safe area: ${hits.length} box(es) cross the 5% inset or cut a word; first at ${hits[0]!.t.toFixed(3)} s, ${hits[0]!.pattern} "${hits[0]!.text}" at ${x0},${y0}-${x1},${y1} (all in ${report})`);
 }

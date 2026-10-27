@@ -752,6 +752,16 @@ test("the default establishing hold keeps the whole stage, the outro brings it b
   for (const f of held.filter(f => f.t >= 8 - DEFAULTS.outro_s)) assert.equal(f.w, 3840);
 });
 
+test("an early first click shortens the establishing hold so the push-in lands by the click", () => {
+  // A 2.2 s click under the full 1.6 s hold left the camera at 1.12x on the click, still moving.
+  const click = { ...beat("click", 2.2, 2600), t0: 0, actions: [{ k: "click", t: 2200, x: 2690, y: 960, window_cls: "page" }] } as Beat;
+  const frames = solveCamera([click], [decision(click)], { width: 3840, height: 2160, trim_start: 0, trim_end: 6 });
+  for (const f of frames.filter(f => f.t <= DEFAULTS.establish_s / 2)) assert.equal(f.w, 3840, "half the hold still reads");
+  const atClick = frames[Math.round(2.2 * DEFAULTS.fps)]!;
+  const settled = Math.min(...frames.map(f => f.w));
+  assert.ok(atClick.w < 3840 / 1.6 && atClick.w < settled * 1.15, `zoom at the click ${(3840 / atClick.w).toFixed(2)}x, settled ${(3840 / settled).toFixed(2)}x`);
+});
+
 // J2 reveal regression (found on the real take at 38.0 s): a wide revealed
 // result used to park slicing the detected surfaces beside it — the column
 // label row cut in half at the top of the frame — because revealed zones

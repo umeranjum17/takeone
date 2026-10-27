@@ -38,10 +38,11 @@ window.mountScenes = (root, scenes, W, H, shiftMs = 0, keyPrefix = "") => {
     window.BASE = s.at * 1000 + shiftMs;
     const dMs = s.d * 1000;
     WINDOW(layer, 0, dMs);
-    // Beats move into each other: every top-level scene after the opener pushes in over
-    // its first half second (the opener holds still). Tile clocks (shiftMs/keyPrefix) and
-    // `cut` scenes keep hard cuts on the beat.
-    if (i > 0 && !shiftMs && !keyPrefix && !s.cut) K(layer, [[0, { transform: "translateX(6%)", opacity: "0" }, SMOOTH], [500, { transform: "none", opacity: "1" }]]);
+    // Beats move into each other: every top-level scene after the opener settles in from a 4% push over
+    // its first half second (the opener holds still). It is drawn whole from its first frame: the scene
+    // before has ended, so a fade from nothing would open the scene, a cut point, on bare background.
+    // Tile clocks (shiftMs/keyPrefix) and `cut` scenes keep hard cuts on the beat.
+    if (i > 0 && !shiftMs && !keyPrefix && !s.cut) K(layer, [[0, { transform: "scale(1.04)" }, SMOOTH], [500, { transform: "none" }]]);
     const build = PATTERNS[s.pattern];
     if (!build) throw new Error(`no pattern ${s.pattern}`);
     build(layer, s, sceneCtx(W, H, s, keyPrefix + i));

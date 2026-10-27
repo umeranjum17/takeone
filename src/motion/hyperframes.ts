@@ -307,6 +307,19 @@ export async function renderHyperframes(dir: string, sb: Storyboard, o: Hyperfra
   return { out, manifest };
 }
 
+/** A frame whose luma spans fewer levels than this is one flat colour: a blank (black or bare) frame. */
+export const BLANK_LUMA_RANGE = 12;
+
+/** [min, max] luma of a clip's first and last decoded frames. */
+async function edgeLuma(file: string, frames: number): Promise<[number, number][]> {
+  const { stdout } = await execFileAsync("ffmpeg", ["-nostdin", "-v", "error", "-threads", "2", "-filter_threads", "2", "-i", file,
+    "-vf", `select=eq(n\\,0)+eq(n\\,${frames - 1}),signalstats,metadata=print:file=-`, "-f", "null", "-"], { timeout: 300_000, maxBuffer: 1024 * 1024 });
+  const lo = [...stdout.matchAll(/YMIN=(\d+)/g)].map((m) => Number(m[1])), hi = [...stdout.matchAll(/YMAX=(\d+)/g)].map((m) => Number(m[1]));
+  if (lo.length < 1 || hi.length !== lo.length) throw new Error(`hyperframes engine: could not read the edge frames of ${file}`);
+  const edges = lo.map((l, k): [number, number] => [l, hi[k]!]);
+  return [edges[0]!, edges.at(-1)!];
+}
+
 export interface SceneCut { index: number; file: string; start: number; end: number; title: string; pattern: string; frames: number }
 
 /** One file per scene, cut from the film on its exact frames, and out/scenes.json listing each one's start, end and title. */
@@ -329,6 +342,10 @@ export async function writeScenes(dir: string, sb: Storyboard, film: string): Pr
       "-movflags", "+faststart", join(scenesDir, name)], { timeout: 900_000 });
     const p = probe(join(scenesDir, name));
     if (p.frames !== b - a) throw new Error(`hyperframes engine: scene ${i + 1} cut ${p.frames} frames, expected ${b - a}`);
+    const [first, last] = await edgeLuma(join(scenesDir, name), b - a);
+    for (const [edge, [lo, hi]] of [["first", first!], ["last", last!]] as const) {
+      if (hi - lo < BLANK_LUMA_RANGE) throw new Error(`hyperframes engine: scene ${i + 1} (${name}) ${edge} frame is blank (luma ${lo}-${hi}); a cut-ready clip opens and ends on picture`);
+    }
     cuts.push({ index: i + 1, file: `out/scenes/${name}`, start: a / fps, end: b / fps, title, pattern: s.pattern, frames: b - a });
   }
   writeFileSync(join(dir, "out", "scenes.json"), `${JSON.stringify({ film: `out/${basename(film)}`, fps, scenes: cuts }, null, 2)}\n`);

@@ -27,19 +27,28 @@ const LEVELS = [
 const MAX_IMAGES = 3;
 export const JUDGE_TIMEOUT_MS = 180000;
 
+/** Where the longest actionless span sits: an opening establishing shot reads differently from dead air mid-film. */
+function holdWhere(f: MeasuredFacts): string {
+  if (f.longestHoldAt === undefined || f.longestHold <= 0) return "";
+  const end = f.longestHoldAt + f.longestHold;
+  const where = f.longestHoldAt < 0.05 ? "the opening shot, before the first action" : end > f.duration - 0.05 ? "the closing shot, after the last action" : "between two actions";
+  return ` (${f.longestHoldAt.toFixed(2)}-${end.toFixed(2)}s, ${where})`;
+}
+
 function factsText(f: MeasuredFacts): string {
   return [
     `${f.duration.toFixed(2)}s, ${f.frameCount} frames`,
     `page area share ${(f.pageShare * 100).toFixed(1)}% (stage margin ${(f.stageMargin * 100).toFixed(1)}%)`,
-    `beats ${f.beats}; longest actionless span ${f.longestHold.toFixed(2)}s`,
+    `beats ${f.beats}; longest actionless span ${f.longestHold.toFixed(2)}s${holdWhere(f)}`,
     f.pointerSamples === 0 ? "no pointer samples" : `${f.pointerSamples} pointer samples`,
     f.cursorDrawn ? "drawn cursor present" : "no drawn cursor",
     f.clickOverlay ? `${f.clickCount} click(s) drawn` : "no click emphasis",
     `camera zoom at the click ${f.zoomAtClick.toFixed(2)}x`,
+    ...(f.resultInFrame === undefined ? [] : [`${Math.round(f.resultInFrame * 100)}% of the click's result region in the last frame`]),
     `${f.captions} caption(s), ${f.title ? "title present" : "no title"}, caption type ${f.captionSize}px`,
     f.safeAreaFailures === 0 ? "safe-area check passed" : `${f.safeAreaFailures} safe-area failures`,
     `determinism ${f.determinism.identical}/${f.determinism.frames} identical frames (tolerance ${(f.determinism.tolerance * 100).toFixed(1)}%)`,
-    f.baseline === undefined ? "baseline: this round is the baseline" : `baseline round ${f.baseline.round}: score ${f.baseline.score.toFixed(1)}, page ${(f.baseline.pageShare * 100).toFixed(1)}%, cursor ${f.baseline.cursorDrawn ? "yes" : "no"}, click ${f.baseline.clickOverlay ? "yes" : "no"}, zoom ${f.baseline.zoomAtClick.toFixed(2)}x`,
+    f.baseline === undefined ? "baseline: this round is the baseline" : `baseline round ${f.baseline.round}: score ${f.baseline.score.toFixed(1)}, page ${(f.baseline.pageShare * 100).toFixed(1)}%, cursor ${f.baseline.cursorDrawn ? "yes" : "no"}, click ${f.baseline.clickOverlay ? "yes" : "no"}, zoom ${f.baseline.zoomAtClick.toFixed(2)}x${f.baseline.resultInFrame === undefined ? "" : `, click result ${Math.round(f.baseline.resultInFrame * 100)}% in the last frame`}`,
   ].join("; ");
 }
 
@@ -65,6 +74,14 @@ function imageInputs(f: MeasuredFacts): ImageInput[] | undefined {
     mime: "image/png",
     bytes: new Uint8Array(readFileSync(frame.path)),
   }));
+}
+
+/** A score the judge split evenly between levels abstains as a tie; the strict reading is the lower tied level. */
+function lowerOfTie(a: Answer): number | undefined {
+  if (!a.abstained || a.reason !== "tie" || !a.probabilities) return undefined;
+  const top = Math.max(...Object.values(a.probabilities));
+  const levels = Object.entries(a.probabilities).filter(([, p]) => p === top).map(([level]) => Number(level));
+  return levels.every(Number.isFinite) ? Math.min(...levels) : undefined;
 }
 
 export interface JudgeOptions {
@@ -104,6 +121,8 @@ export async function judgeRound(
       safeAreaFailures: facts.safeAreaFailures,
       beats: facts.beats,
       longestHold: facts.longestHold,
+      ...(facts.longestHoldAt === undefined ? {} : { longestHoldAt: facts.longestHoldAt }),
+      ...(facts.resultInFrame === undefined ? {} : { resultInFrame: facts.resultInFrame }),
       determinism: facts.determinism,
       baseline: facts.baseline ?? null,
       frames: facts.frames.map(({ label, t, shows }) => ({ label, t: Number(t.toFixed(2)), shows })),
@@ -120,10 +139,11 @@ export async function judgeRound(
   for (const item of RUBRIC) {
     if (item.id === "baseline" && facts.baseline === undefined) continue;
     const answer: Answer | undefined = outcome.answers[item.id];
-    if (!answer || answer.abstained || answer.answer === null || answer.answer === undefined) {
+    const tied = answer ? lowerOfTie(answer) : undefined;
+    if (tied === undefined && (!answer || answer.abstained || answer.answer === null || answer.answer === undefined)) {
       throw new JudgeUnavailable(`${item.id}: ${answer?.reason ?? "no answer"}`);
     }
-    const value = typeof answer.answer === "number" ? answer.answer : Number(answer.answer);
+    const value = tied ?? (typeof answer!.answer === "number" ? answer!.answer : Number(answer!.answer));
     if (!Number.isFinite(value)) throw new JudgeUnavailable(`${item.id}: non-numeric answer`);
     scores[item.id] = value;
   }

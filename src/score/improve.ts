@@ -3,6 +3,7 @@ import { join } from "node:path";
 import type { CameraDefaults } from "../camera/defaults.ts";
 import type { ManualZoom, TakeMeta } from "../camera/types.ts";
 import { purposefulEnd } from "../render/pace.ts";
+import { longestHoldFor, pacedBeats } from "./measure.ts";
 import type { MeasuredFacts, ScoreCard } from "./rubric.ts";
 
 interface SavedAction { k?: string; t?: number; x?: number; y?: number }
@@ -35,6 +36,26 @@ function clip(v: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, v));
 }
 
+/**
+ * A take that waits before its first action opens on dead air the warp cannot squeeze (the establishing hold sits
+ * there). Start it later, keeping the shortest establishing hold the camera allows plus the push-in's move before
+ * that action, and never below the rubric's 3 s short-film floor; taken only when that measurably shortens the
+ * longest actionless span.
+ */
+function openingTrim(ctx: ImproveContext, hold: number, duration: number): string | null {
+  const beats = JSON.parse(readFileSync(join(ctx.dir, "analysis/beats.json"), "utf8")) as SavedBeat[];
+  const from = ctx.meta.trim_start ?? 0;
+  const first = Math.min(...beats.flatMap((b) => b.actions ?? [])
+    .flatMap((a) => a.k !== "dwell" && a.k !== "ptr" && typeof a.t === "number" && a.t > from + 0.05 ? [a.t] : []));
+  const to = round3(Math.min(first - (ctx.camera.establish_s / 2 + ctx.camera.anchor_early + ctx.camera.move_t_max), from + duration - 3));
+  if (!Number.isFinite(to) || to <= from || (ctx.meta.trim_end !== undefined && ctx.meta.trim_end <= to)) return null;
+  const next = longestHoldFor(ctx.dir, { ...ctx.meta, trim_start: to }, ctx.camera).span;
+  if (next >= hold - 0.1) return null;
+  ctx.meta.trim_start = to;
+  ctx.writeMeta();
+  return `trim the dead opening: start ${from}s -> ${to}s; longest actionless span ${hold.toFixed(2)}s -> ${next.toFixed(2)}s`;
+}
+
 function addClickZoom(ctx: ImproveContext, facts: MeasuredFacts): string | null {
   if (facts.zoomAtClick >= 1.1) return null;
   if ((ctx.meta.zooms?.length ?? 0) > 0) {
@@ -56,7 +77,7 @@ function addClickZoom(ctx: ImproveContext, facts: MeasuredFacts): string | null 
   ];
   const trimStart = ctx.meta.trim_start ?? 0;
   const beats = JSON.parse(readFileSync(join(ctx.dir, "analysis/beats.json"), "utf8")) as never[];
-  const trimEnd = ctx.meta.trim_end ?? purposefulEnd(beats, trimStart, ctx.meta.duration ?? 0, ctx.camera);
+  const trimEnd = ctx.meta.trim_end ?? purposefulEnd(pacedBeats(ctx.meta, beats), trimStart, ctx.meta.duration ?? 0, ctx.camera);
   const t0 = Math.max(trimStart, click.t - 0.5);
   const t1 = Math.min(trimEnd, Math.max(t0 + 0.5, click.t + 1.5));
   if (t1 - t0 < 0.5) return null;
@@ -75,7 +96,8 @@ export async function improveRound(card: ScoreCard, facts: MeasuredFacts, ctx: I
     if (item.id === "page") {
       const from = ctx.camera.stage_margin;
       if (from <= 0) continue;
-      const to = from >= 0.03 ? round3(from * 0.4) : 0;
+      // Straight to the full page: any margin left keeps the page under the rubric's 97% share and costs a round.
+      const to = 0;
       if (to === from) continue;
       ctx.camera.stage_margin = to;
       actions.push(`enlarge the page: stage margin ${(from * 100).toFixed(1)}% -> ${(to * 100).toFixed(1)}%`);
@@ -91,6 +113,16 @@ export async function improveRound(card: ScoreCard, facts: MeasuredFacts, ctx: I
         actions.push("draw the recorded cursor and hold the click ripple longer");
       }
       const before = ctx.limitations.length;
+      // A push-in that ends on the clicked control alone hides what the click did: frame the shots a third wider so the
+      // composer can take in the result beside the control.
+      if (facts.resultInFrame !== undefined && facts.resultInFrame < 0.5 && ctx.camera.l2_pad < 2.4) {
+        const from = ctx.camera.l2_pad;
+        ctx.camera.l1_pad = round3(ctx.camera.l1_pad * 4 / 3);
+        ctx.camera.l2_pad = round3(from * 4 / 3);
+        ctx.camera.l3_pad = round3(ctx.camera.l3_pad * 4 / 3);
+        changed = true;
+        actions.push(`widen the push-in so the click's result is in frame (${Math.round(facts.resultInFrame * 100)}% at the end): shot padding ${from} -> ${ctx.camera.l2_pad}`);
+      }
       const zoom = addClickZoom(ctx, facts);
       if (zoom) { changed = true; actions.push(zoom); }
       if (!changed && ctx.limitations.length === before) {
@@ -111,10 +143,19 @@ export async function improveRound(card: ScoreCard, facts: MeasuredFacts, ctx: I
       continue;
     }
     if (item.id === "pacing") {
-      if (facts.longestHold > 2.5 && ctx.camera.idle_speed > 1) {
-        const from = ctx.camera.idle_speed;
-        ctx.camera.idle_speed = from - 1;
-        actions.push(`play idle gaps ${from}x -> ${ctx.camera.idle_speed}x faster`);
+      // Shorten the longest actionless span: play idle gaps twice as fast and keep half the real time around each action.
+      // Taken only when the warp measurably shortens that span; footage that is not idle (an opening establishing shot,
+      // a move in flight) is recorded as a limitation instead of re-rendered for nothing.
+      const trial = { ...ctx.camera, idle_speed: Math.min(16, Math.max(2, ctx.camera.idle_speed * 2)), idle_keep: round3(Math.max(0.4, ctx.camera.idle_keep / 2)) };
+      const next = longestHoldFor(ctx.dir, ctx.meta, trial).span;
+      if (next < facts.longestHold - 0.1) {
+        actions.push(`squeeze idle footage: ${ctx.camera.idle_speed}x -> ${trial.idle_speed}x, ${ctx.camera.idle_keep}s -> ${trial.idle_keep}s kept around each action; longest actionless span ${facts.longestHold.toFixed(2)}s -> ${next.toFixed(2)}s`);
+        ctx.camera.idle_speed = trial.idle_speed;
+        ctx.camera.idle_keep = trial.idle_keep;
+      } else {
+        const trimmed = facts.longestHoldAt === 0 ? openingTrim(ctx, facts.longestHold, facts.duration) : null;
+        if (trimmed) actions.push(trimmed);
+        else ctx.limitations.push(`pacing: the longest actionless span (${facts.longestHold.toFixed(2)}s) is not idle footage the warp can squeeze`);
       }
       continue;
     }
