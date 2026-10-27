@@ -8,11 +8,14 @@
 // Frames are split by camera speed like cut-audit; fades and fast sweeps (motion blur) are reported, not gated.
 // usage: node scripts/text-audit.ts <rendered-take-dir>... [--every N]
 import { execFileSync } from "node:child_process";
-import { basename, join } from "node:path";
+import { basename, isAbsolute, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { renderClock } from "./cut-audit.ts";
 import { edgeSpeed, still, SWEEP_EDGE_SPEED } from "../src/camera/sweep.ts";
+import { existsSync, readFileSync } from "node:fs";
 import { sourceViewport, stageGeometry } from "../src/render/stage.ts";
+import type { CameraFrame } from "../src/camera/types.ts";
+import type { Storyboard } from "../src/motion/types.ts";
 
 /** Gates, fixed before measuring: half an 8-bit level of grain, a quarter of the quality gate's edge floor gone, a visible fringe. */
 export const GATES = { grain: 0.5, halo: 8, sharpness: 0.75 };
@@ -30,25 +33,52 @@ function decode(file: string, second: number, frames: number, fmt: string, size:
 }
 
 export function auditText(dir: string, every = 15): TextAudit {
-  const { meta, d, frames, sourceAt } = renderClock(dir);
-  if (meta.title || meta.captions?.length) throw new Error(`${dir}: titled takes render into the fixed text band; audit an untitled copy`);
-  if (d.out_w > d.out_h !== meta.width > meta.height) throw new Error(`${dir}: crop-to-fill exports are not modelled`);
-  const W = meta.width, H = meta.height, OW = d.out_w, OH = d.out_h, st = stageGeometry(W, H, d);
-  const video = join(dir, "out", `${meta.id ?? basename(dir)}.mp4`);
-  const screen = join(dir, "screen.webm");
-  const fade = Math.min(d.fade_s, (frames.at(-1)!.t + 1 / d.fps) / 4);
+  const motion = existsSync(join(dir, "storyboard.json"));
+  let W: number, H: number, OW: number, OH: number, fps: number, frames: CameraFrame[], video: string, source: string;
+  let viewport: (frame: CameraFrame) => CameraFrame, sourceTime: (frame: CameraFrame) => number, fade: number;
+  if (motion) {
+    const sb = JSON.parse(readFileSync(join(dir, "storyboard.json"), "utf8")) as Storyboard;
+    const render = JSON.parse(readFileSync(join(dir, "render.json"), "utf8")) as { engine?: string; out: string; frames: number; fps: number; width: number; height: number };
+    if (render.engine !== "hyperframes") throw new Error(`${dir}: A11 motion audit requires the HyperFrames output`);
+    if (sb.layout.kind !== "single" || sb.clips || sb.scenes.some(s => s.pattern === "clip")) throw new Error(`${dir}: audit only supports single-screen image motion films`);
+    const screens = new Set(sb.scenes.map(s => s.screen ?? Object.keys(sb.screens)[0]));
+    if (screens.size !== 1) throw new Error(`${dir}: audit requires one source screen throughout the film`);
+    const screen = sb.screens[[...screens][0]!];
+    if (!screen) throw new Error(`${dir}: storyboard has no source screen`);
+    W = screen.width; H = screen.height; OW = render.width; OH = render.height; fps = render.fps;
+    const track = existsSync(join(dir, "camera.json")) ? JSON.parse(readFileSync(join(dir, "camera.json"), "utf8")) as CameraFrame[] : [];
+    if (!Array.isArray(track)) throw new Error(`${dir}: motion audit needs a single-screen camera track`);
+    frames = Array.from({ length: render.frames }, (_, i) => track[i] ?? { t: i / fps, x: 0, y: 0, w: W, h: H });
+    source = isAbsolute(screen.file) ? screen.file : join(dir, screen.file);
+    video = join(dir, render.out);
+    viewport = frame => frame;
+    sourceTime = () => 0;
+    fade = 0;
+  } else {
+    const { meta, d, frames: cameraFrames, sourceAt } = renderClock(dir);
+    if (meta.title || meta.captions?.length) throw new Error(`${dir}: titled takes render into the fixed text band; audit an untitled copy`);
+    if (d.out_w > d.out_h !== meta.width > meta.height) throw new Error(`${dir}: crop-to-fill exports are not modelled`);
+    W = meta.width; H = meta.height; OW = d.out_w; OH = d.out_h; fps = d.fps; frames = cameraFrames;
+    const st = stageGeometry(W, H, d);
+    source = join(dir, "screen.webm");
+    video = join(dir, "out", `${meta.id ?? basename(dir)}.mp4`);
+    viewport = frame => sourceViewport(frame, W, H, st, d);
+    sourceTime = frame => sourceAt(frame.t);
+    fade = Math.min(d.fade_s, (frames.at(-1)!.t + 1 / fps) / 4);
+  }
+  const sourceFrame = motion ? decode(source, 0, 1, "yuv444p", W * H * 3)[0]! : undefined;
   const tally = Object.fromEntries((["rest", "slow", "fast", "fade"] as Kind[]).map(k => [k,
     { frames: 0, flatBlocks: 0, variance: 0, edgePixels: 0, overshoot: [], energy: 0, reference: 0, skipped: 0 } as Tally])) as Record<Kind, Tally>;
   for (let i = every; i < frames.length - 1; i += every) {
     const f = frames[i]!, p = frames[i - 1]!;
-    const kind: Kind = f.t < fade || f.t > frames.at(-1)!.t - fade ? "fade" : still(p, f, OW, OH, d.fps) ? "rest"
-      : edgeSpeed(p, f, OW, OH, d.fps) >= SWEEP_EDGE_SPEED ? "fast" : "slow";
+    const kind: Kind = f.t < fade || f.t > frames.at(-1)!.t - fade ? "fade" : still(p, f, OW, OH, fps) ? "rest"
+      : edgeSpeed(p, f, OW, OH, fps) >= SWEEP_EDGE_SPEED ? "fast" : "slow";
     const T = tally[kind];
     T.frames++;
-    const out = decode(video, (i - 0.25) / d.fps, 1, "yuv420p", OW * OH * 1.5)[0]!;
-    // Two source frames: a block is judged only where the source holds still across them.
-    const [prev, cur] = decode(screen, sourceAt(f.t) - 1 / 60, 2, "yuv444p", W * H * 3);
-    const v = sourceViewport(f, W, H, st, d), s = v.w / OW;
+    const out = decode(video, (i - 0.25) / fps, 1, "yuv420p", OW * OH * 1.5)[0]!;
+    // A source video is judged only where it holds still across adjacent frames; a motion screen is static.
+    const [prev, cur] = sourceFrame ? [sourceFrame, sourceFrame] : decode(source, sourceTime(f) - 1 / 60, 2, "yuv444p", W * H * 3);
+    const v = viewport(f), s = v.w / OW;
     const sx = (u: number) => v.x - 0.5 + (u + 0.5) * s, sy = (y: number) => v.y - 0.5 + (y + 0.5) * s;
     const at = (x: number, y: number) => {
       const x0 = Math.max(0, Math.min(W - 2, Math.floor(x))), y0 = Math.max(0, Math.min(H - 2, Math.floor(y)));

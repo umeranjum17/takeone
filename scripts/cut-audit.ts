@@ -61,11 +61,11 @@ export function renderClock(dir: string, d: CameraDefaults = resolveCamera(dir, 
   const duration = outTime(end), last = frames.at(-1)?.t ?? NaN;
   if (!(Math.abs(duration - last) <= 1 / fps)) throw new Error(`${dir}: end ${end} s gives ${duration} s of output, `
     + `but camera.json runs ${last} s; set trim_end in take.json to the rendered end`);
-  return { meta, d, start, end, sourceAt, frames };
+  return { meta, d, start, end, sourceAt, frames, clock, outTime, duration };
 }
 
 export function auditTake(dir: string, d: CameraDefaults = resolveCamera(dir, [], "midnight")): CutAudit {
-  const { meta, start, end, sourceAt, frames } = renderClock(dir, d);
+  const { meta, start, end, sourceAt, frames, clock, outTime, duration } = renderClock(dir, d);
   const fps = d.fps;
   const cuts = sourceEdgeCuts(dir, meta, t => sourceAt(t - start), true);
   if (!cuts) throw new Error(`${dir}: no screen.webm to audit`);
