@@ -205,7 +205,7 @@ test("doctor and make use a signed-in installed Claude CLI without a planner key
   }
 });
 
-test("capture make without a planner key stays local even when an account is signed in", { skip: needsFfmpeg }, async () => {
+test("capture make without a host key refuses even when an account is signed in", { skip: needsFfmpeg }, async () => {
   const { home, cleanup } = withHome();
   const dir = mkdtempSync(join(tmpdir(), "takeone-cap-account-off-"));
   const calls = join(dir, "claude-calls.log");
@@ -215,13 +215,16 @@ test("capture make without a planner key stays local even when an account is sig
   try {
     const env = { HOME: home, XDG_CONFIG_HOME: join(home, ".config"), PATH: `${binDir}:${ffmpegToolsPath(home)}` };
     const r = run(["capture", "make", take, ...FAST_SET], { env });
-    assert.equal(r.status, 0, r.stderr);
+    assert.equal(r.status, 1, r.stderr);
     const out = JSON.parse(r.stdout);
     // Capture's host-owned credential contract: no host key, no account.
-    assert.deepEqual(out.planner, { planned_tokens: 0, input_tokens: 0, usd: 0, failed: false });
-    assert.ok(out.warnings.includes("no planner key; using heuristic policy for all beats"), out.warnings.join("; "));
-    assert.equal(JSON.parse(readFileSync(join(take, "take.json"), "utf8")).planner.mode, "fallback");
-    assert.ok(existsSync(join(take, "out", "t1.mp4")));
+    assert.equal(out.error.code, "planner-unavailable");
+    assert.match(out.error.message, /needs an AI engine/);
+    assert.equal(out.planner, undefined, "a refusal must not report a successful plan");
+    assert.equal(out.warnings, undefined, "a refusal must not masquerade as a warning");
+    assert.ok(!existsSync(join(take, "analysis")) && !existsSync(join(take, "out")));
+    assert.equal(existsSync(join(take, "out", "t1.mp4")), false);
+    assert.equal(JSON.parse(readFileSync(join(take, "take.json"), "utf8")).planner, undefined);
     assert.ok(!existsSync(calls), "the signed-in account was never asked");
   } finally {
     rmSync(take, { recursive: true, force: true });
@@ -282,20 +285,23 @@ test("capture make --planner-account stops loudly when the user has no account",
   }
 });
 
-test("capture make --no-planner renders and prints one JSON object", { skip: needsFfmpeg }, async () => {
+test("capture make rejects the removed --no-planner switch", { skip: needsFfmpeg }, async () => {
   const { home, cleanup } = withHome();
   const dir = buildTake();
   try {
     const r = run(["capture", "make", dir, "--no-planner", ...FAST_SET], { env: { HOME: home } });
-    assert.equal(r.status, 0, r.stderr);
+    assert.equal(r.status, 2, r.stderr);
     assert.equal(r.stdout.trim().split("\n").length, 1, "stdout carries exactly one JSON object");
     const out = JSON.parse(r.stdout);
-    assert.equal(out.out, join(dir, "out", "t1.mp4"));
-    assert.ok(out.seconds > 0);
-    assert.ok(out.beats > 0);
-    assert.deepEqual(out.planner, { planned_tokens: 0, input_tokens: 0, usd: 0, failed: false });
-    assert.ok(Array.isArray(out.warnings));
-    assert.ok(existsSync(join(dir, "out", "t1.mp4")));
+    assert.equal(out.error.code, "invalid-arguments");
+    assert.match(out.error.message, /unknown capture make option/);
+    assert.equal(out.out, undefined);
+    assert.equal(out.seconds, undefined);
+    assert.equal(out.beats, undefined);
+    assert.equal(out.planner, undefined);
+    assert.equal(Array.isArray(out.warnings), false);
+    assert.ok(!existsSync(join(dir, "analysis")) && !existsSync(join(dir, "out")));
+    assert.equal(existsSync(join(dir, "out", "t1.mp4")), false);
   } finally {
     rmSync(dir, { recursive: true, force: true });
     cleanup();
@@ -347,20 +353,16 @@ test("doctor, make and capture never read the planner key from the environment",
     assert.equal(storeDown.status, 3, storeDown.stderr);
     assert.match(storeDown.stderr, /takeone needs an AI engine/);
     assert.ok(!existsSync(join(dir, "analysis")) && !existsSync(join(dir, "out")));
-    // Until its removal, the explicit legacy mode remains separately covered.
-    const local = run(["make", dir, "--no-ai", ...FAST_SET], { env });
-    assert.equal(local.status, 0, local.stderr);
-    assert.equal(JSON.parse(readFileSync(join(dir, "take.json"), "utf8")).planner.mode, "fallback");
-    const localStoreDown = run(["make", dir, "--no-ai", ...FAST_SET], { env: { ...env, TAKEONE_TEST_KEYRING_FAILURE: "1" } });
-    assert.equal(localStoreDown.status, 0, localStoreDown.stderr);
-    assert.equal(JSON.parse(readFileSync(join(dir, "take.json"), "utf8")).planner.mode, "fallback");
-    for (const r of [doctor, hello, made, storeDown, local, localStoreDown]) assert.ok(!r.stdout.includes("bogus-env-key") && !r.stderr.includes("bogus-env-key"));
-    // A bogus env key must behave exactly like no key: zero planned tokens and
-    // no preflight refusal even under --max-tokens 1.
+    const removedFlag = run(["make", dir, "--no-ai", ...FAST_SET], { env });
+    assert.equal(removedFlag.status, 2, removedFlag.stderr);
+    assert.match(removedFlag.stderr, /unknown option: --no-ai/);
+    assert.ok(!existsSync(join(dir, "analysis")) && !existsSync(join(dir, "out")));
+    for (const r of [doctor, hello, made, storeDown, removedFlag]) assert.ok(!r.stdout.includes("bogus-env-key") && !r.stderr.includes("bogus-env-key"));
+    // A bogus env key cannot evade the engine requirement or trigger preflight.
     const r = run(["capture", "make", dir, "--plan-only", "--max-tokens", "1"], { env });
-    assert.equal(r.status, 0, r.stderr);
-    assert.deepEqual(JSON.parse(r.stdout).planner,
-      { planned_tokens: 0, input_tokens: 0, usd: 0, failed: false });
+    assert.equal(r.status, 1, r.stderr);
+    assert.equal(JSON.parse(r.stdout).error.code, "planner-unavailable");
+    assert.ok(!existsSync(join(dir, "analysis")) && !existsSync(join(dir, "out")));
   } finally {
     rmSync(dir, { recursive: true, force: true });
     cleanup();
@@ -376,8 +378,11 @@ test("capture make --title/--captions land in take.json", { skip: needsFfmpeg },
       { t: 1.5, text: "Hello world" },
       { t: 5, d: 2, text: "Second" },
     ]));
-    const r = run(["capture", "make", dir, "--no-planner",
-      "--title", "Smoke title", "--captions", captionsFile, ...FAST_SET], { env: { HOME: home } });
+    const binDir = join(home, "claude-bin");
+    signedInClaudeCli(binDir);
+    const r = run(["capture", "make", dir, "--planner-account",
+      "--title", "Smoke title", "--captions", captionsFile, ...FAST_SET],
+      { env: { HOME: home, XDG_CONFIG_HOME: join(home, ".config"), PATH: `${binDir}:${ffmpegToolsPath(home)}` } });
     assert.equal(r.status, 0, r.stderr);
     const take = JSON.parse(readFileSync(join(dir, "take.json"), "utf8"));
     assert.equal(take.title, "Smoke title");
@@ -418,7 +423,10 @@ test("capture make render failure uses the envelope with exit 1", { skip: needsF
     const take = JSON.parse(readFileSync(takePath, "utf8"));
     take.id = "../../other";
     writeFileSync(takePath, JSON.stringify(take));
-    const r = run(["capture", "make", dir, "--no-planner", ...FAST_SET], { env: { HOME: home } });
+    const binDir = join(home, "claude-bin");
+    signedInClaudeCli(binDir);
+    const r = run(["capture", "make", dir, "--planner-account", ...FAST_SET],
+      { env: { HOME: home, XDG_CONFIG_HOME: join(home, ".config"), PATH: `${binDir}:${ffmpegToolsPath(home)}` } });
     assert.equal(r.status, 1, r.stderr);
     const out = JSON.parse(r.stdout);
     assert.equal(out.error.code, "render-failed");
@@ -475,7 +483,7 @@ test("capture make usage errors use the envelope with exit 2", { skip: needsFfmp
       assert.equal(r.status, 2, c.args.join(" "));
       assert.equal(JSON.parse(r.stdout).error.code, "invalid-arguments");
     }
-    const missing = run(["capture", "make", join(dir, "nope"), "--no-planner"], { env: { HOME: home } });
+    const missing = run(["capture", "make", join(dir, "nope"), "--planner-key-fd", "3"], { env: { HOME: home }, keyFile });
     assert.equal(missing.status, 1);
     assert.equal(JSON.parse(missing.stdout).error.code, "take-input");
   } finally {
