@@ -10,7 +10,7 @@ export class JudgeUnavailable extends Error {
   }
 }
 
-const LEVELS = [
+export const LEVELS = [
   "0 - absent or broken",
   "1 - barely present",
   "2 - weak",
@@ -77,11 +77,22 @@ function imageInputs(f: MeasuredFacts): ImageInput[] | undefined {
 }
 
 /** A score the judge split evenly between levels abstains as a tie; the strict reading is the lower tied level. */
-function lowerOfTie(a: Answer): number | undefined {
+export function lowerOfTie(a: Answer): number | undefined {
   if (!a.abstained || a.reason !== "tie" || !a.probabilities) return undefined;
   const top = Math.max(...Object.values(a.probabilities));
   const levels = Object.entries(a.probabilities).filter(([, p]) => p === top).map(([level]) => Number(level));
   return levels.every(Number.isFinite) ? Math.min(...levels) : undefined;
+}
+
+/** One score answer as a number: a tie takes the lower level; an abstained, empty or non-numeric answer makes the judge unavailable. */
+export function answerScore(id: string, answer: Answer | undefined): number {
+  const tied = answer ? lowerOfTie(answer) : undefined;
+  if (tied === undefined && (!answer || answer.abstained || answer.answer === null || answer.answer === undefined)) {
+    throw new JudgeUnavailable(`${id}: ${answer?.reason ?? "no answer"}`);
+  }
+  const value = tied ?? (typeof answer!.answer === "number" ? answer!.answer : Number(answer!.answer));
+  if (!Number.isFinite(value)) throw new JudgeUnavailable(`${id}: non-numeric answer`);
+  return value;
 }
 
 export interface JudgeOptions {
@@ -138,13 +149,7 @@ export async function judgeRound(
   const scores: Partial<Record<RubricId, number>> = {};
   for (const item of RUBRIC) {
     if (item.id === "baseline" && facts.baseline === undefined) continue;
-    const answer: Answer | undefined = outcome.answers[item.id];
-    const tied = answer ? lowerOfTie(answer) : undefined;
-    if (tied === undefined && (!answer || answer.abstained || answer.answer === null || answer.answer === undefined)) {
-      throw new JudgeUnavailable(`${item.id}: ${answer?.reason ?? "no answer"}`);
-    }
-    const value = tied ?? (typeof answer!.answer === "number" ? answer!.answer : Number(answer!.answer));
-    if (!Number.isFinite(value)) throw new JudgeUnavailable(`${item.id}: non-numeric answer`);
+    const value = answerScore(item.id, outcome.answers[item.id]);
     scores[item.id] = value;
   }
   return scoreCard(scores, facts, planner.label, 1);

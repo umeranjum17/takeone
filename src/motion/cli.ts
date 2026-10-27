@@ -14,6 +14,9 @@ import { MAX_DURATION_S, minSceneDuration, readingFloor, validateStoryboard } fr
 import { planBento } from "./bento.ts";
 import { planEditorial } from "./editorial.ts";
 import { FILM_USAGE, newTakeDir, runFilm } from "./film.ts";
+import { DEFAULT_BAR, DEFAULT_GAUNTLET_ROUNDS, runGauntlet } from "./gauntlet.ts";
+import { resolveJudge } from "../decide/planner.ts";
+import { JudgeUnavailable } from "../score/judge.ts";
 import type { Device, MotionEngine, PatternName, Region, Scene } from "./types.ts";
 
 /** The named recipes the local planner lays out from flags: the patterns each one plays, in order. */
@@ -36,6 +39,8 @@ export const MOTION_USAGE = `takeone motion <image.png|page.html|https://url|tak
   [--engine hyperframes|legacy] [--alpha] [--redaction-dry-run --out DIR] [--public-domain example.com]...
 takeone motion <screenshot.png> --recipe editorial|bento --pitch TEXT [--logo WORD] [--cta TEXT] [--url TEXT] [--audio FILE] [--out DIR]
 takeone motion film <video.mp4> [--intro BRIEF] [--callout "BRIEF@SECONDS"]... [--outro BRIEF] [--tech html|canvas|three] [--out DIR]
+takeone motion <inputs...> --gauntlet [--max-rounds M]   after rendering, have a fresh critic score every scene against the reference and repair what falls short
+takeone gauntlet <motion-dir> [--max-rounds M] [--bar N]   the same critique, repair and ledger on a motion take already rendered
 takeone motion install-shell         download the pinned chrome-headless-shell (sha256 checked)
 takeone motion install-hyperframes   install hyperframes@0.8.200 + chrome-headless-shell@156.0.8078.47
 
@@ -72,7 +77,7 @@ export interface MotionArgs {
   inputs: string[]; out?: string; patterns?: PatternName[]; theme?: string; title?: string;
   subtitle?: string; cta?: string; url?: string; logo?: string; device?: Device; regions: string[]; states: [string, string][];
   workers?: number; blur?: number; storyboard?: string; planOnly: boolean; noAi?: boolean; engine: MotionEngine;
-  recipe?: Recipe | "editorial" | "bento"; pitch?: string; audio?: string; alpha?: boolean; aspect?: Aspect;
+  recipe?: Recipe | "editorial" | "bento"; pitch?: string; audio?: string; alpha?: boolean; gauntlet?: boolean; maxRounds?: number; aspect?: Aspect;
   redactionDryRun?: boolean; publicDomains: string[];
 }
 
@@ -90,6 +95,7 @@ export function parseMotionArgs(argv: string[]): MotionArgs {
     if (s === "--redaction-dry-run") { a.redactionDryRun = true; continue; }
     if (s === "--no-ai") { a.noAi = true; continue; }
     if (s === "--alpha") { a.alpha = true; continue; }
+    if (s === "--gauntlet") { a.gauntlet = true; continue; }
     const v = value(++i, s);
     if (s === "--public-domain") {
       if (!/^(?:[a-z0-9-]+\.)+[a-z]{2,}$/i.test(v)) throw new Error("--public-domain expects one public domain, without scheme or path");
@@ -120,6 +126,7 @@ export function parseMotionArgs(argv: string[]): MotionArgs {
       a.aspect = v as Aspect;
     } else if (s === "--pitch") a.pitch = v;
     else if (s === "--audio") a.audio = v;
+    else if (s === "--max-rounds") a.maxRounds = Number(v);
     else if (s === "--engine") {
       if (v !== "hyperframes" && v !== "legacy") throw new Error(`--engine expects hyperframes or legacy, got ${v}`);
       a.engine = v;
@@ -464,6 +471,11 @@ export async function runMotion(argv: string[], takesDir: string, o: PlanOptions
     console.log(join(dir, "redaction-report.json"));
     return 0;
   }
+  if (a.gauntlet) {
+    if (a.planOnly) throw new Error("--gauntlet scores a rendered film; it cannot be combined with --plan-only");
+    const judge = await resolveJudge();
+    if (!judge.active) throw new JudgeUnavailable(`unavailable - ${judge.label} cannot serve: ${judge.refusal ?? "no sign-in"}. Sign in with \`claude\`, or save another route in judge.json`);
+  }
   let storyboard: unknown;
   let id: string;
   if (a.storyboard) {
@@ -488,10 +500,36 @@ export async function runMotion(argv: string[], takesDir: string, o: PlanOptions
   const { out, manifest } = await renderMotion(dir, { engine: a.engine, alpha: a.alpha });
   console.error(`motion: ${manifest.frames} frames ${manifest.width}x${manifest.height}@${manifest.fps} on ${manifest.workers} workers in ${manifest.render_s} s`);
   console.log(out);
-  return 0;
+  return a.gauntlet ? gauntletOn(dir, a.maxRounds ?? DEFAULT_GAUNTLET_ROUNDS) : 0;
 }
 
 /** True when a take dir is a motion take (rerendered by renderMotion, not the recording renderer). */
+/** `takeone gauntlet <motion-dir>`: exit 3 before any critique when no judge route can serve. */
+export async function runGauntletCommand(argv: string[]): Promise<number> {
+  const [dir, ...rest] = argv;
+  if (!dir || dir.startsWith("--")) { console.error("usage: takeone gauntlet <motion-dir> [--max-rounds M] [--bar N]"); return 2; }
+  let maxRounds = DEFAULT_GAUNTLET_ROUNDS, bar = DEFAULT_BAR;
+  for (let i = 0; i < rest.length; i += 2) {
+    const v = Number(rest[i + 1]);
+    if (!["--max-rounds", "--bar"].includes(rest[i]!) || rest[i + 1] === undefined || !Number.isFinite(v)) throw new Error("gauntlet takes only --max-rounds M and --bar N");
+    if (rest[i] === "--bar") bar = v; else maxRounds = v;
+  }
+  if (!isMotionTake(dir)) throw new Error(`${dir} is not a motion take (no take.json motion entry)`);
+  return gauntletOn(resolve(dir), maxRounds, bar);
+}
+
+async function gauntletOn(dir: string, maxRounds: number, bar = DEFAULT_BAR): Promise<number> {
+  const planner = await resolveJudge();
+  try {
+    await runGauntlet({ dir, planner, maxRounds, bar });
+    return 0;
+  } catch (e) {
+    if (!(e instanceof JudgeUnavailable)) throw e;
+    console.error(e.message);
+    return 3;
+  }
+}
+
 export function isMotionTake(dir: string): boolean {
   try { return !!(JSON.parse(readFileSync(join(dir, "take.json"), "utf8")) as { motion?: unknown }).motion; } catch { return false; }
 }
