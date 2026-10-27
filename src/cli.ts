@@ -14,7 +14,7 @@ import { PlanError, readPlan, withUserFilm } from "./decide/plan.ts";
 import { renderTake, renderThreads } from "./render/render.ts";
 import { previewSize } from "./render/preview.ts";
 import { THEMES, resolveTheme } from "./themes.ts";
-import { isMotionTake, MOTION_USAGE, runMotion } from "./motion/cli.ts";
+import { isMotionTake, MOTION_USAGE, runGauntletCommand, runMotion } from "./motion/cli.ts";
 import { renderMotion } from "./motion/motion.ts";
 import { applyOverrides, type CameraDefaults, type Overrides } from "./camera/defaults.ts";
 import { filmOverrides, type FilmDecision } from "./decide/film.ts";
@@ -275,6 +275,14 @@ export async function main(argv: string[]): Promise<number> {
       return 1;
     }
   }
+  if (cmd === "gauntlet") {
+    try {
+      return await runGauntletCommand(rest);
+    } catch (e) {
+      console.error(`takeone gauntlet: ${e instanceof Error ? e.message : e}`);
+      return 1;
+    }
+  }
   if (cmd === "render") {
     const [dir, ...rawArgs] = rest;
     const args = [...rawArgs];
@@ -363,7 +371,7 @@ export async function main(argv: string[]): Promise<number> {
     }
   }
   if (cmd !== "make") {
-    console.error(`takeone: unknown command "${cmd}". Use "make", "render", "zoom", "look", "motion", "record", "stop", "doctor" or "list".`);
+    console.error(`takeone: unknown command "${cmd}". Use "make", "render", "zoom", "look", "motion", "gauntlet", "record", "stop", "doctor" or "list".`);
     return 2;
   }
   const a = parseArgs(rest);
