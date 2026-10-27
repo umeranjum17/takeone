@@ -1029,6 +1029,73 @@ test("plan edits the render cannot honour stop the CLI with a clear error", { sk
   }
 });
 
+test("the whole plan is editable: focus, tightness and the film's look are kept and honoured, and unsupported edits are refused", { skip: needsFfmpeg }, async () => {
+  const dir = buildKindsTake(mkdtempSync(join(tmpdir(), "takeone-wholeplan-")));
+  const fast = ["out_w=160", "out_h=90", "preset=veryfast", "ripple_ms=0", "fade_s=0", "idle_speed=1"];
+  const cli = (command: string, extra: string[] = []) => spawnSync(process.execPath,
+    ["bin/takeone.mjs", command, dir, ...(command === "make" ? ["--no-ai"] : []), ...fast.flatMap((value) => ["--set", value]), ...extra],
+    { encoding: "utf8", env: { ...process.env, TAKEONE_DIR: dir, TAKEONE_STATE_DIR: join(dir, "state") } });
+  const planFile = join(dir, "analysis", "plan.json");
+  const read = (): Plan & { film: Record<string, { value?: unknown; by: string }> } => JSON.parse(readFileSync(planFile, "utf8"));
+  try {
+    assert.equal(cli("make").status, 0);
+    const clean = read();
+    // The plan lists every choice a user can override, per beat and for the film.
+    const click = clean.beats.find((b) => b.id === "b1")!;
+    for (const f of ["shot", "idle", "follow", "focus_start", "focus_end", "tightness", "key_moment"]) assert.ok(f in click, `${f} missing from the plan`);
+    assert.deepEqual(Object.keys(clean.film).sort(), ["camera_style", "ending", "opening", "pace", "theme", "title"]);
+    const zones = (JSON.parse(readFileSync(join(dir, "analysis", "beats.json"), "utf8")) as { id: string; zones: { name: string }[] }[])
+      .find((b) => b.id === "b1")!.zones.map((z) => z.name);
+    const refuses = (edit: (p: ReturnType<typeof read>) => void, message: RegExp, command = "make", extra: string[] = []) => {
+      const plan = JSON.parse(JSON.stringify(clean)) as ReturnType<typeof read>;
+      edit(plan);
+      writeFileSync(planFile, JSON.stringify(plan));
+      const run = cli(command, extra);
+      assert.notEqual(run.status, 0, `rendered instead of refusing:\n${run.stdout}`);
+      assert.match(run.stderr, message);
+    };
+    const beat = (p: ReturnType<typeof read>, id: string) => p.beats.find((b) => b.id === id)! as Record<string, unknown>;
+
+    // Fields this takeone does not plan are refused, not ignored.
+    refuses((p) => { beat(p, "b1").merge_prev = { value: true, by: "user" }; }, /beat b1 has unsupported field merge_prev/);
+    refuses((p) => { p.film.captions = { value: "x", by: "user" }; }, /film has unsupported field captions/);
+    refuses((p) => { beat(p, "b1").tightness = { value: 7, by: "user" }; }, /b1\.tightness\.value must be a whole number from 0 to 3/);
+    refuses((p) => { p.film.theme = { value: "neon", by: "user" }; }, /film\.theme\.value must be one of/);
+    // An edit the render cannot honour names the beat and says why.
+    refuses((p) => { beat(p, "b1").focus_start = { value: "no-such-zone", by: "user" }; }, /beat b1 \(click\): focus_start=no-such-zone is not a zone of this beat/);
+    refuses((p) => { beat(p, "b3").tightness = { value: 1, by: "user" }; }, /beat b3 \(scroll\): tightness cannot be honoured/);
+    refuses((p) => { beat(p, "b1").shot = { value: false, by: "user" }; beat(p, "b1").tightness = { value: 1, by: "user" }; }, /beat b1 \(click\): tightness cannot be honoured - this beat gets no camera move \(shot is set to false\)/);
+    refuses((p) => { p.film.ending = { value: "k-nobody", by: "user" }; }, /film\.ending k-nobody is the key of no beat/);
+    // An edit another explicit choice would override is refused too.
+    refuses((p) => { p.film.pace = { value: 1.4, by: "user" }; }, /film\.pace cannot be honoured - --set pace is also given/, "make", ["--set", "pace=1"]);
+    refuses((p) => { p.film.theme = { value: "paper", by: "user" }; }, /film\.theme cannot be honoured - the take already has a theme/, "render", ["--theme", "mono"]);
+
+    // A valid whole-plan edit renders, lands in the film, and survives a rerun of make.
+    const plan = JSON.parse(JSON.stringify(clean)) as ReturnType<typeof read>;
+    beat(plan, "b1").tightness = { value: 1, by: "user" };
+    beat(plan, "b1").focus_end = { value: zones[0], by: "user" };
+    plan.film.theme = { value: "paper", by: "user" };
+    plan.film.pace = { value: 1.4, by: "user" };
+    plan.film.title = { value: "Edited by hand", by: "user" };
+    plan.film.ending = { value: click.key, by: "user" };
+    writeFileSync(planFile, JSON.stringify(plan));
+    const made = cli("make");
+    assert.equal(made.status, 0, made.stderr);
+    const film = JSON.parse(readFileSync(join(dir, "take.json"), "utf8")).film;
+    assert.deepEqual([film.theme, film.pace, film.title, film.end_beat], ["paper", 1.4, "Edited by hand", "b1"]);
+    const kept = read();
+    assert.equal(kept.film.theme?.by, "user");
+    assert.equal(kept.film.pace?.value, 1.4);
+    assert.equal((kept.beats.find((b) => b.id === "b1") as unknown as Record<string, { by: string }>).tightness?.by, "user");
+    // render alone applies the same edits, with the ending cutting the film short.
+    const again = cli("render");
+    assert.equal(again.status, 0, again.stderr);
+    assert.ok(existsSync(join(dir, "out", "kinds.mp4")));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("make accepts video-only missing events and silent recorded streams", { skip: needsFfmpeg }, async () => {
   const dir = newTake();
   try {

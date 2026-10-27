@@ -192,6 +192,8 @@ export interface TakeMeta extends TakeEdits {
   duration_ms?: number;
   /** Record wrote this trim itself; any later trim is the caller's. */
   auto_trim?: true;
+  /** The film's own opening title; it wins over the planner's and a plan.json edit. */
+  title?: string;
   /** The film call's look choices, when the planner decided them. */
   film?: import("./decide/film.ts").FilmDecision;
   /** How the film was planned: AI decider or local fallback rules. */
