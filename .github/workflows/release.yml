@@ -6,6 +6,7 @@ concurrency:
   group: release
 permissions:
   contents: write
+  id-token: write
 jobs:
   release:
     runs-on: ubuntu-latest
@@ -54,4 +55,27 @@ jobs:
           else
             gh api "repos/$GITHUB_REPOSITORY/releases" -f "tag_name=$TAG" -f "target_commitish=$GITHUB_SHA" -f "name=takeone $TAG" -f "body=$INSTALL_NOTES" -F generate_release_notes=true >/dev/null || true
             gh release upload "$TAG" takeone.tgz --clobber
+          fi
+  npm:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+      - run: npx -y semver@7 -r '>=11.5.0' "$(npm -v)"
+      - run: npm ci
+      - run: npm test
+      - name: Publish if this version is not on npm
+        run: |
+          name=$(node -p 'require("./package.json").name')
+          version=$(node -p 'require("./package.json").version')
+          if [ -n "$(npm view "$name@$version" version 2>/dev/null)" ]; then
+            echo "$name@$version is already on npm; skipping publish"
+          else
+            npm publish --provenance --access public
           fi
