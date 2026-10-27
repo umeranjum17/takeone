@@ -69,6 +69,7 @@ jobs:
           registry-url: https://registry.npmjs.org
       - run: npx -y semver@7 -r '>=11.5.0' "$(npm -v)"
       - run: npm ci
+      - run: scripts/ci-apt-install.sh tesseract-ocr zbar-tools
       - run: npm test
       - name: Publish if this version is not on npm
         run: |
