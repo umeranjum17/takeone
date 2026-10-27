@@ -495,7 +495,7 @@
       "goalPassed": true
     },
     "subpixel_judder": {
-      "value": 1.0308641996086398,
+      "value": 1.1761746075530783,
       "target": 0.15,
       "direction": "max",
       "unit": "px/frame²",

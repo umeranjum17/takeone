@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { DEFAULTS } from "../src/camera/defaults.ts";
-import { solveCamera, solveCameraDetailed, clippedFractions, wholeCrop, frame, toFrame } from "../src/camera/solver.ts";
+import { solveCamera, solveCameraDetailed, clippedFractions, wholeCrop, frame, toFrame, applyManualZooms } from "../src/camera/solver.ts";
 import type { Beat, CameraFrame, Decision, Zone } from "../src/camera/types.ts";
 import type { Action } from "../src/types.ts";
 import { renderTake, sourceEdgeCuts } from "../src/render/render.ts";
@@ -15,6 +15,8 @@ import { edgeCuts, cutCount } from "../src/render/framing.ts";
 import { resolveTheme } from "../src/themes.ts";
 import { edgeSpeed, still, SWEEP_EDGE_SPEED } from "../src/camera/sweep.ts";
 import { contains, settledFrames } from "../scripts/check-framing.ts";
+import { auditTake } from "../scripts/cut-audit.ts";
+import { cameraMetrics } from "../scripts/quality.ts";
 import { hasFfmpeg } from "./helpers.ts";
 
 // Only tests pass a fast preset and tiny output: shipped output stays
@@ -1194,6 +1196,36 @@ test("a push-in through text sweeps past every word it cuts instead of crawling"
   }
 });
 
+test("the cut audit judges the view the stage shows, margin and all", { timeout: 180_000 }, async () => {
+  if (!hasFfmpeg()) throw new Error("requires system ffmpeg and ffprobe on PATH");
+  const W = 640, H = 360, d = { ...FAST, idle_speed: 1, outro_s: 0 };
+  const dir = await mkdtemp(join(tmpdir(), "takeone:audit-"));
+  try {
+    await mkdir(join(dir, "analysis"));
+    // Words run off the bottom edge, as a page does below the fold; the push-in lands on the empty top.
+    const page = new Uint8Array(W * H).fill(200);
+    for (let y = 300; y < H; y += 3) for (let x = 60; x + 30 < 600; x += 36) page.fill(40, y * W + x, y * W + x + 30);
+    await writeFile(join(dir, "page.gray"), page);
+    execFileSync("ffmpeg", ["-v", "error", "-stream_loop", "119", "-f", "rawvideo", "-pix_fmt", "gray", "-s", `${W}x${H}`, "-r", "30",
+      "-i", join(dir, "page.gray"), "-c:v", "mpeg4", "-q:v", "2", "-f", "matroska", "-y", join(dir, "screen.webm")]);
+    await writeFile(join(dir, "take.json"), JSON.stringify({ id: "audit", width: W, height: H, trim_start: 0, trim_end: 3.6,
+      zooms: [{ t0: 0.8, t1: 3.6, bbox: [260, 40, 120, 90], level: 2 }] }));
+    await writeFile(join(dir, "analysis/beats.json"), "[]");
+    await writeFile(join(dir, "analysis/decisions.jsonl"), "");
+    await renderTake(dir, d);
+    const frames = JSON.parse(await readFile(join(dir, "camera.json"), "utf8")) as CameraFrame[];
+    // The raw source crop leaves its rest at the bottom edge, inside the words, while the stage still
+    // shows the whole screen in its margin: judged raw, the push-in would crawl through them.
+    const cuts = sourceEdgeCuts(dir, { width: W, height: H } as Parameters<typeof sourceEdgeCuts>[1], (t) => t, true)!;
+    const raw = frames.slice(1).filter((f, i) => !still(frames[i]!, f, d.out_w, d.out_h, d.fps)
+      && edgeSpeed(frames[i]!, f, d.out_w, d.out_h, d.fps) < SWEEP_EDGE_SPEED && cuts(f, f.t, f.t) > 0);
+    assert.ok(raw.length > 0, "control: the raw crop crawls through the words");
+    const audit = auditTake(dir, d);
+    assert.deepEqual([audit.cutAtRest, audit.cutCreeping], [0, 0], JSON.stringify(audit.runs));
+    assert.ok(audit.cutSweeping > 0, "the shown view still crosses the words, at a sweep");
+  } finally { await rm(dir, { recursive: true, force: true }); }
+});
+
 test("the safe-area gate judges the text a push-in paints", { timeout: 120_000 }, async () => {
   // New tests cannot declare the needsFfmpeg skip (the floor guard blocks new skips).
   if (!hasFfmpeg()) throw new Error("requires system ffmpeg and ffprobe on PATH");
@@ -1277,4 +1309,102 @@ test("a planner shot=false on a click beat removes its camera move", () => {
     .filter((f) => f.w < take.width - 1).length;
   assert.ok(moves(decision(click)) > 0, "the rules move the camera for a click");
   assert.equal(moves({ ...decision(click), shot: false }), 0);
+});
+
+// A page that only scrolls used to hold the whole screen to the end: scroll beats take no shot.
+// Once the scroll settles, the camera pushes in on what it settled on and holds there.
+test("a scroll-only take pushes in on what the scroll settled on", () => {
+  const scroll: Beat = { id: "b1", t0: 0.5, t1: 2.5, anchor_t: 0.5, kind: "scroll",
+    zones: [{ name: "z1", type: "res", bbox: [2200, 700, 1000, 640] }, { name: "z2", type: "all", bbox: [0, 0, 3840, 2160] }],
+    actions: [{ k: "scroll", t0: 500, t1: 2000, x: 1900, y: 1000, dx: 0, dy: -4, detents: 4, window_cls: "x" } as Action] };
+  const d = { ...DEFAULTS, outro_s: 0 };
+  const frames = solveCamera([scroll], [decision(scroll)], { width: 3840, height: 2160, trim_end: 8 } as Parameters<typeof solveCamera>[2], d);
+  const settled = 2 + d.dwell;
+  assert.ok(frames.filter(f => f.t < settled).every(f => f.w === 3840), "the scroll itself plays wide");
+  const held = frames.filter(f => f.t >= settled + d.move_t_max + 0.2);
+  assert.ok(held.length > 60, "a real hold, not one frame");
+  assert.ok(held.every(f => f.w < 3840 * 0.6 && contains(f, [2200, 700, 1000, 640])), "holds pushed in on the settled content, whole");
+});
+
+// The gesture wins a close call: when a pointer-travel shot and the click right after it are
+// under min_shot apart, the click keeps its shot instead of being dropped behind the travel.
+test("a click shot right after a shot with no gesture keeps its push-in", () => {
+  const travel: Beat = { ...beat("look", 2.6, 300), kind: "travel",
+    actions: [{ k: "click", t: 2600, x: 390, y: 960, window_cls: "x" } as Action] };
+  const hover: Beat = { ...beat("hover", 2.6, 300), actions: [] };
+  const click: Beat = { ...beat("click", 3.2, 3000), actions: [{ k: "click", t: 3200, x: 3090, y: 960, window_cls: "x" } as Action] };
+  const take = { width: 3840, height: 2160, trim_end: 8 } as Parameters<typeof solveCamera>[2];
+  const d = { ...DEFAULTS, outro_s: 0 };
+  const at = (frames: CameraFrame[], t: number) => frames[Math.round(t * d.fps)]!;
+  // Control: two gestures under min_shot apart keep the first, as before.
+  const both = solveCamera([travel, click], [decision(travel), decision(click)], take, d);
+  assert.ok(contains(at(both, 4.5), [300, 900, 180, 120]), "the earlier gesture keeps its shot");
+  const after = solveCamera([hover, click], [decision(hover), decision(click)], take, d);
+  assert.ok(contains(at(after, 5), [3000, 900, 180, 120]) && at(after, 5).w < 3840 * 0.6, "the click gets the push-in");
+});
+
+// The default outro used to pull back to the whole stage over a click near the end of a short take,
+// and when it had no room after the establishing hold it held the whole stage for the entire film.
+test("a click near the end of a short take keeps its push-in under the default outro", () => {
+  const click: Beat = { ...beat("click", 3.6, 1700), actions: [{ k: "click", t: 3600, x: 1790, y: 1000, window_cls: "x" } as Action] };
+  const at = (frames: CameraFrame[], t: number) => frames[Math.round(t * DEFAULTS.fps)]!;
+  const short = solveCamera([click], [decision(click)], { width: 3840, height: 2160, trim_end: 4.2 } as Parameters<typeof solveCamera>[2]);
+  assert.ok(contains(at(short, 4.1), [1700, 900, 180, 120]) && at(short, 4.1).w < 3840 * 0.6, "the film ends pushed in on the click");
+  // With room after the click has landed and held, the outro still closes on the whole stage.
+  const long = solveCamera([click], [decision(click)], { width: 3840, height: 2160, trim_end: 9 } as Parameters<typeof solveCamera>[2]);
+  assert.ok(at(long, 4.6).w < 3840 * 0.6, "the push-in holds through the click");
+  assert.equal(at(long, 8.9).w, 3840, "then the outro returns to the whole stage");
+});
+
+// A dense page leaves no edge-aligned crop that keeps every detected box whole, which used to widen
+// the push-in to the whole screen. When the text guard reads a pushed-in crop's edges clean, the
+// camera takes it: no word is cut, though a box may be.
+test("a push-in on a dense page holds a readable crop instead of widening to the whole screen", () => {
+  const boxes: Zone["bbox"][] = [];
+  // Two staggered layers of boxes: every crop edge runs through one of them.
+  for (let y = 0; y < 2160; y += 90) for (let x = 0; x < 3840; x += 160) boxes.push([x + 4, y + 4, 150, 80], ...(x + 234 < 3840 && y + 129 < 2160 ? [[x + 84, y + 49, 150, 80] as Zone["bbox"]] : []));
+  const click: Beat = { id: "b1", t0: 3, t1: 6, anchor_t: 4, kind: "click",
+    zones: [{ name: "z1", type: "act", bbox: [1600, 900, 300, 200], boxes }],
+    actions: [{ k: "click", t: 4000, x: 1750, y: 1000, window_cls: "x" } as Action] };
+  const take = { width: 3840, height: 2160, trim_end: 8 } as Parameters<typeof solveCamera>[2];
+  const d = { ...DEFAULTS, outro_s: 0 };
+  const width = (cuts?: (v: { w: number }) => number) => Math.min(...solveCamera([click], [decision(click)], take, d, undefined, cuts).map(f => f.w));
+  assert.equal(width(), 3840, "control: with the whole-box rule alone, no push-in fits");
+  assert.ok(width(() => 0) < 3840 * 0.6, "a clean-edged crop pushes in");
+});
+
+// Manual zooms widen for a popup the gesture opened, not for the page repainting under a scroll or a
+// demo animating elsewhere on the page.
+test("a manual zoom is not widened by scroll repaints or changes far from the gesture", () => {
+  const take = { width: 3840, height: 2160, trim_start: 0, trim_end: 8,
+    zooms: [{ t0: 1, t1: 8, bbox: [1400, 600, 900, 600] as [number, number, number, number], level: 2 }] } as Parameters<typeof solveCamera>[2];
+  const d = { ...DEFAULTS, outro_s: 0 };
+  const wide = Array.from({ length: 8 * d.fps + 1 }, (_, i) => ({ t: i / d.fps, x: 0, y: 0, w: 3840, h: 2160 }));
+  const scroll: Beat = { id: "s", t0: 1.5, t1: 2.5, anchor_t: 1.5, kind: "scroll", zones: [], actions: [] };
+  const click: Beat = { id: "c", t0: 4, t1: 6, anchor_t: 4, kind: "click", zones: [],
+    actions: [{ k: "click", t: 4000, x: 1600, y: 800, window_cls: "x" } as Action] };
+  const held = (changes: { t: number; bbox: [number, number, number, number] }[]) =>
+    applyManualZooms(wide, take, d, [scroll, click], changes)[Math.round(7 * d.fps)]!;
+  const plain = held([]);
+  // Control: a popup the click opened, under and past the box, widens the hold to include it.
+  assert.ok(held([{ t: 4.2, bbox: [1500, 1100, 400, 700] }]).h > plain.h + 1);
+  // A repaint during the scroll and a change far from the click leave the hold as it was.
+  assert.deepEqual(held([{ t: 2, bbox: [1300, 500, 700, 1300] }, { t: 4.4, bbox: [2200, 1100, 600, 700] }]), plain);
+});
+
+// A push-in to one corner, a pan to the next action across the page and the outro used to turn the
+// page edge back without a shot's rest (6 pan bounces here): centre and zoom eased apart in the
+// move and in the spring, a pan back started before a min_shot rest, and the outro left a shot that
+// had only just landed.
+test("push-ins, a pan across the page and the outro never bounce the page edge", () => {
+  const click = (id: string, t: number, bbox: Zone["bbox"]): Beat => ({ id, t0: t - 0.5, t1: t + 1, anchor_t: t, kind: "click",
+    zones: [zone(id, bbox)], actions: [{ k: "click", t: t * 1000, x: bbox[0] + 90, y: bbox[1] + 60, window_cls: "x" } as Action] });
+  const a = click("a", 3, [3300, 200, 180, 120]), b = click("b", 4.4, [500, 1400, 180, 120]);
+  const frames = solveCamera([a, b], [decision(a), decision(b)], { width: 3840, height: 2160, trim_end: 9.4 } as Parameters<typeof solveCamera>[2]);
+  const at = (t: number) => frames[Math.round(t * DEFAULTS.fps)]!;
+  assert.ok(contains(at(3.6), a.zones[0]!.bbox) && at(3.6).w < 3840 * 0.6, "pushes in on the first click");
+  assert.ok(contains(at(6.6), b.zones[0]!.bbox) && at(6.6).w < 3840 * 0.6, "then on the second");
+  assert.equal(frames.at(-1)!.w, 3840, "and the outro closes on the whole stage");
+  const metrics = cameraMetrics(frames, DEFAULTS.fps, DEFAULTS.out_w, DEFAULTS.out_h, DEFAULTS.min_shot);
+  assert.equal(metrics.pan_bounce?.value, 0);
 });

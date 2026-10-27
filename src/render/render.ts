@@ -241,11 +241,12 @@ export async function renderTake(dir: string, camera?: CameraDefaults, preview?:
   let frames = moving && zooms.length ? applyDragVisibility(directed, outBeats, meta.width, meta.height, trimStart, d) : directed;
   // The same guard judges the moving frames of the final path, whichever stage made them: none may
   // crawl a crop edge through a word, so a move crosses text only at a sweep. A frame is judged on
-  // the source frame its 0.1 s mask window starts at, so re-checking a retimed move decodes nothing
+  // the source frames of the 0.1 s window around it (an animated page moves its art between samples,
+  // so one sample can miss a cut the frame shows), so re-checking a retimed move decodes nothing
   // new, and each move's decodes are dropped once it is done.
   if (wide && !phone && cuts) frames = sweepCuts(frames, () => {
     const moveCuts = sourceEdgeCuts(dir, meta, (t) => sourceAt(t - trimStart))!;
-    return (f) => { const at = Math.round((trimStart + f.t) * 10) / 10; return moveCuts(banded ? f : project(f), at, at) > 0; };
+    return (f) => { const at = Math.round((trimStart + f.t) * 10) / 10; return moveCuts(banded ? f : project(f), at - 0.05, at + 0.05) > 0; };
   }, d);
   await writeFile(join(dir, "camera.json"), JSON.stringify(frames));
   // A preview renders the same camera path from a smaller source: the source-space inputs

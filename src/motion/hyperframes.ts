@@ -9,7 +9,7 @@ import { homedir } from "node:os";
 import { basename, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { promisify } from "node:util";
-import { filmDuration } from "./storyboard.ts";
+import { filmDuration, readingFloor } from "./storyboard.ts";
 import { writePage } from "./motion.ts";
 import type { RenderManifest } from "./motion.ts";
 import type { Storyboard } from "./types.ts";
@@ -130,6 +130,16 @@ function videoLayers(sb: Storyboard, data: { clips: Record<string, { video: stri
     if (s.cuts?.length) throw new Error("hyperframes engine: clip cuts are not supported yet; render with --engine legacy");
     const clip = s.clip ? data.clips[s.clip] : undefined;
     if (!clip) throw new Error(`hyperframes engine: clip scene ${i} names no ingested clip`);
+    const u = Math.min(W, H);
+    if (s.fill) {
+      // Edge to edge: the footage is the frame. The label sits on an ink chip inside the 5% safe inset, sized to read on a phone,
+      // and leaves once read so it stops covering the page under it.
+      const shown = s.label ? Math.min(s.d, Math.max(2, readingFloor(s.label))) : 0;
+      const label = s.label
+        ? `<div data-safe style="position:absolute;z-index:${i + 2};left:${W * 0.05}px;bottom:${H * 0.05}px;padding:${u * 0.022}px ${u * 0.036}px;border-radius:${u * 0.06}px;background:var(--text);color:var(--page);font:600 ${u * 0.05}px/1 var(--body);white-space:pre;visibility:hidden" data-start="${s.at ?? 0}" data-duration="${shown}">${esc(s.label)}</div>`
+        : "";
+      return `<video class="clip" data-start="${s.at ?? 0}" data-duration="${s.d}" data-track-index="${i}" data-playback-start="${clip.start}" data-media-start-basis="global" src="${clip.video}" muted playsinline preload="auto" style="position:absolute;z-index:${i + 1};left:0;top:0;width:${W}px;height:${H}px;object-fit:cover;display:block;background:var(--page);visibility:hidden"></video>${label}`;
+    }
     const win = clipWindow(clip.width, clip.height, W, H, s.scale ?? 1);
     const label = s.label
       ? `<div data-safe style="position:absolute;z-index:${i + 2};left:${win.left}px;top:${win.top}px;transform:translateY(-100%);padding-bottom:${Math.min(W, H) * 0.018}px;color:var(--text);font:${Math.min(W, H) * 0.028}px/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;white-space:pre">${esc(s.label)}</div>`
@@ -176,6 +186,7 @@ await Promise.all(vids.map(v=>v.readyState>=2?Promise.resolve():new Promise(ok=>
 installSeek(0);
 const dur=${duration};
 window.__hfSeek=(s)=>{const t=Math.max(0,Math.min(dur,s));window.__apply(t*1000);
+ for(const l of document.querySelectorAll('div[data-safe][data-start]')){const a=Number(l.dataset.start),d=Number(l.dataset.duration);l.style.visibility=t>=a&&t<a+d?'visible':'hidden';}
  for(const v of document.querySelectorAll('video[data-start]')){const a=Number(v.dataset.start)||0,d=Number(v.dataset.duration)||0,o=Number(v.dataset.playbackStart||v.dataset.mediaStart||0);const on=t>=a&&t<a+d;v.style.visibility=on?'visible':'hidden';if(on){const at=Math.max(0,t-a)+o;if(Math.abs(v.currentTime-at)>1/120){try{v.currentTime=at;}catch{void 0;}}}}
 };
 window.__timelines=window.__timelines||{};
@@ -292,6 +303,35 @@ export async function renderHyperframes(dir: string, sb: Storyboard, o: Hyperfra
     },
   };
   writeFileSync(join(dir, "render.json"), `${JSON.stringify(manifest, null, 2)}\n`);
+  await writeScenes(dir, sb, out);
   return { out, manifest };
+}
+
+export interface SceneCut { index: number; file: string; start: number; end: number; title: string; pattern: string; frames: number }
+
+/** One file per scene, cut from the film on its exact frames, and out/scenes.json listing each one's start, end and title. */
+export async function writeScenes(dir: string, sb: Storyboard, film: string): Promise<SceneCut[]> {
+  const scenesDir = join(dir, "out", "scenes");
+  rmSync(scenesDir, { recursive: true, force: true });
+  mkdirSync(scenesDir, { recursive: true });
+  const fps = sb.output.fps, audio = Boolean(sb.audio);
+  const threads = process.env.TAKEONE_RENDER_THREADS ?? "2";
+  const cuts: SceneCut[] = [];
+  for (const [i, s] of sb.scenes.entries()) {
+    const a = Math.round((s.at ?? 0) * fps), b = Math.round(((s.at ?? 0) + s.d) * fps);
+    const title = s.title ?? s.label ?? s.logo ?? s.text ?? s.pattern;
+    const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 40) || s.pattern;
+    const name = `${String(i + 1).padStart(2, "0")}-${slug}.mp4`;
+    await execFileAsync("ffmpeg", ["-nostdin", "-v", "error", "-y", "-i", film,
+      "-vf", `trim=start_frame=${a}:end_frame=${b},setpts=PTS-STARTPTS`,
+      ...(audio ? ["-af", `atrim=start=${a / fps}:end=${b / fps},asetpts=PTS-STARTPTS`, "-c:a", "aac", "-b:a", "192k"] : ["-an"]),
+      "-c:v", "libx264", "-crf", "10", "-preset", "medium", "-pix_fmt", "yuv420p", "-threads", threads, "-filter_threads", threads,
+      "-movflags", "+faststart", join(scenesDir, name)], { timeout: 900_000 });
+    const p = probe(join(scenesDir, name));
+    if (p.frames !== b - a) throw new Error(`hyperframes engine: scene ${i + 1} cut ${p.frames} frames, expected ${b - a}`);
+    cuts.push({ index: i + 1, file: `out/scenes/${name}`, start: a / fps, end: b / fps, title, pattern: s.pattern, frames: b - a });
+  }
+  writeFileSync(join(dir, "out", "scenes.json"), `${JSON.stringify({ film: `out/${basename(film)}`, fps, scenes: cuts }, null, 2)}\n`);
+  return cuts;
 }
 

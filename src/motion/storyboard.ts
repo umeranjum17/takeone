@@ -115,7 +115,7 @@ function scene(raw: unknown, path: string): Scene {
   s.d = num(raw["d"], `${path}.d`, 0.25, MAX_DURATION_S);
   if (raw["at"] !== undefined) s.at = num(raw["at"], `${path}.at`, 0, MAX_DURATION_S);
   for (const k of ["title", "subtitle", "cta", "url", "logo", "text", "kind", "state"] as const) if (raw[k] !== undefined) s[k] = str(raw[k], `${path}.${k}`, k === "text" ? 400 : 120);
-  for (const k of ["invert", "cut"] as const) if (raw[k] !== undefined && typeof raw[k] !== "boolean") throw new StoryboardError(`${path}.${k}`, "expected true or false");
+  for (const k of ["invert", "cut", "fill"] as const) if (raw[k] !== undefined && typeof raw[k] !== "boolean") throw new StoryboardError(`${path}.${k}`, "expected true or false");
   for (const k of ["label", "note"] as const) if (raw[k] !== undefined) s[k] = str(raw[k], `${path}.${k}`, k === "label" ? 60 : 120);
   for (const k of ["scale", "from"] as const) if (raw[k] !== undefined) s[k] = num(raw[k], `${path}.${k}`, 0.1, 1.5);
   if (s.pattern === "statement" && (typeof s.title !== "string" || !s.title.trim())) throw new StoryboardError(`${path}.title`, "statement needs a non-empty title");

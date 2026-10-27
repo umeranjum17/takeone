@@ -94,7 +94,9 @@ this reports goal status but does not change the baseline ratchet gate.
   unseen. Passing it does not prove VMAF ≥95; only a libvmaf ffmpeg measures that.
   Candidate and golden frame counts must match; changed duration requires review.
 - Text cuts: the all-frame audit (`scripts/cut-audit.ts`) on every camera frame
-  of each fixture's render, with the same camera settings. Frames whose crop
+  of each fixture's render, with the same camera settings. It judges the view
+  the card shows (the stage margin included, as the render's guard does), not the
+  raw source crop. Frames whose visible
   edge slices a word or control count at rest and while moving under 120 output
   px/s; goal 0 each. The audit binds its timeline to the render's own end and
   fails when that end does not reproduce `camera.json`'s clock or a source frame
@@ -121,8 +123,12 @@ met prints `quality: passed`. For a maximum metric the gate is
 `value ≥ min(goal, baseline)`. Passing metrics keep their goal. Only 1e-6 relative
 round-off is tolerated, plus, where a fixture declares one, a metric's measured
 spread across machines on frame-identical renders: the scene's judder is allowed
-0.03 px/frame² above its baseline (1.0309 on a dev host, 1.0523 on the CI runner),
-and a 1 px shift injected every fourth frame still fails it. A missing,
+0.03 px/frame² above its baseline (measured 0.0214 apart on a dev host and the CI
+runner), and a 1 px shift injected every fourth frame still fails it. The baseline
+is 1.1762 since the push-in camera (the dev host's; the CI runner measures
+1.1330): zooming frames measure higher than pans on
+every build, and the push-ins add zooming frames (see the comment in
+`scripts/quality.ts` for the measurements). A missing,
 nonfinite or removed measurement fails.
 
 After a quality improvement, run `npm run quality -- --ratchet` and commit the

@@ -80,6 +80,8 @@ export interface Scene {
   tiles?: BentoTile[];
   /** Hard cut on the beat instead of the half-second push-in. */
   cut?: boolean;
+  /** clip: the footage fills the whole frame, edge to edge (HyperFrames engine), its label a chip inside the safe area. */
+  fill?: boolean;
   /** clip: the footage window's clip id. */
   clip?: string;
   /** clip: typed mono label; statement: mono footnote under the type. */

@@ -151,7 +151,9 @@ export function cursorAss(o: CursorOptions): string {
     const idle = (i - alive[i]!) / fps;
     const opacity = hideAfter === 0 || idle <= hideAfter ? 1 : clamp(1 - (idle - hideAfter) / IDLE_FADE, 0, 1);
     if (opacity <= 0.002) continue;
-    const f = o.frames[Math.min(i, o.frames.length - 1)]!;
+    // Camera frames run at the solve's rate, which a preview's output rate can differ from: look up by time.
+    const step = o.frames.length > 1 ? o.frames[1]!.t - o.frames[0]!.t : 1 / fps;
+    const f = o.frames[clamp(Math.round(i / fps / step), 0, o.frames.length - 1)]!;
     const scale = REST_H * o.d.cursor_size / 24.5 * o.d.out_h / 1080 * Math.sqrt(maxW / f.w);
     const ox = (pos[i]!.x + o.originX - f.x) * o.d.out_w / f.w;
     const oy = (pos[i]!.y + o.originY - f.y) * o.d.out_h / f.h;

@@ -329,11 +329,20 @@ export function resultParts(frames: FrameRegions[], fromT: number, untilT: numbe
 
 /**
  * Everything that changed as the result: the union of the attached regions, so
- * a result shot shows the change itself, not only the toast announcing it.
+ * a result shot shows the change itself, not only the toast announcing it. Rows
+ * an opened section only pushed down (every change below the largest one, within
+ * its column) are not the result: an expanded answer frames the answer, not the
+ * rest of the column sliding under it.
  */
 export function resultBBox(beat: Beat): BBox | null {
   const results = beat.results ?? [];
-  return results.length === 0 ? null : results.map((r) => r.bbox).reduce(unionBBox);
+  if (results.length === 0) return null;
+  // Merged beats append their results, so the largest is not always first.
+  const largest = results.reduce((a, b) => bboxArea(b.bbox) > bboxArea(a.bbox) ? b : a);
+  const [lx, ly, lw, lh] = largest.bbox;
+  const pushed = (r: Region) => r !== largest && r.bbox[1] >= ly + lh - 1
+    && r.bbox[0] >= lx - 1 && r.bbox[0] + r.bbox[2] <= lx + lw + 1;
+  return results.filter((r) => !pushed(r)).map((r) => r.bbox).reduce(unionBBox);
 }
 
 /** The first-change time of the largest attached result region, or null. */
