@@ -14,7 +14,8 @@
     "bin",
     "dist",
     "resources",
-    "scripts/synth-take.ts"
+    "scripts/synth-take.ts",
+    "THIRD_PARTY_NOTICES.md"
   ],
   "scripts": {
     "build": "tsc --project tsconfig.json",

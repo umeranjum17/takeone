@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { parseMotionArgs } from "../src/motion/cli.ts";
 import { buildHyperframesProject, validateHyperframesProject, writeScenes } from "../src/motion/hyperframes.ts";
+import { measureFrozen, measureLoudness } from "../src/motion/gates.ts";
 import { validateStoryboard } from "../src/motion/storyboard.ts";
 import { compareRenders, MIN_FRAME_PSNR } from "../scripts/motion-determinism.ts";
 
@@ -167,5 +168,30 @@ test("two renders pass the determinism check within its PSNR floor, and a change
     assert.ok(r.differing > 0 && r.minPsnr >= MIN_FRAME_PSNR && r.ok, `low-bit rounding stays within the floor (${r.minPsnr.toFixed(2)} dB)`);
     const b = compareRenders(a, box);
     assert.ok(!b.ok && b.minPsnr < MIN_FRAME_PSNR, `a box drawn on every frame fails (${b.minPsnr.toFixed(2)} dB)`);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("a film is gated on frozen time outside the end card and on audio loudness", { timeout: 120_000 }, async () => {
+  const { dir, sb } = fixture();
+  try {
+    sb.output = { ...sb.output, out_w: 320, out_h: 180 };
+    const mk = (name: string, vf: string, amp: number) => {
+      const file = join(dir, name);
+      execFileSync("ffmpeg", ["-nostdin", "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=s=320x180:r=60:d=14", "-f", "lavfi", "-i", `sine=frequency=440:d=14`,
+        "-vf", vf, "-af", `volume=${amp}`, "-shortest", "-c:v", "libx264", "-crf", "10", "-pix_fmt", "yuv420p", "-c:a", "aac", file]);
+      return file;
+    };
+    const live = mk("live.mp4", "null", 1.95);
+    const frozen = mk("frozen.mp4", "freezedetect=n=-60dB,select='lt(t,3)+gt(t,5)'", 1.95);
+    // Scenes 0-6 s kinetic, 6-8 clip, 8-14 end card: frozen time inside the end card is the design.
+    assert.equal((await measureFrozen(live, sb, 14)).passed, true);
+    const f = await measureFrozen(frozen, sb, 14);
+    assert.equal(f.passed, false);
+    assert.ok(f.longest > 0.6, `a stretch frozen before the end card fails (longest ${f.longest})`);
+    const ok = await measureLoudness(live);
+    assert.equal(ok.passed, true, ok.failures.join("; "));
+    const hot = await measureLoudness(mk("hot.mp4", "null", 8));
+    assert.equal(hot.passed, false);
+    assert.match(hot.failures.join(";"), /LUFS|dBTP/);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });

@@ -5,6 +5,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync 
 import { isAbsolute, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { blurPlan } from "./blur.ts";
+import type { FrozenReport, LoudnessReport } from "./gates.ts";
 import { allTimelines } from "./layout.ts";
 import { sceneCameras } from "./camera.ts";
 import { ingest, ingestClips, clipStale } from "./ingest.ts";
@@ -37,6 +38,7 @@ export interface RenderManifest {
   frame_md5?: string;
   motion_blur?: unknown;
   camera?: boolean;
+  gates?: { frozen: FrozenReport; loudness?: LoudnessReport };
   hyperframes?: { version: string; cli: string; shell_version: string; shell_sha256: string; browser: string };
 }
 
