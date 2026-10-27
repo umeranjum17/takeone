@@ -4,7 +4,7 @@ Part of the takeone verification map. Source: `src/render/overlays.ts`, `src/key
 
 ## How to get to it (user POV)
 
-A shortcut the user pressed while recording (Ctrl, Alt or Meta plus a key) shows as keycaps in a frosted pill above the caption band; `--set keycap_style=mac` draws macOS glyphs. The user adds `"spotlight"` and `"blur"` regions (`{ "t", "d", "rect": [x, y, w, h] }` in source pixels and video seconds) and `"toasts"` windows to `take.json`, then runs `takeone render <take-dir>`.
+A shortcut the user pressed while recording (Ctrl, Alt or Meta plus a key) shows as keycaps in a frosted pill above the caption band; `--set keycap_style=mac` draws macOS glyphs. The user adds `"spotlight"` and `"blur"` regions (`{ "t", "d", "rect": [x, y, w, h] }` in source pixels and video seconds) to `take.json`, then runs `takeone render <take-dir>`.
 
 ## Driving it
 

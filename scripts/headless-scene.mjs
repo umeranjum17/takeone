@@ -22,8 +22,8 @@ const TEXT_BOXES = `(() => {
   for (const el of document.querySelectorAll('input, textarea, #modal, [role=status]')) if (seen(el)) add(el, el.getBoundingClientRect(), el.id);
   return JSON.stringify(out);
 })()`;
-// A toast is the page's status message (role="status") while it shows text; render moves an
-// overlay caption sharing its screen time off the bottom band it occupies.
+// A toast is the page's status message (role="status") while it shows text. Its windows let a
+// proof sample frames through each toast; render keeps every caption in the band, off it.
 const TOAST_SHOWN = `[...document.querySelectorAll('[role=status]')].some(el => el.textContent.trim()
   && el.checkVisibility({ opacityProperty: true, visibilityProperty: true }))`;
 

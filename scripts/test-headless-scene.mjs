@@ -60,7 +60,7 @@ async function checkTake(dir) {
   assert.ok(wheelEvents.some(e => e.dy < 0), 'downward feed movement must serialize as negative wheel delta');
   assert.ok(wheelEvents.some(e => e.dy > 0), 'upward feed movement must serialize as positive wheel delta');
   // Every toast the board shows is a take.json window, and the toast's box is in text-boxes.json
-  // from the window's first frame, so render moves an overlay caption off it.
+  // from the window's first frame, so safe-area.json can show no caption covers it.
   const { toasts } = JSON.parse(await readFile(join(dir,'take.json'),'utf8'));
   assert.deepEqual(toasts?.map(w => w.d.toFixed(2)), ['2.20','2.20','2.20'], 'created, archived and created again');
   const { samples } = JSON.parse(await readFile(join(dir,'text-boxes.json'),'utf8'));

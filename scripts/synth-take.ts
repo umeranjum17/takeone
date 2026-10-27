@@ -408,7 +408,6 @@ writeFileSync(join(dir, "take.json"), JSON.stringify({
     { t: 22.6, d: 3.6, text: "Drag to adjust retention" },
     { t: 33.2, text: "Export in one click" },
   ],
-  toasts: [{ t: TOAST_T, d: DUR - TOAST_T }],
 }, null, 1) + "\n");
 writeFileSync(join(dir, "frames.tsv"), "0\t0\n");
 writeFileSync(join(dir, "events.jsonl"), buildEvents().join("\n") + "\n");

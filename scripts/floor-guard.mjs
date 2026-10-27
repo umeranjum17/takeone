@@ -248,6 +248,56 @@ const renamed = (file, a, b, before, after) => {
     (!hasWord(after, oldWord) && !hasWord(before, newWord)) || (swapCount.get(`${file}|${oldWord}|${newWord}`) ?? 0) >= 2) ||
     (changed.length === 1 && fieldRenamed(...changed[0]));
 };
+// A call that lost one argument pairs when this diff drops parameters from that function in src/:
+// `captionLayouts(captions, ink, d, false, band)` -> `captionLayouts(captions, ink, d, band)` once
+// captionLayouts lost its widePhone parameter. A test-only argument drop, or one whose function kept
+// its arity in src/, stays flagged.
+// ponytail: top-level commas split the parameter list, so a generic type with a comma miscounts it
+// and the pair stays flagged; review owns that.
+const listAt = (s, open) => { // the top-level items between s[open] === '(' and its closing ')'
+  const items = [];
+  let depth = 0, cur = '', quote = null;
+  for (let i = open + 1; i < s.length; i++) {
+    const c = s[i];
+    if (quote) { cur += c; if (c === '\\') cur += s[++i] ?? ''; else if (c === quote) quote = null; continue; }
+    if (c === '"' || c === "'" || c === '`') { quote = c; cur += c; continue; }
+    if (c === '(' || c === '[' || c === '{') depth++;
+    if (c === ')' && !depth) { if (cur.trim()) items.push(cur.trim()); return { items, end: i }; }
+    if (c === ')' || c === ']' || c === '}') depth--;
+    if (c === ',' && !depth) { items.push(cur.trim()); cur = ''; continue; }
+    cur += c;
+  }
+  return null;
+};
+const CALLEE = /[A-Za-z_$][\w$]*(?=\()/g;
+const droppedArgCallee = (a, b) => {
+  for (const m of a.matchAll(CALLEE)) {
+    const open = m.index + m[0].length, call = listAt(a, open);
+    if (!call) continue;
+    for (let k = 0; k < call.items.length; k++) {
+      const without = call.items.filter((_, i) => i !== k).join(', ');
+      if (normSubject(a.slice(0, open + 1) + without + a.slice(call.end)) === normSubject(b)) return m[0];
+    }
+  }
+  return null;
+};
+const arity = (name, rev) => {
+  const declared = new RegExp(`function\\s+${name.replaceAll('$', '\\$')}\\s*\\(`);
+  const out = git(['grep', '-l', '-E', `function[[:space:]]+${name.replaceAll('$', '\\$')}[[:space:]]*\\(`, ...(rev ? [rev] : []), '--', 'src']) ?? '';
+  for (const f of out.split('\n').map((l) => (rev ? l.slice(rev.length + 1) : l)).filter((f) => f && isCode(f) && !isTest(f))) {
+    const content = rev ? git(['show', `${rev}:${f}`]) ?? '' : readFileSync(f, 'utf8');
+    const at = content.search(declared);
+    const params = at < 0 ? null : listAt(content, content.indexOf('(', at));
+    if (params) return params.items.length;
+  }
+  return null;
+};
+const argDropped = (a, b) => {
+  const name = droppedArgCallee(a, b);
+  if (!name) return false;
+  const was = arity(name, mergeBase), now = arity(name);
+  return was !== null && now !== null && now < was;
+};
 // The comparison an assertion makes: its operator and its two sides.
 function subjectComparison(subject) {
   let depth = 0, quote = null;
@@ -337,7 +387,7 @@ for (const lost of assertsLost) {
   if (deleted.includes(lost.file) || testDiet(lost.file)) continue; // test-deleted / test-diet own these
   const before = git(['show', `${mergeBase}:${lost.file}`]) ?? '';
   const after = existsSync(lost.file) ? readFileSync(lost.file, 'utf8') : '';
-  const match = assertsGained.findIndex(g => g.file === lost.file && (g.subject === lost.subject || renamed(lost.file, lost.subject, g.subject, before, after)));
+  const match = assertsGained.findIndex(g => g.file === lost.file && (g.subject === lost.subject || renamed(lost.file, lost.subject, g.subject, before, after) || argDropped(lost.subject, g.subject)));
   if (match < 0 && strengthened(lost)) continue;   // the same block now checks it, at least as hard
   const netLoss = assertsLost.filter(l => l.file === lost.file).length > assertsGained.filter(g => g.file === lost.file).length;
   if (match < 0 || netLoss) flag('assertion-removed', lost.file, lost.subject);
