@@ -300,7 +300,8 @@ export async function renderTake(dir: string, camera?: CameraDefaults, preview?:
     : solveLayout;
   const { text, captionInk, band, stage } = renderLayout;
   const blurs = overlayRegions(meta, "blur", outTime, trimStart, trimEnd);
-  const spotlights = overlayRegions(meta, "spotlight", outTime, trimStart, trimEnd);
+  // The take's own spotlights win; else the film's key moments. Blurs run first in the graph, so a lit region stays blurred.
+  const spotlights = overlayRegions({ ...meta, spotlight: meta.spotlight ?? meta.film?.spotlight }, "spotlight", outTime, trimStart, trimEnd);
   const commandFile = join(workDir, "camera.cmd");
   // With a band the camera frames the screen alone, into the fixed card.
   const stageCamera = band ? bandFrames(frames, band, d) : stageFrames(frames, meta.width, meta.height, stage, d);
@@ -366,7 +367,9 @@ export async function renderTake(dir: string, camera?: CameraDefaults, preview?:
     "-map", "[stage]", "-frames:v", "1", "-update", "1", stageFile,
     "-map", "[holes]", "-frames:v", "1", "-update", "1", holesFile]);
   const clicksFile = join(workDir, "clicks.ass");
-  const clicksAss = clickAss(clicks, meta.width, meta.height, trimStart,
+  // The film's choice of which clicks get a ring; without one, every click does.
+  const ringed = meta.film?.clicks ? beatClicks(outBeats.filter(b => meta.film!.clicks!.includes(b.id))) : clicks;
+  const clicksAss = clickAss(ringed, meta.width, meta.height, trimStart,
     band ? { ...stage, restScale: stage.baseW / meta.width } : stage, view,
     { frames: cameraFrames, stage: band ? { ...stage, screenX: 0, screenY: 0 } : stage, shutter });
   await writeFile(clicksFile, clicksAss);
@@ -378,9 +381,11 @@ export async function renderTake(dir: string, camera?: CameraDefaults, preview?:
   const keyObstacles = keycapObstacles(outBeats, outDecisions, stageCamera,
     band ? { ...stage, screenX: 0, screenY: 0 } : stage,
     trimStart, captions, captionInk, text, band, [...spotlights, ...blurs]);
-  const keys = keycapAss(outBeats, trimStart, duration, d, keyObstacles);
+  // The film's choice of which shortcuts show a keycap; without one, every shortcut does.
+  const keyBeats = meta.film?.keys ? outBeats.filter(b => meta.film!.keys!.includes(b.id)) : outBeats;
+  const keys = keycapAss(keyBeats, trimStart, duration, d, keyObstacles);
   const keyMaskFile = join(workDir, "keycaps-mask.ass");
-  await writeFile(keyMaskFile, keycapMaskAss(outBeats, trimStart, duration, d, keyObstacles));
+  await writeFile(keyMaskFile, keycapMaskAss(keyBeats, trimStart, duration, d, keyObstacles));
   await writeFile(keysFile, keys);
   const spotlightFile = join(workDir, "spotlight.ass");
   const spotlight = spotlightAss(spotlights, meta.width, meta.height, view, { frames: cameraFrames, stage: band ? { ...stage, screenX: 0, screenY: 0 } : stage, shutter });

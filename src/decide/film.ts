@@ -10,7 +10,8 @@
 import type { Answer, Question } from "@byokit/decide";
 import { type Overrides, type CameraDefaults } from "../camera/defaults.ts";
 import { THEMES, type ThemeName } from "../themes.ts";
-import type { Beat } from "../types.ts";
+import { readingFloor } from "../motion/storyboard.ts";
+import type { BBox, Beat } from "../types.ts";
 import { CHUNK_TOKEN_CAP, JEV_MODEL, estimateTokens, toWire, whatHappened } from "./request.ts";
 
 /** Pace score levels, brisk to calm, and the pace multiplier each one sets. Pace
@@ -46,8 +47,13 @@ const ENDING_CANDIDATES = 3;
 // that shrinks to fit, in a separate slice.
 const TITLE_MAX = 28;
 const CAPTION_MAX = 80;
-/** On-screen seconds per AI caption: the documented reading time. */
-const CAPTION_SECONDS = 3;
+/** An AI caption stays up at least its reading time (0.3 s a word + 0.8 s), at most this long. */
+const CAPTION_MAX_S = 8;
+/** The title shows from 0.35 s to 3.1 s (src/render/stage.ts), so its reading time must fit that. */
+const TITLE_MAX_S = 2.75;
+/** Key moments the planner may spotlight, and the largest share of the screen a spotlight may cover. */
+const SPOTLIGHT_MAX = 3;
+const SPOTLIGHT_MAX_AREA = 0.35;
 
 export interface FilmDecision {
   /** Theme tokens, applied under --set; absent keeps the base look. */
@@ -59,8 +65,14 @@ export interface FilmDecision {
   end_beat?: string;
   /** The film's title, drawn over the opening; absent when the planner gave none. */
   title?: string;
-  /** Captions in video-relative seconds, one per beat the planner chose. */
+  /** Captions in video-relative seconds, one per beat the planner chose; `d` is the planner's
+   * length, never under the caption's reading time. */
   captions?: { t: number; d: number; text: string }[];
+  /** Key moments the planner spotlights, as take.json `spotlight`; the take's own wins. */
+  spotlight?: { t: number; d: number; rect: BBox }[];
+  /** Beats whose shortcut shows a keycap, and beats whose clicks get a ring; absent shows all. */
+  keys?: string[];
+  clicks?: string[];
   /** Per field: the planner's own choice, or the rule (base look) when it abstained. */
   by: Record<string, "ai" | "rule">;
 }
@@ -158,8 +170,9 @@ function buildFilmPart(ctx: FilmCtx, beats: Beat[], before: string | undefined, 
       instructions: "Calm: hold each framing and move only between them. Lively: the camera follows the action.",
     },
   };
-  const captions = `captions: a list of {beat, text} for the beats worth a line, each text in at most ${CAPTION_MAX} characters, ` +
-    "plain words, with beat set to an id from the timeline.";
+  const captions = `captions: a list of {beat, text, seconds} for the beats worth a line, each text in at most ${CAPTION_MAX} characters, ` +
+    "plain words, with beat set to an id from the timeline and seconds how long it stays up (a viewer needs " +
+    "0.3 seconds a word plus 0.8; shorter is raised to that).";
   // A middle chunk of a text-less planner has no caption question, so it would
   // ask nothing. Ask the film-wide questions there too: every beat must be
   // planned by a request, and the first chunk's answer still wins in joinFilm.
@@ -183,6 +196,15 @@ function buildFilmPart(ctx: FilmCtx, beats: Beat[], before: string | undefined, 
       question: "Does a viewer need a caption on any of these beats? Answer yes when a step or its result is not clear from the screen alone. " +
         `The film's title and the earlier beats are already written. When yes, also give ${captions}`,
       answerFields: ["captions"],
+    } as Question } : {}),
+    // Emphasis lists beat ids, so like captions it needs a planner that returns text.
+    ...(ctx.text ? { marked: {
+      kind: "yesno",
+      question: "Should any of these beats be marked for the viewer? Answer yes only when a moment needs it. When yes, also give " +
+        `spotlight: up to ${SPOTLIGHT_MAX} beat ids whose result should be lit while the rest dims; ` +
+        "keys: the beat ids whose keyboard shortcut matters, so its keycap shows; " +
+        "clicks: the beat ids whose clicks get a ring. Leave a list out to keep the default for it.",
+      answerFields: ["spotlight", "keys", "clicks"],
     } as Question } : {}),
   };
   const tokens = estimateTokens(JSON.stringify({ model: JEV_MODEL, state, questions: toWire(questions) }));
@@ -220,6 +242,17 @@ export function planFilm(ctx: FilmCtx): FilmPlan | null {
   return { calls, tokens: calls.reduce((n, c) => n + c.tokens, 0) };
 }
 
+/** The film's marks joined over the calls that asked: each list is every call's ids in order,
+ * and stays absent when no call gave it (the default holds). */
+function joinMarks(answers: Answer[]): Answer | undefined {
+  const given = answers.filter((a) => !a.abstained && a.answer === true);
+  if (given.length === 0) return undefined;
+  const fields = given.map((a) => a as unknown as Record<string, unknown>);
+  const list = (key: string) => fields.some((f) => Array.isArray(f[key])) ? { [key]: fields.flatMap((f) => (Array.isArray(f[key]) ? f[key] : [])) } : {};
+  return { answer: true, confidence: Math.max(...given.map((a) => a.confidence)), abstained: false, by: given[0]!.by,
+    ms: given.reduce((n, a) => n + a.ms, 0), ...list("spotlight"), ...list("keys"), ...list("clicks") } as Answer;
+}
+
 /** The film's text answers joined over the calls that asked for them: the first
  * title any call gave, and every call's captions in order. */
 function joinText(answers: Answer[]): Answer | undefined {
@@ -244,9 +277,11 @@ function joinText(answers: Answer[]): Answer | undefined {
 export function joinFilm(parts: (Record<string, Answer> | undefined)[]): Record<string, Answer> {
   const joined: Record<string, Answer> = {};
   const texts: Answer[] = [];
+  const marks: Answer[] = [];
   for (const answers of parts) {
     for (const [key, answer] of Object.entries(answers ?? {})) {
       if (key === "titled") texts.push(answer);
+      else if (key === "marked") marks.push(answer);
       else if (joined[key] === undefined) joined[key] = answer;
     }
   }
@@ -255,14 +290,23 @@ export function joinFilm(parts: (Record<string, Answer> | undefined)[]): Record<
   // No call gave text: keep the first answer, so the log still shows the field
   // the planner was asked and marked "rule".
   else if (texts.length > 0) joined.titled = texts[0]!;
+  const marked = joinMarks(marks);
+  if (marked !== undefined) joined.marked = marked;
+  else if (marks.length > 0) joined.marked = marks[0]!;
   return joined;
 }
 
-/** Caption timing for each beat: the start in video-relative seconds (`seconds`
- * maps a timeline ms to video seconds, as make does for the take) and a fixed
- * on-screen reading time, in output seconds. */
-export function captionSpans(beats: Beat[], seconds: (ms: number) => number): Record<string, { t: number; d: number }> {
-  return Object.fromEntries(beats.map((b) => [b.id, { t: seconds(b.t0), d: CAPTION_SECONDS }]));
+/** What the film can mark on a beat: its start in video-relative seconds (`seconds`
+ * maps a timeline ms to video seconds, as make does for the take), its length, and
+ * the result (else the action) zone a spotlight would light, when that zone is
+ * small enough to single out. */
+export interface BeatSpan { t: number; len: number; rect?: BBox }
+export function beatSpans(beats: Beat[], seconds: (ms: number) => number): Record<string, BeatSpan> {
+  return Object.fromEntries(beats.map((b) => {
+    const zone = b.zones.find((z) => z.kind === "res") ?? b.zones.find((z) => z.kind === "act");
+    const rect = zone && zone.area_frac <= SPOTLIGHT_MAX_AREA && zone.bbox[2] >= 2 && zone.bbox[3] >= 2 ? zone.bbox : undefined;
+    return [b.id, { t: seconds(b.t0), len: seconds(b.t1) - seconds(b.t0), ...(rect ? { rect } : {}) }];
+  }));
 }
 
 /** Trimmed text within the limit, or undefined. */
@@ -274,10 +318,11 @@ function line(value: unknown, max: number): string | undefined {
 
 /** The title and captions of a yes answer. A caption for a beat outside the
  * timeline, a repeat for a beat, or text over its limit is left out. */
-function filmText(answer: Answer | undefined, spans: Record<string, { t: number; d: number }>): { title?: string; captions: { t: number; d: number; text: string }[] } {
+function filmText(answer: Answer | undefined, spans: Record<string, BeatSpan>): { title?: string; captions: { t: number; d: number; text: string }[] } {
   if (!answer || answer.abstained || answer.answer !== true) return { captions: [] };
   const fields = answer as unknown as Record<string, unknown>;
-  const title = line(fields.title, TITLE_MAX);
+  let title = line(fields.title, TITLE_MAX);
+  if (title !== undefined && readingFloor(title) > TITLE_MAX_S) title = undefined;
   const beats = new Set<string>();
   const captions: { t: number; d: number; text: string }[] = [];
   for (const c of Array.isArray(fields.captions) ? fields.captions : []) {
@@ -286,15 +331,32 @@ function filmText(answer: Answer | undefined, spans: Record<string, { t: number;
     const text = line(entry.text, CAPTION_MAX);
     if (beat === undefined || text === undefined) continue;
     beats.add(beat);
-    captions.push({ ...spans[beat]!, text });
+    const asked = typeof entry.seconds === "number" && Number.isFinite(entry.seconds) ? entry.seconds : 0;
+    captions.push({ t: spans[beat]!.t, d: Math.min(CAPTION_MAX_S, Math.max(readingFloor(text), asked)), text });
   }
   return { ...(title !== undefined ? { title } : {}), captions: captions.sort((a, b) => a.t - b.t) };
+}
+
+/** The beats the planner marked: spotlights on the beats' own zones, and the beats
+ * whose keycaps and click rings show. A beat outside the timeline is left out. */
+function filmMarks(answer: Answer | undefined, spans: Record<string, BeatSpan>): Pick<FilmDecision, "spotlight" | "keys" | "clicks"> {
+  if (!answer || answer.abstained || answer.answer !== true) return {};
+  const fields = answer as unknown as Record<string, unknown>;
+  const ids = (value: unknown) => Array.isArray(value)
+    ? [...new Set(value.filter((id): id is string => typeof id === "string" && Object.hasOwn(spans, id)))] : undefined;
+  const spotlight = (ids(fields.spotlight) ?? []).flatMap((id) => {
+    const s = spans[id]!;
+    return s.rect ? [{ t: s.t, d: Math.min(4, Math.max(1.5, s.len)), rect: s.rect }] : [];
+  }).slice(0, SPOTLIGHT_MAX).sort((a, b) => a.t - b.t);
+  const keys = ids(fields.keys);
+  const clicks = ids(fields.clicks);
+  return { ...(spotlight.length > 0 ? { spotlight } : {}), ...(keys ? { keys } : {}), ...(clicks ? { clicks } : {}) };
 }
 
 /** Map the film answers to bounded values. Anything missing, abstained or outside
  * its choices is left out (the base look) and marked "rule". The title and
  * captions come from the planner's own text, timed by `spans`. */
-export function mapFilm(answers: Record<string, Answer>, endings: string[], spans: Record<string, { t: number; d: number }>): FilmDecision {
+export function mapFilm(answers: Record<string, Answer>, endings: string[], spans: Record<string, BeatSpan>): FilmDecision {
   const by: FilmDecision["by"] = {};
   const pick = <T>(key: string, valid: (answer: unknown) => T | undefined): T | undefined => {
     const a = answers[key];
@@ -313,6 +375,8 @@ export function mapFilm(answers: Record<string, Answer>, endings: string[], span
   const style = pick("camera_style", oneOf(Object.keys(CAMERA_STYLES)));
   const text = filmText(answers.titled, spans);
   if (answers.titled !== undefined) by.titled = text.title !== undefined || text.captions.length > 0 ? "ai" : "rule";
+  const marks = filmMarks(answers.marked, spans);
+  if (answers.marked !== undefined) by.marked = Object.keys(marks).length > 0 ? "ai" : "rule";
   return {
     ...(theme !== undefined ? { theme } : {}),
     ...(pace !== undefined ? { pace: PACE_VALUES[pace]! } : {}),
@@ -321,12 +385,13 @@ export function mapFilm(answers: Record<string, Answer>, endings: string[], span
     ...(style !== undefined ? { camera_path: CAMERA_STYLES[style]!.camera_path } : {}),
     ...(text.title !== undefined ? { title: text.title } : {}),
     ...(text.captions.length > 0 ? { captions: text.captions } : {}),
+    ...marks,
     by,
   };
 }
 
 /** The camera field or saved key each film question sets. */
-const FIELD_OF_QUESTION: Record<string, string> = { theme: "theme", pace: "pace", opening: "establish_s", ending: "end_beat", camera_style: "camera_path", titled: "titled" };
+const FIELD_OF_QUESTION: Record<string, string> = { theme: "theme", pace: "pace", opening: "establish_s", ending: "end_beat", camera_style: "camera_path", titled: "titled", marked: "marked" };
 
 /** The choices make applies. A field the user pinned with --set, a theme the user
  * picked, and an ending a trim already bounds are left out, so the saved film and
@@ -341,6 +406,9 @@ export function appliedFilm(film: FilmDecision, skip: { pinned: string[]; themeF
     ...(film.camera_path !== undefined && !dropped("camera_path") ? { camera_path: film.camera_path } : {}),
     ...(film.title !== undefined ? { title: film.title } : {}),
     ...(film.captions !== undefined ? { captions: film.captions } : {}),
+    ...(film.spotlight !== undefined ? { spotlight: film.spotlight } : {}),
+    ...(film.keys !== undefined ? { keys: film.keys } : {}),
+    ...(film.clicks !== undefined ? { clicks: film.clicks } : {}),
     by: Object.fromEntries(Object.entries(film.by).filter(([question]) => !dropped(FIELD_OF_QUESTION[question]!))),
   };
 }
@@ -361,10 +429,11 @@ export function filmOverrides(film: FilmDecision, themeFree: boolean, pinned: st
 
 /** The take's text for a render: its own title and captions when it sets them
  * (an empty title keeps none), else the film's AI text. */
-export function withFilmText<T extends { title?: string; captions?: { t: number; d?: number; text: string }[]; film?: FilmDecision }>(meta: T): T {
+export function withFilmText<T extends { title?: string; captions?: { t: number; d?: number; text: string; hold?: boolean }[]; film?: FilmDecision }>(meta: T): T {
   const film = meta.film;
   if (film?.title === undefined && film?.captions === undefined) return meta;
-  return { ...meta, title: meta.title ?? film.title, captions: meta.captions ?? film.captions };
+  // A film caption's length is its reading time, so a later caption waits for it (hold).
+  return { ...meta, title: meta.title ?? film.title, captions: meta.captions ?? film.captions?.map((c) => ({ ...c, hold: true })) };
 }
 
 /** Mean luma of the grey analysis frames, sampled every tenth frame: "light" or "dark". */
