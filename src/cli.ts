@@ -15,7 +15,6 @@ import { renderTake, renderThreads } from "./render/render.ts";
 import { previewSize } from "./render/preview.ts";
 import { THEMES, resolveTheme } from "./themes.ts";
 import { isMotionTake, MOTION_USAGE, runMotion } from "./motion/cli.ts";
-import { NoEngine } from "./motion/editorial.ts";
 import { renderMotion } from "./motion/motion.ts";
 import { applyOverrides, type CameraDefaults, type Overrides } from "./camera/defaults.ts";
 import { filmOverrides, type FilmDecision } from "./decide/film.ts";
@@ -246,8 +245,8 @@ export async function main(argv: string[]): Promise<number> {
     try {
       return await runMotion(rest, takesDir());
     } catch (e) {
-      console.error(`takeone motion: ${e instanceof Error ? e.message : e}`);
-      return e instanceof NoEngine || e instanceof PlannerUnavailable ? 3 : 1;
+      console.error(e instanceof PlannerUnavailable && e.credentialMissing ? e.message : `takeone motion: ${e instanceof Error ? e.message : e}`);
+      return e instanceof PlannerUnavailable ? 3 : 1;
     }
   }
   if (cmd === "render") {

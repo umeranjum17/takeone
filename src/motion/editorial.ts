@@ -9,18 +9,10 @@ import { KeystoreError } from "@byokit/secrets";
 import { SecretStoreUnavailable } from "../secrets.ts";
 import { screenLines } from "../decide/ocr.ts";
 import { redactText } from "../decide/redact.ts";
-import { askChunk, resolvePlanner } from "../decide/planner.ts";
+import { askChunk, PlannerUnavailable, resolvePlanner } from "../decide/planner.ts";
 import { imageSize } from "./ingest.ts";
 import { minSceneDuration } from "./storyboard.ts";
 import type { Crop, Rect, Scene } from "./types.ts";
-
-/** No signed-in engine: the recipe stops here rather than film a stand-in plan. */
-export class NoEngine extends Error {
-  constructor(detail: string) {
-    super(`takeone needs an AI engine (${detail}). Sign in with: claude (Claude), or: codex login (Codex), or: opencode auth login (OpenCode).`);
-    this.name = "NoEngine";
-  }
-}
 
 export interface EditorialArgs { inputs: string[]; pitch?: string; logo?: string; url?: string; cta?: string; audio?: string; workers?: number }
 
@@ -169,6 +161,9 @@ export function editorialStoryboard(a: EditorialArgs, id: string, size: { width:
   };
 }
 
+/** No signed-in engine: the recipe stops with the sign-in line rather than film a stand-in plan. */
+const noEngine = (reason: string) => new PlannerUnavailable("signed-in account or stored key", reason, { credentialMissing: true });
+
 /** Read the screen, ask the signed-in engine once, and plan the film. Stops when no engine can answer. */
 export async function planEditorial(a: EditorialArgs, id: string, log: (line: string) => void): Promise<unknown> {
   if (a.inputs.length !== 1 || !/\.(png|jpe?g|webp)$/i.test(a.inputs[0]!)) throw new Error("--recipe editorial takes exactly one screenshot (png, jpg or webp)");
@@ -176,10 +171,10 @@ export async function planEditorial(a: EditorialArgs, id: string, log: (line: st
   let planner;
   try { planner = await resolvePlanner(); } catch (e) {
     // An unreadable secret store means no stored key: discovery found no sign-in either.
-    if (e instanceof SecretStoreUnavailable || (e instanceof KeystoreError && ["unavailable", "unsupported"].includes(e.code))) throw new NoEngine("no sign-in found and the secret store cannot be read");
+    if (e instanceof SecretStoreUnavailable || (e instanceof KeystoreError && ["unavailable", "unsupported"].includes(e.code))) throw noEngine("no sign-in found and the secret store cannot be read");
     throw e;
   }
-  if (!planner.active) throw new NoEngine(planner.refusal ?? `${planner.label} is not signed in`);
+  if (!planner.active) throw noEngine(planner.refusal ?? `${planner.label} is not signed in`);
   const file = resolve(a.inputs[0]!), size = imageSize(file);
   const lines = candidateLines(await screenLines(file), size.height);
   if (lines.length < 6) throw new Error(`editorial: read only ${lines.length} text lines off ${a.inputs[0]}; the recipe needs a screen with real UI text`);
