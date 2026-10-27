@@ -61,6 +61,15 @@ window.track = (x0, targets, { omega, zeta } = UI_SPRING) => (ms) => {
   for (const [t, v] of targets) { x += (v - prev) * springStep((ms - t) / 1000, omega, zeta); prev = v; }
   return x;
 };
+// Type reveal: whole words rise 0.3 em and fade in on the type spring. Never through an overflow mask: mid-rise a mask
+// shows half-drawn glyphs. Each reveal starts TYPE_LEAD ms early, so a scene's first frame (a cut point) already shows its
+// first word instead of a bare background.
+window.TYPE_LEAD = 150;
+window.wordSpans = (text, cls) => String(text ?? "").split(/\s+/).filter(Boolean).map((w) => `<span class="${cls}" style="display:inline-block">${esc(w)}</span>`).join(" ");
+window.riseIn = (el, at) => {
+  const y = track(1, [[at - TYPE_LEAD, 0]], TYPE_SPRING);
+  tick((ms) => { const v = y(ms); el.style.transform = `translateY(${(v * 0.3).toFixed(4)}em)`; el.style.opacity = (1 - v).toFixed(4); });
+};
 window.PENDING = []; // decode promises a tick queues (clip frames); each seek waits for them before it settles
 
 // Kerned glyph layout (L8-e). Never per-letter inline-block spans: set the run as one kerned text node, measure
@@ -156,6 +165,7 @@ window.installSeek = (settle = 2) => {
   };
   // Safe-area gate: every shown [data-safe] box (titles, notes, labels, footage windows) that crosses the frame's
   // 5% inset at page time ms. Boxes are measured in their scene layer, so the push-in between beats is not judged.
+  // It also lists every shown word a clipping box cuts part-way.
   window.__safe = (ms) => {
     apply(ms);
     const W = innerWidth, H = innerHeight, out = [];
@@ -165,6 +175,25 @@ window.installSeek = (settle = 2) => {
       const box = [r.left - o.left, r.top - o.top, r.right - o.left, r.bottom - o.top];
       if (box[0] < W * 0.05 - 0.5 || box[1] < H * 0.05 - 0.5 || box[2] > W * 0.95 + 0.5 || box[3] > H * 0.95 + 0.5)
         out.push({ pattern: layer.dataset.pattern, text: el.dataset.safe || el.textContent.trim().slice(0, 40), box: box.map(Math.round) });
+    }
+    // Clipped glyphs: a shown word that a clipping ancestor cuts part-way (a mask reveal mid-rise, a card edge through a
+    // label). Wholly hidden is not drawn and passes; partly drawn is a cut word.
+    for (const el of $$(".layer *")) {
+      if (![...el.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim())) continue;
+      const r = el.getBoundingClientRect(), cs = getComputedStyle(el);
+      if (!r.width || !r.height || cs.visibility === "hidden" || Number(cs.opacity) === 0) continue;
+      for (let a = el.parentElement; a && !a.classList.contains("layer"); a = a.parentElement) {
+        const ac = getComputedStyle(a);
+        if (ac.overflowX === "visible" && ac.overflowY === "visible") continue;
+        const c = a.getBoundingClientRect();
+        const inside = r.left >= c.left - 0.5 && r.top >= c.top - 0.5 && r.right <= c.right + 0.5 && r.bottom <= c.bottom + 0.5;
+        const apart = r.right <= c.left || r.left >= c.right || r.bottom <= c.top || r.top >= c.bottom;
+        if (!inside && !apart) {
+          const layer = el.closest(".layer"), o = layer.getBoundingClientRect();
+          out.push({ pattern: layer.dataset.pattern, text: `clipped: ${el.textContent.trim().slice(0, 40)}`, box: [r.left - o.left, r.top - o.top, r.right - o.left, r.bottom - o.top].map(Math.round) });
+          break;
+        }
+      }
     }
     return out;
   };

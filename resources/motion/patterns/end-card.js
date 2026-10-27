@@ -9,8 +9,8 @@ PATTERNS["end-card"] = (layer,s,ctx) => {
   const cta=h(`<div style="background:var(--text);color:var(--bg);border-radius:999px;padding:18px 38px;font:${u*.056}px var(--body)">${esc(s.cta??"")}</div>`);
   const url=h(`<div style="color:var(--text);font:${u*.05}px var(--mono)">${esc(s.url??"")}</div>`);
   group.append(cta,url);layer.append(group);
-  const base=BASE;
-  AFTER_MOUNT.push(()=>{BASE=base; const glyphs=word.layoutGlyphs(); glyphs.forEach((g,i)=>K(g.span,[[i*35,{opacity:0,transform:`translate(${g.x}px,-${H*.08}px)`},SMOOTH],[550+i*35,{opacity:1,transform:`translate(${g.x}px,0px)`}]]));BASE=0;});
+  const base=BASE; // glyphs start half a fade early, so the card's first frame (a cut point) already shows the first glyph half in
+  AFTER_MOUNT.push(()=>{BASE=base-275; const glyphs=word.layoutGlyphs(); glyphs.forEach((g,i)=>K(g.span,[[i*35,{opacity:0,transform:`translate(${g.x}px,-${H*.08}px)`},SMOOTH],[550+i*35,{opacity:1,transform:`translate(${g.x}px,0px)`}]]));BASE=0;});
   K(cta,[[0,{opacity:0},SMOOTH],[650,{opacity:1}]]);
   K(url,[[0,{opacity:0},SMOOTH],[750,{opacity:1}]]);
   K(group,[[0,{transform:"scale(1)"}],[s.d*1000,{transform:"scale(1.03)"}]]);

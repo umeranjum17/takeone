@@ -61,6 +61,7 @@ export interface BaselineFacts {
   cursorDrawn: boolean;
   clickOverlay: boolean;
   zoomAtClick: number;
+  resultInFrame?: number;
 }
 
 export interface FrameFact {
@@ -88,6 +89,10 @@ export interface MeasuredFacts {
   safeAreaFailures: number;
   beats: number;
   longestHold: number;
+  /** Output time the longest actionless span starts: 0 is the opening shot. */
+  longestHoldAt?: number;
+  /** Share of the click's result region inside the film's last camera frame. */
+  resultInFrame?: number;
   determinism: { frames: number; identical: number; tolerance: number };
   frames: FrameFact[];
   baseline?: BaselineFacts;

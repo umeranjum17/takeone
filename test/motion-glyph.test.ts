@@ -37,7 +37,7 @@ test("end-card defaults and explicit logos reach display coverage on every timel
   assert.throws(()=>validateStoryboard({...raw,scenes:[{...raw.scenes[0]!,d:1.75}]}),/reveal and reading-time/);
 });
 
-test("hero and end-card reveals seek eased outgoing segments",async()=>{
+test("hero subtitle and end-card reveals seek eased outgoing segments",async()=>{
   const dir=mkdtempSync(resolve(tmpdir(),"takeone-motion-easing-"));
   try {
     const sb=validateStoryboard({version:1,theme:{name:"editorial"},source:{kind:"image"},screens:{S1:{file:resolve("resources/demo/tidewater-board.png"),width:2560,height:1440}},regions:[],scenes:[
@@ -50,11 +50,9 @@ test("hero and end-card reveals seek eased outgoing segments",async()=>{
         return b.evaluate<number>(`(()=>{const cs=getComputedStyle(document.querySelector(${JSON.stringify(selector)}));return ${property==="opacity" ? "Number(cs.opacity)" : "cs.transform==='none'?0:new DOMMatrixReadOnly(cs.transform).m42"};})()`);
       };
       const cases=[
-        {selector:'[data-scene="0"] .hero-word',start:0,duration:400,property:"y"},
-        {selector:'[data-scene="0"] span:nth-of-type(2) .hero-word',start:60,duration:400,property:"y"},
         {selector:'[data-scene="0"] > div:last-child',start:0,duration:600,property:"opacity"},
-        {selector:'[data-scene="1"] .kern [data-x]',start:6000,duration:550,property:"y"},
-        {selector:'[data-scene="1"] .kern [data-x]:last-child',start:6105,duration:550,property:"opacity"},
+        {selector:'[data-scene="1"] .kern [data-x]',start:5725,duration:550,property:"y"},
+        {selector:'[data-scene="1"] .kern [data-x]:last-child',start:5830,duration:550,property:"opacity"},
         {selector:'[data-scene="1"] .kern + div',start:6000,duration:650,property:"opacity"},
         {selector:'[data-scene="1"] .kern + div + div',start:6000,duration:750,property:"opacity"},
       ] as const;
@@ -68,6 +66,34 @@ test("hero and end-card reveals seek eased outgoing segments",async()=>{
         assert.equal(await read(selector,start,property),initial,selector);
         assert.equal(await read(selector,start+duration,property),final,selector);
       }
+    });
+  } finally {rmSync(dir,{recursive:true,force:true});}
+});
+
+test("type beats reveal whole words from their first frame, and the gate catches a word a mask cuts",{timeout:120_000},async()=>{
+  const dir=mkdtempSync(resolve(tmpdir(),"takeone-motion-reveal-"));
+  try {
+    const sb=validateStoryboard({version:1,theme:{name:"editorial"},source:{kind:"image"},screens:{S1:{file:resolve("resources/demo/tidewater-board.png"),width:2560,height:1440}},regions:[],scenes:[
+      {pattern:"kinetic-type",title:"Every agent. In your pocket.",d:3},
+      {pattern:"statement",title:"Answer from your phone.",d:3,invert:true},
+      {pattern:"hero-reveal",title:"Launch now",subtitle:"Made for you",d:3,screen:"S1"},
+      {pattern:"end-card",logo:"muxr",cta:"Install",url:"takeone.test",d:3},
+    ]});
+    await withPage(writePage(dir,sb).html,1920,1080,async b=>{
+      for(const [i,at] of [0,3,6,9].entries()) {
+        // Every frame of the reveal: no shown word is cut part-way, and nothing crosses the inset.
+        for(let f=0;f<=40;f++) assert.deepEqual(await b.evaluate(`__safe(${at*1000+f*1000/60})`),[],`scene ${i} frame ${f}`);
+        // The scene's first frame already shows type: a cut-in never opens on a bare background.
+        await b.evaluate(`__seek(${at*1000})`);
+        const shown=await b.evaluate<number>(`Math.max(0,...[...document.querySelectorAll('[data-scene="${i}"] .type-word, [data-scene="${i}"] .statement-word, [data-scene="${i}"] .hero-word, [data-scene="${i}"] .kern [data-x]')].map(e=>Number(getComputedStyle(e).opacity)))`);
+        assert.ok(shown>0.3,`scene ${i} first frame opacity ${shown}`);
+        // Nor does the scene itself fade up from nothing over the bare stage (the scene before has ended).
+        const layer=await b.evaluate<number>(`Number(getComputedStyle(document.querySelector('[data-scene="${i}"]')).opacity)`);
+        assert.equal(layer,1,`scene ${i} layer opacity at its first frame`);
+      }
+      // The gate is live: the old mask reveal (a word half risen inside an overflow box) is reported.
+      const hits=await b.evaluate<{text:string}[]>(`(()=>{const l=document.querySelector('[data-scene="0"]');l.insertAdjacentHTML("beforeend",'<span style="position:absolute;left:300px;top:300px;display:inline-block;overflow:hidden;font:120px var(--display)"><span style="display:inline-block;transform:translateY(50%)">pocket</span></span>');return __safe(1500);})()`);
+      assert.deepEqual(hits.map(h=>h.text),["clipped: pocket"]);
     });
   } finally {rmSync(dir,{recursive:true,force:true});}
 });

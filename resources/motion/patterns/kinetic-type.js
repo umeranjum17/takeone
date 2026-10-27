@@ -5,10 +5,9 @@
 // beats; the glyph gate covers title/subtitle in their font roles.
 PATTERNS["kinetic-type"] = (layer,s,ctx) => {
   const {W,H}=ctx;
-  const words=(text)=>text.split(/\s+/).filter(Boolean).map(word=>`<span style="display:inline-block;overflow:hidden;vertical-align:bottom"><span class="type-word" style="display:inline-block">${esc(word)}</span></span>`).join(" ");
-  const title=(size)=>h(`<div style="font:400 ${size}px/1.05 var(--display);color:var(--text)">${words(s.title??"")}</div>`);
+  const title=(size)=>h(`<div style="font:400 ${size}px/1.05 var(--display);color:var(--text)">${wordSpans(s.title,"type-word")}</div>`);
   const sub=(size)=>s.subtitle?h(`<div style="font:${size}px/1.3 var(--body);color:var(--text)">${esc(s.subtitle)}</div>`):null;
-  const stagger=(root)=>$$(".type-word",root).forEach((word,i)=>K(word,[[i*70,{transform:"translateY(108%)"},SMOOTH],[420+i*70,{transform:"none"}]]));
+  const stagger=(root)=>$$(".type-word",root).forEach((word,i)=>riseIn(word,i*60));
   if(s.device && s.device!=="none" && s.screen) {
     const scr=ctx.screen(s.screen);
     // The frame fits the screen aspect exactly: the whole screen shows and fills it, never letterboxed.

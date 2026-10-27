@@ -1692,6 +1692,12 @@ export function solveCameraDetailed(
   const decisionMap = new Map(decisions.map((decision) => [decision.beat, decision]));
   const visibleBeats = beats.filter(beat => (beat.t1 > start && beat.t0 < end)
     || gestures(beat).some(g => g.t1 / 1000 > start && g.t0 / 1000 < end));
+  // The establishing hold yields to an early first click: a push-in that lands after its click shows the click
+  // mid-move and the result before the camera settles. It keeps at least half its length, so the opening still reads.
+  const firstClick = Math.min(...visibleBeats.flatMap(beat => (beat.actions as Action[])
+    .flatMap(a => a.k === "click" && a.t / 1000 > start ? [a.t / 1000] : [])));
+  const room = firstClick - d.anchor_early - d.move_t_max - start;
+  if (room < d.establish_s) d = { ...d, establish_s: Math.max(d.establish_s / 2, room) };
   const shots = buildShots(beats.filter(beat => !beat.camera_suppressed), decisions, start, d)
     .filter((shot) => visibleBeats.includes(shot.beat));
   const quietShots = withScrollPushIns(applyDwellAndShotLength(shots, d), visibleBeats.filter(beat => !beat.camera_suppressed),
