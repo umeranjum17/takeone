@@ -8,6 +8,7 @@ import { motionTokens } from "./theme.ts";
 import { installHyperframes } from "./hyperframes.ts";
 import { installShell } from "./shell.ts";
 import { minSceneDuration, validateStoryboard } from "./storyboard.ts";
+import { planEditorial } from "./editorial.ts";
 import type { Device, MotionEngine, PatternName, Region, Scene } from "./types.ts";
 
 export const MOTION_USAGE = `takeone motion <image.png|page.html|https://url>... [--out DIR] [--pattern hero-reveal,zoom-tour,end-card,kinetic-type]
@@ -16,6 +17,7 @@ export const MOTION_USAGE = `takeone motion <image.png|page.html|https://url>...
   [--region x,y,w,h[:label][@SCREEN]]... [--state NAME='click #id; type #id "text"; drag #a #b; wait 300']...
   [--workers N] [--blur 0|1] [--storyboard file.json] [--plan-only] [--no-ai]
   [--engine hyperframes|legacy]
+takeone motion <screenshot.png> --recipe editorial --pitch TEXT [--logo WORD] [--cta TEXT] [--url TEXT] [--audio FILE] [--out DIR]
 takeone motion install-shell         download the pinned chrome-headless-shell (sha256 checked)
 takeone motion install-hyperframes   install hyperframes@0.8.200 + chrome-headless-shell@156.0.8078.47
 
@@ -24,12 +26,18 @@ takeone motion install-hyperframes   install hyperframes@0.8.200 + chrome-headle
   run is planned by the local rules and no screenshot is sent to a planner. With no --pattern the local
   rules plan hero-reveal, zoom-tour and end-card; with three or more screens they plan a launch film
   instead: a kinetic-type title, each labelled screen announced by its own full-type beat ahead of a clean
-  tour, and the end card, with black and cream beats alternating by scene order.`;
+  tour, and the end card, with black and cream beats alternating by scene order.
+
+  --recipe editorial plans an editorial launch film with the signed-in AI engine: a struck-word headline,
+  the screen large on a phone with a tap, a stack of the screen's own UI lines, a four-tile canon, the
+  payoff and the end card, cut on a 120 BPM grid. Only redacted text read off the screen and the pitch
+  are sent; the screenshot is not. With no engine it stops and names the sign-in; there is no local plan.`;
 
 export interface MotionArgs {
   inputs: string[]; out?: string; patterns?: PatternName[]; theme?: string; title?: string;
   subtitle?: string; cta?: string; url?: string; logo?: string; device?: Device; regions: string[]; states: [string, string][];
   workers?: number; blur?: number; storyboard?: string; planOnly: boolean; noAi?: boolean; engine: MotionEngine;
+  recipe?: "editorial"; pitch?: string; audio?: string;
 }
 
 export function parseMotionArgs(argv: string[]): MotionArgs {
@@ -63,6 +71,11 @@ export function parseMotionArgs(argv: string[]): MotionArgs {
     } else if (s === "--workers") a.workers = Number(v);
     else if (s === "--blur") a.blur = Number(v);
     else if (s === "--storyboard") a.storyboard = v;
+    else if (s === "--recipe") {
+      if (v !== "editorial") throw new Error(`--recipe expects editorial, got ${v}`);
+      a.recipe = v;
+    } else if (s === "--pitch") a.pitch = v;
+    else if (s === "--audio") a.audio = v;
     else if (s === "--engine") {
       if (v !== "hyperframes" && v !== "legacy") throw new Error(`--engine expects hyperframes or legacy, got ${v}`);
       a.engine = v;
@@ -338,7 +351,10 @@ export async function runMotion(argv: string[], takesDir: string, o: PlanOptions
     if (!a.inputs.length) throw new Error("motion needs an input (image, .html or URL) or --storyboard");
     for (const f of a.inputs) if (!/^https?:\/\//.test(f) && !existsSync(f)) throw new Error(`no such input ${f}`);
     id = "motion";
-    storyboard = await planMotion(a, id, o);
+    if (a.recipe === "editorial") {
+      if (a.noAi) throw new Error("--recipe editorial is planned by the AI engine; there is no --no-ai plan for it");
+      storyboard = await planEditorial(a, id, o.warn ?? ((line: string) => console.error(line)));
+    } else storyboard = await planMotion(a, id, o);
   }
   const sb = validateStoryboard(storyboard); // refuse bad plans before touching the disk
   let dir: string;

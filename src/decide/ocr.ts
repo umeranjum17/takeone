@@ -150,6 +150,30 @@ function tsvWords(tsv: string): { text: string; conf: number; box: BBox }[] {
   return words;
 }
 
+/** Readable text lines of a whole screenshot: tesseract's own line grouping, split where a gap wider than three
+ *  line heights separates columns, words at conf >= OCR_MIN_CONF, each with its pixel box. Words stay unredacted
+ *  here; callers redact before anything leaves the machine. */
+export async function screenLines(png: string): Promise<{ text: string; box: BBox }[]> {
+  const lines = new Map<string, { words: string[]; box: BBox }>();
+  const open = new Map<string, string>(); // tesseract line -> the part words currently join
+  for (const row of (await tesseract(png, "3")).split("\n").slice(1)) {
+    const c = row.split("\t");
+    const text = (c[11] ?? "").trim(), conf = Number(c[10]);
+    if (c.length < 12 || !text || !(conf >= OCR_MIN_CONF)) continue;
+    const tline = c.slice(2, 5).join("-"), [x, y, w, h] = c.slice(6, 10).map(Number) as [number, number, number, number];
+    let key = open.get(tline) ?? tline;
+    const prev = lines.get(key);
+    if (prev && x - (prev.box[0] + prev.box[2]) > 3 * Math.max(h, prev.box[3] / 2)) key = `${tline}:${x}`;
+    open.set(tline, key);
+    const line = lines.get(key);
+    if (!line) { lines.set(key, { words: [text], box: [x, y, w, h] }); continue; }
+    const [lx, ly, lw, lh] = line.box, x1 = Math.max(lx + lw, x + w), y1 = Math.max(ly + lh, y + h);
+    line.words.push(text);
+    line.box = [Math.min(lx, x), Math.min(ly, y), x1 - Math.min(lx, x), y1 - Math.min(ly, y)];
+  }
+  return [...lines.values()].map(l => ({ text: l.words.join(" "), box: l.box })).sort((a, b) => a.box[1] - b.box[1] || a.box[0] - b.box[0]);
+}
+
 /** Parse tesseract TSV, keep words with conf >= OCR_MIN_CONF, cap and redact. */
 export function redactWords(tsv: string): string | null {
   const words: string[] = [];

@@ -5,7 +5,7 @@ import type { Overrides } from "../camera/defaults.ts";
 export type Rect = [number, number, number, number]; // x, y, w, h in source px of its screen
 export type Device = "browser" | "phone" | "laptop" | "none";
 export type MotionEngine = "hyperframes" | "legacy";
-export const PATTERNS = ["hero-reveal", "zoom-tour", "end-card", "fragment", "kinetic-type", "bento", "clip", "statement"] as const;
+export const PATTERNS = ["hero-reveal", "zoom-tour", "end-card", "fragment", "kinetic-type", "bento", "clip", "statement", "word-swap", "phone-story", "chip-stack", "canon"] as const;
 export type PatternName = (typeof PATTERNS)[number];
 
 /** DOM-driven ingest ops (L8-h), played in order in one capture page; each named state is captured after its ops. */
@@ -50,7 +50,8 @@ export interface Clip {
 export interface ClipCut { at: number; clip?: string; label?: string; scale?: number }
 
 /** Named device-px sub-rects of screens, cut at ingest (close-ups with no extra capture). */
-export interface Crop { screen: string; rect: Rect }
+/** `exact` keeps the planned rect (a single UI line cut as a chip) instead of snapping it to whole UI. */
+export interface Crop { screen: string; rect: Rect; exact?: boolean }
 
 export interface Scene {
   pattern: PatternName;
@@ -91,6 +92,14 @@ export interface Scene {
   scale?: number;
   from?: number;
   cuts?: ClipCut[];
+  /** word-swap: the words that finish the title in turn, each struck out for the next. */
+  swaps?: string[];
+  /** chip-stack: screen ids (crops) stacked one row per beat. */
+  chips?: string[];
+  /** phone-story: the pressed control, in source px of the screen the crop was cut from. */
+  tap?: Rect;
+  /** canon: the master film time each of the four tiles shows at the canon's first frame. */
+  offsets?: number[];
 }
 
 export interface Tempo { bpm: number; phase_s: number; snap: "beat" | "half" }

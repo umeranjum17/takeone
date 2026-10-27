@@ -103,7 +103,7 @@ function cutCrops(out: string, sb: Storyboard): void {
     if (!base) throw new Error(`crops.${id}: unknown screen ${c.screen}`);
     if (!snaps.has(c.screen)) snaps.set(c.screen, screenSnap(join(out, basename(base.file)), base.width, base.height));
     const [x0, y0, w0, h0] = c.rect;
-    const v = snaps.get(c.screen)!({ x: x0, y: y0, w: w0, h: h0 }, [x0 + w0 / 2, y0, 0, 0], `crop ${id}`);
+    const v = c.exact ? { x: x0, y: y0, w: w0, h: h0 } : snaps.get(c.screen)!({ x: x0, y: y0, w: w0, h: h0 }, [x0 + w0 / 2, y0, 0, 0], `crop ${id}`);
     c.rect = [v.x, v.y, v.w, v.h].map(Math.floor) as Rect;
     const [x, y, w, h] = c.rect;
     execFileSync("ffmpeg", ["-nostdin", "-v", "error", "-y", "-i", join(out, basename(base.file)), "-vf", `crop=${w}:${h}:${x}:${y}`, join(out, `${id}.png`)], { timeout: 60000 });
