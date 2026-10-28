@@ -5,7 +5,7 @@ import type { Overrides } from "../camera/defaults.ts";
 export type Rect = [number, number, number, number]; // x, y, w, h in source px of its screen
 export type Device = "browser" | "phone" | "laptop" | "none";
 export type MotionEngine = "hyperframes" | "legacy";
-export const PATTERNS = ["hero-reveal", "zoom-tour", "end-card", "fragment", "kinetic-type", "bento", "clip", "segment", "statement", "word-swap", "phone-story", "chip-stack", "canon", "logo-sting", "spotlight", "feature-callouts", "before-after", "device-orbit", "bento-reel"] as const;
+export const PATTERNS = ["hero-reveal", "zoom-tour", "end-card", "fragment", "kinetic-type", "bento", "clip", "segment", "statement", "word-swap", "phone-story", "chip-stack", "canon", "logo-sting", "spotlight", "feature-callouts", "before-after", "device-orbit", "bento-reel", "glow-prompt", "glow-words", "glow-hero", "glow-tree", "glow-screen"] as const;
 export type PatternName = (typeof PATTERNS)[number];
 
 /** DOM-driven ingest ops (L8-h), played in order in one capture page; each named state is captured after its ops. */
@@ -116,6 +116,12 @@ export interface Scene {
   after?: string;
   /** bento-reel: the demo figure the counter rolls to, the live feed rows and the screen crops shown as real UI. */
   reel?: { value: number; feed: string[]; shots: string[] };
+  /** glow-tree: rows, two spaces of indent per level; glow-screen: a second crop floated beside the window, and zoom plays the tap close. */
+  tree?: string[];
+  phone?: string;
+  zoom?: boolean;
+  /** end-card: sit on the glow-reel's lit stage. */
+  glow?: boolean;
   /** canon: the master film time each of the four tiles shows at the canon's first frame. */
   offsets?: number[];
 }

@@ -34,7 +34,7 @@ export function readingFloor(text: string): number {
 
 /** Scene reading copy; the glyph gate also checks emitted literals in their actual font roles. */
 export function sceneTexts(s: Scene): string[] {
-  if (s.pattern === "hero-reveal" || s.pattern === "kinetic-type" || s.pattern === "statement") return [s.title, s.subtitle].filter((t): t is string => !!t);
+  if (s.pattern === "hero-reveal" || s.pattern === "kinetic-type" || s.pattern === "statement" || s.pattern === "glow-hero") return [s.title, s.subtitle].filter((t): t is string => !!t);
   if (s.pattern === "word-swap") return [s.title ?? "", ...(s.swaps ?? [])].filter(Boolean);
   if (s.pattern === "phone-story" || s.pattern === "chip-stack") return [s.title, s.text].filter((t): t is string => !!t);
   if (s.pattern === "bento-reel") return [s.title, s.subtitle, s.label, `$${s.reel!.value.toLocaleString("en-US")}`, "LIVE", ...s.reel!.feed].filter((t): t is string => !!t);
@@ -63,7 +63,7 @@ function clipLabels(s: Scene): { at: number; label: string; reveal: number }[] {
 function sceneRevealDuration(s: Scene): number {
   let reveal = 0;
   if (s.pattern === "clip") reveal = clipLabels(s).at(-1)?.reveal ?? 0;
-  if (s.pattern === "hero-reveal" || s.pattern === "kinetic-type" || s.pattern === "statement") {
+  if (s.pattern === "hero-reveal" || s.pattern === "kinetic-type" || s.pattern === "statement" || s.pattern === "glow-hero") {
     const words = (s.title ?? "").trim().split(/\s+/).filter(Boolean).length;
     reveal = Math.max(words ? .4 + .06 * (words - 1) : 0, s.subtitle ? .6 : 0);
   } else if (s.pattern === "word-swap") { // swaps land every 0.9 s from 0.6 s; the last settles in 0.38 s
@@ -187,6 +187,17 @@ function scene(raw: unknown, path: string): Scene {
     if (typeof s.screen !== "string" || !Array.isArray(tap) || tap.length !== 4 || tap.some(v => typeof v !== "number" || !Number.isFinite(v))) throw new StoryboardError(`${path}.tap`, "phone-story needs a crop screen and tap [x, y, w, h]");
     s.tap = tap as Rect;
     if (raw["lens"] !== undefined && !ID.test(String(raw["lens"]))) throw new StoryboardError(`${path}.lens`, "expected a crop id");
+  }
+  if (s.pattern === "glow-words" && !s.title?.trim()) throw new StoryboardError(`${path}.title`, "glow-words needs a title: its words cut in one at a time");
+  if (s.pattern === "glow-tree") {
+    const tree = raw["tree"];
+    if (!Array.isArray(tree) || tree.length < 2 || tree.length > 8) throw new StoryboardError(`${path}.tree`, "glow-tree needs 2 to 8 rows");
+    s.tree = tree.map((t, j) => str(t, `${path}.tree[${j}]`, 40));
+  }
+  if (s.pattern === "glow-screen") {
+    const tap = raw["tap"];
+    if (typeof s.screen !== "string" || !Array.isArray(tap) || tap.length !== 4 || tap.some(v => typeof v !== "number" || !Number.isFinite(v))) throw new StoryboardError(`${path}.tap`, "glow-screen needs a crop screen and tap [x, y, w, h]");
+    s.tap = tap as Rect;
   }
   if (s.pattern === "chip-stack") {
     const chips = raw["chips"];
@@ -398,7 +409,7 @@ export function validateStoryboard(raw: unknown): Storyboard {
     if (s.after && Object.keys(screens).length && !Object.hasOwn(screens, s.after)) throw new StoryboardError(`scenes[${i}].after`, "unknown screen");
     for (const c of s.chips ?? []) if (Object.keys(screens).length && !Object.hasOwn(screens, c)) throw new StoryboardError(`scenes[${i}].chips`, `unknown screen ${c}`);
     for (const c of s.reel?.shots ?? []) if (Object.keys(screens).length && !Object.hasOwn(screens, c)) throw new StoryboardError(`scenes[${i}].reel`, `unknown screen ${c}`);
-    if (s.pattern === "phone-story" && !Object.hasOwn(crops, s.screen!)) throw new StoryboardError(`scenes[${i}].screen`, "phone-story shows a crop: name one of crops");
+    if ((s.pattern === "phone-story" || s.pattern === "glow-screen") && !Object.hasOwn(crops, s.screen!)) throw new StoryboardError(`scenes[${i}].screen`, `${s.pattern} shows a crop: name one of crops`);
     if (s.lens !== undefined && !Object.hasOwn(crops, s.lens)) throw new StoryboardError(`scenes[${i}].lens`, "the lens shows a crop: name one of crops");
     if (s.at! < 0) throw new StoryboardError(`scenes[${i}].at`, "negative scene starts are not supported");
     if (s.pattern === "clip") { // every footage segment must play to its end: a short clip would freeze

@@ -1,6 +1,8 @@
 window.AFTER_MOUNT=window.AFTER_MOUNT??[];
 PATTERNS["end-card"] = (layer,s,ctx) => {
-  const {W,H}=ctx, u=Math.min(W,H); // supporting type follows the short side, so a 9:16 card reads on a phone too
+  const {W,H}=ctx, u=Math.min(W,H);
+  if(s.glow) glowBg(layer,W,H,[.5,1.05]); // a glow-reel's end card sits on its lit stage
+  // supporting type follows the short side, so a 9:16 card reads on a phone too
   const group=h(`<div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:${H*.055}px"></div>`);
   const word=kernedLetters(s.logo);
   word.style.font=`400 ${Math.min(W*.16,H*.2)}px/1.1 var(--display)`;
