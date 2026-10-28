@@ -15,7 +15,8 @@ rm -f "$work"/take/proxy-*.mp4
 export TAKEONE_STATE_DIR="$work/state"
 run() { ${TAKEONE_RENDER_WRAP:-} "$@"; }
 for pass in cold warm; do
-  run node bin/takeone.mjs render "$work/take" --preview 2> "$work/$pass.err" > "$work/$pass.out"
+  run node bin/takeone.mjs render "$work/take" --preview 2> "$work/$pass.err" > "$work/$pass.out" \
+    || { cat "$work/$pass.err" >&2; exit 1; }
   grep '^preview timing:' "$work/$pass.err" | sed "s/^/$pass: /" >> "$out/preview-timing.txt"
 done
 grep -q '^cold: .*built now' "$out/preview-timing.txt"
