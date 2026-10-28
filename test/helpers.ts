@@ -165,3 +165,6 @@ export function recordedPlannerReply(body: string, firstZone = false, qualityBas
 
 export const recordedPlannerFetch = (async (_url: string | URL | Request, init?: RequestInit) =>
   recordedPlannerReply(String(init?.body))) as typeof fetch;
+
+export const recordedQualityPlannerFetch = (async (_url: string | URL | Request, init?: RequestInit) =>
+  recordedPlannerReply(String(init?.body), false, true)) as typeof fetch;

@@ -971,7 +971,8 @@ function holdsFromEmitted(drafts: Draft[], drags: Gesture[], emitted: EmittedMov
 
 /** Every hold's window reaches the next move (or the take end). */
 function holdsCovered(holds: EmittedHold[], end: number): boolean {
-  return holds.every((hold, index) => hold.until >= (holds[index + 1]?.moveStart ?? end));
+  // A frame-aligned end and a computed move start can differ by one floating-point ulp.
+  return holds.every((hold, index) => hold.until + 1e-9 >= (holds[index + 1]?.moveStart ?? end));
 }
 
 function distance(from: CameraState, to: CameraState, baseW: number): number {

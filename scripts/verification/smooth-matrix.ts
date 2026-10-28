@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Do the absolute smoothness bars hold on every source and export shape? One cell is one source
-// take made with `takeone make --no-ai` and rendered at one export shape (the same renderTake the
+// take made with recorded model replies and rendered at one export shape (the same renderTake the
 // product runs), then measured with scripts/quality.ts's own measureRender on the decoded MP4:
 // pan acceleration, pan bounce, subpixel judder, banding, hitches, 60 fps, bt709, text cuts. The wall
 // time of the render is recorded; run each cell under `/usr/bin/time -f '%e %U %S %M'` for its CPU.
@@ -12,11 +12,13 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { DEFAULTS } from "../../src/camera/defaults.ts";
+import { applyOverrides, DEFAULTS } from "../../src/camera/defaults.ts";
+import { filmOverrides } from "../../src/decide/film.ts";
 import { makeTake } from "../../src/make.ts";
 import { renderDimensions } from "../../src/cli.ts";
 import { renderTake } from "../../src/render/render.ts";
 import { measureRender, type Metrics } from "../quality.ts";
+import { recordedQualityPlannerFetch } from "../../test/helpers.ts";
 
 const SOURCES: Record<string, { script: string; args: string[]; divider: number }> = {
   // The titled take is the default footage: an untitled one fails render's safe-area gate on push-ins.
@@ -43,13 +45,14 @@ for (const cell of cells) {
   mkdirSync(resolve(work), { recursive: true });
   if (!existsSync(join(dir, "take.json"))) {
     execFileSync(process.execPath, [resolve("scripts", script), dir, ...args], { stdio: ["ignore", "inherit", "inherit"] });
-    await makeTake(dir, { noAi: true, camera: d });
+    await makeTake(dir, { apiKey: "test-key-000", fetchImpl: recordedQualityPlannerFetch, camera: d });
   }
+  const meta = JSON.parse(readFileSync(join(dir, "take.json"), "utf8"));
+  if (meta.film) d = applyOverrides(filmOverrides(meta.film, meta.theme === undefined, []), d);
   const t0 = performance.now();
   const rendered = await renderTake(dir, d);
   const wall = (performance.now() - t0) / 1000;
   // renderTake gives a phone take its handset card; the measurement must read the same stage.
-  const meta = JSON.parse(readFileSync(join(dir, "take.json"), "utf8"));
   if (meta.device !== undefined && meta.height > meta.width) d = { ...d, corner_radius: 36, stage_margin: Math.max(0.16, d.stage_margin) };
   const m = await measureRender(dir, rendered.out, d, { deterministic: null, divider });
   const unmet = Object.entries(m.metrics as Metrics).filter(([, v]) => !v.goalPassed).map(([k, v]) => `${k} ${v.value} (goal ${v.direction === "max" ? "<=" : ">="} ${v.target})`);

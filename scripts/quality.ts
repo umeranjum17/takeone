@@ -14,7 +14,7 @@ import { cameraFilter } from '../src/render/camera-filter.ts';
 import { bandFrames, bandLayout, bandText, stageFrames, stageGeometry, takeCaptions, type Band } from '../src/render/stage.ts';
 import { idleSqueezes, purposefulEnd, warp } from '../src/render/pace.ts';
 import { auditTake } from './cut-audit.ts';
-import { recordedPlannerReply } from '../test/helpers.ts';
+import { recordedQualityPlannerFetch } from '../test/helpers.ts';
 
 export interface Metric { value: number; target: number; direction: 'max' | 'min'; unit: string; goalPassed: boolean }
 export type Metrics = Record<string, Metric>;
@@ -378,7 +378,7 @@ async function main() {
         const meta = json<Record<string, unknown>>(join(dir, 'take.json'));
         save(join(dir, 'take.json'), { ...meta, title: 'Explore the demo', captions: [{ t: 3, text: 'Tap to see details' }] });
       }
-      await makeTake(dir, { apiKey: "test-key-000", fetchImpl: (async (_url, init) => recordedPlannerReply(String(init?.body), false, true)) as typeof fetch, camera: d });
+      await makeTake(dir, { apiKey: "test-key-000", fetchImpl: recordedQualityPlannerFetch, camera: d });
     }
     const meta = json<TakeMeta>(join(dir, 'take.json'));
     if (meta.film) d = applyOverrides(filmOverrides(meta.film, meta.theme === undefined, []), d);
