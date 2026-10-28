@@ -18,6 +18,7 @@ import { isMotionTake, MOTION_USAGE, runMotion } from "./motion/cli.ts";
 import { renderMotion } from "./motion/motion.ts";
 import { applyOverrides, type CameraDefaults, type Overrides } from "./camera/defaults.ts";
 import { filmOverrides, type FilmDecision } from "./decide/film.ts";
+import { REFINE_USAGE, lookArgs, runLook, runZoom } from "./refine.ts";
 import { packageVersion } from "./version.ts";
 import { JudgeUnavailable } from "./score/judge.ts";
 import { makeWithScore } from "./score/run.ts";
@@ -194,6 +195,7 @@ function usage(code: number): never {
 takeone render <take-dir> [--theme ${themes}] [--set key=value] [--aspect landscape|portrait|square|4:5] [--resolution 4k] [--format mp4|gif|webm|prores4444] [--preview]
 takeone render <motion-dir> [--aspect landscape|portrait|square|4:5] [--stills <seconds,...>]
 ${MOTION_USAGE}
+${REFINE_USAGE}
 takeone key set [--backend <name>] [--model <model>] [--via typesafe|openrouter] < stdin
 takeone [list|record|stop|doctor]
 takeone --version|-v    print the installed version
@@ -252,8 +254,30 @@ export async function main(argv: string[]): Promise<number> {
       return e instanceof PlannerUnavailable ? 3 : 1;
     }
   }
+  if (cmd === "zoom" || cmd === "look") {
+    try {
+      let out: string[];
+      if (cmd === "look") {
+        out = runLook(rest, look => {
+          if (look.theme) resolveTheme(look.theme);
+          if (look.aspect) renderDimensions(look.aspect);
+          applyOverrides(parseSet(look.set));
+        });
+      } else {
+        const [id, ...args] = rest;
+        if (!id) throw Error("usage: takeone zoom <take> list|add|move|remove");
+        out = runZoom(/\//.test(id) ? id : join(takesDir(), id), args);
+      }
+      console.log(out.join("\n"));
+      return 0;
+    } catch (e) {
+      console.error(`takeone ${cmd}: ${e instanceof Error ? e.message : e}`);
+      return 1;
+    }
+  }
   if (cmd === "render") {
-    const [dir, ...args] = rest;
+    const [dir, ...rawArgs] = rest;
+    const args = [...rawArgs];
     if (!dir) { console.error("usage: takeone render <take-dir>"); return 2; }
     if (isMotionTake(dir)) {
       try {
@@ -281,6 +305,9 @@ export async function main(argv: string[]): Promise<number> {
       }
     }
     try {
+      // A saved look expands first, so options typed after --look override it.
+      const at = args.indexOf("--look");
+      if (at >= 0) args.splice(at, 2, ...lookArgs(args[at + 1] ?? ""));
       const pairs: string[] = [];
       let theme: string | undefined;
       let aspect: string | undefined;
@@ -336,7 +363,7 @@ export async function main(argv: string[]): Promise<number> {
     }
   }
   if (cmd !== "make") {
-    console.error(`takeone: unknown command "${cmd}". Use "make", "render", "motion", "record", "stop", "doctor" or "list".`);
+    console.error(`takeone: unknown command "${cmd}". Use "make", "render", "zoom", "look", "motion", "record", "stop", "doctor" or "list".`);
     return 2;
   }
   const a = parseArgs(rest);

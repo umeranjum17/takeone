@@ -102,3 +102,28 @@ caption starts all move on the one source-to-output clock; caption durations
 stay output seconds, so speed-up never reduces reading time. Timed regions may
 touch but must not overlap; unsorted intervals work; invalid entries name their
 field (for example `speed[0].rate (0.1..16)`).
+
+# Zoom and saved looks
+
+`takeone zoom <take> list|add|move|remove` edits the take's `zooms` in
+`take.json` without keyframes: give a source-seconds span and a source-pixel box,
+then rerender.
+
+```
+takeone zoom my-take add 5 9 100,100,800,450 --level 3
+takeone zoom my-take move 1 --from 4 --box 200,200,960,540
+takeone zoom my-take remove 1
+takeone render my-take
+```
+
+`<take>` is a take id under `TAKEONE_DIR` or a path with a `/`. Zooms are
+numbered in time order (`list` prints them). `--level` is 0 (whole screen) to 3
+(tight); the default is 2. The render's own validation runs on every edit, so a
+box off the source, a span under 0.5 s or an overlap is refused and the file is
+left as it was.
+
+`takeone look save <name> [--theme T] [--aspect A] [--set key=value]...` keeps a
+named look in `~/.config/takeone/looks.json` (`$XDG_CONFIG_HOME` when set), and
+`takeone render <take> --look <name>` applies it. Options typed after `--look`
+win over the look. `look list`, `look show <name>` and `look remove <name>` manage
+them. Looks hold render options only; GIF stays `--format gif`.
