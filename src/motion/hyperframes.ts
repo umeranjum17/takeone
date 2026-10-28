@@ -10,6 +10,7 @@ import { basename, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import { filmDuration, readingFloor } from "./storyboard.ts";
+import { measureFrozen, measureLoudness } from "./gates.ts";
 import { writePage } from "./motion.ts";
 import type { RenderManifest } from "./motion.ts";
 import type { Storyboard } from "./types.ts";
@@ -377,6 +378,8 @@ export async function renderHyperframes(dir: string, sb: Storyboard, o: Hyperfra
     const { min, clear } = await alphaCoverage(out, p.frames, p.width, p.height);
     if (min !== 0 || clear < 0.01) throw new Error(`hyperframes engine: the ProRes film has no transparent backdrop (lowest alpha ${min}, ${(clear * 100).toFixed(1)}% clear)`);
   }
+  const gates: NonNullable<RenderManifest["gates"]> = { frozen: await measureFrozen(out, sb, project.duration) };
+  if (project.audio) gates.loudness = await measureLoudness(out);
   const raw = readFileSync(join(dir, "storyboard.json"));
   const manifest: RenderManifest = {
     version: 1,
@@ -390,6 +393,7 @@ export async function renderHyperframes(dir: string, sb: Storyboard, o: Hyperfra
     workers,
     render_s: (performance.now() - started) / 1000,
     concat_s: 0,
+    gates,
     hyperframes: {
       version: hf.version,
       cli: hf.cli,
@@ -399,6 +403,10 @@ export async function renderHyperframes(dir: string, sb: Storyboard, o: Hyperfra
     },
   };
   writeFileSync(join(dir, "render.json"), `${JSON.stringify(manifest, null, 2)}\n`);
+  const f = gates.frozen, l = gates.loudness;
+  // Warn rather than fail: the local plan's zoom-tour on one screenshot is a real still hold today, and the film is otherwise good.
+  if (!f.passed) process.stderr.write(`takeone motion: warning: ${out} has frozen time outside the end card: longest ${f.longest.toFixed(1)} s (max 0.6), ${f.per_30s.toFixed(1)} s per 30 s (max 1.0) at ${f.runs.map(([x, y]) => `${x.toFixed(1)}-${y.toFixed(1)} s`).join(", ")}; give the held scene motion or shorten it\n`);
+  if (l && !l.passed) throw new Error(`hyperframes engine: ${out} audio fails the loudness gate: ${l.failures.join("; ")}`);
   if (!o.alpha) await writeScenes(dir, sb, out);
   return { out, manifest };
 }
