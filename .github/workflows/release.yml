@@ -69,8 +69,9 @@ jobs:
           registry-url: https://registry.npmjs.org
       - run: npx -y semver@7 -r '>=11.5.0' "$(npm -v)"
       - run: npm ci
-      - run: scripts/ci-apt-install.sh tesseract-ocr zbar-tools
-      - run: npm test
+      # Gate on the build and typecheck only: the full suite needs ffmpeg and the planner setup, and the ci workflow already ran it on the pull request.
+      - run: npm run build
+      - run: npm run typecheck
       - name: Publish if this version is not on npm
         run: |
           name=$(node -p 'require("./package.json").name')
