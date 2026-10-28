@@ -311,6 +311,7 @@ export async function planCamera(dir: string, camera?: CameraDefaults, take?: Ta
 /** Read the take's durable inputs, write its camera path and render the silent MP4.
  * A preview renders the same camera path from a smaller source, at a smaller export. */
 export async function renderTake(dir: string, camera?: CameraDefaults, preview?: PreviewSpec): Promise<{ out: string; seconds: number }> {
+  const started = performance.now();
   const plan = await planCamera(dir, camera);
   const { phone, trimStart, trimEnd, squeezes, clock, outTime, duration, outDecisions, captions, layout, solveLayout, sourceAt, held } = plan;
   let { meta, d, outBeats, frames } = plan;
