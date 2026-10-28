@@ -96,3 +96,9 @@ test("applyPlan rejects a user edit whose beat id matches no decision", () => {
   const plan = { version: 2, beats: [{ id: "B2", key: "k1", shot: { value: true, by: "user" } }] } as Plan;
   assert.throws(() => applyPlan([{ beat: "b1" }], plan), /user edit for B2 matches no beat/);
 });
+
+test("applyPlan maps focus, tightness and key moment onto the decision's A, B, L and K", () => {
+  const plan = { version: 2, beats: [{ id: "b1", key: "k1", focus_start: { value: "z2", by: "user" }, focus_end: { value: "z3", by: "user" },
+    tightness: { value: 1, by: "user" }, key_moment: { value: 0, by: "ai" } }] } as Plan;
+  assert.deepEqual(applyPlan([{ beat: "b1", A: "z1", B: "z1", L: 3, K: 2 }], plan), [{ beat: "b1", A: "z2", B: "z3", L: 1, K: 2 }]);
+});

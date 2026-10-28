@@ -1,6 +1,10 @@
-// analysis/plan.json: each beat's camera choices (shot, idle, follow) as the planner
-// made them, in a form the user can edit. Only a value the user sets with "by": "user"
-// survives a rerun of make; render applies those user values over decisions.jsonl.
+// analysis/plan.json: the approved AI plan as the planner made it, in a form the
+// user can edit: each beat's camera choices (shot, idle, follow, focus, tightness,
+// key moment) and the film's look (theme, pace, opening, camera style, ending,
+// title). Only a value the user sets with "by": "user" survives a rerun of make;
+// render applies those user values over decisions.jsonl and the film. A field
+// this takeone does not plan (merge, per-beat speed, captions) is refused on read,
+// never ignored.
 //
 // Every beat carries a stable key next to its position: a hash of what the beat
 // shows, not where it sits (see beats/key.ts). A user edit belongs to that key,
@@ -11,6 +15,8 @@
 
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { THEMES } from "../themes.ts";
+import { TITLE_MAX, type FilmDecision } from "./film.ts";
 
 export class PlanError extends Error {
   constructor(message: string) {
@@ -19,16 +25,63 @@ export class PlanError extends Error {
   }
 }
 
-const FIELDS = ["shot", "idle", "follow"] as const;
-type Field = (typeof FIELDS)[number];
-interface Choice { value?: boolean; by: "ai" | "rule" | "user" }
+type Kind = "boolean" | "zone" | "level";
+/** The per-beat choices: how each is typed, the decision key it sets, and its top level. */
+const BEAT_SPEC = {
+  shot: { kind: "boolean", to: "shot" },
+  idle: { kind: "boolean", to: "idle" },
+  follow: { kind: "boolean", to: "follow" },
+  focus_start: { kind: "zone", to: "A" },
+  focus_end: { kind: "zone", to: "B" },
+  tightness: { kind: "level", to: "L", max: 3 },
+  key_moment: { kind: "level", to: "K", max: 2 },
+} as const satisfies Record<string, { kind: Kind; to: string; max?: number }>;
+export type Field = keyof typeof BEAT_SPEC;
+export const FIELDS = Object.keys(BEAT_SPEC) as Field[];
+type Value = boolean | string | number;
+interface Choice { value?: Value; by: "ai" | "rule" | "user"; why?: string }
 /** One beat in the plan: where it sits now, what it is, and the camera choices. */
-export interface PlanBeat { id: string; key: string; shot?: Choice; idle?: Choice; follow?: Choice }
-export interface Plan { version: 2; beats: PlanBeat[]; dropped?: PlanBeat[] }
-/** The camera choices a decision may carry; undefined means the rules decide. */
-interface BeatChoices { beat: string; shot?: boolean; idle?: boolean; follow?: boolean }
+export type PlanBeat = { id: string; key: string } & { [F in Field]?: Choice };
+/** The film choices, each saved under the FilmDecision field it sets. */
+const FILM_SPEC = {
+  theme: { kind: "theme", to: "theme", asked: "theme" },
+  pace: { kind: "number", to: "pace", asked: "pace" },
+  opening: { kind: "seconds", to: "establish_s", asked: "opening" },
+  camera_style: { kind: "style", to: "camera_path", asked: "camera_style" },
+  ending: { kind: "beat", to: "end_beat", asked: "ending" },
+  title: { kind: "title", to: "title", asked: "titled" },
+} as const;
+type FilmField = keyof typeof FILM_SPEC;
+const FILM_FIELDS = Object.keys(FILM_SPEC) as FilmField[];
+export type PlanFilm = { [F in FilmField]?: Choice };
+export interface Plan { version: 2; beats: PlanBeat[]; film?: PlanFilm; dropped?: PlanBeat[] }
+/** The choices a decision may carry; undefined means the rules decide. */
+type BeatChoices = { beat: string } & { [K in (typeof BEAT_SPEC)[Field]["to"]]?: unknown };
 /** The beats a plan is written for: the position and the stable key. */
 interface BeatKey { id: string; key?: string }
+
+/** Why a value is wrong for its field, or null. */
+function valueError(kind: string, value: unknown, max?: number): string | null {
+  if (kind === "boolean") return typeof value === "boolean" ? null : "must be true or false";
+  if (kind === "zone") return typeof value === "string" && value !== "" ? null : "must be a zone name";
+  if (kind === "level") return Number.isInteger(value) && (value as number) >= 0 && (value as number) <= max! ? null : `must be a whole number from 0 to ${max}`;
+  if (kind === "number") return typeof value === "number" && value >= 0.25 && value <= 4 ? null : "must be a number from 0.25 to 4";
+  if (kind === "seconds") return typeof value === "number" && value >= 0 && value <= 10 ? null : "must be a number of seconds from 0 to 10";
+  if (kind === "theme") return typeof value === "string" && value in THEMES ? null : `must be one of ${Object.keys(THEMES).join(", ")}`;
+  if (kind === "style") return value === "hold" || value === "solver" ? null : 'must be "hold" or "solver"';
+  if (kind === "title") return typeof value === "string" && value !== "" && value.length <= TITLE_MAX ? null : `must be 1 to ${TITLE_MAX} characters`;
+  return typeof value === "string" && value !== "" ? null : "must be a beat key";
+}
+
+function checkChoice(where: string, choice: unknown, kind: string, max?: number): void {
+  const c = choice as Choice | null;
+  if (!c || !["ai", "rule", "user"].includes(c.by)) throw new Error(`analysis/plan.json: ${where}.by must be ai, rule or user`);
+  const extra = Object.keys(c).filter((k) => !["value", "by", "why"].includes(k));
+  if (extra.length > 0) throw new Error(`analysis/plan.json: ${where} has unsupported field ${extra[0]}; a choice holds value, by and why`);
+  if (c.why !== undefined && typeof c.why !== "string") throw new Error(`analysis/plan.json: ${where}.why must be text`);
+  const bad = c.value === undefined ? null : valueError(kind, c.value, max);
+  if (bad) throw new Error(`analysis/plan.json: ${where}.value ${bad}`);
+}
 
 export function readPlan(dir: string): Plan | null {
   const path = join(dir, "analysis/plan.json");
@@ -43,6 +96,8 @@ export function readPlan(dir: string): Plan | null {
   if (typeof plan !== "object" || plan === null || !Array.isArray(plan.beats)) {
     throw new Error("analysis/plan.json: beats must be a list");
   }
+  const extraTop = Object.keys(plan).filter((k) => !["version", "beats", "film", "dropped"].includes(k));
+  if (extraTop.length > 0 && plan.version === 2) throw new Error(`analysis/plan.json: unsupported field ${extraTop[0]}; a plan holds version, beats, film and dropped`);
   if (plan.version !== 2) {
     throw new Error(`analysis/plan.json: plan version ${String(plan.version)} is not supported; `
       + "this takeone writes version 2 - delete the file and run takeone make to rebuild it");
@@ -63,17 +118,19 @@ export function readPlan(dir: string): Plan | null {
       if (keys.has(beat.key)) throw new Error(`analysis/plan.json: beat key ${beat.key} appears more than once`);
       sectionIds.add(beat.id);
       keys.add(beat.key);
+      const unsupported = Object.keys(beat).find((k) => k !== "id" && k !== "key" && !(k in BEAT_SPEC));
+      if (unsupported) {
+        throw new Error(`analysis/plan.json: beat ${beat.id} has unsupported field ${unsupported}; this takeone plans `
+          + `${FIELDS.join(", ")} - remove it`);
+      }
       for (const f of FIELDS) {
-        const choice = beat[f];
-        if (choice === undefined) continue;
-        if (!choice || !["ai", "rule", "user"].includes(choice.by)) {
-          throw new Error(`analysis/plan.json: ${beat.id}.${f}.by must be ai, rule or user`);
-        }
-        if (choice.value !== undefined && typeof choice.value !== "boolean") {
-          throw new Error(`analysis/plan.json: ${beat.id}.${f}.value must be true or false`);
-        }
+        if (beat[f] !== undefined) checkChoice(`${beat.id}.${f}`, beat[f], BEAT_SPEC[f].kind, (BEAT_SPEC[f] as { max?: number }).max);
       }
     }
+  }
+  for (const f of Object.keys(plan.film ?? {})) {
+    if (!(f in FILM_SPEC)) throw new Error(`analysis/plan.json: film has unsupported field ${f}; this takeone plans ${FILM_FIELDS.join(", ")} - remove it`);
+    checkChoice(`film.${f}`, plan.film![f as FilmField], FILM_SPEC[f as FilmField].kind);
   }
   return plan;
 }
@@ -107,7 +164,7 @@ export interface PlanWrite {
  * re-cut that moves the beat keeps the edit on it. An edit whose beat is no
  * longer in the take is dropped, and reported to the caller so the user sees it.
  */
-export function writePlan(dir: string, decisions: BeatChoices[], beats: BeatKey[]): PlanWrite {
+export function writePlan(dir: string, decisions: (BeatChoices & { decided_by?: string })[], beats: BeatKey[], film?: FilmDecision): PlanWrite {
   const prior = readPlan(dir);
   const keys = new Map(beats.map((b) => [b.id, b.key ?? ""]));
   // The user's edits, by the beat they belong to. A dropped edit keeps its
@@ -128,9 +185,13 @@ export function writePlan(dir: string, decisions: BeatChoices[], beats: BeatKey[
     const choice = (f: Field): Choice => {
       const previous = old?.[f];
       if (previous?.by === "user") return previous;
-      return d[f] === undefined ? { by: "rule" } : { value: d[f], by: "ai" };
+      const value = d[BEAT_SPEC[f].to] as Value | undefined;
+      if (value === undefined) return { by: "rule" };
+      // The on/off choices exist only where the planner answered; the rest are
+      // filled by the rules whenever a take has no planner answer.
+      return BEAT_SPEC[f].kind === "boolean" || d.decided_by === "ai" ? { value, by: "ai" } : { value, by: "rule", why: "no planner answer; the rules decided" };
     };
-    return { id: d.beat, key, shot: choice("shot"), idle: choice("idle"), follow: choice("follow") };
+    return { id: d.beat, key, ...Object.fromEntries(FIELDS.map((f) => [f, choice(f)])) };
   });
   const dropped: PlanBeat[] = [];
   for (const [key, beat] of edits) {
@@ -139,12 +200,22 @@ export function writePlan(dir: string, decisions: BeatChoices[], beats: BeatKey[
     for (const f of FIELDS) if (beat[f] !== undefined) entry[f] = beat[f];
     dropped.push(entry);
   }
-  writeFileSync(join(dir, "analysis/plan.json"), JSON.stringify({ version: 2, beats: out, dropped }, null, 1) + "\n");
+  // The film's look: a user edit is kept, the rest is what make decided.
+  const filmOut: PlanFilm = {};
+  for (const f of FILM_FIELDS) {
+    const previous = prior?.film?.[f];
+    const { to, asked } = FILM_SPEC[f];
+    const value = film?.[to];
+    if (previous?.by === "user") filmOut[f] = previous;
+    else if (value === undefined) filmOut[f] = { by: "rule" };
+    else filmOut[f] = { value: f === "ending" ? keys.get(String(value)) : value, by: film?.by[asked] === "ai" ? "ai" : "rule" };
+  }
+  writeFileSync(join(dir, "analysis/plan.json"), JSON.stringify({ version: 2, beats: out, film: filmOut, dropped }, null, 1) + "\n");
   return { beats: out, dropped, moved };
 }
 
 /** The render's view of a beat, for checking that a user edit can be honoured. */
-interface PlanBeatView { id: string; kind: string; key?: string; actions?: unknown[] }
+interface PlanBeatView { id: string; kind: string; key?: string; actions?: unknown[]; zones?: { name: string }[] }
 interface PlanCheck { androidFallback?: boolean }
 
 const ACTION_KINDS = new Set(["click", "type", "drag", "shortcut"]);
@@ -184,18 +255,32 @@ export function validatePlan(plan: Plan | null, beats: PlanBeatView[], check: Pl
         + `rule-only tap fallback, which builds its beats from the taps and ignores plan.json; remove the user edit`);
     }
     for (const field of edits) {
-      if (planBeat[field]!.value !== true) continue; // false matches the render's rule on these beats
-      if (field === "shot" && !shotSupported(beat)) {
-        throw new PlanError(`${where} shot=true cannot be honoured - the render gives no camera move to `
-          + `${noShotReason(beat)}; remove the edit or set shot=false`);
+      const value = planBeat[field]!.value;
+      if (BEAT_SPEC[field].kind === "boolean") {
+        if (value !== true) continue; // false matches the render's rule on these beats
+        if (field === "shot" && !shotSupported(beat)) {
+          throw new PlanError(`${where} shot=true cannot be honoured - the render gives no camera move to `
+            + `${noShotReason(beat)}; remove the edit or set shot=false`);
+        }
+        if (field === "idle" && beat.kind !== "idle") {
+          throw new PlanError(`${where} idle=true cannot be honoured - only an idle beat can pull back to the window; `
+            + `remove the edit or set idle=false`);
+        }
+        if (field === "follow" && beat.kind !== "drag" && beat.kind !== "travel") {
+          throw new PlanError(`${where} follow=true cannot be honoured - the camera only follows a drag or a pointer-travel `
+            + `beat, not this one; remove the edit or set follow=false`);
+        }
+        continue;
       }
-      if (field === "idle" && beat.kind !== "idle") {
-        throw new PlanError(`${where} idle=true cannot be honoured - only an idle beat can pull back to the window; `
-          + `remove the edit or set idle=false`);
+      // Focus, tightness and key moment steer the beat's camera move; with none, they change nothing.
+      if (!shotSupported(beat) || planBeat.shot?.by === "user" && planBeat.shot.value === false) {
+        throw new PlanError(`${where} ${field} cannot be honoured - this beat gets no camera move `
+          + `(${planBeat.shot?.by === "user" && planBeat.shot.value === false ? "shot is set to false" : noShotReason(beat)}); remove the edit`);
       }
-      if (field === "follow" && beat.kind !== "drag" && beat.kind !== "travel") {
-        throw new PlanError(`${where} follow=true cannot be honoured - the camera only follows a drag or a pointer-travel `
-          + `beat, not this one; remove the edit or set follow=false`);
+      const names = (beat.zones ?? []).map((z) => z.name);
+      if (BEAT_SPEC[field].kind === "zone" && !names.includes(value as string)) {
+        throw new PlanError(`${where} ${field}=${String(value)} is not a zone of this beat (${names.join(", ")}); `
+          + `pick one of those or remove the edit`);
       }
     }
   }
@@ -220,7 +305,51 @@ export function applyPlan<T extends BeatChoices>(decisions: T[], plan: Plan | nu
   return decisions.map((d) => {
     const beat = byId.get(d.beat);
     if (!beat) return d;
-    const overrides = Object.fromEntries(FIELDS.flatMap((f) => beat[f]?.by === "user" && beat[f]!.value !== undefined ? [[f, beat[f]!.value]] : []));
+    const overrides = Object.fromEntries(FIELDS.flatMap((f) => beat[f]?.by === "user" && beat[f]!.value !== undefined ? [[BEAT_SPEC[f].to, beat[f]!.value]] : []));
     return { ...d, ...overrides };
   });
+}
+
+/** What a film edit may not collide with: a choice the user already made another way. */
+export interface FilmContext {
+  /** The beats of the take; an ending names one by its key. */
+  beats?: BeatKey[];
+  /** The theme is the user's own (--theme or take.json). */
+  ownTheme?: boolean;
+  /** Camera keys the user pinned with --set. */
+  pinned?: string[];
+  /** take.json carries its own title. */
+  ownTitle?: boolean;
+  /** The take is trimmed by the user, which fixes where the film ends. */
+  ownEnd?: boolean;
+}
+
+/**
+ * The film with the user's plan.json edits applied over the planner's. An edit
+ * that another explicit choice (--theme, --set, a title or trim in take.json)
+ * would override is refused, never dropped quietly.
+ */
+export function withUserFilm(film: FilmDecision | undefined, plan: Plan | null, ctx: FilmContext = {}): FilmDecision {
+  const out: FilmDecision = { ...film, by: { ...film?.by } };
+  const clash = (field: FilmField, other: string) => new PlanError(`analysis/plan.json: film.${field} cannot be honoured - ${other}; remove one of them`);
+  for (const f of FILM_FIELDS) {
+    const choice = plan?.film?.[f];
+    if (choice?.by !== "user" || choice.value === undefined) continue;
+    const { to, asked } = FILM_SPEC[f];
+    if (f === "theme" && ctx.ownTheme) throw clash(f, "the take already has a theme from --theme or take.json");
+    if (f === "title" && ctx.ownTitle) throw clash(f, "take.json has its own title");
+    if (f === "ending" && ctx.ownEnd) throw clash(f, "take.json trims the take, which fixes where the film ends");
+    if (ctx.pinned?.includes(to)) throw clash(f, `--set ${to} is also given`);
+    let value = choice.value;
+    if (f === "ending") {
+      const beat = ctx.beats?.find((b) => b.key === value);
+      if (ctx.beats && !beat) throw new PlanError(`analysis/plan.json: film.ending ${String(value)} is the key of no beat in this take; `
+        + `use the key of the beat the film should end on (${ctx.beats.map((b) => `${b.id}=${b.key}`).join(", ")})`);
+      if (!beat) continue;
+      value = beat.id;
+    }
+    (out as unknown as Record<string, unknown>)[to] = value;
+    out.by[asked] = "user";
+  }
+  return out;
 }

@@ -10,7 +10,7 @@ import { savePlannerConfig, describePlanner } from "./decide/planner.ts";
 import { runCapture } from "./capture.ts";
 import { makeTake, PreflightRefusal, TakeInputError } from "./make.ts";
 import { PlannerUnavailable } from "./decide/planner.ts";
-import { PlanError } from "./decide/plan.ts";
+import { PlanError, readPlan, withUserFilm } from "./decide/plan.ts";
 import { renderTake, renderThreads } from "./render/render.ts";
 import { previewSize } from "./render/preview.ts";
 import { THEMES, resolveTheme } from "./themes.ts";
@@ -68,7 +68,7 @@ export function resolveCamera(dir: string, pairs: string[], theme?: string, with
     raw.out_w = 1080;
     raw.out_h = 1920;
   }
-  const film = withFilm && meta.film ? filmOverrides(meta.film, selected === undefined, Object.keys(raw)) : {};
+  const film = withFilm ? filmOverrides(withUserFilm(meta.film, readPlan(dir), { ownTheme: selected !== undefined, pinned: Object.keys(raw) }), selected === undefined, Object.keys(raw)) : {};
   return resolveTheme(selected, { ...film, ...raw });
 }
 

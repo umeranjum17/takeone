@@ -45,7 +45,7 @@ const ENDING_CANDIDATES = 3;
 // ponytail: the bound is calibrated to the default 1080p band; a smaller out_w or
 // a larger caption_size can still overflow it and throw. Upgrade path: a title
 // that shrinks to fit, in a separate slice.
-const TITLE_MAX = 28;
+export const TITLE_MAX = 28;
 const CAPTION_MAX = 80;
 /** An AI caption stays up at least its reading time (0.3 s a word + 0.8 s), at most this long. */
 const CAPTION_MAX_S = 8;
@@ -74,7 +74,7 @@ export interface FilmDecision {
   keys?: string[];
   clicks?: string[];
   /** Per field: the planner's own choice, or the rule (base look) when it abstained. */
-  by: Record<string, "ai" | "rule">;
+  by: Record<string, "ai" | "rule" | "user">;
 }
 
 export interface FilmCtx {

@@ -22,7 +22,7 @@ import { KeystoreError } from "@byokit/secrets";
 import { SecretStoreUnavailable } from "./secrets.ts";
 import { heuristicDecision, RULE_WORDS } from "./decide/heuristics.ts";
 import { mapAnswers, frameRect } from "./decide/mapping.ts";
-import { writePlan } from "./decide/plan.ts";
+import { FIELDS, readPlan, withUserFilm, writePlan } from "./decide/plan.ts";
 import {
   askChunk,
   toPlannerAnswers,
@@ -600,18 +600,25 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
     }
     if (overReserve) warn(`planner: ${overReserve} beats keep the rules; their rebuilt chunk no longer fit the preflight reserve`);
   }
-  if (filmDecision) {
+  // The film: the planner's choices, then the user's plan.json edits over them.
+  const pinned = (opts.set ?? []).map((pair) => pair.split("=")[0]!);
+  const themeFree = take.theme === undefined;
+  const endFree = take.trim?.end === undefined;
+  const priorPlan = readPlan(dir);
+  const edited = withUserFilm(filmDecision ? appliedFilm(filmDecision, { pinned, themeFree, endFree }) : undefined, priorPlan,
+    { beats: renderBeats, ownTheme: !themeFree, pinned, ownTitle: take.title !== undefined, ownEnd: !endFree });
+  if (filmDecision || Object.values(edited.by).includes("user")) {
     // Theme tokens, then the film's choices, then the user's --set pairs (never replaced) and a picked theme.
-    const pinned = (opts.set ?? []).map((pair) => pair.split("=")[0]!);
-    const f = appliedFilm(filmDecision, { pinned, themeFree: take.theme === undefined, endFree: take.trim?.end === undefined });
-    camera = applyOverrides(filmOverrides(f, take.theme === undefined, pinned), camera);
+    const f = edited;
+    camera = applyOverrides(filmOverrides(f, themeFree, pinned), camera);
     take.film = f;
     const theme = take.theme !== undefined ? `kept (${take.theme} picked)` : f.theme ?? "unchanged";
     log(`film: theme ${theme}, pace ${f.pace ?? "unchanged"}, camera ${f.camera_path ?? "unchanged"}, ` +
       `opening ${f.establish_s ?? "unchanged"} s, ends on ${f.end_beat ?? "unchanged"}, ` +
       `title ${f.title === undefined ? "none" : `"${f.title}"`}, ${f.captions?.length ?? 0} captions, ` +
       `${f.spotlight?.length ?? 0} spotlights, keycaps ${f.keys?.length ?? "all"}, rings ${f.clicks?.length ?? "all"} ` +
-      `(${Object.values(f.by).filter((v) => v === "ai").length} of ${Object.keys(f.by).length} by AI)`);
+      `(${Object.values(f.by).filter((v) => v === "ai").length} of ${Object.keys(f.by).length} by AI, ` +
+      `${Object.values(f.by).filter((v) => v === "user").length} by you)`);
   }
 
   // --plan-only without a planner credential: nothing planned, nothing rendered.
@@ -623,9 +630,9 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
     ...d, conf: Math.max(0, Math.min(1, d.conf.A ?? d.conf.B ?? d.conf.L ?? 0)),
   }));
   writeFileSync(join(analysisDir, "decisions.jsonl"), renderDecisions.map((d) => JSON.stringify(d)).join("\n") + "\n");
-const plan = writePlan(dir, decisions, renderBeats);
+  const plan = writePlan(dir, decisions, renderBeats, take.film);
   for (const edit of plan.dropped) {
-    const fields = (["shot", "idle", "follow"] as const).filter((f) => edit[f]?.by === "user");
+    const fields = FIELDS.filter((f) => edit[f]?.by === "user");
     log(`plan: the user's ${fields.join(", ")} edit for beat ${edit.id} is dropped - the take no longer has that `
       + `beat (key ${edit.key}); the edit is kept in analysis/plan.json under "dropped"`);
   }

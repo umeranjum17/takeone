@@ -22,7 +22,7 @@ import { phoneTapShots } from "./phone.ts";
 import { edgeCuts, cutCount, holdPath, lastFrameSecond, videoFrames } from "./framing.ts";
 import { SAFE_INSET, safeAreaReport, type Rect } from "./safe-area.ts";
 import { clipDrags, typingBursts, editBeats, editTimeline, validateEdits, validateZooms } from "./edits.ts";
-import { applyPlan, readPlan, validatePlan } from "../decide/plan.ts";
+import { applyPlan, readPlan, validatePlan, withUserFilm } from "../decide/plan.ts";
 import { withFilmText } from "../decide/film.ts";
 import { runFfmpeg } from "./ffmpeg.ts";
 import { addSound } from "./sound.ts";
@@ -147,6 +147,12 @@ export async function planCamera(dir: string, camera?: CameraDefaults, take?: Ta
   validatePlan(plan, beats, { androidFallback: meta.device === "android" && meta.planner?.mode === "fallback" });
   const decisions = applyPlan(decisionLines.split(/\r?\n/).filter(Boolean)
     .map((line) => JSON.parse(line) as Decision), plan);
+
+  // The film's title and ending the user edited in plan.json. Make's own ending set trim_end
+  // with film.end_beat; a trim_end without it is the user's, and the edit would be ignored.
+  const filmEdits = withUserFilm(meta.film, plan, { beats, ownTitle: meta.title !== undefined, ownEnd: meta.trim_end !== undefined && meta.film?.end_beat === undefined });
+  meta = { ...meta, film: filmEdits };
+  if (filmEdits.by.ending === "user") meta.trim_end = Math.min(meta.duration ?? Infinity, beats.find((b) => b.id === filmEdits.end_beat)!.t1 + d.outro_s);
 
   const trimStart = meta.trim_start ?? 0;
   const wide = d.out_w > d.out_h;
