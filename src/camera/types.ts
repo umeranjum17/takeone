@@ -97,8 +97,6 @@ export interface TakeMeta extends TakeEdits {
   /** Timed source-pixel regions; t/d are video-relative seconds. */
   spotlight?: { t: number; d: number; rect: [number, number, number, number] }[];
   blur?: { t: number; d: number; rect: [number, number, number, number] }[];
-  /** The film call's choices, with any plan.json edit applied at render. */
-  film?: import("../decide/film.ts").FilmDecision;
   /** Optional opening title, shown in the band below the card for the first seconds of the render. */
   title?: string;
   /** Optional captions in video-relative seconds; `d` defaults to 3. `hold` makes `d` a reading
