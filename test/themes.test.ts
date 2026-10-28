@@ -101,7 +101,8 @@ test("all bundled themes render with bundled faces; midnight decoded frames equa
   }
 });
 
-test("a stage gradient is dithered in every channel, so a hue ramp never bands", {skip:!hasFfmpeg(),timeout:60000}, async () => {
+const needsFfmpeg = hasFfmpeg() ? undefined : "requires system ffmpeg and ffprobe on PATH";
+test("a stage gradient is dithered in every channel, so a hue ramp never bands", {skip:needsFfmpeg,timeout:60000}, async () => {
   const dir=mkdtempSync(join(tmpdir(),"takeone-stage-dither-"));
   try {
     mkdirSync(join(dir,"analysis"));
