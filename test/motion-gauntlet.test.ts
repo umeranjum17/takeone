@@ -16,7 +16,7 @@ async function editorialFilm() {
   const id = (text: string) => lines.find(x => x.text.includes(text))!.id;
   const answer = {
     logo: "Tidewater", lead: "Your launch, finally", swaps: ["scattered", "shipped."],
-    phone_line: "Every task, in reach.", phone_open: id("Activity"), tap: id("commented on"), toast: "Reply sent",
+    phone_line: "Every task, in reach.", phone_open: id("Activity"), tap: id("Beta feedback"), toast: "Reply sent",
     chips_line: "One board for the launch.", chips: [id("Write release notes"), id("Beta feedback"), id("Record onboarding"), id("Fix export")],
     payoff: "Ship the launch together.", cta: "Start free",
   };
