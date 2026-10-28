@@ -5,7 +5,7 @@ import type { Overrides } from "../camera/defaults.ts";
 export type Rect = [number, number, number, number]; // x, y, w, h in source px of its screen
 export type Device = "browser" | "phone" | "laptop" | "none";
 export type MotionEngine = "hyperframes" | "legacy";
-export const PATTERNS = ["hero-reveal", "zoom-tour", "end-card", "fragment", "kinetic-type", "bento", "clip", "segment", "statement", "word-swap", "phone-story", "chip-stack", "canon", "logo-sting", "spotlight", "feature-callouts", "before-after", "device-orbit"] as const;
+export const PATTERNS = ["hero-reveal", "zoom-tour", "end-card", "fragment", "kinetic-type", "bento", "clip", "segment", "statement", "word-swap", "phone-story", "chip-stack", "canon", "logo-sting", "spotlight", "feature-callouts", "before-after", "device-orbit", "bento-reel"] as const;
 export type PatternName = (typeof PATTERNS)[number];
 
 /** DOM-driven ingest ops (L8-h), played in order in one capture page; each named state is captured after its ops. */
@@ -114,6 +114,8 @@ export interface Scene {
   lens?: string;
   /** before-after: the screen the wipe reveals; `screen` is the before, `label` and `note` the corner names. */
   after?: string;
+  /** bento-reel: the demo figure the counter rolls to, the live feed rows and the screen crops shown as real UI. */
+  reel?: { value: number; feed: string[]; shots: string[] };
   /** canon: the master film time each of the four tiles shows at the canon's first frame. */
   offsets?: number[];
 }

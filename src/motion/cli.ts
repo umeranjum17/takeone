@@ -11,6 +11,7 @@ import { motionTokens } from "./theme.ts";
 import { installHyperframes } from "./hyperframes.ts";
 import { installShell } from "./shell.ts";
 import { MAX_DURATION_S, minSceneDuration, readingFloor, validateStoryboard } from "./storyboard.ts";
+import { planBento } from "./bento.ts";
 import { planEditorial } from "./editorial.ts";
 import { FILM_USAGE, newTakeDir, runFilm } from "./film.ts";
 import type { Device, MotionEngine, PatternName, Region, Scene } from "./types.ts";
@@ -33,7 +34,7 @@ export const MOTION_USAGE = `takeone motion <image.png|page.html|https://url|tak
   [--region x,y,w,h[:label][@SCREEN]]... [--state NAME='click #id; type #id "text"; drag #a #b; wait 300']...
   [--workers N] [--blur 0|1] [--storyboard file.json] [--plan-only] [--no-ai]
   [--engine hyperframes|legacy] [--alpha] [--redaction-dry-run --out DIR] [--public-domain example.com]...
-takeone motion <screenshot.png> --recipe editorial --pitch TEXT [--logo WORD] [--cta TEXT] [--url TEXT] [--audio FILE] [--out DIR]
+takeone motion <screenshot.png> --recipe editorial|bento --pitch TEXT [--logo WORD] [--cta TEXT] [--url TEXT] [--audio FILE] [--out DIR]
 takeone motion film <video.mp4> [--intro BRIEF] [--callout "BRIEF@SECONDS"]... [--outro BRIEF] [--tech html|canvas|three] [--out DIR]
 takeone motion install-shell         download the pinned chrome-headless-shell (sha256 checked)
 takeone motion install-hyperframes   install hyperframes@0.8.200 + chrome-headless-shell@156.0.8078.47
@@ -61,6 +62,9 @@ takeone motion install-hyperframes   install hyperframes@0.8.200 + chrome-headle
   the screen large on a phone with a tap, a stack of the screen's own UI lines, a four-tile canon, the
   payoff and the end card, cut on a 120 BPM grid. Only redacted text read off the screen and the pitch
   are sent; the screenshot is not. With no engine it stops and names the sign-in; there is no local plan.
+  --recipe bento plans a bento launch reel the same way: five tiles (headline with a highlight wipe, op-art,
+  a rolling counter with a drawing chart, a live feed, and real crops of the screen) reflow between three
+  grids on the beat, then the payoff and the end card. The counter and feed are demo figures, never real data.
 
 ${FILM_USAGE.split("\n").slice(1).join("\n")}`;
 
@@ -68,7 +72,7 @@ export interface MotionArgs {
   inputs: string[]; out?: string; patterns?: PatternName[]; theme?: string; title?: string;
   subtitle?: string; cta?: string; url?: string; logo?: string; device?: Device; regions: string[]; states: [string, string][];
   workers?: number; blur?: number; storyboard?: string; planOnly: boolean; noAi?: boolean; engine: MotionEngine;
-  recipe?: Recipe | "editorial"; pitch?: string; audio?: string; alpha?: boolean; aspect?: Aspect;
+  recipe?: Recipe | "editorial" | "bento"; pitch?: string; audio?: string; alpha?: boolean; aspect?: Aspect;
   redactionDryRun?: boolean; publicDomains: string[];
 }
 
@@ -109,8 +113,8 @@ export function parseMotionArgs(argv: string[]): MotionArgs {
     else if (s === "--blur") a.blur = Number(v);
     else if (s === "--storyboard") a.storyboard = v;
     else if (s === "--recipe") {
-      if (v !== "editorial" && !Object.hasOwn(RECIPES, v)) throw new Error(`--recipe expects ${[...Object.keys(RECIPES), "editorial"].join(", ")}, got ${v}`);
-      a.recipe = v as Recipe | "editorial";
+      if (v !== "editorial" && v !== "bento" && !Object.hasOwn(RECIPES, v)) throw new Error(`--recipe expects ${[...Object.keys(RECIPES), "editorial", "bento"].join(", ")}, got ${v}`);
+      a.recipe = v as Recipe | "editorial" | "bento";
     } else if (s === "--aspect") {
       if (!Object.hasOwn(ASPECTS, v)) throw new Error(`--aspect expects ${Object.keys(ASPECTS).join(", ")}, got ${v}`);
       a.aspect = v as Aspect;
@@ -222,7 +226,7 @@ export function planStoryboard(a: MotionArgs, id: string): unknown {
   const wideRegions = a.regions.map((r, i) => parseRegion(r, i, screens[0]!, dsf));
   const regions = wideRegions.flatMap((r) => splitWide(r, dsf));
   if (a.recipe && a.patterns) throw new Error("--recipe and --pattern are exclusive; a recipe names its own patterns");
-  const recipe = a.recipe && a.recipe !== "editorial" ? a.recipe : undefined;
+  const recipe = a.recipe && a.recipe !== "editorial" && a.recipe !== "bento" ? a.recipe : undefined;
   const patterns: readonly PatternName[] = a.patterns ?? (recipe ? RECIPES[recipe] : ["hero-reveal", "zoom-tour", "end-card"]);
   const [outW, outH] = ASPECTS[a.aspect ?? (recipe === "social" ? "portrait" : "landscape")];
   const title = a.title ?? "See it in motion.";
@@ -469,9 +473,10 @@ export async function runMotion(argv: string[], takesDir: string, o: PlanOptions
     if (!a.inputs.length) throw new Error("motion needs an input (image, .html or URL) or --storyboard");
     for (const f of a.inputs) if (!/^https?:\/\//.test(f) && !existsSync(f)) throw new Error(`no such input ${f}`);
     id = "motion";
-    if (a.recipe === "editorial") {
-      if (a.noAi) throw new Error("--recipe editorial is planned by the AI engine; there is no --no-ai plan for it");
-      storyboard = await planEditorial(a, id, o.warn ?? ((line: string) => console.error(line)));
+    if (a.recipe === "editorial" || a.recipe === "bento") {
+      if (a.noAi) throw new Error(`--recipe ${a.recipe} is planned by the AI engine; there is no --no-ai plan for it`);
+      const plan = a.recipe === "bento" ? planBento : planEditorial;
+      storyboard = await plan(a, id, o.warn ?? ((line: string) => console.error(line)));
     } else storyboard = await planMotion(a, id, o);
   }
   const sb = validateStoryboard(storyboard); // refuse bad plans before touching the disk

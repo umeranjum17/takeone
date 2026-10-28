@@ -5,6 +5,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:f
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { screenLines } from "../src/decide/ocr.ts";
+import { bentoStoryboard } from "../src/motion/bento.ts";
 import { candidateLines, editorialStoryboard, LENS_TEXT, screenGrey } from "../src/motion/editorial.ts";
 import { buildHyperframesProject } from "../src/motion/hyperframes.ts";
 import { ingest } from "../src/motion/ingest.ts";
@@ -87,6 +88,34 @@ test("editorial film on the real demo board: whole phone, readable lens, a stack
     assert.ok(m.chips >= 0.12, `the chip stack covers ${(m.chips * 100).toFixed(1)}% of the frame`);
     // No warm colour on this board: the recipe's own warm accent marks the hook, the phone and the stack.
     for (const [i, marks] of m.accent.entries()) assert.match(marks, /rgb\(226, 82, 47\)/, `scene ${i} carries the warm accent`);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("bento recipe lays a model's answer on the real demo board into a valid reflowing HyperFrames reel", async () => {
+  const lines = candidateLines(await screenLines(BOARD), 1440);
+  const id = (text: string) => { const l = lines.find(x => x.text.includes(text)); assert.ok(l, `OCR reads ${text}`); return l.id; };
+  const answer = {
+    logo: "Tidewater", lead: "Launch together from", highlight: "one board", kpi_label: "tasks shipped", kpi_value: 1284,
+    feed: ["Umer moved beta feedback", "Umer completed export task", "Umer assigned pricing page", "Umer created release notes"],
+    shots: [id("Write release notes"), id("Beta feedback")], payoff: "Tasks, feedback, notes. Together.", cta: "Start free",
+  };
+  const sb = validateStoryboard(bentoStoryboard({ inputs: [BOARD], url: "tidewater.app" }, "bento-test", { width: 2560, height: 1440 }, lines, answer));
+  assert.deepEqual(sb.scenes.map(s => s.pattern), ["bento-reel", "statement", "end-card"]);
+  for (const s of sb.scenes) assert.equal((s.at! * 2) % 1, 0, `${s.pattern} cuts on the 120 BPM beat`);
+  assert.equal(sb.planner.by, "ai");
+  assert.deepEqual(sb.scenes[0]!.reel!.shots, ["shot1", "shot2"]);
+  // A shot's top and bottom edges run through no text line of the board.
+  for (const c of ["shot1", "shot2"]) {
+    const [, y, , h] = sb.crops![c]!.rect;
+    for (const l of lines) for (const edge of [y, y + h]) assert.ok(!(l.box[1] < edge && l.box[1] + l.box[3] > edge && l.box[0] < sb.crops![c]!.rect[0] + sb.crops![c]!.rect[2] && l.box[0] + l.box[2] > sb.crops![c]!.rect[0]), `${c} edge ${edge} cuts "${l.text}"`);
+  }
+  const bad = { ...answer, kpi_value: 12 };
+  assert.throws(() => bentoStoryboard({ inputs: [BOARD] }, "x", { width: 2560, height: 1440 }, lines, bad), /bento planner: kpi_value/);
+  const dir = mkdtempSync(join(tmpdir(), "takeone-bento-"));
+  try {
+    mkdirSync(join(dir, "sources"));
+    const html = readFileSync(buildHyperframesProject(dir, sb).html, "utf8");
+    assert.match(html, /PATTERNS\["bento-reel"\]/);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 

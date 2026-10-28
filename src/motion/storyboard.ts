@@ -37,6 +37,7 @@ export function sceneTexts(s: Scene): string[] {
   if (s.pattern === "hero-reveal" || s.pattern === "kinetic-type" || s.pattern === "statement") return [s.title, s.subtitle].filter((t): t is string => !!t);
   if (s.pattern === "word-swap") return [s.title ?? "", ...(s.swaps ?? [])].filter(Boolean);
   if (s.pattern === "phone-story" || s.pattern === "chip-stack") return [s.title, s.text].filter((t): t is string => !!t);
+  if (s.pattern === "bento-reel") return [s.title, s.subtitle, s.label, `$${s.reel!.value.toLocaleString("en-US")}`, "LIVE", ...s.reel!.feed].filter((t): t is string => !!t);
   if (s.pattern === "clip") return clipLabels(s).slice(-1).map(l => l.label);
   if (s.pattern === "bento") return (s.tiles ?? []).map(t => t.title);
   if (s.pattern === "logo-sting") return [s.logo].filter((t): t is string => !!t);
@@ -90,6 +91,9 @@ function sceneRevealDuration(s: Scene): number {
 /** Every text a scene shows with the time its reveal ends: each needs its reading floor after that. */
 function sceneHolds(s: Scene): { text: string; reveal: number }[] {
   // A word-swap reads as its title and the word it settles on; the struck words are beats, not copy.
+  if (s.pattern === "bento-reel") { // headline words by 1.2 s; the counter settles by 60% of the reel; the feed adds a row a second from 0.6 s
+    return [{ text: `${s.title} ${s.subtitle}`, reveal: 1.2 }, { text: `${s.label} $${s.reel!.value}`, reveal: .6 * s.d }, { text: s.reel!.feed.at(-1)!, reveal: .6 + s.reel!.feed.length - 1 }];
+  }
   const text = s.pattern === "word-swap" ? [s.title, s.swaps?.at(-1)].join(" ") : sceneTexts(s).join(" ");
   let holds = s.pattern === "zoom-tour" ? [] : [{ text, reveal: sceneRevealDuration(s) }];
   if (s.pattern === "spotlight" || s.pattern === "feature-callouts") {
@@ -188,6 +192,14 @@ function scene(raw: unknown, path: string): Scene {
     const chips = raw["chips"];
     if (!Array.isArray(chips) || chips.length < 1 || chips.length > 8 || chips.some(c => !ID.test(String(c)))) throw new StoryboardError(`${path}.chips`, "chip-stack needs 1 to 8 screen ids");
     s.chips = chips.map(String);
+  }
+  if (s.pattern === "bento-reel") {
+    const r = raw["reel"], feed = isObj(r) ? r["feed"] : undefined, shots = isObj(r) ? r["shots"] : undefined;
+    if (!isObj(r) || !Number.isInteger(r["value"]) || !Array.isArray(feed) || feed.length < 1 || feed.length > 6 || !Array.isArray(shots) || shots.length < 1 || shots.length > 3 || shots.some(c => !ID.test(String(c)))) {
+      throw new StoryboardError(`${path}.reel`, "bento-reel needs {value, feed: 1 to 6 rows, shots: 1 to 3 screen ids}");
+    }
+    if (typeof s.title !== "string" || !s.title.trim() || !s.subtitle?.trim() || !s.label?.trim()) throw new StoryboardError(path, "bento-reel needs title, subtitle and label");
+    s.reel = { value: Number(r["value"]), feed: feed.map((f, j) => str(f, `${path}.reel.feed[${j}]`, 32)), shots: shots.map(String) };
   }
   if (s.pattern === "canon") {
     const o = raw["offsets"];
@@ -385,6 +397,7 @@ export function validateStoryboard(raw: unknown): Storyboard {
     if (s.screen && Object.keys(screens).length && !Object.hasOwn(screens, s.screen)) throw new StoryboardError(`scenes[${i}].screen`, "unknown screen");
     if (s.after && Object.keys(screens).length && !Object.hasOwn(screens, s.after)) throw new StoryboardError(`scenes[${i}].after`, "unknown screen");
     for (const c of s.chips ?? []) if (Object.keys(screens).length && !Object.hasOwn(screens, c)) throw new StoryboardError(`scenes[${i}].chips`, `unknown screen ${c}`);
+    for (const c of s.reel?.shots ?? []) if (Object.keys(screens).length && !Object.hasOwn(screens, c)) throw new StoryboardError(`scenes[${i}].reel`, `unknown screen ${c}`);
     if (s.pattern === "phone-story" && !Object.hasOwn(crops, s.screen!)) throw new StoryboardError(`scenes[${i}].screen`, "phone-story shows a crop: name one of crops");
     if (s.lens !== undefined && !Object.hasOwn(crops, s.lens)) throw new StoryboardError(`scenes[${i}].lens`, "the lens shows a crop: name one of crops");
     if (s.at! < 0) throw new StoryboardError(`scenes[${i}].at`, "negative scene starts are not supported");
