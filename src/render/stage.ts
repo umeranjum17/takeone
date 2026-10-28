@@ -392,7 +392,7 @@ export function clickAss(clicks: Click[], width: number, height: number, start: 
   return out;
 }
 
-export interface Caption { t0: number; t1: number; text: string; title: boolean }
+export interface Caption { t0: number; t1: number; text: string; title: boolean; hold?: boolean }
 
 /**
  * Title plus captions from take.json, sanitised for ASS. `at` maps a video time to
@@ -409,10 +409,22 @@ export function takeCaptions(meta: TakeMeta, at: (t: number) => number, duration
     const d = Number.isFinite(caption.d) && caption.d! > 0 ? caption.d! : 3;
     const t0 = Math.max(0, at(caption.t));
     const t1 = Math.min(duration, at(caption.t) + d);
-    if (text && t1 > t0) out.push({ t0, t1, text, title: false });
+    if (text && t1 > t0) out.push({ t0, t1, text, title: false, hold: caption.hold });
   }
   const body = out.filter(c => !c.title).sort((a, b) => a.t0 - b.t0);
-  for (let i = 0; i + 1 < body.length; i++) body[i]!.t1 = Math.min(body[i]!.t1, body[i + 1]!.t0);
+  for (let i = 0; i + 1 < body.length; i++) {
+    const [cur, next] = [body[i]!, body[i + 1]!];
+    if (cur.hold && next.t0 < cur.t1) {
+      // The held caption keeps its reading time; the next one starts when it ends.
+      // One that then runs past the film's end cannot be read in full, so it is dropped, not flashed.
+      const shift = cur.t1 - next.t0;
+      next.t0 += shift;
+      next.t1 += shift;
+      if (next.t1 > duration && next.hold) next.t1 = next.t0;
+      next.t1 = Math.min(duration, next.t1);
+    }
+    cur.t1 = Math.min(cur.t1, next.t0);
+  }
   return [...out.filter(c => c.title && c.t1 > c.t0), ...body.filter(c => c.t1 > c.t0)];
 }
 

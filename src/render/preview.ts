@@ -147,6 +147,7 @@ export function scaleMeta(meta: TakeMeta, scale: number, width: number, height: 
     width,
     height,
     spotlight: meta.spotlight?.map(region),
+    film: meta.film?.spotlight ? { ...meta.film, spotlight: meta.film.spotlight.map(region) } : meta.film,
     blur: meta.blur?.map(region),
   };
 }

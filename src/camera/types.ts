@@ -99,8 +99,11 @@ export interface TakeMeta extends TakeEdits {
   blur?: { t: number; d: number; rect: [number, number, number, number] }[];
   /** Optional opening title, shown in the band below the card for the first seconds of the render. */
   title?: string;
-  /** Optional captions in video-relative seconds; `d` defaults to 3. */
-  captions?: { t: number; d?: number; text: string }[];
+  /** Optional captions in video-relative seconds; `d` defaults to 3. `hold` makes `d` a reading
+   * time: a later caption starts after it instead of cutting it short (the film's own captions). */
+  captions?: { t: number; d?: number; text: string; hold?: boolean }[];
+  /** The film call's choices (make writes them); a take's own title, captions and spotlight win over them. */
+  film?: import("../decide/film.ts").FilmDecision;
   /** Source-pixel regions; requested arrival at t0, automatic framing resumes at t1. */
   zooms?: ManualZoom[];
 }

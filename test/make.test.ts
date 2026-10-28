@@ -1367,6 +1367,21 @@ function anthropicFilmFetch(film: (timeline: string[]) => Record<string, unknown
   }) as typeof fetch;
 }
 
+test("an AI caption is never cut under its reading time, and a title that cannot be read in the opening is dropped", () => {
+  const caption = (t: number, text: string, hold?: boolean) => ({ t, d: 2, text, hold });
+  // The second caption starts 0.5 s after the first: held, it waits; plain, it cuts the first short.
+  const held = takeCaptions({ width: 1, height: 1, captions: [caption(1, "Open the File menu", true), caption(1.5, "Pick Save", true)] } as never, (t) => t, 10);
+  assert.deepEqual(held.map((c) => [c.t0, c.t1]), [[1, 3], [3, 5]]);
+  // A held caption pushed past the film's end cannot be read in full: dropped, not flashed.
+  const late = takeCaptions({ width: 1, height: 1, captions: [caption(1, "Open the File menu", true), caption(1.5, "Pick Save", true)] } as never, (t) => t, 4);
+  assert.deepEqual(late.map((c) => c.text), ["Open the File menu"]);
+  const plain = takeCaptions({ width: 1, height: 1, captions: [caption(1, "Open the File menu"), caption(1.5, "Pick Save")] } as never, (t) => t, 10);
+  assert.deepEqual(plain.map((c) => [c.t0, c.t1]), [[1, 1.5], [1.5, 3.5]]);
+  const words = Array.from({ length: 10 }, () => "a").join(" ");
+  const answer = { answer: true, abstained: false, confidence: 1, by: "anthropic", ms: 0, title: words } as Answer;
+  assert.equal(mapFilm({ titled: answer }, [], {}).title, undefined, "a 10-word title needs 3.8 s, the opening shows 2.75 s");
+});
+
 test("the film's AI title and captions render; the take's own title and captions win", async () => {
   const dir = newLongTake();
   try {
@@ -1374,7 +1389,11 @@ test("the film's AI title and captions render; the take's own title and captions
       titled: {
         pick: "true", probabilities: { true: 1, false: 0 }, rationale: "the steps need naming",
         title: "Save a report",
-        captions: [{ beat: timeline.at(-1)!.split(",")[0], text: "Open the File menu" }, { beat: "no-such-beat", text: "never shown" }],
+        captions: [{ beat: timeline.at(-1)!.split(",")[0], text: "Open the File menu", seconds: 1 }, { beat: "no-such-beat", text: "never shown" }],
+      },
+      marked: {
+        pick: "true", probabilities: { true: 1, false: 0 }, rationale: "the last step is the point",
+        spotlight: [timeline.at(-1)!.split(",")[0], "no-such-beat"], keys: [], clicks: [timeline.at(-1)!.split(",")[0]],
       },
     }));
     mkdirSync(join(dir, "test-config", "takeone"), { recursive: true });
@@ -1388,7 +1407,12 @@ test("the film's AI title and captions render; the take's own title and captions
     const caption = r.take.film!.captions![0]!;
     assert.equal(caption.t, beats.at(-1)!.t0, `caption t ${caption.t} is not the captioned beat's start ${beats.at(-1)!.t0}`);
     // Its length is reading time on the output clock, not the beat's video-clock span.
-    assert.equal(caption.d, 3, `caption d ${caption.d} is not the 3 s reading time`);
+    // The planner asked for 1 s; four words need 0.3 * 4 + 0.8 = 2 s, so the floor wins.
+    assert.equal(caption.d, 2, `caption d ${caption.d} is not the 2 s reading time`);
+    assert.deepEqual(r.take.film?.keys, [], "the planner's empty keycap list was not kept");
+    assert.deepEqual(r.take.film?.clicks, [beats.at(-1)!.id]);
+    assert.ok((r.take.film?.spotlight?.length ?? 0) <= 1 && r.take.film?.by.marked === "ai", "film spotlight outside the timeline");
+    for (const s of r.take.film?.spotlight ?? []) assert.equal(s.t, beats.at(-1)!.t0);
     const ass = readFileSync(join(dir, "captions.ass"), "utf8");
     assert.ok(ass.includes("Save a report") && ass.includes("Open the File menu"), "AI title or caption not drawn");
     assert.ok(!ass.includes("never shown"), "caption for a beat outside the timeline was drawn");

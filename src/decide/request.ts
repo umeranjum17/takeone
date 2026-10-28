@@ -192,7 +192,7 @@ export function toWire(questions: Record<string, Question>): Record<string, unkn
       if (q.kind === "choice")
         return [k, { type: "choice", instructions: q.instructions ?? "Which option fits the state?", criteria: q.options }];
       if (q.kind === "yesno")
-        return [k, { type: "noul", instructions: q.question, ...(q.yes && q.no ? { criteria: { true: q.yes, false: q.no } } : {}) }];
+        return [k, { type: "noul", instructions: q.question, ...(q.yes && q.no ? { criteria: { true: q.yes, false: q.no } } : {}), ...(q.answerFields ? { answerFields: q.answerFields } : {}) }];
       if (q.kind === "score")
         return [k, { type: "score", instructions: q.instructions ?? "Where does the state fall on this scale?", criteria: q.levels }];
       throw new Error(`unsupported planner question kind: ${q.kind}`);

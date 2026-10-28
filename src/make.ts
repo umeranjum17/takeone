@@ -15,7 +15,7 @@ import { segmentBeats, actStart, resultTime, RESULT_MIN_AREA } from "./beats/seg
 import { actionVideoSeconds } from "./beats/clock.ts";
 import { zonesForBeat, OCR_MAX_AREA } from "./beats/zones.ts";
 import { beatAnswers, beatsPerCall, buildChunk, planChunks, TIGHTNESS_LEVELS, CHUNK_BEATS, CHUNK_TOKEN_CAP, type BeatHint, type ChunkCtx } from "./decide/request.ts";
-import { appBrightness, appliedFilm, captionSpans, filmOverrides, joinFilm, mapFilm, planFilm, type FilmDecision } from "./decide/film.ts";
+import { appBrightness, appliedFilm, beatSpans, filmOverrides, joinFilm, mapFilm, planFilm, type FilmDecision } from "./decide/film.ts";
 import type { Answer, DecideCache, ImageInput } from "@byokit/decide";
 import { ConfigError } from "@byokit/decide";
 import { KeystoreError } from "@byokit/secrets";
@@ -540,7 +540,7 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
         takeOutcome(r);
         replies.push(r.answers);
       }
-      filmDecision = mapFilm(joinFilm(replies), filmPlan.calls.at(-1)!.endings, captionSpans(beats, seconds));
+      filmDecision = mapFilm(joinFilm(replies), filmPlan.calls.at(-1)!.endings, beatSpans(beats, seconds));
     }
     let reasks = reaskChunks === chunks ? chunks.length : 1;
     let overReserve = 0;
@@ -609,7 +609,8 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
     const theme = take.theme !== undefined ? `kept (${take.theme} picked)` : f.theme ?? "unchanged";
     log(`film: theme ${theme}, pace ${f.pace ?? "unchanged"}, camera ${f.camera_path ?? "unchanged"}, ` +
       `opening ${f.establish_s ?? "unchanged"} s, ends on ${f.end_beat ?? "unchanged"}, ` +
-      `title ${f.title === undefined ? "none" : `"${f.title}"`}, ${f.captions?.length ?? 0} captions ` +
+      `title ${f.title === undefined ? "none" : `"${f.title}"`}, ${f.captions?.length ?? 0} captions, ` +
+      `${f.spotlight?.length ?? 0} spotlights, keycaps ${f.keys?.length ?? "all"}, rings ${f.clicks?.length ?? "all"} ` +
       `(${Object.values(f.by).filter((v) => v === "ai").length} of ${Object.keys(f.by).length} by AI)`);
   }
 
