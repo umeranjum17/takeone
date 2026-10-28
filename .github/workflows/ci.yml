@@ -1,13 +1,19 @@
 name: ci
 on:
+  # No `edited`: no job reads the pull request title or body, so editing them runs nothing. CI
+  # never runs on a push to main (the pull request already ran it); release.yml owns main.
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   # A newer push to the same pull request cancels its superseded run; a push to main, a tag
   # or a release run is never cancelled, because cancel-in-progress is false off a pull request.
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
+  # A draft pull request runs nothing: this job, `ci` and `headless-scene` are all skipped, a
+  # skipped required check satisfies branch protection, and ready_for_review starts the real run.
   changes:
+    if: github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     outputs:
       code: ${{ steps.diff.outputs.code }}
@@ -118,7 +124,7 @@ jobs:
   # The required check `ci`: green on a docs-only change, else only when every check passed.
   ci:
     needs: [changes, checks, quality-scene]
-    if: ${{ !cancelled() }}
+    if: ${{ !cancelled() && github.event.pull_request.draft == false }}
     runs-on: ubuntu-latest
     steps:
       - name: Require static checks and quality gates on a code change
@@ -182,7 +188,7 @@ jobs:
   # parts passed and their takes are identical.
   headless-scene:
     needs: [changes, headless-scene-part]
-    if: ${{ !cancelled() }}
+    if: ${{ !cancelled() && github.event.pull_request.draft == false }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
