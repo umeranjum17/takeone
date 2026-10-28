@@ -13,5 +13,10 @@ Use when `src/render/render.ts` motion gating, `phoneReframe` or the portrait ph
    dialog are whole, text is not cut at an edge, and the portrait frame is the screen filling the frame,
    not a small handset on a wide margin.
 
+5. A planned film carries a title and captions, so it renders in the text band. Plan the take with the signed-in
+   engine (`takeone make <id> --max-tokens 12000`), render both shapes, and require `camera.json` to show
+   several framings (`PHONE_BAND_FLOOR`, a view of at least 96% of the screen's width) and stills at and
+   between the taps with the logo, dialog and button labels whole.
+
 The drive changes no repo file: note findings in the run's report. The integration test is
 `a phone take's portrait and wide exports move to each tapped control` in `test/camera.test.ts`.
