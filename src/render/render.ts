@@ -408,7 +408,9 @@ export async function renderTake(dir: string, camera?: CameraDefaults, preview?:
   if (pixels) await writeFile(backgroundFile, encodePng(pixels));
   const backgroundInput = d.bg_style === "image" ? resolveBackgroundImage(dir, d.background_image) : pixels ? backgroundFile : null;
   await runFfmpeg(["-y", "-v", "error", ...(backgroundInput ? ["-i", backgroundInput] : []), "-filter_complex", stageImageFilter(band ? stage.baseW : meta.width, band ? stage.baseH : meta.height, stage, d, phone),
-    "-map", "[stage]", "-frames:v", "1", "-update", "1", stageFile,
+    // zlib level 1: the grained stage is high-entropy, and a 4K source stage took 7 s to deflate at
+    // the default level (1.4 s at level 1); the PNG is lossless either way.
+    "-map", "[stage]", "-frames:v", "1", "-update", "1", "-compression_level", "1", stageFile,
     "-map", "[holes]", "-frames:v", "1", "-update", "1", holesFile]);
   const clicksFile = join(workDir, "clicks.ass");
   // The film's choice of which clicks get a ring; without one, every click does.

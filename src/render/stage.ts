@@ -526,7 +526,7 @@ export function backgroundPixels(st: Stage, d: CameraDefaults): PixelFrame | nul
   const { w, h } = st, n = rgb.length, data = new Uint8Array(w * h * 3), colour = [0, 0, 0];
   // Mesh: four broad radial pools at fixed positions rather than banded concentric stops.
   const pools: [number, number][] = [[0.1, 0.15], [0.85, 0.15], [0.1, 0.85], [0.85, 0.85]];
-  const weights = new Array<number>(n);
+  const weights = new Float64Array(n);
   // A colour ramp moves the chroma planes by about 20 levels across the frame, so an 8-bit
   // stage without dither shows each level as a band (the old blue-to-violet default measured
   // V-plane CAMBI 10 on a real film while luma read 0.01, so the luma grain never reached it).
@@ -538,24 +538,34 @@ export function backgroundPixels(st: Stage, d: CameraDefaults): PixelFrame | nul
     v = Math.imul(v ^ (v >>> 15), 0x85ebca6b); v = Math.imul(v ^ (v >>> 13), 0xc2b2ae35);
     return ((v ^ (v >>> 16)) >>> 0) / 4294967296;
   };
-  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
-    if (d.bg_style === "mesh") {
-      let sum = 0;
-      for (let j = 0; j < n; j++) {
-        const [px, py] = pools[j % 4]!;
-        sum += weights[j] = Math.exp(-3 * ((x / w - px) ** 2 + (y / h - py) ** 2));
-      }
-      for (let i = 0; i < 3; i++) colour[i] = rgb.reduce((a, c, j) => a + c[i]! * weights[j]!, 0) / sum;
-    } else {
-      // Evenly spaced stops along the diagonal, or outward from the centre for radial.
-      const t = d.bg_style === "radial" ? Math.hypot(x - w / 2, y - h / 2) / Math.hypot(w / 2, h / 2) : (x * w + y * h) / (w * w + h * h);
-      const s = Math.min(Math.max(t, 0), 1) * (n - 1), j = Math.min(Math.floor(s), n - 2), f = s - j;
-      for (let i = 0; i < 3; i++) colour[i] = rgb[j]![i]! + (rgb[j + 1]![i]! - rgb[j]![i]!) * f;
+  // A 4K source stage is tens of millions of pixels, so everything that depends only on the column,
+  // the row or the dither block is computed once: exp(-3(dx + dy)) as a column factor times a row
+  // factor, and the dither per block row.
+  const mesh = d.bg_style === "mesh", radial = d.bg_style === "radial", c = Float64Array.from(rgb.flat());
+  const ex = new Float64Array(4 * w), ey = new Float64Array(4), dither = new Float64Array(w * 3);
+  for (let k = 0; k < 4; k++) for (let x = 0; x < w; x++) ex[k * w + x] = Math.exp(-3 * (x / w - pools[k]![0]) ** 2);
+  for (let y = 0; y < h; y++) {
+    for (let k = 0; k < 4; k++) ey[k] = Math.exp(-3 * (y / h - pools[k]![1]) ** 2);
+    if (y % block === 0) for (let x = 0, by = y / block; x < w; x++) for (let i = 0; i < 3; i++) {
+      const bx = Math.floor(x / block);
+      dither[x * 3 + i] = 2 * (hash(bx, by, 2 * i) + hash(bx, by, 2 * i + 1) - 1);
     }
-    const bx = Math.floor(x / block), by = Math.floor(y / block), at = (y * w + x) * 3;
-    for (let i = 0; i < 3; i++) {
-      const v = colour[i]! + 2 * (hash(bx, by, 2 * i) + hash(bx, by, 2 * i + 1) - 1);
-      data[at + i] = Math.min(255, Math.max(0, Math.round(v)));
+    for (let x = 0, at = y * w * 3; x < w; x++, at += 3) {
+      if (mesh) {
+        let sum = 0;
+        for (let j = 0; j < n; j++) sum += weights[j] = ex[(j % 4) * w + x]! * ey[j % 4]!;
+        for (let i = 0; i < 3; i++) {
+          let a = 0;
+          for (let j = 0; j < n; j++) a += c[j * 3 + i]! * weights[j]!;
+          colour[i] = a / sum;
+        }
+      } else {
+        // Evenly spaced stops along the diagonal, or outward from the centre for radial.
+        const t = radial ? Math.hypot(x - w / 2, y - h / 2) / Math.hypot(w / 2, h / 2) : (x * w + y * h) / (w * w + h * h);
+        const s = Math.min(Math.max(t, 0), 1) * (n - 1), j = Math.min(Math.floor(s), n - 2), f = s - j;
+        for (let i = 0; i < 3; i++) colour[i] = c[j * 3 + i]! + (c[(j + 1) * 3 + i]! - c[j * 3 + i]!) * f;
+      }
+      for (let i = 0; i < 3; i++) data[at + i] = Math.min(255, Math.max(0, Math.round(colour[i]! + dither[x * 3 + i]!)));
     }
   }
   return { width: w, height: h, channels: 3, data };
