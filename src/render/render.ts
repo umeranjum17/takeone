@@ -124,6 +124,9 @@ export function sourceEdgeCuts(dir: string, meta: TakeMeta, at: (t: number) => n
   };
 }
 
+/** The narrowest view a phone's text-band card pushes in to, as a share of the screen's width. */
+const PHONE_BAND_FLOOR = 0.96;
+
 /** Solve a take's camera path from its durable inputs without rendering: the frames the film would show, on the
  * output clock, and everything the render draws around them. `take` replaces take.json (a trial of unsaved edits). */
 export async function planCamera(dir: string, camera?: CameraDefaults, take?: TakeMeta) {
@@ -215,10 +218,16 @@ export async function planCamera(dir: string, camera?: CameraDefaults, take?: Ta
   // portrait export pushes in from the handset's margin to the screen filling the frame, so its
   // floor is the narrowest view that still shows the screen's whole width.
   const phoneReframe = (f: CameraFrame): CameraFrame => {
+    const at = (w: number): CameraFrame => ({ t: f.t, x: f.x + (f.w - w) / 2, y: f.y + (f.h - w * f.h / f.w) / 2, w, h: w * f.h / f.w });
+    // A band card of the handset's own shape shows only screen. Its floor is a share of the screen's
+    // width, not the whole width, so a tapped control can be pushed in on (fit keeps the view in the screen).
+    // Centred sideways: a handset's header, dialog and buttons sit near both side edges, so the push-in
+    // trims both evenly and follows the tapped row vertically.
+    if (banded) {
+      const w = Math.max(f.w, meta.width * PHONE_BAND_FLOOR), v = at(w);
+      return w >= meta.width ? v : { ...v, x: (meta.width - w) / 2 };
+    }
     if (!wide) {
-      const at = (w: number): CameraFrame => ({ t: f.t, x: f.x + (f.w - w) / 2, y: f.y + (f.h - w * f.h / f.w) / 2, w, h: w * f.h / f.w });
-      // A band card shows only screen: its floor is the screen's own width.
-      if (banded) return f.w >= meta.width ? f : at(meta.width);
       if (project(f).w >= meta.width) return f;
       let lo = f.w, hi = baseWidth(meta.width, meta.height, cam);
       for (let k = 0; k < 30; k++) { const mid = (lo + hi) / 2; if (project(at(mid)).w < meta.width) lo = mid; else hi = mid; }
