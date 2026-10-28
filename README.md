@@ -95,7 +95,7 @@ Isolated installs (CI, throwaway test HOMEs) can set `TAKEONE_NO_KEYRING=1` so t
 - **Titles and captions.** In every shape, phone takes too, they sit in a band below the screen, never over your app ([how](docs/look.md)).
 - **Paces itself.** Idle stretches play faster, typing can too, and spotlight and blur boxes follow the content.
 - **AI planning.** A normal `takeone make` needs a signed-in AI engine: it [discovers an existing account](docs/guide.md#discovery-order) or uses a configured key, and stops before analysis if none is available. Sign in with `claude` or `codex login`; no token needs to be pasted into TakeOne. The legacy explicit `--no-ai` mode is still present pending removal. Planner cost is in [docs/cost.md](docs/cost.md).
-- **Exports what you need.** MP4 by default, plus GIF, WebM and ProRes 4444, in landscape, portrait, square or 4:5.
+- **Exports what you need.** MP4 by default, plus GIF, WebM and ProRes 4444, in landscape, portrait, square or 4:5. Motion films can also export ProRes 4444 with a real alpha channel (`--alpha`).
 - **Scores its own film.** `takeone make --target-score 9` renders, judges against a written rubric, fixes the weakest items and renders again, with the per-round score in `out/score.json`.
 - **Motion films from screens.** `takeone motion` turns screenshots, HTML or a URL into a short film.
 

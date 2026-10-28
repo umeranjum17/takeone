@@ -17,12 +17,14 @@ export const MOTION_USAGE = `takeone motion <image.png|page.html|https://url>...
   [--title TEXT] [--subtitle TEXT] [--cta TEXT] [--url TEXT] [--logo WORD] [--device browser|phone|laptop|none]
   [--region x,y,w,h[:label][@SCREEN]]... [--state NAME='click #id; type #id "text"; drag #a #b; wait 300']...
   [--workers N] [--blur 0|1] [--storyboard file.json] [--plan-only] [--no-ai]
-  [--engine hyperframes|legacy] [--redaction-dry-run --out DIR] [--public-domain example.com]...
+  [--engine hyperframes|legacy] [--alpha] [--redaction-dry-run --out DIR] [--public-domain example.com]...
 takeone motion <screenshot.png> --recipe editorial --pitch TEXT [--logo WORD] [--cta TEXT] [--url TEXT] [--audio FILE] [--out DIR]
 takeone motion install-shell         download the pinned chrome-headless-shell (sha256 checked)
 takeone motion install-hyperframes   install hyperframes@0.8.200 + chrome-headless-shell@156.0.8078.47
 
   motion writes a take-shaped directory (take.json, sources/, storyboard.json, out/<id>.mp4, render.json);
+  --alpha writes out/<id>.mov instead: ProRes 4444 with a real alpha channel, the themed backdrop dropped so
+  the type, devices and footage composite over anything (hyperframes engine; no MP4 is made or transcoded).
   takeone render <dir> rerenders it. Image planning is disabled; --redaction-dry-run writes a local
   masked PNG and mask report without planning, rendering or sending an image. With no --pattern the local
   rules plan hero-reveal, zoom-tour and end-card; with three or more screens they plan a launch film
@@ -38,7 +40,7 @@ export interface MotionArgs {
   inputs: string[]; out?: string; patterns?: PatternName[]; theme?: string; title?: string;
   subtitle?: string; cta?: string; url?: string; logo?: string; device?: Device; regions: string[]; states: [string, string][];
   workers?: number; blur?: number; storyboard?: string; planOnly: boolean; noAi?: boolean; engine: MotionEngine;
-  recipe?: "editorial"; pitch?: string; audio?: string;
+  recipe?: "editorial"; pitch?: string; audio?: string; alpha?: boolean;
   redactionDryRun?: boolean; publicDomains: string[];
 }
 
@@ -55,6 +57,7 @@ export function parseMotionArgs(argv: string[]): MotionArgs {
     if (s === "--plan-only") { a.planOnly = true; continue; }
     if (s === "--redaction-dry-run") { a.redactionDryRun = true; continue; }
     if (s === "--no-ai") { a.noAi = true; continue; }
+    if (s === "--alpha") { a.alpha = true; continue; }
     const v = value(++i, s);
     if (s === "--public-domain") {
       if (!/^(?:[a-z0-9-]+\.)+[a-z]{2,}$/i.test(v)) throw new Error("--public-domain expects one public domain, without scheme or path");
@@ -400,7 +403,7 @@ export async function runMotion(argv: string[], takesDir: string, o: PlanOptions
   writeFileSync(join(dir, "take.json"), JSON.stringify({ id: basename(dir), theme: sb.theme.name,
     motion: { pattern: sb.scenes.map((s) => s.pattern).join("+"), storyboard: "storyboard.json" } }, null, 2) + "\n");
   if (a.planOnly) { console.log(join(dir, "storyboard.json")); return 0; }
-  const { out, manifest } = await renderMotion(dir, { engine: a.engine });
+  const { out, manifest } = await renderMotion(dir, { engine: a.engine, alpha: a.alpha });
   console.error(`motion: ${manifest.frames} frames ${manifest.width}x${manifest.height}@${manifest.fps} on ${manifest.workers} workers in ${manifest.render_s} s`);
   console.log(out);
   return 0;

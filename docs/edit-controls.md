@@ -47,11 +47,20 @@ the size. `camera-holds.json` beside `camera.json` lists each hold and why.
 `--format mp4|gif|webm|prores4444` selects the output container/encoding and
 defaults to `mp4`. GIF output is encoded at 15 fps and scaled to at most 1080
 pixels on each axis, preserving aspect ratio without upscaling the rendered
-MP4; WebM uses VP9, and `prores4444` writes a ProRes 4444 `.mov` file.
+MP4. A GIF over 15 MiB is re-encoded smaller (720 px at 12 fps, then 540 at 10, then 360 at 8) until it fits, and fails naming `--format webm` if even that is too big; WebM uses VP9, and `prores4444` writes a ProRes 4444 `.mov` file.
 These three formats are transcoded from the rendered MP4, which is retained;
 ProRes cannot restore detail or chroma discarded by that intermediate.
 The MP4, WebM and ProRes exports carry BT.709 colour tags; GIF is palette-based
 and has no colour tags.
+
+A recorded take's stage is opaque, so its `prores4444` file is opaque too: the
+alpha plane is fully on. Transparency comes from motion films. `takeone motion
+<input> --alpha` (or `takeone render <motion-take> --alpha`) renders through the
+HyperFrames engine to `out/<id>.mov`, ProRes 4444 with a real alpha channel and
+the themed backdrop dropped, so the title, device and footage composite over
+anything. No MP4 is made or transcoded for it, and the render fails if the file
+is not ProRes or has no transparent pixels. It needs the hyperframes engine, so
+`--engine legacy` is refused; the scene-cut clips are not written for an alpha film.
 For example:
 
 ```sh
