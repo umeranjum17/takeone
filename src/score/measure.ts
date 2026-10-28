@@ -96,6 +96,31 @@ export function longestHoldFor(dir: string, meta: TakeMeta, camera: CameraDefaul
   return longest;
 }
 
+/** What a camera path shows of the take's first click: the zoom at the click against the rest framing, and the share of
+ * the click's result region in the last frame (a push-in that ends on the control alone hides its payoff). */
+export function clickShot(dir: string, meta: TakeMeta, camera: CameraDefaults, cameraFrames: CameraFrame[]): { zoomAtClick: number; resultInFrame?: number } {
+  const beats = JSON.parse(readFileSync(join(dir, "analysis/beats.json"), "utf8")) as SavedBeat[];
+  const trimStart = meta.trim_start ?? 0;
+  const trimEnd = meta.trim_end ?? purposefulEnd(pacedBeats(meta, beats), trimStart, meta.duration ?? Math.max(0, ...beats.map((b) => b.t1)), camera);
+  const squeezes = idleSqueezes(pacedBeats(meta, beats), trimStart, trimEnd, camera);
+  const click = clickActions(beats)[0];
+  const clickOut = click?.t === undefined ? undefined : warp(Math.max(0, click.t - trimStart), squeezes, camera.idle_speed);
+  const nearest = clickOut === undefined || cameraFrames.length === 0
+    ? undefined
+    : cameraFrames.reduce((best, f) => Math.abs(f.t - clickOut) < Math.abs(best.t - clickOut) ? f : best);
+  const zoomAtClick = nearest ? baseWidth(meta.width, meta.height, camera) / nearest.w : 0;
+  const result = beats.find((b) => b.actions?.includes(click!))?.zones?.filter((z) => z.type === "res")
+    .sort((a, b) => b.bbox[2] * b.bbox[3] - a.bbox[2] * a.bbox[3])[0];
+  const last = cameraFrames.at(-1);
+  return { zoomAtClick, ...(result && last ? { resultInFrame: overlap(result.bbox, last) / (result.bbox[2] * result.bbox[3]) } : {}) };
+}
+
+/** The fraction of the output frame the screen card covers at rest. */
+export function pageShare(meta: Pick<TakeMeta, "width" | "height">, camera: CameraDefaults): number {
+  const stage = stageGeometry(meta.width, meta.height, camera);
+  return (stage.baseW * stage.restScale) / camera.out_w * (stage.baseH * stage.restScale) / camera.out_h;
+}
+
 async function extract(film: string, t: number, path: string): Promise<void> {
   await runFfmpeg(["-y", "-v", "error", "-ss", Math.max(0, t).toFixed(3), "-i", film, "-frames:v", "1", "-update", "1", path]);
 }
@@ -125,19 +150,7 @@ export async function measureFilm(
   const clicks = clickActions(beats);
   const click = clicks[0];
   const clickOut = click?.t === undefined ? undefined : warp(Math.max(0, click.t - trimStart), squeezes, camera.idle_speed);
-  const nearest = clickOut === undefined || cameraFrames.length === 0
-    ? undefined
-    : cameraFrames.reduce((best, f) => Math.abs(f.t - clickOut) < Math.abs(best.t - clickOut) ? f : best);
-  const restWidth = baseWidth(meta.width, meta.height, camera);
-  const zoomAtClick = nearest ? restWidth / nearest.w : 0;
-  // How much of what the click changed the last frame shows: a push-in that ends on the control alone hides its payoff.
-  const result = beats.find((b) => b.actions?.includes(click!))?.zones?.filter((z) => z.type === "res")
-    .sort((a, b) => b.bbox[2] * b.bbox[3] - a.bbox[2] * a.bbox[3])[0];
-  const last = cameraFrames.at(-1);
-  const resultInFrame = result && last ? overlap(result.bbox, last) / (result.bbox[2] * result.bbox[3]) : undefined;
-  const stage = stageGeometry(meta.width, meta.height, camera);
-  const widthShare = (stage.baseW * stage.restScale) / camera.out_w;
-  const heightShare = (stage.baseH * stage.restScale) / camera.out_h;
+  const { zoomAtClick, resultInFrame } = clickShot(o.dir, meta, camera, cameraFrames);
 
   mkdirSync(o.frameDir, { recursive: true });
   const pageT = Math.min(1.0, Math.max(0.2, duration * 0.3));
@@ -171,7 +184,7 @@ export async function measureFilm(
     film,
     duration,
     frameCount: determinism.frames,
-    pageShare: widthShare * heightShare,
+    pageShare: pageShare(meta, camera),
     stageMargin: camera.stage_margin,
     pointerSamples: pointerCount(o.dir),
     cursorFree: meta.cursor_free === true,

@@ -165,6 +165,7 @@ function scene(raw: unknown, path: string): Scene {
     const tap = raw["tap"];
     if (typeof s.screen !== "string" || !Array.isArray(tap) || tap.length !== 4 || tap.some(v => typeof v !== "number" || !Number.isFinite(v))) throw new StoryboardError(`${path}.tap`, "phone-story needs a crop screen and tap [x, y, w, h]");
     s.tap = tap as Rect;
+    if (raw["lens"] !== undefined && !ID.test(String(raw["lens"]))) throw new StoryboardError(`${path}.lens`, "expected a crop id");
   }
   if (s.pattern === "chip-stack") {
     const chips = raw["chips"];
@@ -356,6 +357,7 @@ export function validateStoryboard(raw: unknown): Storyboard {
     if (s.screen && Object.keys(screens).length && !Object.hasOwn(screens, s.screen)) throw new StoryboardError(`scenes[${i}].screen`, "unknown screen");
     for (const c of s.chips ?? []) if (Object.keys(screens).length && !Object.hasOwn(screens, c)) throw new StoryboardError(`scenes[${i}].chips`, `unknown screen ${c}`);
     if (s.pattern === "phone-story" && !Object.hasOwn(crops, s.screen!)) throw new StoryboardError(`scenes[${i}].screen`, "phone-story shows a crop: name one of crops");
+    if (s.lens !== undefined && !Object.hasOwn(crops, s.lens)) throw new StoryboardError(`scenes[${i}].lens`, "the lens shows a crop: name one of crops");
     if (s.at! < 0) throw new StoryboardError(`scenes[${i}].at`, "negative scene starts are not supported");
     if (s.pattern === "clip") { // every footage segment must play to its end: a short clip would freeze
       const plays = [{ at: 0, clip: s.clip! }, ...(s.cuts ?? []).filter(c => c.clip).map(c => ({ at: c.at, clip: c.clip! }))]

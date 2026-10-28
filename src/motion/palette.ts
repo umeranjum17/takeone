@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { imageSize } from "./ingest.ts";
 
 /** Decode an ingested image to RGB before quantizing a fixed pixel lattice, never a random sample. */
-export function samplePalette(file: string): { background: string; accent: string; accent_text: string } {
+export function samplePalette(file: string): { background: string; accent: string; accent_text: string; warm?: string } {
   const { width, height } = imageSize(file);
   if (![width, height].every(n => Number.isInteger(n) && n >= 1 && n <= 16384)) throw new Error(`${file}: image dimensions must be in 1..16384`);
   const data = execFileSync("ffmpeg", ["-nostdin", "-v", "error", "-protocol_whitelist", "file,pipe", "-threads", "1", "-i", file,
@@ -20,5 +20,12 @@ export function samplePalette(file: string): { background: string; accent: strin
   const colour=accent?.[0]??0;
   const rgb=[(colour>>8)&15,(colour>>4)&15,colour&15].map(v=>{const n=v/15;return n<=.04045?n/12.92:((n+.055)/1.055)**2.4;});
   const luminance=.2126*rgb[0]!+.7152*rgb[1]!+.0722*rgb[2]!;
-  return {background:hex(ranked[0]![0]),accent:hex(colour),accent_text:luminance>.179?"#000000":"#ffffff"};
+  // The commonest strong warm colour (red through amber, 330-50 degrees of hue), for recipes that carry one warm accent.
+  const warm=ranked.find(([k,count])=>{
+    const [r,g,b]=[(k>>8)&15,(k>>4)&15,k&15],max=Math.max(r,g,b),c=max-Math.min(r,g,b);
+    if(count<3 || c<6 || max<8) return false;
+    const h=(max===r?((g-b)/c+6)%6:max===g?(b-r)/c+2:(r-g)/c+4)*60;
+    return h<=50 || h>=330;
+  });
+  return {background:hex(ranked[0]![0]),accent:hex(colour),accent_text:luminance>.179?"#000000":"#ffffff",...(warm?{warm:hex(warm[0])}:{})};
 }

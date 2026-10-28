@@ -5,8 +5,11 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:f
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { screenLines } from "../src/decide/ocr.ts";
-import { candidateLines, editorialStoryboard, screenGrey } from "../src/motion/editorial.ts";
+import { candidateLines, editorialStoryboard, LENS_TEXT, screenGrey } from "../src/motion/editorial.ts";
 import { buildHyperframesProject } from "../src/motion/hyperframes.ts";
+import { ingest } from "../src/motion/ingest.ts";
+import { writePage } from "../src/motion/motion.ts";
+import { withPage } from "../src/motion/render.ts";
 import { validateStoryboard } from "../src/motion/storyboard.ts";
 
 const BOARD = resolve("resources/demo/tidewater-board.png");
@@ -17,11 +20,14 @@ test("editorial recipe lays a model's answer on the real demo board into a valid
   // A recorded model answer, keyed by what the lines say so it survives OCR order.
   const answer = {
     logo: "Tidewater", lead: "Your launch, finally", swaps: ["scattered", "shipped."],
-    phone_line: "Every task, in reach.", phone_open: id("Activity"), tap: id("commented on"), toast: "Reply sent",
+    phone_line: "Every task, in reach.", phone_open: id("In progress"), tap: id("Beta feedback"), toast: "Task opened",
     chips_line: "One board for the launch.", chips: [id("Write release notes"), id("Beta feedback"), id("Record onboarding"), id("Fix export")],
     payoff: "Ship the launch together.", cta: "Start free",
   };
   const size = { width: 2560, height: 1440 };
+  // A tapped line too long for the phone's lens at reading size goes back to the model.
+  assert.throws(() => editorialStoryboard({ inputs: [BOARD] }, "editorial-test", size, lines, { ...answer, tap: id("commented on") }),
+    /^Error: editorial planner: tap names a line too long to read in the phone's lens .*rerun to ask again$/);
   const raw = editorialStoryboard({ inputs: [BOARD], url: "tidewater.app" }, "editorial-test", size, lines, answer, screenGrey(BOARD, size));
   const sb = validateStoryboard(raw);
   assert.deepEqual(sb.scenes.map(s => s.pattern), ["word-swap", "phone-story", "chip-stack", "canon", "statement", "end-card"]);
@@ -44,6 +50,43 @@ test("editorial recipe lays a model's answer on the real demo board into a valid
     assert.equal(p.duration, sb.scenes.at(-1)!.at! + sb.scenes.at(-1)!.d);
     assert.match(html, /PATTERNS\["word-swap"\]/);
     assert.match(html, /PATTERNS\.canon/);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("editorial film on the real demo board: whole phone, readable lens, a stack that fills the frame, one warm accent", { timeout: 120_000 }, async () => {
+  const lines = candidateLines(await screenLines(BOARD), 1440);
+  const id = (text: string) => lines.find(x => x.text.includes(text))!.id;
+  const answer = {
+    logo: "Tidewater", lead: "Your launch, finally", swaps: ["scattered", "shipped."],
+    phone_line: "Every task, in reach.", phone_open: id("Todo"), tap: id("Write release notes"), toast: "Task opened",
+    chips_line: "One board for the launch.", chips: [id("Write release notes"), id("Beta feedback"), id("Record onboarding"), id("Fix export")],
+    payoff: "Ship the launch together.", cta: "Start free",
+  };
+  const size = { width: 2560, height: 1440 };
+  const sb = validateStoryboard(editorialStoryboard({ inputs: [BOARD] }, "editorial-gates", size, lines, answer, screenGrey(BOARD, size)));
+  const [, phone, stack] = sb.scenes;
+  const dir = mkdtempSync(join(tmpdir(), "takeone-editorial-gates-"));
+  try {
+    await ingest(dir, sb);
+    const end = sb.scenes.at(-1)!.at! + sb.scenes.at(-1)!.d;
+    const m = await withPage(writePage(dir, sb).html, 1920, 1080, async b => b.evaluate<{ safe: unknown[]; lens: number; chips: number; accent: string[] }>(`(() => {
+      const safe = []; for (let t = 0; t < ${end}; t += 1 / 30) safe.push(...__safe(t * 1000).map(x => ({ t, ...x })));
+      const rect = (el) => el.getBoundingClientRect();
+      // Every accent mark the film draws, by scene: a border, fill or glow in the warm colour.
+      const marks = (i) => [...document.querySelectorAll('.layer[data-scene="' + i + '"] *')].map(el => getComputedStyle(el))
+        .flatMap(cs => [cs.backgroundColor, cs.borderTopColor, cs.boxShadow]).join(" ");
+      __seek(${(phone!.at! + phone!.d - 0.1) * 1000});
+      const lens = rect(document.querySelector('.layer[data-scene="1"] [data-safe="lens"] img')).height;
+      __seek(${(stack!.at! + stack!.d - 0.05) * 1000});
+      const chips = [...document.querySelectorAll('.layer[data-scene="2"] img')].map(rect).reduce((n, r) => n + r.width * r.height, 0) / (innerWidth * innerHeight);
+      return { safe, lens, chips, accent: [0, 1, 2].map(marks) };
+    })()`));
+    assert.deepEqual(m.safe, [], "the phone, the lens and every title stay inside the 5% inset on every frame, no word cut");
+    const lensCrop = sb.crops!["lens"]!.rect, tapH = phone!.tap![3];
+    assert.ok(m.lens * tapH / lensCrop[3] >= 1080 * LENS_TEXT - 0.5, `the tapped row reads at ${(m.lens * tapH / lensCrop[3]).toFixed(1)} px in the lens`);
+    assert.ok(m.chips >= 0.12, `the chip stack covers ${(m.chips * 100).toFixed(1)}% of the frame`);
+    // No warm colour on this board: the recipe's own warm accent marks the hook, the phone and the stack.
+    for (const [i, marks] of m.accent.entries()) assert.match(marks, /rgb\(226, 82, 47\)/, `scene ${i} carries the warm accent`);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 

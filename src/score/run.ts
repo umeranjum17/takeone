@@ -4,7 +4,7 @@ import type { CameraDefaults } from "../camera/defaults.ts";
 import { resolveTheme } from "../themes.ts";
 import type { TakeMeta } from "../camera/types.ts";
 import { makeTake, type MakeOptions, type MakeResult } from "../make.ts";
-import { renderTake } from "../render/render.ts";
+import { planCamera, renderTake } from "../render/render.ts";
 import { PlannerFileCache, resolveJudge, type ResolvedPlanner } from "../decide/planner.ts";
 import { JudgeUnavailable, judgeRound } from "./judge.ts";
 import { improveRound } from "./improve.ts";
@@ -116,8 +116,13 @@ export async function makeWithScore(o: ScoreRunOptions): Promise<ScoreRunResult>
         camera,
         meta,
         writeMeta: () => writeMeta(o.dir, meta),
-        singlePass: () => { process.env.TAKEONE_RENDER_SEGMENTS = "1"; },
+        singlePass: () => {
+          const was = process.env.TAKEONE_RENDER_SEGMENTS;
+          process.env.TAKEONE_RENDER_SEGMENTS = "1";
+          return was !== "1";
+        },
         limitations,
+        solve: async (cam, take) => (await planCamera(o.dir, cam, take)).frames,
       });
     },
   });

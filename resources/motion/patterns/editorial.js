@@ -1,18 +1,21 @@
 // Editorial launch-film beats (the `--recipe editorial` grammar): a serif hook whose last word is struck and
 // swapped, the real screen large on a phone with a tap and a toast, a stack of the screen's own UI lines, and a
 // canon that replays those beats in four tiles on shifted clocks. Expo-out for entrances, cubic in-out for pans,
-// one accent (the colour sampled from the screen). Timings mirror sceneHolds in storyboard.ts.
+// one warm accent as the motif (the screen's own warm colour when it has one). Timings mirror sceneHolds in storyboard.ts.
 const EXPO = "cubic-bezier(.16,1,.3,1)", INOUT = "cubic-bezier(.65,0,.35,1)", BACK = "cubic-bezier(.34,1.45,.64,1)";
-const ACCENT = "var(--design-accent, var(--text))";
+const ACCENT = "var(--design-warm, #e2522f)";
 window.SWAP_MS = 900;
-const riseWords = (text) => text.split(/\s+/).filter(Boolean).map((w) => `<span style="display:inline-block;overflow:hidden;vertical-align:bottom;padding-bottom:.08em"><span class="ed-word" style="display:inline-block">${esc(w)}</span></span>`).join(" ");
-const rise = (root, at = 0) => $$(".ed-word", root).forEach((w, i) => K(w, [[at + i * 70, { transform: "translateY(110%)" }, EXPO], [at + 420 + i * 70, { transform: "none" }]]));
+// Words rise and fade in whole: no clipping mask, so no frame draws part of a word.
+const riseWords = (text) => text.split(/\s+/).filter(Boolean).map((w) => `<span class="ed-word" style="display:inline-block">${esc(w)}</span>`).join(" ");
+const rise = (root, at = 0) => $$(".ed-word", root).forEach((w, i) => K(w, [[at + i * 70, { opacity: 0, transform: "translateY(40%)" }, EXPO], [at + 420 + i * 70, { opacity: 1, transform: "none" }]]));
 // The serif line set beside a device or stack: left column, sized so its longest word fits.
 const sideCopy = (layer, text, ctx) => {
   const { W, H } = ctx, longest = Math.max(...text.split(/\s+/).map((w) => w.length));
   const size = Math.min(H * 0.1, (W * 0.38) / (0.48 * longest));
   const el = h(`<div data-safe style="position:absolute;left:${W * 0.08}px;width:${W * 0.4}px;top:50%;transform:translateY(-50%);font:${size}px/1.06 var(--display);letter-spacing:-.015em;color:var(--text);text-wrap:balance">${riseWords(text)}</div>`);
-  layer.append(el); rise(el);
+  const rule = h(`<div style="width:${W * 0.07}px;height:${Math.max(3, Math.min(W, H) * 0.008)}px;margin-top:.3em;background:${ACCENT};transform-origin:left center"></div>`);
+  el.append(rule); layer.append(el); rise(el);
+  K(rule, [[0, { transform: "scaleX(0)" }], [450, { transform: "scaleX(0)" }, EXPO], [900, { transform: "none" }]]);
 };
 const cursorSvg = (size) => h(`<svg width="${size}" height="${size}" viewBox="0 0 24 24" style="position:absolute;left:0;top:0;overflow:visible"><path d="M3 2 L3 19 L8 14.5 L11.5 22 L14.5 20.6 L11 13.4 L17.5 13.4 Z" fill="#0b0b0b" stroke="#ffffff" stroke-width="1.6" stroke-linejoin="round"/></svg>`);
 
@@ -32,7 +35,7 @@ PATTERNS["word-swap"] = (layer, s, ctx) => {
     K(w, [[0, { opacity: 0, transform: "translateY(45%)" }], [at, { opacity: 0, transform: "translateY(45%)" }, EXPO], [at + 380, shown],
       ...(last ? [] : [[at + 800, shown, "ease-in"], [at + 950, { opacity: 0, transform: "translateY(-35%)" }]])]);
     if (!last) {
-      const strike = h(`<div style="position:absolute;left:.05em;right:.05em;top:56%;height:.055em;background:var(--text);transform-origin:left center"></div>`);
+      const strike = h(`<div style="position:absolute;left:.05em;right:.05em;top:56%;height:.055em;background:${ACCENT};transform-origin:left center"></div>`);
       w.append(strike);
       K(strike, [[0, { transform: "scaleX(0)" }], [at + 420, { transform: "scaleX(0)" }, INOUT], [at + 640, { transform: "scaleX(1)" }]]);
       return;
@@ -55,20 +58,22 @@ PATTERNS["phone-story"] = (layer, s, ctx) => {
   const { W, H } = ctx, u = Math.min(W, H), scr = ctx.screen(s.screen), crop = STORYBOARD.storyboard.crops?.[s.screen];
   if (!crop) throw new Error(`phone-story: ${s.screen} is not a crop`);
   if (s.title) sideCopy(layer, s.title, ctx);
-  const pw = H * 0.52, bez = pw * 0.04, iw = pw - 2 * bez, k = iw / scr.width, ih = scr.height * k, top = H * 0.1, cx = W * 0.68;
+  // The whole phone stands inside the frame's 5% inset, as tall as the inset allows (PHONE_SCREEN_W in editorial.ts).
+  const ph = H * 0.86, pw = ph * 0.47, bez = pw * 0.04, iw = pw - 2 * bez, vh = ph - 2 * bez, k = iw / scr.width, ih = scr.height * k, top = H * 0.07, cx = W * 0.66;
   // The screen starts under the island, as an app does; the bar above it is the screen's dominant colour.
   const sb = pw * 0.12;
-  const phone = h(`<div data-moves style="position:absolute;left:${cx - pw / 2}px;top:${top}px;width:${pw}px;height:${H * 1.3}px;border-radius:${pw * 0.15}px;background:var(--text)"></div>`);
+  const phone = h(`<div data-moves data-safe="phone" style="position:absolute;left:${cx - pw / 2}px;top:${top}px;width:${pw}px;height:${ph}px;border-radius:${pw * 0.15}px;background:var(--text)"></div>`);
   const view = h(`<div style="position:absolute;left:${bez}px;top:${bez}px;right:${bez}px;bottom:${bez}px;border-radius:${pw * 0.12}px;overflow:hidden;background:${STORYBOARD.palette?.background ?? "#ffffff"}"></div>`);
   const img = h(`<img src="${scr.url}" style="position:absolute;left:0;top:${sb}px;width:${iw}px;height:${ih}px;display:block">`);
   view.append(img); phone.append(view);
   phone.append(h(`<div style="position:absolute;left:50%;top:${bez + pw * 0.03}px;width:${pw * 0.28}px;height:${pw * 0.075}px;transform:translateX(-50%);border-radius:999px;background:#0b0b0b"></div>`));
   layer.append(phone);
-  // Pan so the tapped control settles at 58% of the frame, never past the end of the screen.
+  // Pan so the tapped control settles at 40% of the phone's screen, never past the end of the screen.
   const [tx, ty, tw, th] = s.tap, [cx0, cy0] = crop.rect;
   const tapX = (tx + tw / 2 - cx0) * k, tapY = sb + (ty + th / 2 - cy0) * k;
-  const pan = Math.max(0, Math.min(sb + ih - (H - top - bez), top + bez + tapY - H * 0.58));
-  K(phone, [[0, { transform: `translateY(${H}px)` }, EXPO], [600, { transform: "none" }]]);
+  const pan = Math.max(0, Math.min(sb + ih - vh, tapY - vh * 0.4));
+  // It settles in whole: a scale from 94%, never a slide across the inset.
+  K(phone, [[0, { opacity: 0, transform: "scale(.94)" }, EXPO], [600, { opacity: 1, transform: "none" }]]);
   K(img, [[0, { transform: "none" }], [900, { transform: "none" }, INOUT], [2100, { transform: `translateY(${-pan}px)` }]]);
   // The tap: an accent outline on the real control, a press ring, and the cursor dipping.
   const tapBox = h(`<div style="position:absolute;left:${(tx - cx0) * k - u * 0.008}px;top:${sb + (ty - cy0) * k - pan - u * 0.008}px;width:${tw * k + u * 0.016}px;height:${th * k + u * 0.016}px;border:${Math.max(2, u * 0.004)}px solid ${ACCENT};border-radius:${u * 0.012}px"></div>`);
@@ -87,10 +92,22 @@ PATTERNS["phone-story"] = (layer, s, ctx) => {
     phone.append(toast);
     K(toast, [[0, { opacity: 0, transform: "translate(-50%,-160%) scale(.9)" }], [2900, { opacity: 0, transform: "translate(-50%,-160%) scale(.9)" }, BACK], [3320, { opacity: 1, transform: "translate(-50%,0) scale(1)" }]]);
   }
+  // The lens: the tapped row lifted out of the phone at reading size (LENS_TEXT and LENS_W in editorial.ts), just under
+  // the tap so the press stays in view, ringed and lit in the accent.
+  if (s.lens) {
+    const lens = ctx.screen(s.lens), m = Math.min((u * 0.04) / th, (W * 0.44) / lens.width), lw = lens.width * m, lh = lens.height * m, pad = u * 0.012;
+    const tapBottom = top + bez + sb + (ty + th - cy0) * k - pan;
+    const below = tapBottom + u * 0.03, y = below + lh + 2 * pad <= H * 0.95 ? below : top + bez + sb + (ty - cy0) * k - pan - u * 0.03 - lh - 2 * pad;
+    const x = Math.max(W * 0.49, Math.min(W * 0.95 - lw - 2 * pad, cx - lw / 2 - pad));
+    const card = h(`<div data-safe="lens" style="position:absolute;left:${x}px;top:${Math.max(H * 0.05, Math.min(H * 0.95 - lh - 2 * pad, y))}px;padding:${pad}px;border-radius:${u * 0.016}px;background:${STORYBOARD.palette?.background ?? "#ffffff"};border:${Math.max(2, u * 0.004)}px solid ${ACCENT};box-shadow:0 0 ${u * 0.04}px ${ACCENT},0 ${u * 0.012}px ${u * 0.04}px #0005"><img src="${lens.url}" style="width:${lw}px;height:${lh}px;display:block"></div>`);
+    layer.append(card);
+    K(card, [[0, { opacity: 0, transform: "translateY(-12%) scale(.6)" }], [3000, { opacity: 0, transform: "translateY(-12%) scale(.6)" }, BACK], [3420, { opacity: 1, transform: "none" }]]);
+  }
 };
 
 PATTERNS["chip-stack"] = (layer, s, ctx) => {
-  const { W, H } = ctx, u = Math.min(W, H), ids = s.chips ?? [], cx = W * (s.title ? 0.68 : 0.5), pitch = H * 0.118, ch = H * 0.085;
+  // The stack fills the frame beside its line: rows share 72% of the height, chips magnified up to 3x.
+  const { W, H } = ctx, u = Math.min(W, H), ids = s.chips ?? [], cx = W * (s.title ? 0.71 : 0.5), pitch = Math.min(H * 0.2, (H * 0.72) / Math.max(1, ids.length)), ch = pitch * 0.72;
   if (s.title) sideCopy(layer, s.title, ctx);
   // Radial field lines behind the stack, SVG only (no CSS gradients on motion pages).
   const rays = Array.from({ length: 36 }, (_, i) => { const a = (i / 36) * Math.PI * 2; return `<line x1="${cx}" y1="${H / 2}" x2="${cx + Math.cos(a) * W}" y2="${H / 2 + Math.sin(a) * W}"/>`; }).join("");
@@ -99,9 +116,9 @@ PATTERNS["chip-stack"] = (layer, s, ctx) => {
   layer.append(field, col);
   const at = (i) => 250 + i * 500, y = (i) => H / 2 - (i * pitch) / 2; // the stack stays centred as it grows
   ids.forEach((id, i) => {
-    const scr = ctx.screen(id), k = Math.min(ch / scr.height, (2 * H) / 1080, (W * (s.title ? 0.34 : 0.6)) / scr.width), w = scr.width * k, hh = scr.height * k;
+    const scr = ctx.screen(id), k = Math.min(ch / scr.height, (3 * H) / 1080, (W * (s.title ? 0.44 : 0.8)) / scr.width), w = scr.width * k, hh = scr.height * k;
     const chip = h(`<div style="position:absolute;left:${-w / 2}px;top:${i * pitch - hh / 2}px;width:${w}px;height:${hh}px;border-radius:${Math.min(hh / 2, u * 0.008)}px;box-shadow:0 0 0 ${Math.max(1.5, u * 0.0016)}px var(--text),0 ${u * 0.008}px ${u * 0.02}px #0002"><img src="${scr.url}" style="width:100%;height:100%;display:block;border-radius:inherit"></div>`);
-    const ring = h(`<div style="position:absolute;inset:${-u * 0.009}px;border:${Math.max(2, u * 0.004)}px solid ${ACCENT};border-radius:${Math.min(hh / 2, u * 0.008) + u * 0.009}px"></div>`);
+    const ring = h(`<div style="position:absolute;inset:${-u * 0.009}px;border:${Math.max(2, u * 0.004)}px solid ${ACCENT};border-radius:${Math.min(hh / 2, u * 0.008) + u * 0.009}px;box-shadow:0 0 ${u * 0.03}px ${ACCENT}"></div>`);
     chip.append(ring); col.append(chip);
     const last = i === ids.length - 1, hidden = { opacity: 0, transform: "translateY(45%) scale(.9)" }, active = { opacity: 1, transform: "scale(1.05)" };
     K(chip, [[0, hidden], [at(i), hidden, EXPO], [at(i) + 420, active], ...(last ? [] : [[at(i + 1), active, EXPO], [at(i + 1) + 300, { opacity: 1, transform: "none" }]])]);
