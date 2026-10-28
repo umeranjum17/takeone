@@ -12,6 +12,7 @@ import { installHyperframes } from "./hyperframes.ts";
 import { installShell } from "./shell.ts";
 import { MAX_DURATION_S, minSceneDuration, readingFloor, validateStoryboard } from "./storyboard.ts";
 import { planEditorial } from "./editorial.ts";
+import { FILM_USAGE, newTakeDir, runFilm } from "./film.ts";
 import type { Device, MotionEngine, PatternName, Region, Scene } from "./types.ts";
 
 /** The named recipes the local planner lays out from flags: the patterns each one plays, in order. */
@@ -33,6 +34,7 @@ export const MOTION_USAGE = `takeone motion <image.png|page.html|https://url|tak
   [--workers N] [--blur 0|1] [--storyboard file.json] [--plan-only] [--no-ai]
   [--engine hyperframes|legacy] [--alpha] [--redaction-dry-run --out DIR] [--public-domain example.com]...
 takeone motion <screenshot.png> --recipe editorial --pitch TEXT [--logo WORD] [--cta TEXT] [--url TEXT] [--audio FILE] [--out DIR]
+takeone motion film <video.mp4> [--intro BRIEF] [--callout "BRIEF@SECONDS"]... [--outro BRIEF] [--tech html|canvas|three] [--out DIR]
 takeone motion install-shell         download the pinned chrome-headless-shell (sha256 checked)
 takeone motion install-hyperframes   install hyperframes@0.8.200 + chrome-headless-shell@156.0.8078.47
 
@@ -58,7 +60,9 @@ takeone motion install-hyperframes   install hyperframes@0.8.200 + chrome-headle
   --recipe editorial plans an editorial launch film with the signed-in AI engine: a struck-word headline,
   the screen large on a phone with a tap, a stack of the screen's own UI lines, a four-tile canon, the
   payoff and the end card, cut on a 120 BPM grid. Only redacted text read off the screen and the pitch
-  are sent; the screenshot is not. With no engine it stops and names the sign-in; there is no local plan.`;
+  are sent; the screenshot is not. With no engine it stops and names the sign-in; there is no local plan.
+
+${FILM_USAGE.split("\n").slice(1).join("\n")}`;
 
 export interface MotionArgs {
   inputs: string[]; out?: string; patterns?: PatternName[]; theme?: string; title?: string;
@@ -425,11 +429,6 @@ export async function planMotion(a: MotionArgs, id: string, o: PlanOptions = {})
   return local;
 }
 
-function stamp(): string {
-  const d = new Date(), p = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
-}
-
 export async function runMotion(argv: string[], takesDir: string, o: PlanOptions = {}): Promise<number> {
   if (argv[0] === "install-shell") {
     const shell = await installShell();
@@ -441,6 +440,7 @@ export async function runMotion(argv: string[], takesDir: string, o: PlanOptions
     console.log(`hyperframes ${hf.version}\n${hf.cli}\n${hf.browserVersion} sha256 ${hf.browserSha256}\n${hf.browser}`);
     return 0;
   }
+  if (argv[0] === "film") return await runFilm(argv.slice(1), takesDir, o.warn);
   if (!argv.length || argv.includes("--help") || argv.includes("-h")) { console.error(MOTION_USAGE); return argv.length ? 0 : 2; }
   const a = parseMotionArgs(argv);
   if (a.publicDomains.length && !a.redactionDryRun) throw new Error("--public-domain applies only to --redaction-dry-run");
@@ -475,22 +475,7 @@ export async function runMotion(argv: string[], takesDir: string, o: PlanOptions
     } else storyboard = await planMotion(a, id, o);
   }
   const sb = validateStoryboard(storyboard); // refuse bad plans before touching the disk
-  let dir: string;
-  if (a.out !== undefined) {
-    dir = resolve(a.out);
-    mkdirSync(dir, { recursive: true });
-  } else {
-    mkdirSync(takesDir, { recursive: true });
-    const name = stamp();
-    dir = resolve(takesDir, name);
-    for (let suffix = 1; ; suffix++) {
-      try { mkdirSync(dir, { mode: 0o700 }); break; }
-      catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-        dir = resolve(takesDir, `${name}-${suffix}`);
-      }
-    }
-  }
+  const dir = newTakeDir(a.out, takesDir);
   writeFileSync(join(dir, "storyboard.json"), JSON.stringify(sb, null, 2) + "\n");
   writeFileSync(join(dir, "take.json"), JSON.stringify({ id: basename(dir), theme: sb.theme.name,
     motion: { pattern: sb.scenes.map((s) => s.pattern).join("+"), storyboard: "storyboard.json" } }, null, 2) + "\n");

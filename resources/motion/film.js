@@ -20,9 +20,9 @@ window.sceneCtx = (W, H, scene, key) => {
 // (a tile whose clock reads page time + offset passes shiftMs = -offset). keyPrefix names camera paths.
 window.mountScenes = (root, scenes, W, H, shiftMs = 0, keyPrefix = "") => {
   scenes.forEach((s, i) => {
-    // HyperFrames renders clip scenes as first-class <video> layers emitted by the adapter;
+    // HyperFrames renders clip and segment scenes as first-class <video> layers emitted by the adapter;
     // mounting the frame-stepped window too would paint an empty frame over the footage.
-    if (window.HYPERFRAMES_ENGINE && s.pattern === "clip") return;
+    if (window.HYPERFRAMES_ENGINE && (s.pattern === "clip" || s.pattern === "segment")) return;
     const layer = h(`<div class="layer" data-scene="${i}" data-pattern="${esc(s.pattern)}" data-start="${s.at ?? 0}" data-duration="${s.d}" data-track-index="${i}"></div>`);
     layer.style.zIndex = String(i + 1);
     if (s.invert) { // black beat on a light theme (or back): swap the brightest and darkest tokens

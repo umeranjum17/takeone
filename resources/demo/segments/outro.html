@@ -1,0 +1,26 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Outro: takeone</title>
+<style>
+  html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: #f4f1ea; color: #0b0d10; font-family: system-ui, "Liberation Sans", sans-serif; }
+  svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+  main { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2.4vh; text-align: center; }
+  h1 { margin: 0; font-size: 15vh; font-weight: 700; letter-spacing: -0.03em; }
+  p { margin: 0; font: 500 3.4vh/1.2 ui-monospace, "DejaVu Sans Mono", monospace; letter-spacing: 0.06em; }
+</style></head>
+<body>
+<svg id="rings" viewBox="0 0 1600 900" preserveAspectRatio="xMidYMid slice" fill="none" stroke="#0b0d10" stroke-width="2">
+  <circle cx="800" cy="450" r="140"/><circle cx="800" cy="450" r="140"/><circle cx="800" cy="450" r="140"/>
+</svg>
+<main><h1 id="h">takeone</h1><p id="p">Record once. Direct the camera afterwards.</p></main>
+<script>
+const rings = [...document.querySelectorAll("#rings circle")], h = document.getElementById("h"), p = document.getElementById("p");
+const ease = (x) => 1 - Math.pow(1 - Math.min(1, Math.max(0, x)), 3);
+window.takeoneSegment = { seek(t) {
+  rings.forEach((r, i) => { const k = ease((t - i * 0.25) / 1.6); r.setAttribute("r", String(140 + 700 * k)); r.setAttribute("opacity", String(0.5 * (1 - k))); });
+  const a = ease((t - 0.15) / 0.5), b = ease((t - 0.55) / 0.5);
+  h.style.opacity = String(a); h.style.transform = `translateY(${(1 - a) * 0.15}em)`;
+  p.style.opacity = String(b); p.style.transform = `translateY(${(1 - b) * 0.4}em)`;
+} };
+window.takeoneSegment.seek(0);
+</script>
+</body></html>

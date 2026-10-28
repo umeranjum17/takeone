@@ -5,7 +5,7 @@ import type { Overrides } from "../camera/defaults.ts";
 export type Rect = [number, number, number, number]; // x, y, w, h in source px of its screen
 export type Device = "browser" | "phone" | "laptop" | "none";
 export type MotionEngine = "hyperframes" | "legacy";
-export const PATTERNS = ["hero-reveal", "zoom-tour", "end-card", "fragment", "kinetic-type", "bento", "clip", "statement", "word-swap", "phone-story", "chip-stack", "canon", "logo-sting", "spotlight", "feature-callouts", "before-after", "device-orbit"] as const;
+export const PATTERNS = ["hero-reveal", "zoom-tour", "end-card", "fragment", "kinetic-type", "bento", "clip", "segment", "statement", "word-swap", "phone-story", "chip-stack", "canon", "logo-sting", "spotlight", "feature-callouts", "before-after", "device-orbit"] as const;
 export type PatternName = (typeof PATTERNS)[number];
 
 /** DOM-driven ingest ops (L8-h), played in order in one capture page; each named state is captured after its ops. */
@@ -44,6 +44,16 @@ export interface Clip {
    *  `framesSource` records the window the frames were cut from; a later edit to files/start/d/crop re-ingests. */
   frames?: { dir: string; count: number; width: number; height: number; aspect: number }[];
   framesSource?: { files: string[]; start: number; d: number; crop?: (string | null)[] };
+}
+
+/** A model-written HTML page (DOM, Canvas, SVG or Three.js) rendered offline to a video at the film's size and played
+ *  full-frame by `segment` scenes. The page exposes `window.takeoneSegment.seek(t)`, a pure function of t seconds.
+ *  `video` and `made` are filled by ingest; a changed page, size or length re-renders. */
+export interface Segment {
+  file: string;
+  d: number;
+  video?: string;
+  made?: { sha256: string; width: number; height: number };
 }
 
 /** clip pattern: at `at` scene seconds, retarget the window (one spring added) and optionally swap footage/label. */
@@ -85,6 +95,8 @@ export interface Scene {
   fill?: boolean;
   /** clip: the footage window's clip id. */
   clip?: string;
+  /** segment: the id of the model-written page this scene plays. */
+  segment?: string;
   /** clip: typed mono label; statement: mono footnote under the type. */
   label?: string;
   note?: string;
@@ -153,6 +165,7 @@ export interface Storyboard {
   tempo?: Tempo;
   crops?: Record<string, Crop>;
   clips?: Record<string, Clip>;
+  segments?: Record<string, Segment>;
   audio?: Audio;
   source: {
     kind: "image" | "html" | "url" | "take";

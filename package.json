@@ -29,6 +29,7 @@
     "@byokit/decide": "^0.15.0",
     "@byokit/secrets": "0.5.2",
     "@desklink/host": "0.5.3",
+    "three": "0.149.0",
     "werift": "0.24.4"
   },
   "devDependencies": {
