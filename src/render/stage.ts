@@ -6,6 +6,7 @@ import { zMax } from "../camera/solver.ts";
 import type { Beat, CameraFrame, TakeMeta } from "../camera/types.ts";
 import { shutterFrames, type shutterPlan } from "./motion-blur.ts";
 import { SAFE_INSET } from "./safe-area.ts";
+import type { PixelFrame } from "./frame-average.ts";
 
 export interface Stage {
   w: number;
@@ -510,28 +511,54 @@ export function measureAss(captions: Caption[], d: CameraDefaults, scaleX = 100)
   return out;
 }
 
-/** A deterministic still for recordings. Motion scenes may animate the same tokens. */
+/** A deterministic still for recordings. Motion scenes may animate the same tokens.
+ * Every style but solid reads input 0: the user's image, or {@link backgroundPixels}. */
 export function backgroundFilter(st: Stage, d: CameraDefaults): string {
-  const hex = (colour: string) => `0x${colour.slice(1)}`;
-  if (d.bg_style === "image") return `[0:v]scale=${st.w}:${st.h}:force_original_aspect_ratio=increase,crop=${st.w}:${st.h},setsar=1`;
-  if (d.bg_style === "solid") return `color=${hex(d.background)}:s=${st.w}x${st.h}:d=1`;
-  const stops = d.bg_stops ? d.bg_stops.split(",") : [d.background, d.background_to];
-  if (d.bg_style === "mesh") {
-    // Four broad radial pools rather than banded concentric stops. Fixed positions
-    // make this independent of ffmpeg random state and output frame number.
-    const rgb = stops.map(c => [1, 3, 5].map(i => parseInt(c.slice(i, i + 2), 16)));
-    const positions = [[0.1, 0.15], [0.85, 0.15], [0.1, 0.85], [0.85, 0.85]];
-    const weights = rgb.map((_, i) => {
-      const [x, y] = positions[i % 4]!;
-      return `exp(-3*(pow(X/W-${x},2)+pow(Y/H-${y},2)))`;
-    });
-    const channel = (i: number) => rgb.map((c, j) => `${c[i]}*${weights[j]}`).join("+") + `)/(${weights.join("+")})`;
-    return `nullsrc=s=${st.w}x${st.h}:d=1,format=gbrp,geq=r='(${channel(0)}':g='(${channel(1)}':b='(${channel(2)}'`;
+  if (d.bg_style === "solid") return `color=0x${d.background.slice(1)}:s=${st.w}x${st.h}:d=1`;
+  return `[0:v]scale=${st.w}:${st.h}:force_original_aspect_ratio=increase,crop=${st.w}:${st.h},setsar=1`;
+}
+
+/** The linear, radial or mesh stage gradient as dithered 8-bit RGB; null for solid and image. */
+export function backgroundPixels(st: Stage, d: CameraDefaults): PixelFrame | null {
+  if (d.bg_style === "solid" || d.bg_style === "image") return null;
+  const rgb = (d.bg_stops ? d.bg_stops.split(",") : [d.background, d.background_to])
+    .map(c => [1, 3, 5].map(i => parseInt(c.slice(i, i + 2), 16)));
+  const { w, h } = st, n = rgb.length, data = new Uint8Array(w * h * 3), colour = [0, 0, 0];
+  // Mesh: four broad radial pools at fixed positions rather than banded concentric stops.
+  const pools: [number, number][] = [[0.1, 0.15], [0.85, 0.15], [0.1, 0.85], [0.85, 0.85]];
+  const weights = new Array<number>(n);
+  // A colour ramp moves the chroma planes by about 20 levels across the frame, so an 8-bit
+  // stage without dither shows each level as a band (the old blue-to-violet default measured
+  // V-plane CAMBI 10 on a real film while luma read 0.01, so the luma grain never reached it).
+  // Triangular dither of +-2 levels per channel from independent hashes, so the channels do
+  // not cancel in chroma, held over 2x2 output px so 4:2:0 subsampling keeps it.
+  const block = Math.max(1, Math.round(2 / st.restScale));
+  const hash = (x: number, y: number, k: number) => {
+    let v = Math.imul(x, 0x27d4eb2d) ^ Math.imul(y, 0x165667b1) ^ Math.imul(k, 0x9e3779b9);
+    v = Math.imul(v ^ (v >>> 15), 0x85ebca6b); v = Math.imul(v ^ (v >>> 13), 0xc2b2ae35);
+    return ((v ^ (v >>> 16)) >>> 0) / 4294967296;
+  };
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    if (d.bg_style === "mesh") {
+      let sum = 0;
+      for (let j = 0; j < n; j++) {
+        const [px, py] = pools[j % 4]!;
+        sum += weights[j] = Math.exp(-3 * ((x / w - px) ** 2 + (y / h - py) ** 2));
+      }
+      for (let i = 0; i < 3; i++) colour[i] = rgb.reduce((a, c, j) => a + c[i]! * weights[j]!, 0) / sum;
+    } else {
+      // Evenly spaced stops along the diagonal, or outward from the centre for radial.
+      const t = d.bg_style === "radial" ? Math.hypot(x - w / 2, y - h / 2) / Math.hypot(w / 2, h / 2) : (x * w + y * h) / (w * w + h * h);
+      const s = Math.min(Math.max(t, 0), 1) * (n - 1), j = Math.min(Math.floor(s), n - 2), f = s - j;
+      for (let i = 0; i < 3; i++) colour[i] = rgb[j]![i]! + (rgb[j + 1]![i]! - rgb[j]![i]!) * f;
+    }
+    const bx = Math.floor(x / block), by = Math.floor(y / block), at = (y * w + x) * 3;
+    for (let i = 0; i < 3; i++) {
+      const v = colour[i]! + 2 * (hash(bx, by, 2 * i) + hash(bx, by, 2 * i + 1) - 1);
+      data[at + i] = Math.min(255, Math.max(0, Math.round(v)));
+    }
   }
-  const radial = d.bg_style === "radial";
-  return `gradients=s=${st.w}x${st.h}:d=1:${stops.map((c, i) => `c${i}=${hex(c)}`).join(":")}`
-    + `:x0=${radial ? Math.round(st.w / 2) : 0}:y0=${radial ? Math.round(st.h / 2) : 0}:x1=${st.w}:y1=${st.h}`
-    + `:nb_colors=${stops.length}:seed=0${radial ? ":type=radial" : ""}`;
+  return { width: w, height: h, channels: 3, data };
 }
 
 /** Low-contrast stage texture; static coordinates keep rerenders deterministic. */

@@ -9,6 +9,7 @@ import { resolveTheme, THEMES } from "../src/themes.ts";
 import { renderTake } from "../src/render/render.ts";
 import { resolveCamera, parseSet } from "../src/cli.ts";
 import { hasFfmpeg } from "./helpers.ts";
+import { decodePng } from "../src/motion/png.ts";
 
 test("theme precedence and validation, including saved portrait takes", () => {
   const dir = mkdtempSync(join(tmpdir(), "takeone-theme-config-"));
@@ -98,6 +99,27 @@ test("all bundled themes render with bundled faces; midnight decoded frames equa
     else process.env["FONTCONFIG_FILE"] = previousConfig;
     rmSync(dir,{recursive:true,force:true});
   }
+});
+
+test("a stage gradient is dithered in every channel, so a hue ramp never bands", {skip:!hasFfmpeg(),timeout:60000}, async () => {
+  const dir=mkdtempSync(join(tmpdir(),"takeone-stage-dither-"));
+  try {
+    mkdirSync(join(dir,"analysis"));
+    writeFileSync(join(dir,"take.json"),JSON.stringify({id:"stage",width:640,height:360,trim_end:0.5}));
+    writeFileSync(join(dir,"analysis/beats.json"),"[]");
+    writeFileSync(join(dir,"analysis/decisions.jsonl"),"");
+    execFileSync("ffmpeg",["-v","error","-y","-f","lavfi","-i","testsrc2=s=640x360:r=60:d=0.5","-c:v","libvpx-vp9","-threads","2",join(dir,"screen.webm")]);
+    // The old blue-to-violet ramp with grain off: undithered, 88% of neighbours sit on one flat 8-bit step; dithered,
+    // 51% (the dither holds over 2x2 output pixels so 4:2:0 chroma keeps it).
+    await renderTake(dir,applyOverrides({out_w:640,out_h:360,fade_s:0,grain:0,bg_style:"linear",bg_stops:"#233b60,#735580"}));
+    const stage=decodePng(readFileSync(join(dir,"stage.png"))), c=stage.channels;
+    let pairs=0, equal=0;
+    for (let y=0;y<Math.round(stage.height*0.04);y++) for (let x=0;x+1<stage.width;x++) {
+      const i=(y*stage.width+x)*c;
+      pairs++; equal+=Number([0,1,2].every(k=>stage.data[i+k]===stage.data[i+c+k]));
+    }
+    assert.ok(equal/pairs<0.7,`the stage is banded: ${(100*equal/pairs).toFixed(1)}% of neighbouring wallpaper pixels are equal`);
+  } finally {rmSync(dir,{recursive:true,force:true});}
 });
 
 test("caption ink meets 4.5:1 contrast after compositing on any grey screen", () => {

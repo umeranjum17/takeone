@@ -2,7 +2,7 @@
 
 Every recording render uses the same stage, all local ffmpeg/libass work at zero token cost:
 
-- **Stage**: the default screen card has a padded blue-to-violet gradient, rounded corners and a soft 40 px shadow. The selected theme sets these same shared tokens, background, and typography; see the theme preview below. The stage margin (`stage_margin`, fraction of stage size) eases away as the camera zooms, so close-ups are all screen. When the text band described below is active, the card stays fixed and the camera zooms inside it.
+- **Stage**: the default screen card sits on a near-black stage lit by a soft glow of the accent's hue, with fine grain, rounded corners and a soft 40 px shadow. The selected theme sets these same shared tokens, background, and typography; see the theme preview below. The stage margin (`stage_margin`, fraction of stage size) eases away as the camera zooms, so close-ups are all screen. When the text band described below is active, the card stays fixed and the camera zooms inside it.
 - **Zoom**: shots never upscale source pixels more than `max_upscale` (1.0 by default): a 4K capture can push into native 1080p detail; a 1080p capture exported at 1080p stays wide. Upscaling remains an explicit setting. A value below 1 keeps a HiDPI capture wide (0.5 holds a 2× capture at its rest framing). The camera path runs through a critically damped spring (`lowpass_omega`), so moves ease in and out without overshoot. A move that zooms and pans is a zoom about the two views' shared fixed point, and the spring eases the crop's edges and width alike, so the page edge never turns back mid-move. A pan back the way the page last moved, a result reveal included, and the outro each start only after the view has rested `min_shot`. A shot whose screen a cut brings in still arrives on time: the new screen replaces the page. See [Plan and render](guide.md#plan-and-render) for whole-element framing and static UI detection. Per-level padding never widens a shot past `frame_max` (0.8) of the screen, and the zone itself always keeps `hold_pad` (1.08x) around it.
 - **Camera path**: the default `solver` chooses each shot; `--set camera_path=hold` instead keeps the solver's settled framings, checked on the frame actually shown, holds each one, and joins them with single eased moves, widening any hold that would clip its subject. `camera-holds.json` beside `camera.json` lists each hold and why. See [edit controls](edit-controls.md).
 - **Bookends**: the whole stage holds until the first move, at least `establish_s` in (shortened, to no less than half of it, when that is what lets the first push-in land by the first click), and the camera eases back to the whole stage before the final `outro_s`, but never before the last shot has landed and held for `min_shot` (0 keeps the last shot and still ends on the last activity). The video fades in from and out to `background_to` over `fade_s`.
@@ -18,7 +18,7 @@ Every recording render uses the same stage, all local ffmpeg/libass work at zero
 ```
 
 Both `make` and recording `render` accept `--theme NAME`; the supported names are defined in [the shared theme registry](../src/themes.ts), including the new `editorial` theme.
-`midnight` is the default padded gradient look, unless the AI film call picks a theme (see [Plan and render](guide.md#plan-and-render)). A saved `"theme": "paper"`
+`midnight` is the default near-black glow look, unless the AI film call picks a theme (see [Plan and render](guide.md#plan-and-render)). A saved `"theme": "paper"`
 in `take.json` applies on every rerender; an explicit `--theme` takes precedence,
 and `--set` overrides the selected theme's tokens. `make --theme` saves the
 selection in the take; `render --theme` previews a different look without
@@ -45,11 +45,14 @@ Additional look tokens: `bg_style=linear|solid|radial|mesh|image`,
 For `bg_style=image`, supply `background_image=/path/to/image.png` (relative
 paths resolve inside the take). Recording backgrounds are deterministic stills;
 animated background drift and per-theme motion patterns belong to motion scenes.
+Linear, radial and mesh stages are generated in 8 bits with an independent ±2 level
+triangular dither per channel, held over 2×2 output pixels so 4:2:0 chroma keeps it:
+a hue ramp otherwise bands in chroma, which a luma-only CAMBI check never sees.
 Overlay spring tokens adjust caption arrival time only; the recording camera
 remains critically damped. Recording `pace` scales camera holds (`dwell`,
 `dwell_k2`, `min_shot`) while keeping move durations and caption reading time.
 
-The committed theme preview assets are historical real-take stills at 1080p60: one full-resolution frame per kept theme plus the grid above. They predate the padded blue-to-violet default and are not current-candidate acceptance evidence. [Provenance](assets/themes/provenance.json)
+The committed theme preview assets are historical real-take stills at 1080p60: one full-resolution frame per kept theme plus the grid above. They predate the near-black midnight default and are not current-candidate acceptance evidence. [Provenance](assets/themes/provenance.json)
 records the source take, generator, proof status per theme and output hashes.
 That historical qualification covered all six on the real take: worst fade CAMBI 0.279 (mono) and worst
 whole-take CAMBI 0.043, measured on every frame of both fade windows.
