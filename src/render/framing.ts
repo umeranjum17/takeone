@@ -358,7 +358,7 @@ export function holdPath(solved: CameraFrame[], beats: Beat[], decisions: Decisi
   const frames = solved.map((f, i): CameraFrame => {
     const k = moves.findIndex(m => i <= m.b), m = moves[k];
     const r = k < 0 ? holds.at(-1)!.r : i < m!.a ? holds[k]!.r : lerp(holds[k]!.r, holds[k + 1]!.r, ease((i - m!.a) / (m!.b - m!.a)));
-    if (band) return { t: f.t, ...r };
+    if (band) return { ...r, t: f.t };
     // The solver frame whose stage view is r (crop-to-fill shows a frame at its own size).
     let lo = 1, hi = 8 * st.w;
     for (let j = 0; j < 50; j++) { const w = (lo + hi) / 2; if (visible({ t: f.t, x: 0, y: 0, w, h: w * ratio }).w < r.w) lo = w; else hi = w; }

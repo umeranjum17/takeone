@@ -129,19 +129,26 @@ const recorded = JSON.parse(readFileSync(new URL("./fixtures/recorded-planner.js
 
 /** A test-only fetch response from sanitized real model answers. Zone/beat ids
  * are renamed to this request's choices; production never imports this seam.
+ * Quality-only film choices match the existing golden; the source recording's other answers are unchanged.
  * ponytail: one recorded click answer is repeated for every beat; capture more
  * distinct responses when a test asserts model taste rather than pipeline wiring. */
-export function recordedPlannerReply(body: string, firstZone = false): Response {
+export function recordedPlannerReply(body: string, firstZone = false, qualityBaseline = false): Response {
   const { state, questions } = JSON.parse(body) as {
     state: { beats?: Record<string, { zones: Record<string, unknown> }> };
     questions: Record<string, { criteria?: Record<string, unknown> }>;
   };
   let answers: Record<string, unknown>;
   if (!state.beats) {
-    answers = Object.fromEntries(Object.entries(questions).map(([key, question]) => [key,
-      key === "ending" ? { choice: Object.keys(question.criteria ?? {})[0], probabilities: Object.fromEntries(Object.keys(question.criteria ?? {}).map((id, i) => [id, i === 0 ? 1 : 0])), confidence: 1 }
-        : recorded.film[key],
-    ]));
+    const baselineChoices: Record<string, string> = { theme: "midnight", opening: "establish", camera_style: "lively" };
+    answers = Object.fromEntries(Object.entries(questions).map(([key, question]) => {
+      if (key === "ending") {
+        const ids = Object.keys(question.criteria ?? {}), choice = ids[qualityBaseline ? ids.length - 1 : 0];
+        return [key, { choice, probabilities: Object.fromEntries(ids.map(id => [id, Number(id === choice)])), confidence: 1 }];
+      }
+      const answer = recorded.film[key as keyof typeof recorded.film];
+      const choice = qualityBaseline && baselineChoices[key];
+      return [key, choice ? { choice, probabilities: Object.fromEntries(Object.keys((answer as { probabilities: Record<string, number> }).probabilities).map(id => [id, Number(id === choice)])), confidence: 1 } : answer];
+    }));
   } else {
     answers = Object.fromEntries(Object.entries(state.beats).flatMap(([id, beat]) => {
       const names = Object.keys(beat.zones);

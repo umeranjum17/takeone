@@ -5,15 +5,16 @@ import { createHash } from 'node:crypto';
 import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { DEFAULTS } from '../src/camera/defaults.ts';
+import { applyOverrides, DEFAULTS } from '../src/camera/defaults.ts';
 import type { CameraFrame, Beat, TakeMeta } from '../src/camera/types.ts';
 import { makeTake } from '../src/make.ts';
+import { filmOverrides } from '../src/decide/film.ts';
 import { encodingOptions, measureCaptions, renderTake } from '../src/render/render.ts';
 import { cameraFilter } from '../src/render/camera-filter.ts';
 import { bandFrames, bandLayout, bandText, stageFrames, stageGeometry, takeCaptions, type Band } from '../src/render/stage.ts';
 import { idleSqueezes, purposefulEnd, warp } from '../src/render/pace.ts';
 import { auditTake } from './cut-audit.ts';
-import { recordedPlannerFetch } from '../test/helpers.ts';
+import { recordedPlannerReply } from '../test/helpers.ts';
 
 export interface Metric { value: number; target: number; direction: 'max' | 'min'; unit: string; goalPassed: boolean }
 export type Metrics = Record<string, Metric>;
@@ -368,7 +369,7 @@ async function main() {
     const { script, args: extra = [], video: name, divider, noise } = FIXTURES[fixture]!;
     console.error(`quality: ${fixture}`);
     const dir = join(root, fixture);
-    const d = { ...DEFAULTS, fps: 60, caption_font: 'Liberation Sans', ...(fixture === 'portrait' ? { out_w: 1080, out_h: 1920 } : {}) };
+    let d = { ...DEFAULTS, fps: 60, caption_font: 'Liberation Sans', ...(fixture === 'portrait' ? { out_w: 1080, out_h: 1920 } : {}) };
     const video = join(dir, 'out', `${name}.mp4`);
     if (!args.includes('--reuse')) {
       rmSync(dir, { recursive: true, force: true }); // the scene capture refuses to overwrite a take
@@ -377,12 +378,14 @@ async function main() {
         const meta = json<Record<string, unknown>>(join(dir, 'take.json'));
         save(join(dir, 'take.json'), { ...meta, title: 'Explore the demo', captions: [{ t: 3, text: 'Tap to see details' }] });
       }
-      await makeTake(dir, { apiKey: "test-key-000", fetchImpl: recordedPlannerFetch, camera: d });
+      await makeTake(dir, { apiKey: "test-key-000", fetchImpl: (async (_url, init) => recordedPlannerReply(String(init?.body), false, true)) as typeof fetch, camera: d });
     }
+    const meta = json<TakeMeta>(join(dir, 'take.json'));
+    if (meta.film) d = applyOverrides(filmOverrides(meta.film, meta.theme === undefined, []), d);
     const original = sha(video);
     await renderTake(dir, d);
     const deterministic = original === sha(video);
-    const { metrics, meta, camera, stream, hashes, edge, ocr, cuts } = await measureRender(dir, video, d, { requireJudder: fixture === 'synth', divider, deterministic });
+    const { metrics, camera, stream, hashes, edge, ocr, cuts } = await measureRender(dir, video, d, { requireJudder: fixture === 'synth', divider, deterministic });
     // Motion blur does not exist yet. Never invent a passing ghosting measurement.
     const golden = join(baselineDir, `${fixture}.mp4`);
     const known = stored[fixture] ?? {};

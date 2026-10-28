@@ -15,6 +15,8 @@ import { main, resolveCamera } from "../src/cli.ts";
 import { frameRect } from "../src/decide/mapping.ts";
 import type { Plan } from "../src/decide/plan.ts";
 import { measureCaptions, renderTake } from "../src/render/render.ts";
+import { purposefulEnd } from "../src/render/pace.ts";
+import { actionCameraMilliseconds } from "../src/beats/clock.ts";
 import { bandLayout, bandText, captionLayouts, takeCaptions } from "../src/render/stage.ts";
 import { mapFilm, planFilm } from "../src/decide/film.ts";
 import type { Beat, Decision, TakeMeta } from "../src/types.ts";
@@ -1409,12 +1411,14 @@ test("the film call sets the look and ending; a --set key stays pinned", async (
     assert.equal(film.pace, undefined);
     assert.deepEqual(film.by, { theme: "ai", opening: "ai", ending: "ai", camera_style: "ai" });
     assert.equal(film.title, undefined, "jev answers carry no text, so the film has no title");
-    // The ending is the last beat; the take keeps the outro after it, clamped to the recording's end.
-    const beats = JSON.parse(readFileSync(join(dir, "analysis", "beats.json"), "utf8")) as { id: string; t1: number }[];
+    // The chosen last beat ends after its last action/result plus the outro, not after trailing idle.
+    const beats = JSON.parse(readFileSync(join(dir, "analysis", "beats.json"), "utf8")) as Parameters<typeof purposefulEnd>[0];
     const end = beats.find((b) => b.id === film.end_beat)!;
     assert.equal(end.id, beats.at(-1)!.id);
     const saved = JSON.parse(readFileSync(join(dir, "take.json"), "utf8"));
-    assert.ok(Math.abs(saved.trim_end - Math.min(saved.duration, end.t1 + DEFAULTS.outro_s)) < 1e-6, `trim_end ${saved.trim_end} for beat end ${end.t1}`);
+    const active = beats.map(b => ({ ...b, actions: b.actions.map(actionCameraMilliseconds) as typeof b.actions }));
+    assert.ok(Math.abs(saved.trim_end - purposefulEnd(active, saved.trim_start, saved.duration, resolveCamera(dir, []))) < 1e-6,
+      `trim_end ${saved.trim_end} must follow the last meaningful action plus the outro`);
     assert.equal(saved.film.theme, "paper");
     // A re-render reads the same look from take.json; a --set pin still wins over the film.
     assert.equal(resolveCamera(dir, []).accent, "#e2522f");

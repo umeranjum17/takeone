@@ -12,9 +12,9 @@ import { analyzeUiBoxes } from "./perceive/boxes.ts";
 import { actionsFromEvents } from "./perceive/actions.ts";
 import { decodeAnalysisFrames, firstFrameTimeMs, readEvents } from "./perceive/decode.ts";
 import { segmentBeats, actStart, resultTime, RESULT_MIN_AREA } from "./beats/segment.ts";
-import { actionVideoSeconds } from "./beats/clock.ts";
+import { actionCameraMilliseconds, actionVideoSeconds } from "./beats/clock.ts";
 import { zonesForBeat, OCR_MAX_AREA } from "./beats/zones.ts";
-import { beatAnswers, beatsPerCall, buildChunk, planChunks, TIGHTNESS_LEVELS, CHUNK_BEATS, CHUNK_TOKEN_CAP, type BeatHint, type ChunkCtx } from "./decide/request.ts";
+import { beatAnswers, beatsPerCall, buildChunk, planChunks, CHUNK_BEATS, CHUNK_TOKEN_CAP, type ChunkCtx } from "./decide/request.ts";
 import { appBrightness, appliedFilm, beatSpans, filmOverrides, joinFilm, mapFilm, planFilm, type FilmDecision } from "./decide/film.ts";
 import type { Answer, DecideCache, ImageInput } from "@byokit/decide";
 import { ConfigError } from "@byokit/decide";
@@ -39,6 +39,7 @@ import { estimateUsd } from "./decide/prices.ts";
 import { keyframeThumb, ocrZone } from "./decide/ocr.ts";
 import { redactText } from "./decide/redact.ts";
 import { renderTake } from "./render/render.ts";
+import { purposefulEnd } from "./render/pace.ts";
 import { resolveTheme } from "./themes.ts";
 import { DEFAULTS, applyOverrides, type CameraDefaults } from "./camera/defaults.ts";
 import type { Beat as RenderBeat, Decision as RenderDecision, TakeMeta as RenderMeta } from "./camera/types.ts";
@@ -621,11 +622,12 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
   const autoTrim = take.auto_trim === true ? trimEnd === take.duration_ms : recorderOwned;
   if (take.trim?.end !== undefined && !autoTrim) meta.trim_end = seconds(endMs);
   else delete meta.trim_end;
-  // The film's ending keeps an outro after its beat.
+  // End on the chosen beat's last action/result, not its trailing idle span.
   const filmEnd = take.film?.end_beat;
   if (filmEnd !== undefined) {
-    const end = renderBeats.find((b) => b.id === filmEnd)!;
-    meta.trim_end = Math.min(seconds(videoEndMs), end.t1 + camera.outro_s);
+    const through = renderBeats.slice(0, renderBeats.findIndex(b => b.id === filmEnd) + 1)
+      .map(b => ({ ...b, actions: b.actions.map(actionCameraMilliseconds) as RenderBeat["actions"] }));
+    meta.trim_end = purposefulEnd(through, seconds(startMs), seconds(videoEndMs), camera);
   }
   writeFileSync(join(dir, "take.json"), JSON.stringify(meta, null, 1) + "\n");
   const { out, seconds: renderSeconds } = await renderTake(dir, camera);
