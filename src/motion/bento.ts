@@ -4,7 +4,7 @@
 import { resolve } from "node:path";
 import { clamp, line, planWithEngine, text, type EditorialArgs, type Grey, type Line } from "./editorial.ts";
 import { minSceneDuration } from "./storyboard.ts";
-import type { Crop, Scene } from "./types.ts";
+import type { Crop, Rect, Scene } from "./types.ts";
 
 const FIELDS = ["logo", "lead", "highlight", "kpi_label", "kpi_value", "feed", "shots", "payoff", "cta"] as const;
 
@@ -24,6 +24,19 @@ const ASK = "Plan a bento launch reel for this product from its pitch and the te
 /** Tiles reflow at thirds of the reel, on the beat: the reel is a fixed 12 s (24 beats at 120 BPM). */
 const REEL_S = 12;
 
+/** Pull a crop's edges off the text lines they cut: a line across the left or right edge is taken in whole, a line
+ *  across the top or bottom edge is left out. Falls back to the planned crop when that would change its area by more than half. */
+export function wholeLines(r: Rect, lines: Line[], W: number, H: number): Rect {
+  let [x0, y0, x1, y1] = [r[0], r[1], r[0] + r[2], r[1] + r[3]];
+  for (let pass = 0; pass < 4; pass++) for (const { box: [lx, ly, lw, lh] } of lines) {
+    const [rx, by] = [lx + lw, ly + lh];
+    if (ly < y1 && by > y0) { if (lx < x0 && rx > x0) x0 = Math.max(0, lx - 2); if (lx < x1 && rx > x1) x1 = Math.min(W, rx + 2); }
+    if (lx < x1 && rx > x0) { if (ly < y0 && by > y0) y0 = Math.min(H, by + 2); if (ly < y1 && by > y1) y1 = Math.max(0, ly - 2); }
+  }
+  const out: Rect = [Math.round(x0), Math.round(y0), Math.round(x1 - x0), Math.round(y1 - y0)], ratio = out[2] * out[3] / (r[2] * r[3]);
+  return out[2] > 0 && out[3] > 0 && ratio > 0.5 && ratio < 1.5 ? out : r;
+}
+
 /** The storyboard for checked answers. Pure: the same answers on the same screen give the same film. */
 export function bentoStoryboard(a: EditorialArgs, id: string, size: { width: number; height: number }, lines: Line[], answer: Record<string, unknown>): unknown {
   const who = "bento", { width: W, height: H } = size;
@@ -35,12 +48,12 @@ export function bentoStoryboard(a: EditorialArgs, id: string, size: { width: num
     throw new Error(`${who} planner: shots must be 2 or 3 distinct line ids, got ${JSON.stringify(shots)}; rerun to ask again`);
   }
   if (!Number.isInteger(value) || (value as number) < 1000 || (value as number) > 99999) throw new Error(`${who} planner: kpi_value must be a whole number from 1000 to 99999, got ${JSON.stringify(value)}; rerun to ask again`);
-  // A real UI fragment: a square window of the screen around the chosen line, wide enough to read at tile size.
+  // A real UI fragment: a window of the screen around the chosen line, wide enough to read at tile size.
   // Ingest snaps it to whole cards and controls, so no edge runs through a word.
   const crops: Record<string, Crop> = {};
   const shotIds = shots.map((sid, i) => {
     const l = line({ s: sid }, "s", lines, who), cw = Math.max(W * 0.26, l.box[2] * 1.5, l.box[3] * 10), ch = cw;
-    crops[`shot${i + 1}`] = { screen: "S1", rect: clamp(l.box[0] + l.box[2] / 2 - cw / 2, l.box[1] + l.box[3] / 2 - ch / 2, cw, ch, W, H) };
+    crops[`shot${i + 1}`] = { screen: "S1", rect: wholeLines(clamp(l.box[0] + l.box[2] / 2 - cw / 2, l.box[1] + l.box[3] / 2 - ch / 2, cw, ch, W, H), lines, W, H) };
     return `shot${i + 1}`;
   });
   const reel: Scene = { pattern: "bento-reel", d: REEL_S, title: text(answer, "lead", 2, 4, 40, who), subtitle: text(answer, "highlight", 1, 2, 16, who),

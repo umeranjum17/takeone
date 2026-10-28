@@ -104,6 +104,11 @@ test("bento recipe lays a model's answer on the real demo board into a valid ref
   for (const s of sb.scenes) assert.equal((s.at! * 2) % 1, 0, `${s.pattern} cuts on the 120 BPM beat`);
   assert.equal(sb.planner.by, "ai");
   assert.deepEqual(sb.scenes[0]!.reel!.shots, ["shot1", "shot2"]);
+  // A shot's top and bottom edges run through no text line of the board.
+  for (const c of ["shot1", "shot2"]) {
+    const [, y, , h] = sb.crops![c]!.rect;
+    for (const l of lines) for (const edge of [y, y + h]) assert.ok(!(l.box[1] < edge && l.box[1] + l.box[3] > edge && l.box[0] < sb.crops![c]!.rect[0] + sb.crops![c]!.rect[2] && l.box[0] + l.box[2] > sb.crops![c]!.rect[0]), `${c} edge ${edge} cuts "${l.text}"`);
+  }
   const bad = { ...answer, kpi_value: 12 };
   assert.throws(() => bentoStoryboard({ inputs: [BOARD] }, "x", { width: 2560, height: 1440 }, lines, bad), /bento planner: kpi_value/);
   const dir = mkdtempSync(join(tmpdir(), "takeone-bento-"));
