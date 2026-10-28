@@ -5,15 +5,28 @@ import { basename, extname, join, resolve } from "node:path";
 import { redactScreenshot } from "./redact.ts";
 import { renderMotion } from "./motion.ts";
 import { tourSegments } from "./camera.ts";
+import { stopTimes } from "./geometry.ts";
 import { validateStateNames } from "./ingest.ts";
 import { motionTokens } from "./theme.ts";
 import { installHyperframes } from "./hyperframes.ts";
 import { installShell } from "./shell.ts";
-import { MAX_DURATION_S, minSceneDuration, validateStoryboard } from "./storyboard.ts";
+import { MAX_DURATION_S, minSceneDuration, readingFloor, validateStoryboard } from "./storyboard.ts";
 import { planEditorial } from "./editorial.ts";
 import type { Device, MotionEngine, PatternName, Region, Scene } from "./types.ts";
 
-export const MOTION_USAGE = `takeone motion <image.png|page.html|https://url|take-dir>... [--out DIR] [--pattern hero-reveal,zoom-tour,end-card,kinetic-type]
+/** The named recipes the local planner lays out from flags: the patterns each one plays, in order. */
+export const RECIPES = {
+  launch: ["logo-sting", "hero-reveal", "zoom-tour", "end-card"],
+  feature: ["hero-reveal", "feature-callouts", "end-card"],
+  social: ["kinetic-type", "device-orbit", "spotlight", "end-card"],
+  compare: ["kinetic-type", "before-after", "end-card"],
+} as const satisfies Record<string, PatternName[]>;
+type Recipe = keyof typeof RECIPES;
+const ASPECTS = { landscape: [1920, 1080], portrait: [1080, 1920], square: [1080, 1080] } as const;
+type Aspect = keyof typeof ASPECTS;
+
+export const MOTION_USAGE = `takeone motion <image.png|page.html|https://url|take-dir>... [--out DIR] [--pattern hero-reveal,zoom-tour,end-card,kinetic-type,logo-sting,spotlight,feature-callouts,before-after,device-orbit]
+  [--recipe launch|feature|social|compare] [--aspect landscape|portrait|square]
   [--theme midnight|paper|aurora|mono|sand|editorial]
   [--title TEXT] [--subtitle TEXT] [--cta TEXT] [--url TEXT] [--logo WORD] [--device browser|phone|laptop|none]
   [--region x,y,w,h[:label][@SCREEN]]... [--state NAME='click #id; type #id "text"; drag #a #b; wait 300']...
@@ -35,6 +48,13 @@ takeone motion install-hyperframes   install hyperframes@0.8.200 + chrome-headle
   instead: a kinetic-type title, each labelled screen announced by its own full-type beat ahead of a clean
   tour, and the end card, with black and cream beats alternating by scene order.
 
+  --recipe launch (logo-sting, hero-reveal, zoom-tour of up to 3 stops, end-card), feature (hero-reveal,
+  feature-callouts, end-card), social (kinetic-type, device-orbit, spotlight, end-card; portrait by default) and
+  compare (kinetic-type, before-after, end-card) are laid out by the local rules from the same flags: --region
+  x,y,w,h:label marks the lit regions (spotlight, feature-callouts need them; callouts take 2 to 5), before-after
+  takes two images (or two --state names) and --subtitle as its delta line. --aspect sets the output shape for
+  any plan (portrait is 1080x1920); --recipe and --pattern are exclusive.
+
   --recipe editorial plans an editorial launch film with the signed-in AI engine: a struck-word headline,
   the screen large on a phone with a tap, a stack of the screen's own UI lines, a four-tile canon, the
   payoff and the end card, cut on a 120 BPM grid. Only redacted text read off the screen and the pitch
@@ -44,7 +64,7 @@ export interface MotionArgs {
   inputs: string[]; out?: string; patterns?: PatternName[]; theme?: string; title?: string;
   subtitle?: string; cta?: string; url?: string; logo?: string; device?: Device; regions: string[]; states: [string, string][];
   workers?: number; blur?: number; storyboard?: string; planOnly: boolean; noAi?: boolean; engine: MotionEngine;
-  recipe?: "editorial"; pitch?: string; audio?: string; alpha?: boolean;
+  recipe?: Recipe | "editorial"; pitch?: string; audio?: string; alpha?: boolean; aspect?: Aspect;
   redactionDryRun?: boolean; publicDomains: string[];
 }
 
@@ -85,8 +105,11 @@ export function parseMotionArgs(argv: string[]): MotionArgs {
     else if (s === "--blur") a.blur = Number(v);
     else if (s === "--storyboard") a.storyboard = v;
     else if (s === "--recipe") {
-      if (v !== "editorial") throw new Error(`--recipe expects editorial, got ${v}`);
-      a.recipe = v;
+      if (v !== "editorial" && !Object.hasOwn(RECIPES, v)) throw new Error(`--recipe expects ${[...Object.keys(RECIPES), "editorial"].join(", ")}, got ${v}`);
+      a.recipe = v as Recipe | "editorial";
+    } else if (s === "--aspect") {
+      if (!Object.hasOwn(ASPECTS, v)) throw new Error(`--aspect expects ${Object.keys(ASPECTS).join(", ")}, got ${v}`);
+      a.aspect = v as Aspect;
     } else if (s === "--pitch") a.pitch = v;
     else if (s === "--audio") a.audio = v;
     else if (s === "--engine") {
@@ -194,7 +217,10 @@ export function planStoryboard(a: MotionArgs, id: string): unknown {
   const dsf = kind === "image" ? 1 : 2; // html/url capture at 2x so settled close-ups stay sharp
   const wideRegions = a.regions.map((r, i) => parseRegion(r, i, screens[0]!, dsf));
   const regions = wideRegions.flatMap((r) => splitWide(r, dsf));
-  const patterns = a.patterns ?? (["hero-reveal", "zoom-tour", "end-card"] as PatternName[]);
+  if (a.recipe && a.patterns) throw new Error("--recipe and --pattern are exclusive; a recipe names its own patterns");
+  const recipe = a.recipe && a.recipe !== "editorial" ? a.recipe : undefined;
+  const patterns: readonly PatternName[] = a.patterns ?? (recipe ? RECIPES[recipe] : ["hero-reveal", "zoom-tour", "end-card"]);
+  const [outW, outH] = ASPECTS[a.aspect ?? (recipe === "social" ? "portrait" : "landscape")];
   const title = a.title ?? "See it in motion.";
   const minShot = motionTokens(a.theme ?? "midnight").min_shot;
   const tourOne = (screen: string, captioned: boolean, single = false, invert = false): Scene => {
@@ -209,12 +235,13 @@ export function planStoryboard(a: MotionArgs, id: string): unknown {
         stops = [{ region: id }];
       }
     }
+    if (recipe === "launch") stops = stops.slice(0, 3);
     const dims = screenDims(kind);
     // Exact duration from the same segment math the renderer enforces when the screen
     // dims are known; images keep the legacy estimate because planning never reads files.
     // Either way the duration also clears every reading hold of the finished scene.
     const scene: Scene = { pattern: "zoom-tour", d: 0, screen, stops, device: a.device ?? "browser", ...(invert ? { invert } : {}) };
-    const need = dims ? tourSegments(dims, 1920, 1080, stops.map(s => {
+    const need = dims ? tourSegments(dims, outW, outH, stops.map(s => {
       const r = regions.find(r => r.id === s.region)!;
       return { rect: r.rect, caption: s.caption, hold: undefined };
     }), minShot).need : 3 + 3.5 * Math.max(1, stops.length);
@@ -236,7 +263,27 @@ export function planStoryboard(a: MotionArgs, id: string): unknown {
     if (p === "end-card") return [{ pattern: p, d: 3.5, screen: screens.at(-1)!, cta: a.cta ?? "Try it today", ...(a.url ? { url: a.url } : {}),
       logo: a.logo ?? "TakeOne" }];
     if (p === "kinetic-type") return [typeBeat(title, a.subtitle)];
-    throw new Error(`--pattern ${p} needs a storyboard (core patterns: hero-reveal, zoom-tour, end-card, kinetic-type)`);
+    if (p === "logo-sting") return [{ pattern: p, d: 2.5, logo: a.logo ?? "TakeOne" }];
+    if (p === "device-orbit") return [{ pattern: p, d: 4, screen: screens[0]!, device: a.device ?? "browser" }];
+    if (p === "before-after") {
+      if (screens.length < 2) throw new Error("before-after needs two screens: pass two images, or two --state names");
+      const scene: Scene = { pattern: p, d: 0, screen: screens[0]!, after: screens[1]!, device: a.device ?? "browser", ...(a.subtitle ? { title: a.subtitle } : {}) };
+      scene.d = Math.max(5.5, minSceneDuration(scene));
+      return [scene];
+    }
+    if (p === "spotlight" || p === "feature-callouts") {
+      // Lit regions are the wide ones whole (never split into halves) on the first region's screen, in the order given.
+      const lit = wideRegions.filter(r => r.screen === wideRegions[0]?.screen);
+      const need = p === "spotlight" ? 1 : 2;
+      if (lit.length < need || (p === "feature-callouts" && (lit.length > 5 || lit.some(r => !r.label)))) throw new Error(`--pattern ${p} needs ${p === "spotlight" ? "at least one --region" : "2 to 5 labelled --region x,y,w,h:label"} on one screen`);
+      for (const r of lit) if (!regions.some(x => x.id === r.id)) regions.push(r); // wide ones were split for tours; the lit window is the whole region
+      const stops = lit.map(r => ({ region: r.id, ...(r.label ? { caption: r.label } : {}) }));
+      const caps = stops.map(x => x.caption ?? ""), { end } = stopTimes(caps);
+      const scene: Scene = { pattern: p, d: 0, screen: lit[0]!.screen, stops, device: a.device ?? "browser" };
+      scene.d = Math.max(Math.ceil((p === "spotlight" ? end + .6 : end + .8 + readingFloor(caps.join(" "))) * 60) / 60, minSceneDuration(scene));
+      return [scene];
+    }
+    throw new Error(`--pattern ${p} needs a storyboard (patterns planned from flags: hero-reveal, zoom-tour, end-card, kinetic-type, logo-sting, spotlight, feature-callouts, before-after, device-orbit)`);
   };
   // Launch film: no --pattern and three or more screens. The title opens on bare type, every
   // labelled screen gets its label as a full-type beat before a clean (captionless) tour, and
@@ -245,7 +292,7 @@ export function planStoryboard(a: MotionArgs, id: string): unknown {
   // three or more labels the last announce beat becomes a bento recap grid of real cropped
   // screen states. Crops are aspect-fitted top-anchored windows of regions (thirds of wide
   // ones, so three-column boards crop to whole columns), clamped to the CSS viewport.
-  const launch = !a.patterns && screens.length >= 3;
+  const launch = !a.patterns && !recipe && screens.length >= 3;
   const TILE_A = 886 / 486, PHONE_A = 367 / 756;
   const viewport = kind === "html" ? [2560, 1440] : kind === "url" ? [1440, 900] : undefined;
   const crops: Record<string, { screen: string; rect: [number, number, number, number] }> = {};
@@ -354,7 +401,7 @@ export function planStoryboard(a: MotionArgs, id: string): unknown {
     : { kind, url: first, viewport: [1440, 900], dsf: 2, states: Object.fromEntries(a.states.map(([n, ops]) => [n, splitStateOps(ops)])) };
   return {
     version: 1, id,
-    output: { ...(a.workers !== undefined ? { workers: a.workers } : {}), ...(a.blur !== undefined ? { motion_blur: a.blur } : {}) },
+    output: { out_w: outW, out_h: outH, ...(a.workers !== undefined ? { workers: a.workers } : {}), ...(a.blur !== undefined ? { motion_blur: a.blur } : {}) },
     theme: { name: a.theme ?? "midnight", overrides: {} },
     source, screens: Object.create(null), regions, ...(Object.keys(crops).length ? { crops } : {}),
     layout: { kind: "single" }, scenes,
