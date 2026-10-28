@@ -20,7 +20,8 @@ PATTERNS.clip = (layer, s, ctx) => {
     const from = n ? 0.94 : (s.from ?? shot.scale * 0.94) / shot.scale, own = stages.filter((st) => st.start === shot.start);
     return { at: shot.at, size: [0, 1].map((k) => track(sizeOf(shot)[k] * from, own.map((st) => [st.at * 1000, sizeOf(st)[k]]))) };
   });
-  const win = h(`<div data-moves data-safe="footage window" style="position:absolute;overflow:hidden;background:var(--page);box-shadow:0 0 0 1px #4a4a4a"><img style="width:100%;height:100%;object-fit:contain;display:block"></div>`);
+  // A fill scene is drawn edge to edge by the HyperFrames video layer, so this fitted window is never seen: the gate must not judge it.
+  const win = h(`<div data-moves${s.fill ? "" : ' data-safe="footage window"'} style="position:absolute;overflow:hidden;background:var(--page);box-shadow:0 0 0 1px #4a4a4a"><img style="width:100%;height:100%;object-fit:contain;display:block"></div>`);
   const img = $("img", win);
   layer.append(win);
   const frame = (ms) => { // footage plays on from where its clip started, across label-only cuts

@@ -33,6 +33,7 @@ export async function ingest(dir: string, sb: Storyboard): Promise<void> {
   sb.screens = Object.assign(Object.create(null), sb.screens);
   const out = join(dir, "sources");
   mkdirSync(out, { recursive: true });
+  if (sb.source.kind === "take") return; // the take's footage rides in storyboard clips; there are no screens to capture
   if (sb.source.kind === "image") {
     (sb.source.files ?? []).forEach((f, i) => {
       const src = isAbsolute(f) ? f : resolve(dir, f);

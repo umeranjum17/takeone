@@ -1,5 +1,6 @@
 // `takeone motion` argument parsing and the local planner: a complete storyboard from flags alone.
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { basename, extname, join, resolve } from "node:path";
 import { redactScreenshot } from "./redact.ts";
 import { renderMotion } from "./motion.ts";
@@ -8,11 +9,11 @@ import { validateStateNames } from "./ingest.ts";
 import { motionTokens } from "./theme.ts";
 import { installHyperframes } from "./hyperframes.ts";
 import { installShell } from "./shell.ts";
-import { minSceneDuration, validateStoryboard } from "./storyboard.ts";
+import { MAX_DURATION_S, minSceneDuration, validateStoryboard } from "./storyboard.ts";
 import { planEditorial } from "./editorial.ts";
 import type { Device, MotionEngine, PatternName, Region, Scene } from "./types.ts";
 
-export const MOTION_USAGE = `takeone motion <image.png|page.html|https://url>... [--out DIR] [--pattern hero-reveal,zoom-tour,end-card,kinetic-type]
+export const MOTION_USAGE = `takeone motion <image.png|page.html|https://url|take-dir>... [--out DIR] [--pattern hero-reveal,zoom-tour,end-card,kinetic-type]
   [--theme midnight|paper|aurora|mono|sand|editorial]
   [--title TEXT] [--subtitle TEXT] [--cta TEXT] [--url TEXT] [--logo WORD] [--device browser|phone|laptop|none]
   [--region x,y,w,h[:label][@SCREEN]]... [--state NAME='click #id; type #id "text"; drag #a #b; wait 300']...
@@ -21,6 +22,9 @@ export const MOTION_USAGE = `takeone motion <image.png|page.html|https://url>...
 takeone motion <screenshot.png> --recipe editorial --pitch TEXT [--logo WORD] [--cta TEXT] [--url TEXT] [--audio FILE] [--out DIR]
 takeone motion install-shell         download the pinned chrome-headless-shell (sha256 checked)
 takeone motion install-hyperframes   install hyperframes@0.8.200 + chrome-headless-shell@156.0.8078.47
+
+  A take-dir (a directory holding take.json) plays that take's own footage, out/<id>.mp4 or else screen.webm,
+  edge to edge between a title and a closing line; edit storyboard.json (clips.footage start/d/crop) to cut it.
 
   motion writes a take-shaped directory (take.json, sources/, storyboard.json, out/<id>.mp4, render.json);
   --alpha writes out/<id>.mov instead: ProRes 4444 with a real alpha channel, the themed backdrop dropped so
@@ -135,8 +139,48 @@ function screenDims(kind: string): { width: number; height: number } | undefined
 }
 
 /** The source kind an input names; the first input decides, since only image runs can carry several. */
-export function inputKind(first: string): "url" | "html" | "image" {
-  return /^https?:\/\//.test(first) ? "url" : /\.html?$/i.test(first) ? "html" : "image";
+export function inputKind(first: string): "url" | "html" | "image" | "take" {
+  if (/^https?:\/\//.test(first)) return "url";
+  try { if (statSync(first).isDirectory()) return "take"; } catch { void 0; }
+  return /\.html?$/i.test(first) ? "html" : "image";
+}
+
+/** The footage an existing take offers a film: its rendered out/<id>.mp4, else the raw screen.webm. */
+export function takeFootage(dir: string): { file: string; d: number } {
+  const root = resolve(dir);
+  if (!existsSync(join(root, "take.json"))) throw new Error(`${dir} is not a take (take.json is missing)`);
+  const id = (JSON.parse(readFileSync(join(root, "take.json"), "utf8")) as { id?: unknown }).id;
+  const file = [join(root, "out", `${typeof id === "string" ? id : basename(root)}.mp4`), join(root, "screen.webm")].find(existsSync);
+  if (!file) throw new Error(`${dir} has no footage (out/<id>.mp4 or screen.webm); run takeone make on it first`);
+  const d = Number(execFileSync("ffprobe", ["-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", file], { encoding: "utf8", timeout: 30000 }).trim());
+  if (!(d >= 0.25)) throw new Error(`${file}: no playable video`);
+  return { file, d: Math.floor(Math.min(d, MAX_DURATION_S) * 60) / 60 };
+}
+
+/** The local plan for an existing take: a title, the take's footage edge to edge, a closing line. No planner. */
+function planTake(a: MotionArgs, id: string): unknown {
+  if (a.inputs.length > 1) throw new Error("a take-dir source takes one input");
+  const dir = resolve(a.inputs[0]!);
+  const { file, d } = takeFootage(dir);
+  const statement = (title: string, extra: Partial<Scene>): Scene => {
+    const scene: Scene = { pattern: "statement", d: 0, title, ...extra };
+    scene.d = minSceneDuration(scene);
+    return scene;
+  };
+  return {
+    version: 1, id,
+    output: { ...(a.workers !== undefined ? { workers: a.workers } : {}), ...(a.blur !== undefined ? { motion_blur: a.blur } : {}) },
+    theme: { name: a.theme ?? "midnight", overrides: {} },
+    source: { kind: "take", dir }, screens: Object.create(null), regions: [],
+    clips: { footage: { files: [file], start: 0, d } },
+    layout: { kind: "single" },
+    scenes: [
+      statement(a.title ?? "See it in motion.", a.subtitle ? { subtitle: a.subtitle } : {}),
+      { pattern: "clip", d, clip: "footage", fill: true },
+      statement(a.cta ?? "Try it today", { invert: true, ...(a.url ? { note: a.url } : {}) }),
+    ],
+    planner: { by: "local", abstained: [] },
+  };
 }
 
 /** The local planner: pattern defaults, regions in the order given, copy from flags. */
@@ -144,6 +188,7 @@ export function planStoryboard(a: MotionArgs, id: string): unknown {
   validateStateNames(a.states.map(([name]) => name));
   const first = a.inputs[0]!;
   const kind = inputKind(first);
+  if (kind === "take") return planTake(a, id);
   if (kind !== "image" && a.inputs.length > 1) throw new Error("html and url sources take one input; use --state for more screens");
   const screens = kind === "image" ? a.inputs.map((_, i) => `S${i + 1}`) : a.states.length ? a.states.map(([n]) => n) : ["S1"];
   const dsf = kind === "image" ? 1 : 2; // html/url capture at 2x so settled close-ups stay sharp
