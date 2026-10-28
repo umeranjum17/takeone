@@ -30,7 +30,7 @@ never the proof: use the realistic board scene (`scripts/headless-scene.mjs`, do
 3. Measure: `node scripts/verification/manual-zoom.ts <copy> 1080x1920` (1080x1080 for square). Expected:
    every zoom `late_s` 0 (or exactly the amount the render printed), `held_s` up to its `t1`, `box_whole`
    true, `depth` above 1, and the move's `zoom_speed` and `zoom_acceleration` within their limits. On main
-   a same-shape or phone export prints `camera motion is disabled for this export shape` and the camera never
+   a same-shape export prints `camera motion is disabled for this export shape` and the camera never
    leaves rest (depth 1).
 4. Look at single frames from the film at each zoom's `requested_s` and mid-hold (`ffmpeg -ss <t> -i out/<id>.mp4 -frames:v 1`):
    the box fills the frame, no edge runs through a word, and the frame just before `requested_s` is mid-move, not at rest.

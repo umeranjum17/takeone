@@ -536,7 +536,7 @@ test("a render split into parallel segments matches the single pass", { timeout:
   }
 });
 
-// A phone take exported at its own portrait shape, or in square, has no automatic camera motion,
+// A phone take with no taps, exported at its own portrait shape or in square, has no automatic camera motion,
 // but the user's own zoom still arrives at its requested time and holds its box whole to the end.
 // One that starts too soon after the clip start keeps its full move and reports how late it lands.
 test("a manual zoom arrives and holds on a phone take at its own shape and in square", { timeout: 120_000 }, async () => {
@@ -571,6 +571,41 @@ test("a manual zoom arrives and holds on a phone take at its own shape and in sq
     const { warned } = await render({ t0: 0.2, t1: 6.5 }, 360, 640);
     assert.ok(warned.some(w => /zoom 1 \d\.\d\d s after its requested time, because the clip starts too close to it/.test(w)),
       `a zoom whose move cannot fit after the clip start reports how late it arrives: ${warned.join("\n")}`);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+// A phone take's taps direct its camera in a portrait export as well as a wide one: the view
+// pushes in from the handset's margin, keeps the screen's whole width and follows each tapped row.
+test("a phone take's portrait and wide exports move to each tapped control", { timeout: 180_000 }, async () => {
+  if (!hasFfmpeg()) throw new Error("requires system ffmpeg and ffprobe on PATH");
+  const dir = await mkdtemp(join(tmpdir(), "takeone:phone-tap-"));
+  try {
+    await mkdir(join(dir, "analysis"));
+    execFileSync("ffmpeg", ["-v", "error", "-f", "lavfi", "-i", "testsrc2=s=540x1200:r=30:d=10",
+      "-c:v", "mpeg4", "-q:v", "2", "-f", "matroska", "-y", join(dir, "screen.webm")]);
+    await writeFile(join(dir, "take.json"), JSON.stringify({ id: "phone-tap", width: 540, height: 1200, device: "android",
+      trim_start: 0, trim_end: 10 }));
+    const taps = [{ id: "t1", t: 2.5, x: 270, y: 200 }, { id: "t2", t: 6.5, x: 270, y: 1050 }];
+    const beats = taps.map(({ id, t, x, y }): Beat => ({ id, t0: t - 0.3, t1: t + 1, anchor_t: t, kind: "click",
+      actions: [{ k: "click", t, x, y, window_cls: "x" } as Action], zones: [zone("tap", [x - 60, y - 40, 120, 80])] }));
+    await writeFile(join(dir, "analysis/beats.json"), JSON.stringify(beats));
+    await writeFile(join(dir, "analysis/decisions.jsonl"), beats.map(b => JSON.stringify({ ...decision(b, 2), A: "tap", L: 2 })).join("\n"));
+    for (const [out_w, out_h] of [[360, 640], [640, 360]] as const) {
+      await renderTake(dir, { ...FAST, preset: "ultrafast", motion_blur: 0, out_w, out_h, idle_speed: 1, max_upscale: 2 });
+      const frames = JSON.parse(await readFile(join(dir, "camera.json"), "utf8")) as CameraFrame[];
+      const at = (t: number) => frames[Math.round(t * FAST.fps)]!;
+      for (const { id, t, x, y } of taps) {
+        const view = at(t + 0.4);
+        assert.ok(view.x <= x && x <= view.x + view.w && view.y <= y && y <= view.y + view.h,
+          `${out_w}x${out_h}: the view shows the ${id} tap: ${JSON.stringify(view)}`);
+      }
+      assert.ok(at(2.9).y + at(2.9).h / 2 < at(6.9).y + at(6.9).h / 2,
+        `${out_w}x${out_h}: the view follows the taps down the screen`);
+      assert.ok(frames.some(f => f.x !== frames[0]!.x || f.y !== frames[0]!.y || f.w !== frames[0]!.w),
+        `${out_w}x${out_h}: the camera leaves the centred rest framing`);
+    }
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
