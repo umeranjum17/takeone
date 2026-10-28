@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -484,6 +485,11 @@ test("synthetic source renders silent H.264 at the configured size and 60fps", {
     ], { encoding: "utf8" })).streams[0];
     assert.deepEqual(probe, { codec_name: "h264", width: 320, height: 180, color_range: "tv",
       color_space: "bt709", color_transfer: "bt709", color_primaries: "bt709", r_frame_rate: "60/1", nb_frames: "120" });
+    // The camera solve is kept beside the take: the render that reuses it frames the film byte for byte as a fresh solve.
+    const solved = await readFile(join(dir, "camera.json"));
+    assert.ok(existsSync(join(dir, "solve-cache.json")), "a solve is kept for the next render");
+    await renderTake(dir, FAST);
+    assert.deepEqual(await readFile(join(dir, "camera.json")), solved, "a fresh solve and a reused one must write the same camera path");
     for (const quality of ["draft", "standard", "master"] as const) {
       await renderTake(dir, { ...FAST, quality });
       const first = await readFile(output);

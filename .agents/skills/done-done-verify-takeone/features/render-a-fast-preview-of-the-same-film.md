@@ -26,4 +26,4 @@ Harness: Shell (bash), with ffmpeg and ffprobe to decode frames.
 
 The drive changes no repo file: note findings in the run's report; after the drive, run done-done maintain to see what drifted, then fix the skill.
 
-Journey: `fast-preview` (`scripts/verification/preview-timing.sh`) times a cold then a warm preview of a planned 4K take (set `TAKEONE_PREVIEW_TAKE`; `TAKEONE_RENDER_WRAP` puts renders behind a shared lock) and keeps both timing lines, the probe, a still and the MP4.
+Journey: `fast-preview` (`scripts/verification/preview-timing.sh`) times a cold then a warm preview of a planned 4K take (the warm one must reuse the saved camera solve, `solve-cache.json`, and say so) (set `TAKEONE_PREVIEW_TAKE`; `TAKEONE_RENDER_WRAP` puts renders behind a shared lock) and keeps both timing lines, the probe, a still and the MP4.

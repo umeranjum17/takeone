@@ -84,10 +84,11 @@ export async function ensureProxy(dir: string, width: number, height: number, w:
 }
 
 /** Where a preview's time went, in plain words: the camera solve runs at full resolution
- * on every preview (it is what keeps the framing identical), the proxy is paid once. */
-export function previewTiming(t: { solve: number; proxy: number; proxyBuilt: boolean; render: number }): string {
+ * (it is what keeps the framing identical) and is reused while nothing it reads has changed;
+ * the proxy is paid once. */
+export function previewTiming(t: { solve: number; solveCached: boolean; proxy: number; proxyBuilt: boolean; render: number }): string {
   const s = (n: number) => `${n.toFixed(1)}s`;
-  return `preview timing: camera solve ${s(t.solve)} (full resolution, every preview), `
+  return `preview timing: camera solve ${s(t.solve)} (${t.solveCached ? "reused from the last solve" : "full resolution, reused by later previews and renders"}), `
     + `proxy ${t.proxyBuilt ? `${s(t.proxy)} (built now, reused by later previews)` : "reused (cached)"}, `
     + `render ${s(t.render)}, total ${s(t.solve + t.proxy + t.render)}`;
 }

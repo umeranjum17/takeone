@@ -1,10 +1,11 @@
 import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { existsSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { availableParallelism } from "node:os";
 import { fileURLToPath } from "node:url";
 import { resolveTheme } from "../themes.ts";
-import { basename, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import type { CameraDefaults } from "../camera/defaults.ts";
 import type { Event } from "../types.ts";
 import { actionCameraMilliseconds } from "../beats/clock.ts";
@@ -145,6 +146,36 @@ export function sourceEdgeCuts(dir: string, meta: TakeMeta, at: (t: number) => n
 /** The narrowest view a phone's text-band card pushes in to, as a share of the screen's width. */
 const PHONE_BAND_FLOOR = 0.96;
 
+/** What the camera solve produced: the final frames, the held framings (a hold path) and the late-zoom warning. */
+interface Solve { frames: CameraFrame[]; holds?: NonNullable<ReturnType<typeof holdPath>>["holds"]; lateWarning: string }
+
+/** The solve cache key: the solve's inputs, the recording it reads and the camera/render code that computes it,
+ * so a re-recorded take or a changed solver never reuses an old path. */
+function solveKey(dir: string, inputs: unknown[]): string {
+  const hash = createHash("sha256").update(JSON.stringify(inputs));
+  const screen = join(dir, "screen.webm");
+  if (existsSync(screen)) hash.update(`${statSync(screen).size}:${statSync(screen).mtimeMs}`);
+  const here = dirname(fileURLToPath(import.meta.url));
+  for (const folder of [here, join(here, "../camera")]) {
+    for (const file of readdirSync(folder).sort()) if (/\.(ts|js)$/.test(file)) hash.update(file).update(readFileSync(join(folder, file)));
+  }
+  return hash.digest("hex");
+}
+
+/** The take's last solve, when it was made for exactly this key. */
+function readSolve(dir: string, key: string): Solve | undefined {
+  try {
+    const saved = JSON.parse(readFileSync(join(dir, "solve-cache.json"), "utf8")) as Solve & { key: string };
+    return saved.key === key ? saved : undefined;
+  } catch { return undefined; } // no cache, or one cut short by a killed run: solve again
+}
+
+function writeSolve(dir: string, key: string, solve: Solve): void {
+  const file = join(dir, "solve-cache.json");
+  writeFileSync(`${file}.part`, JSON.stringify({ key, ...solve }));
+  renameSync(`${file}.part`, file);
+}
+
 /** Solve a take's camera path from its durable inputs without rendering: the frames the film would show, on the
  * output clock, and everything the render draws around them. `take` replaces take.json (a trial of unsaved edits). */
 export async function planCamera(dir: string, camera?: CameraDefaults, take?: TakeMeta) {
@@ -266,62 +297,74 @@ export async function planCamera(dir: string, camera?: CameraDefaults, take?: Ta
   };
   const project = (frame: CameraFrame) => sourceViewport(frame, meta.width, meta.height, solveLayout.stage, d);
   const changes = moving ? await takeChanges(dir, meta, trimStart, trimEnd, outTime, clock?.contains ?? (() => true)) : [];
-  const solved = solveCamera(tapShots?.beats ?? outBeats, tapShots?.decisions ?? outDecisions, { ...meta, trim_end: trimStart + duration },
-    { ...cam, min_shot: d.min_shot * d.pace, dwell: d.dwell * d.pace, dwell_k2: d.dwell_k2 * d.pace },
-    banded ? fit && (phone ? (frame) => fit(phoneReframe(frame)) : fit) : phone ? (frame) => project(phoneReframe(frame)) : project, cuts, changes);
-  const solvedFrames = phone ? solved.map(phoneReframe) : solved;
-  const held = wide && d.camera_path === "hold" && !phone ? holdPath(solvedFrames, outBeats, outDecisions,
-    { band: solveLayout.band, stage: solveLayout.stage, width: meta.width, height: meta.height, d: cam, minShot: d.min_shot * d.pace },
-    videoFrames(join(dir, "screen.webm"), meta.width, meta.height, sourceAt)) : undefined;
-  // Manual spans are source-video seconds; use the same edit clock as footage.
-  // Applying them after holdPath prevents its automatic composition from erasing
-  // the director's explicit framing. Drag visibility remains the final safety gate.
-  const requested = new Map<ManualZoom, number>();
-  const zooms = (meta.zooms ?? []).flatMap((z, index) => {
-    const spans = clock?.spans.filter(s => s.rate > 0) ?? [{ t0: trimStart, t1: trimEnd }];
-    return spans.flatMap(s => {
-      const a = Math.max(trimStart, s.t0, z.t0), b = Math.min(trimEnd, s.t1, z.t1);
-      if (b <= a) return [];
-      const span = { ...z, t0: trimStart + outTime(a), t1: trimStart + outTime(b) };
-      requested.set(span, index);
-      return [span];
+  // The solve is the slow part of a render (every preview and full render of a take runs it at full
+  // resolution), and it is a pure function of the inputs the key below names, so a repeat reuses it.
+  // A trial of unsaved edits (`take`) is never cached.
+  const key = take ? undefined : solveKey(dir, [meta, d, outBeats, outDecisions, solveLayout.band, solveLayout.stage, squeezes, typing, changes, trimStart, trimEnd]);
+  const cached = key ? readSolve(dir, key) : undefined;
+  const solve = cached ?? (() => {
+    const solved = solveCamera(tapShots?.beats ?? outBeats, tapShots?.decisions ?? outDecisions, { ...meta, trim_end: trimStart + duration },
+      { ...cam, min_shot: d.min_shot * d.pace, dwell: d.dwell * d.pace, dwell_k2: d.dwell_k2 * d.pace },
+      banded ? fit && (phone ? (frame) => fit(phoneReframe(frame)) : fit) : phone ? (frame) => project(phoneReframe(frame)) : project, cuts, changes);
+    const solvedFrames = phone ? solved.map(phoneReframe) : solved;
+    const held = wide && d.camera_path === "hold" && !phone ? holdPath(solvedFrames, outBeats, outDecisions,
+      { band: solveLayout.band, stage: solveLayout.stage, width: meta.width, height: meta.height, d: cam, minShot: d.min_shot * d.pace },
+      videoFrames(join(dir, "screen.webm"), meta.width, meta.height, sourceAt)) : undefined;
+    // Manual spans are source-video seconds; use the same edit clock as footage.
+    // Applying them after holdPath prevents its automatic composition from erasing
+    // the director's explicit framing. Drag visibility remains the final safety gate.
+    const requested = new Map<ManualZoom, number>();
+    const zooms = (meta.zooms ?? []).flatMap((z, index) => {
+      const spans = clock?.spans.filter(s => s.rate > 0) ?? [{ t0: trimStart, t1: trimEnd }];
+      return spans.flatMap(s => {
+        const a = Math.max(trimStart, s.t0, z.t0), b = Math.min(trimEnd, s.t1, z.t1);
+        if (b <= a) return [];
+        const span = { ...z, t0: trimStart + outTime(a), t1: trimStart + outTime(b) };
+        requested.set(span, index);
+        return [span];
+      });
     });
-  });
-  // Exports without qualified automatic motion rest at the centred framing; manual spans
-  // direct that rest path like any other.
-  const restW = baseWidth(meta.width, meta.height, cam), restH = restW * cam.out_h / cam.out_w;
-  const path = moving ? held?.frames ?? solvedFrames
-    : solvedFrames.map(f => ({ t: f.t, x: (meta.width - restW) / 2, y: (meta.height - restH) / 2, w: restW, h: restH }));
-  const { frames: manual, arrivals } = applyManualZooms(path, { ...meta, zooms }, cam, outBeats, changes, banded ? undefined : project);
-  const directed = fit ? manual.map(fit) : manual;
-  let frames = zooms.length ? applyDragVisibility(manual, outBeats, meta.width, meta.height, trimStart, cam) : manual;
-  if (fit) frames = frames.map(fit);
-  // Drag visibility may keep a hold wider while a drag is on screen: the hold then arrives
-  // where the final path rejoins it. Every late arrival is reported with its exact amount.
-  const rejoins = (from: number, until: number) => {
-    const k = Math.round((from - trimStart) * cam.fps);
-    let i = k;
-    while (i < frames.length && i <= (until - trimStart) * cam.fps
-      && Math.abs(frames[i]!.x - directed[i]!.x) + Math.abs(frames[i]!.y - directed[i]!.y) + Math.abs(frames[i]!.w - directed[i]!.w) > 0.5) i++;
-    return i > k ? trimStart + i / cam.fps : from;
-  };
-  const late = arrivals.flatMap(h => {
-    const at = rejoins(h.at, h.until);
-    const cause = at > h.at ? (at > h.until ? "a drag on screen keeps the view wide for its whole span" : "a drag on screen stays in view until then") : h.cause;
-    return cause ? [`zoom ${requested.get(h.zoom)! + 1} ${(Math.min(at, h.until) - h.requested).toFixed(2)} s after its requested time, because ${cause}`] : [];
-  });
-  if (late.length) console.warn(`Manual zoom arrives late: ${late.join("; ")}.`);
-  // The same guard judges the moving frames of the final path, whichever stage made them: none may
-  // crawl a crop edge through a word, so a move crosses text only at a sweep. A frame is judged on
-  // the source frames of the 0.1 s window around it (an animated page moves its art between samples,
-  // so one sample can miss a cut the frame shows), so re-checking a retimed move decodes nothing
-  // new, and each move's decodes are dropped once it is done.
-  if (wide && !phone && cuts) frames = sweepCuts(frames, () => {
-    const moveCuts = sourceEdgeCuts(dir, meta, (t) => sourceAt(t - trimStart))!;
-    return (f) => { const at = Math.round((trimStart + f.t) * 10) / 10; return moveCuts(banded ? f : project(f), at - 0.05, at + 0.05) > 0; };
-  }, cam);
+    // Exports without qualified automatic motion rest at the centred framing; manual spans
+    // direct that rest path like any other.
+    const restW = baseWidth(meta.width, meta.height, cam), restH = restW * cam.out_h / cam.out_w;
+    const path = moving ? held?.frames ?? solvedFrames
+      : solvedFrames.map(f => ({ t: f.t, x: (meta.width - restW) / 2, y: (meta.height - restH) / 2, w: restW, h: restH }));
+    const { frames: manual, arrivals } = applyManualZooms(path, { ...meta, zooms }, cam, outBeats, changes, banded ? undefined : project);
+    const directed = fit ? manual.map(fit) : manual;
+    let frames = zooms.length ? applyDragVisibility(manual, outBeats, meta.width, meta.height, trimStart, cam) : manual;
+    if (fit) frames = frames.map(fit);
+    // Drag visibility may keep a hold wider while a drag is on screen: the hold then arrives
+    // where the final path rejoins it. Every late arrival is reported with its exact amount.
+    const rejoins = (from: number, until: number) => {
+      const k = Math.round((from - trimStart) * cam.fps);
+      let i = k;
+      while (i < frames.length && i <= (until - trimStart) * cam.fps
+        && Math.abs(frames[i]!.x - directed[i]!.x) + Math.abs(frames[i]!.y - directed[i]!.y) + Math.abs(frames[i]!.w - directed[i]!.w) > 0.5) i++;
+      return i > k ? trimStart + i / cam.fps : from;
+    };
+    const late = arrivals.flatMap(h => {
+      const at = rejoins(h.at, h.until);
+      const cause = at > h.at ? (at > h.until ? "a drag on screen keeps the view wide for its whole span" : "a drag on screen stays in view until then") : h.cause;
+      return cause ? [`zoom ${requested.get(h.zoom)! + 1} ${(Math.min(at, h.until) - h.requested).toFixed(2)} s after its requested time, because ${cause}`] : [];
+    });
+    const lateWarning = late.length ? `Manual zoom arrives late: ${late.join("; ")}.` : "";
+    // The same guard judges the moving frames of the final path, whichever stage made them: none may
+    // crawl a crop edge through a word, so a move crosses text only at a sweep. A frame is judged on
+    // the source frames of the 0.1 s window around it (an animated page moves its art between samples,
+    // so one sample can miss a cut the frame shows), so re-checking a retimed move decodes nothing
+    // new, and each move's decodes are dropped once it is done.
+    if (wide && !phone && cuts) frames = sweepCuts(frames, () => {
+      const moveCuts = sourceEdgeCuts(dir, meta, (t) => sourceAt(t - trimStart))!;
+      return (f) => { const at = Math.round((trimStart + f.t) * 10) / 10; return moveCuts(banded ? f : project(f), at - 0.05, at + 0.05) > 0; };
+    }, cam);
+    return { frames, holds: held?.holds, lateWarning };
+  })();
+  if (key && !cached) writeSolve(dir, key, solve);
+  if (solve.lateWarning) console.warn(solve.lateWarning);
+  const { frames } = solve;
+  const held = solve.holds && { holds: solve.holds };
   return { meta, d, phone, trimStart, trimEnd, squeezes, clock, outTime, duration, outBeats, outDecisions, captions,
-    layout, solveLayout, sourceAt, held, frames };
+    layout, solveLayout, sourceAt, held, frames, solveCached: Boolean(cached) };
 }
 
 /** Read the take's durable inputs, write its camera path and render the silent MP4.
@@ -542,7 +585,7 @@ export async function renderTake(dir: string, camera?: CameraDefaults, preview?:
 
   const renderStart = performance.now();
   const timing = () => {
-    if (preview) console.warn(previewTiming({ solve: solveSeconds, proxy: proxySeconds, proxyBuilt, render: (performance.now() - renderStart) / 1000 }));
+    if (preview) console.warn(previewTiming({ solve: solveSeconds, solveCached: plan.solveCached, proxy: proxySeconds, proxyBuilt, render: (performance.now() - renderStart) / 1000 }));
   };
   // Keep camera.cmd on failure for straightforward diagnosis and re-rendering.
   const starts = segmentStarts(shutter.counts, renderSegments(shutter.counts.length, d.fps));
