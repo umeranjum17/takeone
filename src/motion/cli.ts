@@ -11,6 +11,7 @@ import { installHyperframes } from "./hyperframes.ts";
 import { installShell } from "./shell.ts";
 import { MAX_DURATION_S, minSceneDuration, validateStoryboard } from "./storyboard.ts";
 import { planEditorial } from "./editorial.ts";
+import { planHalo } from "./halo.ts";
 import type { Device, MotionEngine, PatternName, Region, Scene } from "./types.ts";
 
 export const MOTION_USAGE = `takeone motion <image.png|page.html|https://url|take-dir>... [--out DIR] [--pattern hero-reveal,zoom-tour,end-card,kinetic-type]
@@ -19,6 +20,7 @@ export const MOTION_USAGE = `takeone motion <image.png|page.html|https://url|tak
   [--region x,y,w,h[:label][@SCREEN]]... [--state NAME='click #id; type #id "text"; drag #a #b; wait 300']...
   [--workers N] [--blur 0|1] [--storyboard file.json] [--plan-only] [--no-ai]
   [--engine hyperframes|legacy] [--alpha] [--redaction-dry-run --out DIR] [--public-domain example.com]...
+takeone motion <screen.png>... --recipe halo --pitch "Tagline. Line one. Line two." --logo WORD --region x,y,w,h:logo@S1 --region x,y,w,h:row|stack|card|chips[:title]@S1... [--url CREDIT] [--out DIR]
 takeone motion <screenshot.png> --recipe editorial --pitch TEXT [--logo WORD] [--cta TEXT] [--url TEXT] [--audio FILE] [--out DIR]
 takeone motion install-shell         download the pinned chrome-headless-shell (sha256 checked)
 takeone motion install-hyperframes   install hyperframes@0.8.200 + chrome-headless-shell@156.0.8078.47
@@ -44,7 +46,7 @@ export interface MotionArgs {
   inputs: string[]; out?: string; patterns?: PatternName[]; theme?: string; title?: string;
   subtitle?: string; cta?: string; url?: string; logo?: string; device?: Device; regions: string[]; states: [string, string][];
   workers?: number; blur?: number; storyboard?: string; planOnly: boolean; noAi?: boolean; engine: MotionEngine;
-  recipe?: "editorial"; pitch?: string; audio?: string; alpha?: boolean;
+  recipe?: "editorial" | "halo"; pitch?: string; audio?: string; alpha?: boolean;
   redactionDryRun?: boolean; publicDomains: string[];
 }
 
@@ -85,7 +87,7 @@ export function parseMotionArgs(argv: string[]): MotionArgs {
     else if (s === "--blur") a.blur = Number(v);
     else if (s === "--storyboard") a.storyboard = v;
     else if (s === "--recipe") {
-      if (v !== "editorial") throw new Error(`--recipe expects editorial, got ${v}`);
+      if (v !== "editorial" && v !== "halo") throw new Error(`--recipe expects editorial or halo, got ${v}`);
       a.recipe = v;
     } else if (s === "--pitch") a.pitch = v;
     else if (s === "--audio") a.audio = v;
@@ -425,7 +427,8 @@ export async function runMotion(argv: string[], takesDir: string, o: PlanOptions
     if (a.recipe === "editorial") {
       if (a.noAi) throw new Error("--recipe editorial is planned by the AI engine; there is no --no-ai plan for it");
       storyboard = await planEditorial(a, id, o.warn ?? ((line: string) => console.error(line)));
-    } else storyboard = await planMotion(a, id, o);
+    } else if (a.recipe === "halo") storyboard = planHalo({ ...a }, id);
+    else storyboard = await planMotion(a, id, o);
   }
   const sb = validateStoryboard(storyboard); // refuse bad plans before touching the disk
   let dir: string;

@@ -5,7 +5,7 @@ import type { Overrides } from "../camera/defaults.ts";
 export type Rect = [number, number, number, number]; // x, y, w, h in source px of its screen
 export type Device = "browser" | "phone" | "laptop" | "none";
 export type MotionEngine = "hyperframes" | "legacy";
-export const PATTERNS = ["hero-reveal", "zoom-tour", "end-card", "fragment", "kinetic-type", "bento", "clip", "statement", "word-swap", "phone-story", "chip-stack", "canon"] as const;
+export const PATTERNS = ["hero-reveal", "zoom-tour", "end-card", "fragment", "kinetic-type", "bento", "clip", "statement", "word-swap", "phone-story", "chip-stack", "canon", "halo-open", "halo-float", "halo-lines", "halo-end"] as const;
 export type PatternName = (typeof PATTERNS)[number];
 
 /** DOM-driven ingest ops (L8-h), played in order in one capture page; each named state is captured after its ops. */
@@ -100,6 +100,14 @@ export interface Scene {
   tap?: Rect;
   /** phone-story: a crop of the tapped row, lifted out of the phone at reading size after the tap. */
   lens?: string;
+  /** halo-open, halo-end: the logo mark, a crop id. */
+  mark?: string;
+  /** halo-float: crop ids of the real UI pieces. `kind` picks the layout: row, card or chips. */
+  items?: string[];
+  /** halo-lines: one to three kinetic lines, one after another. */
+  lines?: string[];
+  /** halo-end: the small credit line under the wordmark. */
+  credit?: string;
   /** canon: the master film time each of the four tiles shows at the canon's first frame. */
   offsets?: number[];
 }
