@@ -131,7 +131,7 @@ const PHONE_BAND_FLOOR = 0.96;
 /** Solve a take's camera path from its durable inputs without rendering: the frames the film would show, on the
  * output clock, and everything the render draws around them. `take` replaces take.json (a trial of unsaved edits). */
 export async function planCamera(dir: string, camera?: CameraDefaults, take?: TakeMeta) {
-  const meta = take ?? JSON.parse(await readFile(join(dir, "take.json"), "utf8")) as TakeMeta;
+  let meta = take ?? JSON.parse(await readFile(join(dir, "take.json"), "utf8")) as TakeMeta;
   let d: CameraDefaults = camera ?? resolveTheme(meta.theme);
   const phone = meta.device !== undefined && meta.height > meta.width;
   if (phone) d = { ...d, corner_radius: 36, stage_margin: Math.max(0.16, d.stage_margin) };
