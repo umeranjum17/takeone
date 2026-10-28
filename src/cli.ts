@@ -52,7 +52,7 @@ export function parseSet(pairs: string[]): Overrides {
     if (!match) throw Error(`invalid --set ${pair}`);
     const [, k, v] = match;
     const n = Number(v);
-    overrides[k!] = ["background", "background_to", "accent", "text", "card", "caption_font", "display_font", "bg_style", "bg_stops", "background_image"].includes(k!) || !Number.isFinite(n) ? v! : n;
+    overrides[k!] = ["background", "background_to", "accent", "text", "card", "caption_font", "display_font", "bg_style", "bg_stops", "background_image", "narration", "music"].includes(k!) || !Number.isFinite(n) ? v! : n;
   }
   return overrides as Overrides;
 }
