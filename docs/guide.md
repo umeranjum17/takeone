@@ -256,6 +256,13 @@ from a 1080p proxy of the recording, made once beside the take and reused by eve
 preview, so a theme or `--set` change can be seen in a fraction of the full render's time.
 The full render is unchanged by it: `camera.json` is the same file, byte for byte.
 
+Every preview prints where its time went, for example
+`preview timing: camera solve 2.0s (full resolution, every preview), proxy reused (cached), render 14.1s, total 16.1s`.
+The camera solve runs at full resolution on every preview (that is what keeps the framing
+identical). The proxy is the one cold cost: it is built on the first preview of a take
+whose recording is taller than 1080 px (the line says `built now`), then reused. A
+recording at 1080p or below needs no proxy.
+
 ### 5. Score the film and let it improve
 
 Pass a target score to render, judge and improve in rounds:

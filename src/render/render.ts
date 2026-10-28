@@ -1,4 +1,4 @@
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { availableParallelism } from "node:os";
@@ -27,7 +27,7 @@ import { withFilmText } from "../decide/film.ts";
 import { runFfmpeg } from "./ffmpeg.ts";
 import { addSound } from "./sound.ts";
 import { encodePng } from "../motion/png.ts";
-import { ensureProxy, previewDefaults, proxySize, scaleBand, scaleBeat, scaleEvent, scaleFrames, scaleMeta, type PreviewSpec } from "./preview.ts";
+import { ensureProxy, previewDefaults, previewTiming, proxySize, scaleBand, scaleBeat, scaleEvent, scaleFrames, scaleMeta, type PreviewSpec } from "./preview.ts";
 import {
   backgroundPixels, bandCamera, bandFrames, bandLayout, bandText, beatClicks, captionAss, captionLayouts, cardFilter, clickAss, insideScreen, measureAss, sourceViewport, stageFrames, stageGeometry, stageImageFilter,
   takeCaptions, type Band, type Caption, type CaptionInk,
@@ -70,6 +70,9 @@ async function takeChanges(dir: string, meta: TakeMeta, start: number, end: numb
   });
 }
 
+/** Source seconds one guard decode keeps, and how many such decodes stay cached. */
+const DECODE_WINDOW = 0.5, DECODE_WINDOWS = 4;
+
 /** One no-cut-text edge check per target, from the frames its hold shows: the arrival, the
  * midpoint and the hold end, unioned. The solver runs its whole-element search against this, so
  * every camera path (targets, holds, reveals and the shortcut/search push-ins) rejects any crop
@@ -83,23 +86,36 @@ export function sourceEdgeCuts(dir: string, meta: TakeMeta, at: (t: number) => n
   if (!existsSync(file)) return undefined;
   const { width: W, height: H } = meta;
   const cache = new Map<string, ReturnType<typeof edgeCuts>>();
-  // Decoded source seconds, shared across every guard window of this solve.
-  // Materialize, the release search and the guard loop re-ask the same seconds
-  // under different window keys; each miss below used to re-spawn ffmpeg for them.
-  // A frame is W*H bytes against ~5x that per mask, so these stay cached for the solve.
-  const decoded = new Map<string, Uint8Array>();
+  // Decoded source frames, shared across every guard window of this solve. A guard window asks
+  // for frames a tenth of a second apart, in a few interleaved runs, and one ffmpeg spawn that
+  // seeks into the recording (back to its previous keyframe) is the cost of a 4K decode, so a miss
+  // decodes the half second that follows in the same spawn and keeps it. A frame is W*H bytes
+  // against ~5x that per mask; only the last few windows stay.
+  const windows: { from: number; pts: number[]; raw: Uint8Array }[] = [];
   let warnedDecodes = false;
   // A variable-rate recording writes no frame after its last change: sample its last frame instead.
   const lastSecond = lastFrameSecond(file);
   const frameAt = (time: number): Uint8Array | undefined => {
-    const second = Math.max(0, Math.min(at(time), lastSecond - 0.001)).toFixed(3);
-    let frame = decoded.get(second);
+    const second = Math.max(0, Math.min(at(time), lastSecond - 0.001));
+    // The frame `-ss second` decodes: the first one at or after that second.
+    const find = () => {
+      for (const w of windows) {
+        const i = second >= w.from ? w.pts.findIndex(p => p >= second - 1e-6) : -1;
+        if (i >= 0) return w.raw.subarray(i * W * H, (i + 1) * W * H);
+      }
+    };
+    let frame = find();
     if (frame) return frame;
     try {
-      const raw = execFileSync("ffmpeg", ["-nostdin", "-v", "error", "-ss", second,
-        "-i", file, "-frames:v", "1", "-vf", "format=gray", "-f", "rawvideo", "-"],
-        { maxBuffer: W * H + 4096, timeout: 60000 });
-      if (raw.length === W * H) decoded.set(second, frame = new Uint8Array(raw));
+      const run = spawnSync("ffmpeg", ["-nostdin", "-v", "info", "-ss", second.toFixed(3), "-t", String(DECODE_WINDOW),
+        "-i", file, "-copyts", "-fps_mode", "passthrough", "-vf", "format=gray,showinfo", "-f", "rawvideo", "-"],
+        { maxBuffer: W * H * 200, timeout: 60000, encoding: "buffer" });
+      const pts = [...run.stderr.toString("latin1").matchAll(/pts_time:\s*(-?[\d.]+)/g)].map(m => Number(m[1]));
+      if (run.status === 0 && pts.length && run.stdout.length === pts.length * W * H) {
+        windows.unshift({ from: second, pts, raw: new Uint8Array(run.stdout.buffer, run.stdout.byteOffset, run.stdout.length) });
+        windows.length = Math.min(windows.length, DECODE_WINDOWS);
+        frame = find();
+      }
     } catch { /* a frame that will not decode reads as clean */ }
     return frame;
   };
@@ -311,6 +327,7 @@ export async function planCamera(dir: string, camera?: CameraDefaults, take?: Ta
 /** Read the take's durable inputs, write its camera path and render the silent MP4.
  * A preview renders the same camera path from a smaller source, at a smaller export. */
 export async function renderTake(dir: string, camera?: CameraDefaults, preview?: PreviewSpec): Promise<{ out: string; seconds: number }> {
+  const started = performance.now();
   const plan = await planCamera(dir, camera);
   const { phone, trimStart, trimEnd, squeezes, clock, outTime, duration, outDecisions, captions, layout, solveLayout, sourceAt, held } = plan;
   let { meta, d, outBeats, frames } = plan;
@@ -323,9 +340,13 @@ export async function renderTake(dir: string, camera?: CameraDefaults, preview?:
   let source = join(dir, "screen.webm");
   let workDir = dir;
   let scaledEvents: Event[] | undefined;
+  const solveSeconds = (performance.now() - started) / 1000;
+  let proxyBuilt = false, proxySeconds = 0;
   if (preview) {
     const proxy = proxySize(meta.width, meta.height);
-    source = await ensureProxy(dir, meta.width, meta.height, proxy.w, proxy.h);
+    const proxyStart = performance.now();
+    ({ file: source, built: proxyBuilt } = await ensureProxy(dir, meta.width, meta.height, proxy.w, proxy.h));
+    proxySeconds = (performance.now() - proxyStart) / 1000;
     const scale = proxy.w / meta.width;
     meta = scaleMeta(meta, scale, proxy.w, proxy.h);
     d = previewDefaults(d, preview.out_w, preview.out_h, preview.fps);
@@ -519,11 +540,16 @@ export async function renderTake(dir: string, camera?: CameraDefaults, preview?:
     "-movflags", "+faststart", out,
   ], signal);
 
+  const renderStart = performance.now();
+  const timing = () => {
+    if (preview) console.warn(previewTiming({ solve: solveSeconds, proxy: proxySeconds, proxyBuilt, render: (performance.now() - renderStart) / 1000 }));
+  };
   // Keep camera.cmd on failure for straightforward diagnosis and re-rendering.
   const starts = segmentStarts(shutter.counts, renderSegments(shutter.counts.length, d.fps));
   if (starts.length === 1) {
     await writeFile(join(workDir, "render.log"), await pass(commandFile, [], output, ditherKeys(0, shutter.counts.length)));
     await addSound(dir, output, d, clicks.map(c => c.t - trimStart), duration);
+    timing();
     return { out: output, seconds: duration };
   }
   // One ffmpeg filter graph runs on one thread apart from slice work, and the
@@ -549,6 +575,7 @@ export async function renderTake(dir: string, camera?: CameraDefaults, preview?:
   await writeFile(join(workDir, "render.log"), [`render segments start at frames ${starts.join(", ")}`, ...logs].join("\n"));
   await Promise.all([list, ...parts, ...parts.map((_, k) => join(dir, `camera-part${k}.cmd`))].map(file => rm(file, { force: true })));
   await addSound(dir, output, d, clicks.map(c => c.t - trimStart), duration);
+  timing();
   return { out: output, seconds: duration };
 }
 
