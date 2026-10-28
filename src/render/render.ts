@@ -26,9 +26,10 @@ import { applyPlan, readPlan, validatePlan, withUserFilm } from "../decide/plan.
 import { withFilmText } from "../decide/film.ts";
 import { runFfmpeg } from "./ffmpeg.ts";
 import { addSound } from "./sound.ts";
+import { encodePng } from "../motion/png.ts";
 import { ensureProxy, previewDefaults, proxySize, scaleBand, scaleBeat, scaleEvent, scaleFrames, scaleMeta, type PreviewSpec } from "./preview.ts";
 import {
-  bandCamera, bandFrames, bandLayout, bandText, beatClicks, captionAss, captionLayouts, cardFilter, clickAss, insideScreen, measureAss, sourceViewport, stageFrames, stageGeometry, stageImageFilter,
+  backgroundPixels, bandCamera, bandFrames, bandLayout, bandText, beatClicks, captionAss, captionLayouts, cardFilter, clickAss, insideScreen, measureAss, sourceViewport, stageFrames, stageGeometry, stageImageFilter,
   takeCaptions, type Band, type Caption, type CaptionInk,
 } from "./stage.ts";
 
@@ -403,8 +404,13 @@ export async function renderTake(dir: string, camera?: CameraDefaults, preview?:
   // Render intermediates live next to camera.cmd so a failed render can be rerun by hand.
   const stageFile = join(workDir, "stage.png");
   const holesFile = join(workDir, "stage-holes.png");
-  await runFfmpeg(["-y", "-v", "error", ...(d.bg_style === "image" ? ["-i", resolveBackgroundImage(dir, d.background_image)] : []), "-filter_complex", stageImageFilter(band ? stage.baseW : meta.width, band ? stage.baseH : meta.height, stage, d, phone),
-    "-map", "[stage]", "-frames:v", "1", "-update", "1", stageFile,
+  const pixels = backgroundPixels(stage, d), backgroundFile = join(workDir, "background.png");
+  if (pixels) await writeFile(backgroundFile, encodePng(pixels));
+  const backgroundInput = d.bg_style === "image" ? resolveBackgroundImage(dir, d.background_image) : pixels ? backgroundFile : null;
+  await runFfmpeg(["-y", "-v", "error", ...(backgroundInput ? ["-i", backgroundInput] : []), "-filter_complex", stageImageFilter(band ? stage.baseW : meta.width, band ? stage.baseH : meta.height, stage, d, phone),
+    // zlib level 1: the grained stage is high-entropy, and a 4K source stage took 7 s to deflate at
+    // the default level (1.4 s at level 1); the PNG is lossless either way.
+    "-map", "[stage]", "-frames:v", "1", "-update", "1", "-compression_level", "1", stageFile,
     "-map", "[holes]", "-frames:v", "1", "-update", "1", holesFile]);
   const clicksFile = join(workDir, "clicks.ass");
   // The film's choice of which clicks get a ring; without one, every click does.
