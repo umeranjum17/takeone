@@ -257,9 +257,11 @@ preview, so a theme or `--set` change can be seen in a fraction of the full rend
 The full render is unchanged by it: `camera.json` is the same file, byte for byte.
 
 Every preview prints where its time went, for example
-`preview timing: camera solve 2.0s (full resolution, every preview), proxy reused (cached), render 14.1s, total 16.1s`.
-The camera solve runs at full resolution on every preview (that is what keeps the framing
-identical). The proxy is the one cold cost: it is built on the first preview of a take
+`preview timing: camera solve 0.4s (reused from the last solve), proxy reused (cached), render 14.1s, total 14.5s`.
+The camera solve runs at full resolution (that is what keeps the framing identical) and is
+the slow part of a cold preview. Its result is kept beside the take (`solve-cache.json`) and
+reused by every later preview or render until the take, the look or the camera code changes
+(the line then says `reused from the last solve`). The proxy is the other cold cost: it is built on the first preview of a take
 whose recording is taller than 1080 px (the line says `built now`), then reused. A
 recording at 1080p or below needs no proxy.
 
