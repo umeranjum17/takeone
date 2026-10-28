@@ -12,6 +12,8 @@ trap 'rm -rf -- "$work"' EXIT
 mkdir -p "$out"
 cp -r "$src" "$work/take"
 rm -f "$work"/take/proxy-*.mp4
+# A fixture planned by an older takeone carries a plan version this one refuses; the decisions beside it stay.
+rm -f "$work/take/analysis/plan.json"
 export TAKEONE_STATE_DIR="$work/state"
 run() { ${TAKEONE_RENDER_WRAP:-} "$@"; }
 for pass in cold warm; do
