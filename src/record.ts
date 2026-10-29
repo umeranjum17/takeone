@@ -12,6 +12,7 @@ import { getMonitors, hyprlandSockets } from "./hyprland.js";
 import { startCapture, DEFAULT_BITRATE_KBPS, DEFAULT_FPS, RecordError } from "./session.js";
 import { startTaps, type TapHandle } from "./taps.js";
 import { consumeToken } from "./token.js";
+import { pickWebcam, startWebcam, type WebcamCapture } from "./webcam.ts";
 import { processStartTicks } from "./takes.js";
 import type { TakeMeta } from "./types.js";
 import { packageVersion } from "./version.js";
@@ -30,6 +31,8 @@ export interface RecordOptions {
   events?: "own" | "none";
   /** Hard stop: seconds of recording before an automatic stop. */
   maxSeconds?: number;
+  /** Record a camera beside the screen; `true` takes the first /dev/video*, a string names the device. */
+  webcam?: boolean | string;
   /** Fired once capture is established and frames are flowing. */
   onRecording?: (takeDir: string) => void;
 }
@@ -112,6 +115,8 @@ export async function runRecord(options: RecordOptions = {}): Promise<RecordResu
     throw new RecordError("invalid-arguments", "--max-seconds must be a positive number of seconds", "pass e.g. --max-seconds 60");
   }
 
+  // A missing camera fails here, before the screen-share prompt.
+  const webcamDevice = options.webcam ? pickWebcam(typeof options.webcam === "string" ? options.webcam : undefined) : null;
   const engine = resolveEngine();
   if (engine === null) {
     throw new RecordError(
@@ -224,6 +229,18 @@ export async function runRecord(options: RecordOptions = {}): Promise<RecordResu
     // Hyprland must supply the track after all. The open reply decides, not the
     // pre-open guess: an X11 `embedded` request comes back cursor-free too.
     if (taps !== null) taps.setExternalPointer(capture.cursor.free);
+    let webcam: WebcamCapture | null = null;
+    const webcamWarnings: string[] = [];
+    if (webcamDevice !== null) {
+      // A busy camera costs the face, never the screen take.
+      try {
+        webcam = await startWebcam({ takeDir, device: webcamDevice, clockMs: () => Number(process.hrtime.bigint() - t0ns) / 1e6 });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        webcamWarnings.push(message);
+        console.error(`webcam: ${message}; recording the screen without it`);
+      }
+    }
     try {
       options.onRecording?.(takeDir);
     } catch {
@@ -233,13 +250,14 @@ export async function runRecord(options: RecordOptions = {}): Promise<RecordResu
     clearTimeout(maxTimer);
 
     if (taps !== null) await taps.stop();
+    const webcamClip = webcam === null ? null : await webcam.stop();
     const finalMetrics = await capture.stop();
 
     const frames = capture.frames();
     const clock = alignClock(frames.map((frame) => ({ ...frame, recvMs: frame.recvMs - Number(t0ns) / 1e6 })));
     const firstFrameMs = clock === null || frames[0] === undefined ? 0 : frames[0].rtpTs / 90 + clock.offsetMs;
     const durationMs = Math.max(0, Number(stoppedAt.monoNs - t0ns) / 1e6);
-    const warnings = [...(taps?.warnings ?? [])];
+    const warnings = [...(taps?.warnings ?? []), ...webcamWarnings];
     if (capture.cursor.fallback !== null) {
       warnings.push(capture.cursor.fallback);
       console.error(capture.cursor.fallback);
@@ -261,6 +279,7 @@ export async function runRecord(options: RecordOptions = {}): Promise<RecordResu
       pointer: taps?.pointerMode ?? "none",
       events: taps?.eventsMode ?? "none",
       cursor_free: capture.cursor.free,
+      ...(webcamClip === null ? {} : { webcam: webcamClip }),
       warnings,
       clock,
       trim: computeTrim(taps === null ? { inputMs: [] } : taps.summary, durationMs, firstFrameMs),

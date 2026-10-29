@@ -74,6 +74,9 @@ export interface TakeEdits {
   )[];
 }
 
+/** A webcam clip in the take directory; `start_ms` is its first frame on the event clock. */
+export interface WebcamClip { file: string; start_ms: number; device?: string }
+
 export interface TakeMeta extends TakeEdits {
   planner?: { mode: "ai" | "fallback" };
   /** Mobile capture renders inside a handset frame. */
@@ -94,6 +97,8 @@ export interface TakeMeta extends TakeEdits {
   duration?: number;
   pointer?: string;
   events?: string;
+  /** The face-cam clip `record --webcam` saved beside the screen video. */
+  webcam?: WebcamClip;
   /** Timed source-pixel regions; t/d are video-relative seconds. */
   spotlight?: { t: number; d: number; rect: [number, number, number, number] }[];
   blur?: { t: number; d: number; rect: [number, number, number, number] }[];

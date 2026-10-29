@@ -42,6 +42,8 @@ takeone record --android <serial>   record a phone or emulator until `takeone st
   [--root DIR] [--state-dir DIR] as above
 takeone record --ios-sim   record the booted iOS Simulator until `takeone stop` (macOS only)
   [--root DIR] [--state-dir DIR] as above
+takeone record --webcam   also record a camera beside the desktop (Linux, V4L2); see [Webcam bubble](webcam.md)
+  [--webcam-device /dev/videoN] the camera; the first /dev/video* by default
 takeone stop            stop the active recording (SIGINT to the pid file)
 takeone doctor          report recorder requirements and motion-shell identity
 ```
@@ -61,6 +63,7 @@ Recording creates a take directory with `take.json`, `screen.webm`, `frames.tsv`
   screen.webm     VP9 from desklink, not re-encoded (H.264 from scrcpy-server for --android takes; H.264 from simctl, renamed from .mov, for --ios-sim takes)
   frames.tsv      one `rtp_ts<TAB>recv_mono_ns` line per frame (marker-bit packets); a single `0<TAB>0` line for --ios-sim takes
   events.jsonl    pointer/clicks/wheel/key-classes/window events, ms since take start (may be empty; omitted for --ios-sim takes)
+  webcam.mkv      the camera, H.264, only for `record --webcam` takes
   take.json       stream geometry plus recorder-specific metadata
 ```
 

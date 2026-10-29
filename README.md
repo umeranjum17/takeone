@@ -89,6 +89,7 @@ Isolated installs (CI, throwaway test HOMEs) can set `TAKEONE_NO_KEYRING=1` so t
 ## Features
 
 - **Records your real workflow.** The Linux desktop (Wayland and Hyprland), the macOS desktop (preview), an Android phone or emulator, or the iOS Simulator on a Mac.
+- **Adds a webcam bubble.** Desktop takes can include a corner camera overlay that shrinks during a push-in ([recording and layout](docs/webcam.md)).
 - **Plans the camera after you record.** From your clicks, typing and what changed on screen.
 - **Keeps the action readable.** Click rings, a drawn vector cursor and keycaps for shortcuts like `Ctrl+S`.
 - **Looks finished out of the box.** A rounded screen card on a stage, in nine themes from dark `midnight` to cream `paper`.
@@ -104,6 +105,7 @@ Isolated installs (CI, throwaway test HOMEs) can set `TAKEONE_NO_KEYRING=1` so t
 - [Vision](VISION.md): who takeone is for, where it is going and what it is not
 - [Guide](docs/guide.md): install, the full quickstart, planning and rendering
 - [Recording](docs/recording.md): desktop, phone and Simulator capture, commands and take files
+- [Webcam bubble](docs/webcam.md): camera capture, layout and zoom behavior
 - [Look and pacing](docs/look.md): themes, stage, zoom, captions and every look setting
 - [Edit controls](docs/edit-controls.md): output size and format, hold-style camera, speed regions
 - [Overlays](docs/overlays.md): spotlight and blur regions, shortcut keycaps

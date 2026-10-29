@@ -53,7 +53,7 @@ export function parseSet(pairs: string[]): Overrides {
     if (!match) throw Error(`invalid --set ${pair}`);
     const [, k, v] = match;
     const n = Number(v);
-    overrides[k!] = ["background", "background_to", "accent", "text", "card", "caption_font", "display_font", "bg_style", "bg_stops", "background_image", "narration", "music"].includes(k!) || !Number.isFinite(n) ? v! : n;
+    overrides[k!] = ["background", "background_to", "accent", "text", "card", "caption_font", "display_font", "bg_style", "bg_stops", "background_image", "narration", "music", "webcam", "webcam_shape", "webcam_corner"].includes(k!) || !Number.isFinite(n) ? v! : n;
   }
   return overrides as Overrides;
 }
@@ -527,6 +527,8 @@ interface Flags {
   iosSim?: boolean;
   iosUdid?: string;
   touchOffsetMs?: number;
+  webcam?: boolean;
+  webcamDevice?: string;
 }
 
 function parseFlags(args: string[]): Flags {
@@ -534,7 +536,11 @@ function parseFlags(args: string[]): Flags {
   const seen = new Set<string>();
   const rest: string[] = [];
   for (const arg of args) {
-    if (arg === "--ios-sim") {
+    if (arg === "--webcam") {
+      if (seen.has(arg)) fail({ code: "invalid-arguments", message: "invalid record option: --webcam", hint: "run `takeone --help`" });
+      seen.add(arg);
+      flags.webcam = true;
+    } else if (arg === "--ios-sim") {
       if (seen.has(arg)) fail({ code: "invalid-arguments", message: "invalid record option: --ios-sim", hint: "run `takeone --help`" });
       seen.add(arg);
       flags.iosSim = true;
@@ -543,7 +549,7 @@ function parseFlags(args: string[]): Flags {
   for (let i = 0; i < rest.length; i += 2) {
     const name = rest[i]!;
     const value = rest[i + 1];
-    if (!["--fps", "--bitrate", "--root", "--state-dir", "--android", "--touch-offset-ms", "--ios-udid"].includes(name) || value === undefined || value === "" || value.startsWith("--") || seen.has(name)) {
+    if (!["--fps", "--bitrate", "--root", "--state-dir", "--android", "--touch-offset-ms", "--ios-udid", "--webcam-device"].includes(name) || value === undefined || value === "" || value.startsWith("--") || seen.has(name)) {
       fail({ code: "invalid-arguments", message: `invalid record option: ${name}`, hint: "run `takeone --help`" });
     }
     seen.add(name);
@@ -558,8 +564,15 @@ function parseFlags(args: string[]): Flags {
       if (!Number.isSafeInteger(number)) fail({ code: "invalid-arguments", message: `${name} must be an integer`, hint: "run `takeone --help`" });
       flags.touchOffsetMs = number;
     } else if (name === "--ios-udid") flags.iosUdid = value;
+    else if (name === "--webcam-device") flags.webcamDevice = value;
     else if (name === "--root") flags.root = value;
     else flags.state = value;
+  }
+  if (flags.webcamDevice !== undefined && !flags.webcam) {
+    fail({ code: "invalid-arguments", message: "--webcam-device needs --webcam", hint: "run `takeone --help`" });
+  }
+  if (flags.webcam && (flags.android !== undefined || flags.iosSim)) {
+    fail({ code: "invalid-arguments", message: "--webcam records beside a desktop take", hint: "run `takeone --help`" });
   }
   if (flags.iosUdid !== undefined && !flags.iosSim) {
     fail({ code: "invalid-arguments", message: "--ios-udid needs --ios-sim", hint: "run `takeone --help`" });
@@ -641,6 +654,7 @@ async function record(args: string[]): Promise<void> {
       ...(flags.bitrateKbps === undefined ? {} : { bitrateKbps: flags.bitrateKbps }),
       ...(flags.root === undefined ? {} : { takesRoot: flags.root }),
       ...(flags.state === undefined ? {} : { stateDirPath: flags.state }),
+      ...(flags.webcam ? { webcam: flags.webcamDevice ?? true } : {}),
       onRecording: reportRecordingReady,
     });
     const { takeJson } = result;
@@ -778,6 +792,7 @@ async function runRecorderCommand(command: string, args: string[]): Promise<numb
 USAGE:
   takeone                 list takes
   takeone record [--fps 30] [--bitrate 40000]   record the desktop (asks screen-share consent)
+  takeone record --webcam [--webcam-device /dev/videoN]   record the desktop and a camera (shown as a bubble in the film) into one take
   takeone record --android <serial> [--touch-offset-ms 0]   record a phone or emulator into a take
   takeone record --ios-sim [--ios-udid UUID]   record the booted iOS Simulator into a take (macOS only)
   takeone stop            stop the active recording
