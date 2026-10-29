@@ -406,7 +406,7 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
       throw new PreflightRefusal("--max-tokens must be a positive integer");
     }
     // Thumbnails go to a decider that reads images; a capture sends them only
-    // with screen text opted in. Without screen text every word is blacked out.
+    // with screen text opted in. Every thumbnail is blurred whole either way.
     const vision = (!opts.capture || opts.screenText === true) && await seesImages(planner);
     const frameTime = (t: number) => Math.max(videoStartMs, Math.min(endMs, t));
     const resultMs = (b: Beat) => frameTime(Math.max(b.t1, ...b.zones
@@ -498,8 +498,7 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
       const shots = chunks.flatMap((c) => c.items).flatMap((i) => keyframes(beats[i]!).map((k) => ({ ...k, i })));
       await pooled(shots, 2, async (k) => {
         try {
-          const textZones = readScreenText ? beats[k.i]!.zones.filter((z) => z.area_frac < OCR_MAX_AREA).map((z) => z.bbox) : [];
-          const bytes = await keyframeThumb(webm, k.t - videoStartMs, beats[k.i]!.zones, textZones, take.stream);
+          const bytes = await keyframeThumb(webm, k.t - videoStartMs, beats[k.i]!.zones, take.stream);
           images.set(k.id, { id: k.id, mime: "image/jpeg", bytes });
         } catch (e) {
           if (!warned) warn(`keyframe thumbnails: ${e instanceof Error ? e.message : String(e)}; those beats ask with zone notes only`);

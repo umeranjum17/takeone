@@ -153,7 +153,7 @@ function rubric(goal: string | undefined, withImages: boolean): Record<string, s
       "Hints are advice: overrule them when the beat calls for something else.",
     ...(withImages ? {
       images:
-        "Thumbnails <beat>_act (at the action) and <beat>_res (at the result) show the screen with every zone outlined and labelled by its name. Outside the zones whose text is read the screen is blurred; black boxes are redacted text.",
+        "Thumbnails <beat>_act (at the action) and <beat>_res (at the result) show the screen with every zone outlined and labelled by its name. The whole screen is blurred so no text is readable; the zone notes carry the words.",
     } : {}),
   };
 }
