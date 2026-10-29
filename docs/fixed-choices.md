@@ -68,8 +68,6 @@ rule; one design decision may correspond to multiple implementation rules here.
 | UI-box references per second | `src/perceive/boxes.ts` · `BOX_MAX_PER_FRAME` | cost | Bounds the boxes a frame yields |
 | Click and dwell detection | `src/perceive/actions.ts` · `CLICK_RELEASE_MAX_MS` | measurement | Input thresholds |
 | Synthesized click tick count | `src/render/sound.ts` · `MAX_TICKS` | cost | Bounds audio filter branches for dense click tracks |
-| Capture bit rate and frame rate | `src/session.ts` · `DEFAULT_BITRATE_KBPS` | format | Capture settings |
-| Android capture bit rate | `src/android/video.ts` · `VIDEO_BIT_RATE` | format | Device encoder setting |
 | Pinned render engines | `src/motion/hyperframes.ts` · `HYPERFRAMES_VERSION`, `HYPERFRAMES_SHELL_VERSION`, `HYPERFRAMES_SHELL_SHA256`; `src/motion/shell.ts` · `SHELL_VERSION`, `SHELL_ARCHIVE_SHA256`, `SHELL_SHA256` | measurement | Exact engine versions are checksum-verified and held to the deterministic-render gate |
 
 ## Fixed, and a taste rule: not yet the planner's
@@ -97,6 +95,7 @@ value must be classified here or in the limits table when it is introduced.
 | Cursor idle fade timing | `src/render/cursor.ts` · `IDLE_FADE` | taste | The duration of the pointer's fade after stillness is a visual treatment choice | Let the planner choose whether and how quickly the pointer fades |
 | Frozen-frame tolerance | `src/motion/gates.ts` · `FROZEN_LONGEST_S`, `FROZEN_PER_30S`, `FROZEN_TOTAL_MIN_FILM_S` | taste | The tolerated amount of stillness is a motion-style quality bar rather than a format or perception limit | Let the planner vary stillness tolerance by film style |
 | Encoder quality settings | `src/render/render.ts` · `encodingOptions`; `src/motion/render.ts` · `MOTION_CRF`; `src/motion/hyperframes.ts` · `-crf 10` | taste | CRF controls the quality/file-size tradeoff; no fixed output-size or render-time budget requires these values | Let the user or planner choose quality, or set a concrete size/time budget |
+| Capture frame rate and bitrate defaults | `src/session.ts` · `DEFAULT_FPS`, `DEFAULT_BITRATE_KBPS`; `src/android/video.ts` · `MAX_FPS`, `VIDEO_BIT_RATE` | taste | Capture rates set smoothness and the quality/data-size tradeoff; no fixed capture-size budget requires these values | Let the user or planner choose capture quality and rate, or set a concrete size budget |
 | Synthesized click tick tone | `src/render/sound.ts` · `addSound` | taste | The click uses a fixed 1800 Hz, 40 ms tone and fixed level | Let the planner choose the click sound |
 | Theme tokens and motion-only fonts | `src/themes.ts` · `midnight`; `src/motion/theme.ts` · `SYMBOL_FONT`, `RULE_FONT` | taste | The planner chooses only a theme name; colors and motion typography remain fixed | Let the planner choose theme tokens and fonts |
 | Phone frame look | `src/render/render.ts` · `corner_radius: 36`, `PHONE_BAND_FLOOR` | taste | The frame's corner radius and minimum source-width fit are fixed presentation choices | Let the planner choose the phone frame treatment |
