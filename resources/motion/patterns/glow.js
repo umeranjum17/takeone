@@ -160,7 +160,8 @@ PATTERNS["glow-deck"] = (layer, s, ctx) => {
       h(`<div style="height:${foot}px;display:flex;align-items:center;justify-content:space-between;padding:0 ${cw * 0.06}px;color:#fff;font:600 ${cap}px/1 var(--body);white-space:nowrap"><span>${esc(c.caption)}</span><span style="font:500 ${cw * 0.04}px/1 var(--mono);color:#7f93c8">${String(i + 1).padStart(2, "0")}</span></div>`));
     deck.append(card);
     // Opens settling up into place, then moves one place left before each step changes; stacking and caption switch together.
-    K(card, [[0, pose(i, u * 0.03), EXPO], [Math.min(400, step * 0.7), pose(i)], ...cards.slice(1).flatMap((_, j) => [[(j + 1) * step - move, pose(i - j), EXPO], [(j + 1) * step, pose(i - j - 1)]])]);
+    const settle = Math.min(400, step * 0.7);
+    K(card, [[0, pose(i, u * 0.03), EXPO], [settle, pose(i)], ...cards.slice(1).flatMap((_, j) => [[Math.max(settle, (j + 1) * step - move), pose(i - j), EXPO], [(j + 1) * step, pose(i - j - 1)]])]);
     K(card, [[0, { zIndex: n - i }], ...cards.slice(1).flatMap((_, j) => SW((j + 1) * step, { zIndex: n - Math.abs(i - j) }, { zIndex: n - Math.abs(i - j - 1) }))]);
   });
 };
