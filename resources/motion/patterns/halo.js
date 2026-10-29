@@ -60,7 +60,9 @@ const markEl = (src, size) => h(`<div style="position:absolute;width:${size}px;h
 const fitText = (el, maxWidth, size) => {
   el.style.fontSize = `${size}px`;
   const width = el.getBoundingClientRect().width;
-  if (width > maxWidth) el.style.fontSize = `${size * maxWidth / width}px`;
+  const fitted = width > maxWidth ? size * maxWidth / width : size;
+  el.style.fontSize = `${fitted}px`;
+  return fitted;
 };
 
 PATTERNS["halo-open"] = (layer0, s, ctx) => {
@@ -71,7 +73,8 @@ PATTERNS["halo-open"] = (layer0, s, ctx) => {
   const big = u * 0.2, ph = u * 0.14, gap = ph * 0.3, fs = ph * 0.4;
   const ghost = h(`<span style="position:absolute;visibility:hidden;white-space:nowrap;font:${fs}px/1 var(--display)">${esc(s.title)}</span>`);
   layer.append(ghost);
-  const tw = ghost.getBoundingClientRect().width; ghost.remove();
+  const rawTw = ghost.getBoundingClientRect().width, textMax = W * 0.86 - ph - gap * 0.6 - ph * 0.45;
+  const textScale = Math.min(1, textMax / rawTw), tw = rawTw * textScale, titleSize = fs * textScale; ghost.remove();
   const pw = ph + gap * 0.6 + tw + ph * 0.45, inner = ph * 0.74;
   const hal = halo(layer, W, H, cx, cy, big * 3);
   K(hal, [[0, { opacity: 0, transform: "scale(.5)" }], [600, { opacity: 1, transform: "scale(1)" }, INOUT], [1500, { opacity: 0.55, transform: "scale(.8)" }], [s.d * 1000, { opacity: 0.8, transform: "scale(1.05)" }]]);
@@ -86,7 +89,7 @@ PATTERNS["halo-open"] = (layer0, s, ctx) => {
   logo.style.left = `${cx - big / 2}px`; logo.style.top = `${cy - big / 2}px`;
   K(logo, [[0, { opacity: 0, transform: "scale(.7)" }], [500, { opacity: 1, transform: "none" }, EXPO], [650, { opacity: 1, transform: "scale(1)" }, EXPO],
     [1100, { opacity: 1, transform: `translate(${lx + inner / 2 - cx}px,0) scale(${inner / big})` }]]);
-  const text = h(`<div data-safe style="position:absolute;left:${cx - pw / 2 + ph + gap * 0.6}px;top:${cy}px;transform:translateY(-50%);white-space:nowrap;font:${fs}px/1 var(--display);color:var(--text)">${esc(s.title)}</div>`);
+  const text = h(`<div data-safe style="position:absolute;left:${cx - pw / 2 + ph + gap * 0.6}px;top:${cy}px;transform:translateY(-50%);white-space:nowrap;font:${titleSize}px/1 var(--display);color:var(--text)">${esc(s.title)}</div>`);
   layer.append(text);
   K(text, [[0, { opacity: 0, transform: "translateY(-30%)" }], [800, { opacity: 0, transform: "translateY(-30%)" }, EXPO], [1200, { opacity: 1, transform: "translateY(-50%)" }]]);
 };
@@ -201,17 +204,18 @@ PATTERNS["halo-end"] = (layer, s, ctx) => {
   const word = kernedLetters(s.logo);
   word.style.font = `${size}px/1.1 var(--display)`; word.style.color = "var(--text)";
   group.append(logo, word); layer.append(group);
+  const wordSize = fitText(word, W * 0.82 - d - size * 0.28, size);
   K(logo, [[0, { opacity: 0, transform: "scale(.8)" }], [450, { opacity: 1, transform: "none" }]]);
   const base = BASE;
   AFTER_MOUNT.push(() => {
     BASE = base + 400;
     // Type-on: each glyph steps in, one every 70 ms, with a short rise.
-    word.layoutGlyphs().forEach((g, i) => K(g.span, [[0, { opacity: 0, transform: `translate(${g.x}px,${size * 0.12}px)` }], [i * 70, { opacity: 0, transform: `translate(${g.x}px,${size * 0.12}px)` }, EXPO], [i * 70 + 300, { opacity: 1, transform: `translate(${g.x}px,0px)` }]]));
+    word.layoutGlyphs().forEach((g, i) => K(g.span, [[0, { opacity: 0, transform: `translate(${g.x}px,${wordSize * 0.12}px)` }], [i * 70, { opacity: 0, transform: `translate(${g.x}px,${wordSize * 0.12}px)` }, EXPO], [i * 70 + 300, { opacity: 1, transform: `translate(${g.x}px,0px)` }]]));
     BASE = 0;
   });
   if (s.credit) {
     const c = h(`<div data-safe style="position:absolute;left:50%;transform:translateX(-50%);white-space:nowrap;bottom:${H * 0.1}px;text-align:center;font:${u * 0.024}px/1.4 var(--body);color:var(--muted)">${esc(s.credit)}</div>`);
-    layer.append(c);
+    layer.append(c); fitText(c, W * 0.84, u * 0.024);
     K(c, [[0, { opacity: 0 }], [900, { opacity: 0 }, SMOOTH], [1500, { opacity: 1 }]]);
   }
   K(group, [[0, { scale: "1" }], [s.d * 1000, { scale: "1.03" }]]);
