@@ -93,6 +93,7 @@ value must be classified here or in the limits table when it is introduced.
 | Missing caption duration defaults to 3 s | `src/render/stage.ts` · `takeCaptions` | taste | A caption with no positive finite duration gets a fixed hold | Require the film call to provide duration or derive it from reading time |
 | A keycap stays 2.2 s | `src/render/overlays.ts` · `t0 + 2.2` | taste | A fixed hold; the planner chooses which shortcuts show, not for how long | Hold = reading time of the keys, floored, as captions already are |
 | Overlay emphasis when the planner abstains | `src/render/overlays.ts` · `shortcutKeys` | taste | Every detected shortcut and click gets the same emphasis, a fixed presentation choice | Let the planner choose overlay emphasis for fallback beats |
+| Click ring duration and radius | `src/camera/defaults.ts` · `ripple_ms`, `ripple_r` | taste | The defaults set the ring's duration and maximum radius; clipping prevents overflow but does not require these values | Let the planner choose timing and radius within frame bounds |
 | Caption, overlay and clip-label visual treatment | `src/render/stage.ts` · `captionAss`; `src/render/overlays.ts` · `keycapAss`, `keycapMotion`; `src/render/cursor.ts` · `ART`, `REST_H`, `PIN_S`, `LOOP_S`; `src/motion/hyperframes.ts` · `videoLayers`, `SPOTS` | taste | Caption fades, keycap colors, shape and spring, pointer artwork and transitions, and clip-label styling and placement order are fixed presentation choices | Let the planner choose caption, overlay and clip-label styling and timing |
 | Cursor idle fade timing | `src/render/cursor.ts` · `IDLE_FADE` | taste | The duration of the pointer's fade after stillness is a visual treatment choice | Let the planner choose whether and how quickly the pointer fades |
 | Default keycap style | `src/camera/defaults.ts` · `keycap_style` | taste | The fixed default is `linux`; users can override it with `--set`, but the default glyph treatment remains an editorial choice | Let the planner select the default style while honoring explicit user overrides |
@@ -103,9 +104,6 @@ value must be classified here or in the limits table when it is introduced.
 | Theme tokens and motion-only fonts | `src/themes.ts` · `midnight`; `src/motion/theme.ts` · `SYMBOL_FONT`, `RULE_FONT` | taste | The planner chooses only a theme name; colors and motion typography remain fixed | Let the planner choose theme tokens and fonts |
 | Phone frame look | `src/render/render.ts` · `corner_radius: 36`, `PHONE_BAND_FLOOR` | taste | The frame's corner radius and minimum source-width fit are fixed presentation choices | Let the planner choose the phone frame treatment |
 | Fade in and out at the film boundaries | `src/render/render.ts` · `fade`; `src/camera/defaults.ts` · `fade_s` | taste | The export applies a fixed default fade duration | Let the planner choose boundary fade timing |
-
-A click ring's size (`ripple_ms`, `ripple_r` in `src/camera/defaults.ts`) is presentation
-physics: which clicks ring is the planner's (`clicks`), the ring's size is not a choice.
 
 Already planner-owned: caption wording and valid supplied seconds (bounded by reading
 time, `src/decide/film.ts`), spotlights, which keycaps and click rings show, theme name,
