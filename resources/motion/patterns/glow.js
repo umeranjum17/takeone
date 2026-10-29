@@ -166,9 +166,9 @@ PATTERNS["glow-deck"] = (layer, s, ctx) => {
     const footerStyle = getComputedStyle(footer), footerRoom = footer.clientWidth - parseFloat(footerStyle.paddingLeft) - parseFloat(footerStyle.paddingRight) - index.getBoundingClientRect().width;
     const captionWidth = caption.getBoundingClientRect().width;
     if (captionWidth > footerRoom) caption.style.fontSize = `${cap * footerRoom / captionWidth}px`;
-    // Opens settling up into place, then moves one place left before each step changes; stacking and caption switch together.
-    const settle = Math.min(400, step * 0.7);
-    K(card, [[0, pose(i, u * 0.03), EXPO], [settle, pose(i)], ...cards.slice(1).flatMap((_, j) => [[Math.max(settle, (j + 1) * step - move), pose(i - j), EXPO], [(j + 1) * step, pose(i - j - 1)]])]);
+    // Opens settling up into place, then moves one place left on each step; stacking switches as the step starts. The caption
+    // leads and its card arrives: moving before the step would slide the next card over the named one for most of its step.
+    K(card, [[0, pose(i, u * 0.03), EXPO], [Math.min(400, step * 0.7), pose(i)], ...cards.slice(1).flatMap((_, j) => [[(j + 1) * step, pose(i - j), EXPO], [(j + 1) * step + move, pose(i - j - 1)]])]);
     K(card, [[0, { zIndex: n - i }], ...cards.slice(1).flatMap((_, j) => SW((j + 1) * step, { zIndex: n - Math.abs(i - j) }, { zIndex: n - Math.abs(i - j - 1) }))]);
   });
 };
