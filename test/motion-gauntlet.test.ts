@@ -49,6 +49,18 @@ test("gauntlet repairs are bounded: growth stops at two beats over the first pla
   assert.ok(validateStoryboard(now));
 });
 
+test("gauntlet keeps a valid repair when another growth would exceed the film limit", async () => {
+  const first = await editorialFilm();
+  const nearLimit = structuredClone(first);
+  const last = nearLimit.scenes.at(-1)!;
+  last.at = 119.5 - last.d;
+  const sb = validateStoryboard(nearLimit);
+  const { storyboard, repairs } = repairStoryboard(sb, first, [finding(1, "read", 2), finding(2, "read", 2)]);
+  assert.deepEqual(repairs.map(r => r.scene), [1]);
+  assert.equal(Math.max(...storyboard.scenes.map(s => s.at! + s.d)), 120);
+  assert.ok(validateStoryboard(storyboard));
+});
+
 test("takeone gauntlet with no signed-in judge stops with the sign-in line before rendering or writing a ledger", async () => {
   const home = mkdtempSync(join(tmpdir(), "takeone-gauntlet-nojudge-"));
   try {

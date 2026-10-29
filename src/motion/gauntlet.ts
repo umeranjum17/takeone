@@ -83,26 +83,23 @@ export function repairStoryboard(sb: Storyboard, first: Storyboard, findings: Fi
   const repairs: Repair[] = [];
   if (sb.layout.kind !== "single") return { storyboard: sb, repairs };
   const low = (n: number) => findings.some((f) => f.scene === n && f.criterion === "read" && f.score < DEFAULT_BAR);
-  const scenes = sb.scenes.map((s) => ({ ...s }));
   const grid = step(sb);
-  const delta = scenes.map(() => 0);
-  scenes.forEach((s, i) => {
+  let storyboard = sb;
+  storyboard.scenes.forEach((s, i) => {
     const n = i + 1, firstD = first.scenes[i]?.d ?? s.d;
-    if (low(n)) {
-      if (s.d + grid <= firstD + MAX_GROWTH_STEPS * grid + 1e-9) { delta[i] = grid; repairs.push({ scene: n, change: `held ${grid} s longer to read (${s.d.toFixed(2)} to ${(s.d + grid).toFixed(2)} s)` }); }
-    }
+    if (!low(n) || s.d + grid > firstD + MAX_GROWTH_STEPS * grid + 1e-9) return;
+    const shifts = storyboard.scenes.map((_, j) => j > i ? grid : 0);
+    const scenes = storyboard.scenes.map((scene, j) => {
+      const moved: Scene = { ...scene, ...(j === i ? { d: scene.d + grid } : {}), ...(scene.at === undefined ? {} : { at: scene.at + shifts[j]! }) };
+      if (scene.offsets) moved.offsets = scene.offsets.map((t) => remap(t, storyboard.scenes, shifts));
+      return moved;
+    });
+    try {
+      storyboard = validateStoryboard({ ...storyboard, scenes });
+    } catch { return; }
+    repairs.push({ scene: n, change: `held ${grid} s longer to read (${s.d.toFixed(2)} to ${(s.d + grid).toFixed(2)} s)` });
   });
-  const shifts = delta.map((_, i) => delta.slice(0, i).reduce((a, b) => a + b, 0)); // growth before scene i
-  const out = scenes.map((s, i) => {
-    const moved: Scene = { ...s, d: s.d + delta[i]!, ...(s.at === undefined ? {} : { at: s.at + shifts[i]! }) };
-    if (s.offsets) moved.offsets = s.offsets.map((t) => remap(t, sb.scenes, shifts));
-    return moved;
-  });
-  try {
-    return { storyboard: validateStoryboard({ ...sb, scenes: out }), repairs };
-  } catch {
-    return { storyboard: sb, repairs: [] };
-  }
+  return { storyboard, repairs };
 }
 
 export interface GauntletOptions {
