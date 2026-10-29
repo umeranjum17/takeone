@@ -5,7 +5,7 @@
 import { createHash } from "node:crypto";
 import { appendFileSync, copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { MemoryCache, type ImageInput, type Question } from "@byokit/decide";
+import { MemoryCache, type Question } from "@byokit/decide";
 import { askChunk, type ResolvedPlanner } from "../decide/planner.ts";
 import { runFfmpeg } from "../render/ffmpeg.ts";
 import { JudgeUnavailable, LEVELS, answerScore } from "../score/judge.ts";
@@ -23,9 +23,7 @@ const CRITIC_TIMEOUT_MS = 180000;
 
 /** The written reference: what a finished editorial launch film scene is held to. */
 export const REFERENCE = {
-  read: "Every word the scene sets stays on screen long enough to read comfortably, about three words a second after it appears, and no word is cut, clipped or crowded against the frame edge.",
-  drag: "The scene earns its length: nothing sits idle once its words have landed, and it cuts on the beat as soon as its point is made.",
-  size: "The product screen is shown large enough that its labels read at 1080p, not as a small window inside a frame.",
+  read: "Every word the scene sets stays on screen long enough to read comfortably, about three words a second after it appears.",
 } as const;
 type Criterion = keyof typeof REFERENCE;
 
@@ -34,7 +32,6 @@ export interface Repair { scene: number; change: string }
 
 /** The beat-grid step a scene's length moves by: one beat of the film's tempo, else half a second. */
 const step = (sb: Storyboard): number => (sb.tempo ? 60 / sb.tempo.bpm / (sb.tempo.snap === "half" ? 2 : 1) : 0.5);
-const shownDevice = (s: Scene): boolean => (s.pattern === "hero-reveal" || s.pattern === "zoom-tour") && (s.device ?? "browser") !== "none";
 const settledAt = (s: Scene): number => s.at! + s.d * 0.7;
 
 function questionsFor(sb: Storyboard): Record<string, Question> {
@@ -42,23 +39,17 @@ function questionsFor(sb: Storyboard): Record<string, Question> {
   sb.scenes.forEach((s, i) => {
     const text = sceneTexts(s).join(" / ") || "(no words)";
     const facts = `Scene ${i + 1} of ${sb.scenes.length}, ${s.pattern}, ${s.d.toFixed(2)} s long (its words need at least ${minSceneDuration(s).toFixed(2)} s). Words: ${text}.`;
-    const criteria: Criterion[] = shownDevice(s) ? ["read", "drag", "size"] : ["read", "drag"];
-    for (const c of criteria) {
-      out[`s${i + 1}-${c}`] = { kind: "score", levels: LEVELS, floor: 0, instructions: `${REFERENCE[c]}\n${facts}` };
-    }
+    out[`s${i + 1}-read`] = { kind: "score", levels: LEVELS, floor: 0, instructions: `${REFERENCE.read}\n${facts}` };
   });
   return out;
 }
 
-async function stills(film: string, sb: Storyboard, dir: string, round: number): Promise<ImageInput[]> {
+async function stills(film: string, sb: Storyboard, dir: string, round: number): Promise<void> {
   mkdirSync(dir, { recursive: true });
-  const out: ImageInput[] = [];
   for (const [i, s] of sb.scenes.entries()) {
     const png = join(dir, `round-${round}-scene-${i + 1}.png`);
     await runFfmpeg(["-v", "error", "-y", "-threads", "2", "-ss", settledAt(s).toFixed(3), "-i", film, "-frames:v", "1", "-vf", "scale=1280:-2", "-filter_threads", "2", png]);
-    out.push({ id: `scene-${i + 1}`, mime: "image/png", bytes: new Uint8Array(readFileSync(png)) });
   }
-  return out;
 }
 
 /** Settled stills are kept for the person reading the ledger; the critic receives scene facts only. */
@@ -87,24 +78,20 @@ function remap(t: number, before: Scene[], shifts: number[]): number {
   return i < 0 ? t : t + (shifts[i] ?? 0);
 }
 
-/** Bounded repairs for the findings under the bar, each one beat-grid step on one scene (and the device frame
- *  dropped from a screen shown too small). `first` is the film's first plan: no scene grows past it by more than
+/** Bounded reading-time repairs: each one beat-grid step on one scene. `first` is the film's first plan: no scene grows past it by more than
  *  MAX_GROWTH_STEPS. A repair the validator refuses is skipped. Only a single-timeline film is repaired. */
 export function repairStoryboard(sb: Storyboard, first: Storyboard, findings: Finding[]): { storyboard: Storyboard; repairs: Repair[] } {
   const repairs: Repair[] = [];
   if (sb.layout.kind !== "single") return { storyboard: sb, repairs };
-  const low = (n: number, c: Criterion) => findings.some((f) => f.scene === n && f.criterion === c && f.score < DEFAULT_BAR);
+  const low = (n: number) => findings.some((f) => f.scene === n && f.criterion === "read" && f.score < DEFAULT_BAR);
   const scenes = sb.scenes.map((s) => ({ ...s }));
   const grid = step(sb);
   const delta = scenes.map(() => 0);
   scenes.forEach((s, i) => {
     const n = i + 1, firstD = first.scenes[i]?.d ?? s.d;
-    if (low(n, "read") && !low(n, "drag")) {
+    if (low(n)) {
       if (s.d + grid <= firstD + MAX_GROWTH_STEPS * grid + 1e-9) { delta[i] = grid; repairs.push({ scene: n, change: `held ${grid} s longer to read (${s.d.toFixed(2)} to ${(s.d + grid).toFixed(2)} s)` }); }
-    } else if (low(n, "drag") && !low(n, "read")) {
-      if (s.d - grid >= minSceneDuration(s) - 1e-9 && s.d - grid >= 1) { delta[i] = -grid; repairs.push({ scene: n, change: `cut ${grid} s shorter (${s.d.toFixed(2)} to ${(s.d - grid).toFixed(2)} s)` }); }
     }
-    if (low(n, "size") && shownDevice(s)) { s.device = "none"; repairs.push({ scene: n, change: "dropped the device frame so the screen fills more of the frame" }); }
   });
   const shifts = delta.map((_, i) => delta.slice(0, i).reduce((a, b) => a + b, 0)); // growth before scene i
   const out = scenes.map((s, i) => {

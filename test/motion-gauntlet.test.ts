@@ -26,29 +26,27 @@ async function editorialFilm() {
 
 const finding = (scene: number, criterion: Finding["criterion"], score: number): Finding => ({ id: `s${scene}-${criterion}`, scene, pattern: "x", criterion, score, note: "" });
 
-test("gauntlet repairs move one beat on the scene that fell short and keep every later cut on the grid", async () => {
+test("gauntlet extends only under-read scenes and keeps later cuts on the grid", async () => {
   const sb = await editorialFilm();
   const [swap, , , canon, statement] = sb.scenes;
   assert.equal(canon!.pattern, "canon");
-  const { storyboard, repairs } = repairStoryboard(sb, sb, [finding(1, "read", 5), finding(4, "drag", 4), finding(5, "read", 9)]);
-  assert.deepEqual(repairs.map(r => r.scene), [1, 4]);
+  const { storyboard, repairs } = repairStoryboard(sb, sb, [finding(1, "read", 5), finding(4, "read", 9), finding(5, "read", 9)]);
+  assert.deepEqual(repairs.map(r => r.scene), [1]);
   assert.equal(storyboard.scenes[0]!.d, swap!.d + 0.5);
-  assert.equal(storyboard.scenes[3]!.d, canon!.d - 0.5);
+  assert.equal(storyboard.scenes[3]!.d, canon!.d);
   assert.equal(storyboard.scenes[4]!.d, statement!.d, "a scene that met the bar is untouched");
-  assert.equal(storyboard.scenes[4]!.at, statement!.at, "the growth before it and the cut cancel");
+  assert.equal(storyboard.scenes[4]!.at, statement!.at! + 0.5, "later scenes move with the added hold");
   for (const s of storyboard.scenes) assert.equal((s.at! * 2) % 1, 0, `${s.pattern} still cuts on the 120 BPM beat`);
   // The canon replays the same earlier moments after scene 1 grew: each tile offset follows the footage it reads.
   assert.deepEqual(storyboard.scenes[3]!.offsets, canon!.offsets!.map(o => (o < sb.scenes[1]!.at! ? o : o + 0.5)));
 });
 
-test("gauntlet repairs are bounded: growth stops at two beats over the first plan and a short scene is never cut under its reading floor", async () => {
+test("gauntlet repairs are bounded: growth stops at two beats over the first plan", async () => {
   const sb = await editorialFilm();
   let now = sb;
   for (let round = 0; round < 6; round++) now = repairStoryboard(now, sb, [finding(1, "read", 2)]).storyboard;
   assert.equal(now.scenes[0]!.d, sb.scenes[0]!.d + MAX_GROWTH_STEPS * 0.5);
-  const floor = repairStoryboard(sb, sb, sb.scenes.map((_, i) => finding(i + 1, "drag", 1)));
-  floor.storyboard.scenes.forEach(s => assert.ok(s.d >= 1));
-  assert.ok(validateStoryboard(floor.storyboard));
+  assert.ok(validateStoryboard(now));
 });
 
 test("takeone gauntlet with no signed-in judge stops with the sign-in line before rendering or writing a ledger", async () => {
