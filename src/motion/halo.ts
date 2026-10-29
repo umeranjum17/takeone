@@ -52,7 +52,10 @@ export function planHalo(a: GlowArgs, id: string): unknown {
     scenes.push({ pattern: "halo-float", d: 0, kind: p.kind, items, ...(p.title ? { title: p.title } : {}) });
   }
   for (const s of scenes) if (s.pattern === "halo-float") Object.assign(s, fit(s, 1 + 0.12 * s.items!.length));
-  if (lines.length) scenes.push(fit({ pattern: "halo-lines", d: 0, lines }, 1));
+  // The kinetic lines keep the product in view: up to four pieces from the beats before, one per beat first.
+  const floats = scenes.filter(s => s.pattern === "halo-float"), seen = new Set<string>(), backdrop: string[] = [];
+  for (const pass of [0, 1]) for (const f of floats) for (const id of pass ? f.items!.slice(1) : f.items!.slice(0, 1)) if (backdrop.length < 4 && !seen.has(id)) { seen.add(id); backdrop.push(id); }
+  if (lines.length) scenes.push(fit({ pattern: "halo-lines", d: 0, lines, ...(backdrop.length ? { items: backdrop } : {}) }, 1));
   scenes.push(fit({ pattern: "halo-end", d: 0, mark, logo: a.logo ?? "TakeOne", ...(a.url ? { credit: a.url } : {}) }, 2));
   return {
     version: 1, id,

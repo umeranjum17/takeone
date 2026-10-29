@@ -126,7 +126,7 @@ export interface Scene {
   mark?: string;
   /** halo-float: crop ids of the real UI pieces. `kind` picks the layout: row, card, stack or chips. */
   items?: string[];
-  /** halo-lines: one to three kinetic lines, one after another. */
+  /** halo-lines: one to three kinetic lines, one after another; `items` keeps up to four earlier pieces in view behind them. */
   lines?: string[];
   /** halo-end: the small credit line under the wordmark. */
   credit?: string;

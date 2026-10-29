@@ -246,6 +246,11 @@ function scene(raw: unknown, path: string): Scene {
     const lines = raw["lines"];
     if (!Array.isArray(lines) || lines.length < 1 || lines.length > 3) throw new StoryboardError(`${path}.lines`, "halo-lines needs 1 to 3 lines");
     s.lines = lines.map((l, j) => str(l, `${path}.lines[${j}]`, 60));
+    const items = raw["items"];
+    if (items !== undefined) {
+      if (!Array.isArray(items) || items.length > 4 || items.some(c => !ID.test(String(c)))) throw new StoryboardError(`${path}.items`, "halo-lines keeps up to 4 crop ids in view");
+      s.items = items.map(String);
+    }
   }
   if (s.pattern === "canon") {
     const o = raw["offsets"];

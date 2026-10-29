@@ -15,6 +15,8 @@ test("halo recipe lays real screen pieces and a pitch into a valid local film, n
   assert.equal(sb.planner.by, "user");
   assert.equal(sb.scenes[1]!.items!.length, 2, "consecutive pieces of one kind are one beat");
   assert.equal(sb.scenes[2]!.items!.length, 3, "chips straight after a card ride on its corners");
+  assert.equal(sb.scenes[3]!.items!.length, 4, "the kinetic lines keep four earlier pieces in view, one per beat first");
+  assert.deepEqual(sb.scenes[3]!.items!.slice(0, 2), [sb.scenes[1]!.items![0], sb.scenes[2]!.items![0]]);
   for (const [i, s] of sb.scenes.entries()) if (i) assert.ok(s.at! >= sb.scenes[i - 1]!.at! + sb.scenes[i - 1]!.d - 1e-9, "beats do not overlap");
 });
 

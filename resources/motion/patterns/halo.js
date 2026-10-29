@@ -49,9 +49,13 @@ const halo = (layer, W, H, cx, cy, size) => {
   return c;
 };
 // A real UI piece as a designed object, not a raw crop: its own rounded plate (a circle for a square avatar), a
-// hairline rim with a lit top edge, and a layered shadow (a tight contact shadow, a long ambient one and, for the
-// near ones, a faint accent underglow) that deepens with `z` (0 far, 1 near) so overlaps read as depth.
-const piece = (src, w, hh, radius, z, u) => h(`<div style="position:absolute;width:${w}px;height:${hh}px;border-radius:${radius}px;background:#10141b;box-shadow:0 ${u * 0.002}px ${u * 0.006}px #000000c0,0 ${u * (0.01 + 0.05 * z)}px ${u * (0.025 + 0.1 * z)}px #000000d8,0 0 ${u * 0.1 * z}px rgb(${accentRgb().join(",")} / .16)"><img src="${src}" style="width:100%;height:100%;display:block;border-radius:inherit"><div style="position:absolute;inset:0;border-radius:inherit;box-shadow:inset 0 0 0 1px #ffffff1f,inset 0 1px 0 #ffffff38"></div></div>`);
+// hairline rim with a lit top edge, and shadows that deepen with `z` (0 far, 1 near): a tight contact shadow, a long
+// ambient one, and a separate blurred cast shadow thrown below and behind it so it floats off whatever lies under it.
+// The far ones are softly out of focus (a few pixels at most), never a blurred copy behind a sharp one.
+const piece = (src, w, hh, radius, z, u) => {
+  const lift = u * (0.012 + 0.045 * z), soft = Math.max(0, 0.5 - z) * u * 0.007;
+  return h(`<div style="position:absolute;width:${w}px;height:${hh}px;${soft > 0.2 ? `filter:blur(${soft.toFixed(2)}px);` : ""}"><div style="position:absolute;left:${w * 0.07}px;right:${w * 0.07}px;top:${hh * 0.14 + lift}px;bottom:${-lift}px;border-radius:${radius}px;background:#000;opacity:${0.55 + 0.3 * z};filter:blur(${u * (0.012 + 0.03 * z)}px)"></div><div style="position:absolute;inset:0;border-radius:${radius}px;background:#10141b;box-shadow:0 ${u * 0.002}px ${u * 0.006}px #000000c0,0 ${u * (0.01 + 0.04 * z)}px ${u * (0.02 + 0.07 * z)}px #000000b0,0 0 ${u * 0.1 * z}px rgb(${accentRgb().join(",")} / .16)"><img src="${src}" style="width:100%;height:100%;display:block;border-radius:inherit"><div style="position:absolute;inset:0;border-radius:inherit;box-shadow:inset 0 0 0 1px #ffffff2e,inset 0 1px 0 #ffffff4d"></div></div></div>`);
+};
 const markEl = (src, size) => h(`<div style="position:absolute;width:${size}px;height:${size}px;border-radius:${size * 0.23}px;overflow:hidden;box-shadow:0 0 0 1px #ffffff26,0 0 ${size * 0.5}px rgb(${accentRgb().join(",")} / .5)"><img src="${src}" style="width:100%;height:100%;display:block"></div>`);
 
 PATTERNS["halo-open"] = (layer0, s, ctx) => {
@@ -124,7 +128,10 @@ PATTERNS["halo-float"] = (layer, s, ctx) => {
     const t = h(`<div data-safe style="position:absolute;left:${W * 0.07}px;top:${H * 0.09}px;font:${u * 0.05}px/1.1 var(--display);color:var(--text);letter-spacing:-.01em">${wordSpans(s.title, "glow-word")}</div>`);
     layer.append(t); $$(".glow-word", t).forEach((w, i) => riseIn(w, i * 70));
   }
-  const group = h(`<div style="position:absolute;inset:0"></div>`); layer.append(group);
+  const group = h(`<div style="position:absolute;inset:0"></div>`);
+  // A soft backlight of the accent behind the beat: the shadows need something lighter than the stage to fall on.
+  const back = halo(layer, W, H, W / 2, H * 0.5, u * 0.7); back.style.opacity = "0.55";
+  layer.append(group);
   // One camera for the beat: it yaws a few degrees and pushes in, so every piece shares one vanishing point.
   group.style.transform = `perspective(${u * 2.4}px)`;
   K(group, [[0, { transform: `perspective(${u * 2.4}px) rotateY(-3deg) scale(1)` }], [end, { transform: `perspective(${u * 2.4}px) rotateY(3deg) scale(1.04)` }]]);
@@ -135,10 +142,10 @@ PATTERNS["halo-float"] = (layer, s, ctx) => {
     el.style.left = `${cx - w / 2}px`; el.style.top = `${cy - hh / 2}px`; el.style.zIndex = String(order + 1);
     group.append(el);
     // Entrance: a short tilt-up and rise, the near ones travelling further and arriving last.
-    const at = 100 + order * 120, rise = u * (0.05 + 0.06 * z);
+    const at = 80 + order * 90, rise = u * (0.05 + 0.06 * z);
     const pose = (a, tilt, y, sc) => ({ opacity: a, transform: `perspective(${u * 1.6}px) rotateX(${tilt}deg) translateY(${y}px) scale(${sc})` });
     const from = pose(0, 16, rise, 0.88), rest = pose(1, 0, 0, 1);
-    K(el, [[0, from], [at, from, EXPO], [at + 750, rest], [end - 160, rest, "ease-in"], [end, pose(0, -4, -u * 0.015, 0.98)]]);
+    K(el, [[0, from], [at, from, EXPO], [at + 600, rest], [end - 160, rest, "ease-in"], [end, pose(0, -4, -u * 0.015, 0.98)]]);
     el.dataset.moves = "";
     // Parallax: the whole beat pans one way, the near pieces faster than the far, with a slow bob that never settles.
     const pan = u * 0.05 * (0.3 + 1.4 * z), bob = u * 0.006 * (0.5 + z);
@@ -149,9 +156,23 @@ PATTERNS["halo-float"] = (layer, s, ctx) => {
   });
 };
 
+// Where the kinetic lines keep the product in view: earlier pieces, small and further back at the frame's corners,
+// clear of the centred type, drifting on the same parallax as the beats they came from. [x, y, size, depth].
+const BACKDROP = [[0.13, 0.76, 1, 0.4], [0.87, 0.24, 0.8, 0.15], [0.86, 0.78, 1.1, 0.55], [0.14, 0.24, 0.75, 0.1]];
 PATTERNS["halo-lines"] = (layer, s, ctx) => {
-  const { W, H } = ctx, u = Math.min(W, H), lines = s.lines ?? [], slot = (s.d * 1000) / lines.length;
+  const { W, H } = ctx, u = Math.min(W, H), lines = s.lines ?? [], slot = (s.d * 1000) / lines.length, end = s.d * 1000;
   glowStage(layer, W, H, s.d);
+  (s.items ?? []).slice(0, BACKDROP.length).forEach((id, i) => {
+    const c = ctx.screen(id), [fx, fy, sc, z] = BACKDROP[i], a = c.width / c.height;
+    const w = Math.min(a >= 1.18 ? W * 0.2 * sc : u * 0.24 * sc * a, W * 0.22), hh = w / a;
+    const circle = a > 0.85 && a < 1.18, radius = circle || a > 2 ? Math.min(w, hh) / 2 : Math.min(w, hh) * 0.2;
+    const el = piece(c.url, w, hh, radius, z, u);
+    el.style.left = `${W * fx - w / 2}px`; el.style.top = `${H * fy - hh / 2}px`; el.style.zIndex = "0";
+    layer.append(el); el.dataset.moves = "";
+    K(el, [[0, { opacity: 0, transform: `translateY(${u * 0.05}px) scale(.9)` }], [120 + i * 90, { opacity: 0, transform: `translateY(${u * 0.05}px) scale(.9)` }, EXPO], [900 + i * 90, { opacity: 0.8, transform: "none" }], [end - 200, { opacity: 0.8, transform: "none" }, "ease-in"], [end, { opacity: 0, transform: "none" }]]);
+    const pan = u * 0.05 * (0.3 + 1.4 * z), bob = u * 0.006 * (0.5 + z);
+    tick((ms) => { const t = Math.min(1, Math.max(0, ms / end)); el.style.translate = `${((0.5 - t) * 2 * pan).toFixed(3)}px ${(Math.sin((ms / 2800) * Math.PI * 2 + i * 1.7) * bob).toFixed(3)}px`; });
+  });
   lines.forEach((text, k) => {
     const last = k === lines.length - 1, size = Math.min(u * 0.075, (W * 0.84) / (0.52 * text.length));
     const el = h(`<div data-safe style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);white-space:nowrap;text-align:center;font:${size}px/1.1 var(--display);letter-spacing:-.015em;color:var(--text)">${wordSpans(text, "glow-word")}</div>`);
