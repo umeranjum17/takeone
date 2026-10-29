@@ -58,7 +58,7 @@ PATTERNS["glow-prompt"] = (layer, s, ctx) => {
   // Typing fills 62% of the beat, a character at a time; the send button presses at 80% and glows.
   const typed = $(".gl-typed", line), per = (d * 0.62) / Math.max(1, text.length);
   tick((ms) => { typed.textContent = text.slice(0, Math.min(text.length, Math.max(1, Math.floor(ms / per) + 1))); });
-  K(card, [[0, { transform: "scale(.96)" }, EXPO], [450, { transform: "none" }], [d, { transform: "scale(1.03) translateY(-60px)" }]]);
+  K(card, [[0, { transform: "scale(.85)" }, EXPO], [250, { transform: "none" }], [d, { transform: "scale(1.03) translateY(-60px)" }]]);
   K(send, [[0, { transform: "scale(1)", boxShadow: `0 0 0 0 ${GL_BLUE}00` }], [sendAt - 20, { transform: "scale(1)", boxShadow: `0 0 0 0 ${GL_BLUE}00` }, EXPO], [sendAt + 80, { transform: "scale(.86)", boxShadow: `0 0 ${u * 0.07}px ${u * 0.02}px ${glC("#6aaaffdd")}` }], [sendAt + 260, { transform: "scale(1)", boxShadow: `0 0 ${u * 0.05}px ${u * 0.012}px ${glC("#6aaaff99")}` }]]);
 };
 
