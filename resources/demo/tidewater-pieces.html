@@ -1,0 +1,40 @@
+<!doctype html>
+<!-- Synthetic UI pieces of the Tidewater demo app, for the halo promo recipe (`--recipe halo`): an app icon, avatars,
+     chips, a text card and notification pills, each a full-bleed rectangle the recipe rounds and lifts on its own.
+     Rendered at 2x to tidewater-pieces.png: chromium --headless --screenshot --window-size=1400,1040 --force-device-scale-factor=2
+     Crop rects (px of the png): logo 1600,80,512,512 · avatars 80,80,320,320 / 480,80,320,320 / 880,80,320,320 ·
+     card 80,520,1120,600 · chips 80,1240,240,112 / 360,1240,264,112 / 664,1240,304,112 / 1008,1240,320,112 ·
+     pills 80,1440,1040,168 / 80,1648,1040,168 / 80,1856,1040,168 -->
+<meta charset="utf-8">
+<style>
+@font-face { font-family: Geist; src: url("../fonts/Geist.ttf"); font-weight: 100 900; }
+* { box-sizing: border-box; margin: 0; }
+body { width: 1400px; height: 1040px; background: #e9ecef; font: 500 16px/1.4 Geist, sans-serif; position: relative; color: #e8edf3; }
+.p { position: absolute; overflow: hidden; }
+.icon { left: 800px; top: 40px; width: 256px; height: 256px; background: linear-gradient(155deg, #2dd4bf 0%, #0f766e 55%, #0b4f4a 100%); display: grid; place-items: center; }
+.icon svg { width: 62%; }
+.av { top: 40px; width: 160px; height: 160px; display: grid; place-items: center; font: 700 56px/1 Geist; color: #fff; letter-spacing: -.02em; }
+.av::after { content: ""; position: absolute; inset: 0; background: radial-gradient(circle at 30% 24%, #ffffff55, #ffffff00 55%); }
+.card { left: 40px; top: 260px; width: 560px; height: 300px; background: linear-gradient(180deg, #28313e, #1e2530); padding: 34px 36px; }
+.card h3 { font: 650 30px/1.1 Geist; letter-spacing: -.02em; margin-bottom: 14px; }
+.card p { font: 400 17px/1.5 Geist; color: #aab4c2; max-width: 470px; }
+.btn { position: absolute; left: 36px; bottom: 30px; height: 46px; padding: 0 24px; border-radius: 23px; background: #14b8a6; color: #04201d; font: 650 16px/46px Geist; }
+.chip { top: 620px; height: 56px; display: flex; align-items: center; justify-content: center; font: 600 20px/1 Geist; background: #323c4c; color: #e6ecf4; }
+.chip.on { background: #14b8a6; color: #04201d; }
+.pill { left: 40px; width: 520px; height: 84px; background: linear-gradient(180deg, #2a3342, #202835); display: flex; align-items: center; gap: 16px; padding: 0 26px; font: 500 18px/1.25 Geist; }
+.pill b { font-weight: 650; }
+.pill small { display: block; color: #8d98a8; font: 400 14px/1.3 Geist; }
+.dot { flex: none; width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; font: 700 16px/1 Geist; color: #fff; }
+</style>
+<div class="p icon"><svg viewBox="0 0 100 100" fill="none" stroke="#fff" stroke-width="7" stroke-linecap="round"><path d="M6 38c11-14 22-14 29 0s18 14 29 0 22-14 30 0"/><path d="M6 60c11-14 22-14 29 0s18 14 29 0 22-14 30 0" opacity=".75"/><path d="M6 82c11-14 22-14 29 0s18 14 29 0 22-14 30 0" opacity=".5"/></svg></div>
+<div class="p av" style="left:40px;background:linear-gradient(150deg,#fbbf24,#ea580c 70%,#9a3412)">UM</div>
+<div class="p av" style="left:240px;background:linear-gradient(150deg,#a78bfa,#7c3aed 65%,#4c1d95)">AK</div>
+<div class="p av" style="left:440px;background:linear-gradient(150deg,#5eead4,#0d9488 65%,#134e4a)">SN</div>
+<div class="p card"><h3>Launch notes</h3><p>Everything that ships this week, in one place: release notes, the onboarding video and the pricing page.</p><div class="btn">Open board</div></div>
+<div class="p chip" style="left:40px;width:120px">All</div>
+<div class="p chip" style="left:180px;width:132px">Mine</div>
+<div class="p chip" style="left:332px;width:152px">Review</div>
+<div class="p chip on" style="left:504px;width:160px">Shipped</div>
+<div class="p pill" style="top:720px"><div class="dot" style="background:#7c3aed">AK</div><div><b>Aisha</b> moved Draft FAQ to Done<small>Just now</small></div></div>
+<div class="p pill" style="top:824px"><div class="dot" style="background:#ea580c">UM</div><div><b>Umer</b> commented on Write release notes<small>2 min ago</small></div></div>
+<div class="p pill" style="top:928px"><div class="dot" style="background:#0d9488">SN</div><div><b>Sam</b> created Fix export timeout<small>4 min ago</small></div></div>
