@@ -12,10 +12,14 @@ for the generator, committed preview status and framing settings.
 
 `tidewater-brand.json` and `tidewater-mark.svg` are a fictional brand (colours, bundled display, body and mono
 fonts, a drawn logo mark) for `takeone motion --recipe glow --brand resources/demo/tidewater-brand.json`.
-# Welcome batch template
+## Welcome batch template
 
 `batch/welcome.json` is a storyboard template whose `{{name}}`, `{{company}}`,
 `{{plan}}` and `{{accent}}` fields are filled from each row of
 `batch/customers.csv` by `takeone motion --storyboard batch/welcome.json --data
  batch/customers.csv`. The rows are fictional customers of the fictional Tidewater
  product, chosen as edge cases: a long name and company, a light accent and a dark one.
+
+The [welcome batch example](../../docs/motion.md#one-film-per-spreadsheet-row)
+shows how to render [its template](batch/welcome.json) with
+[its sample rows](batch/customers.csv).
