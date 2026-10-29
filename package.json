@@ -1,7 +1,11 @@
 {
   "name": "takeone-axi",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "description": "Turn a raw screen recording into a polished demo.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/umeranjum17/takeone.git"
+  },
   "type": "module",
   "engines": {
     "node": ">=22.19.0"
