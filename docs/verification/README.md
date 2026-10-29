@@ -38,3 +38,7 @@ For the feature recipes below, use `done-done run --open <feature-name>`, drive 
 The sign-off migration card's MP4 and PNG are not tracked in the repo; only their filename, hash and size receipts in `.sign-off/decisions.json` are versioned. They are historical proof only, not acceptance of the current candidate; the card's recorded hashes, sizes and producing commit remain unchanged.
 
 Supporting surface, not mapped separately: `takeone doctor` (read-only environment report), `takeone key set` (BYOKit secret store), and the `takeone capture` verbs (`hello`/`record`/`stop`/`make`) implementing the BYOKit recorder protocol — drive those only when the change touches them.
+
+## Pull request checks
+
+Two checks are required on `main` (ruleset "default branch: required CI checks", no bypass): `ci` and `headless-scene`. A change that touches only `docs/`, `.agents/`, `data/`, `.sign-off/`, READMEs, `VISION.md` or `LICENSE` is docs-only: both checks report green in seconds and skip the heavy jobs. Anything else, including `CONSTRAINTS.md`, runs the full static checks, quality gates and the three headless scene takes. Locally, test only what you changed plus one journey (`done-done run offline-render`), as `.no-mistakes.yaml` instructs; CI runs the full suite.
