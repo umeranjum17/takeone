@@ -11,10 +11,8 @@ hidden among the limits.
 Each row names the file and the symbol that sets it, making the inventory traceable to the
 implementation.
 
-Reclassified against `main` at v0.5.0. This code-level inventory has 55 limit-bound rules
-and 15 open taste rules (70 choices total). It is not a one-to-one recount of the 94-row
-AI-first design inventory (17 Oct 2026), which reported 34 fixed decisions; individual
-design decisions may correspond to multiple implementation rules here.
+Reclassified against `main` at v0.5.0, this code-level inventory is grouped by implementation
+rule; one design decision may correspond to multiple implementation rules here.
 
 ## Fixed because of a limit
 
@@ -79,25 +77,27 @@ design decisions may correspond to multiple implementation rules here.
 ## Fixed, and a taste rule: not yet the planner's
 
 These are not limits. Each is a rule a person would call a style choice, kept fixed because
-the planner does not own it yet. They are the only 15 open items.
+the planner does not own it yet. The list is grouped by source file and class. Any new fixed
+value must be classified here or in the limits table when it is introduced.
 
-| Rule | Where | Why it is still fixed | What closes it |
+| Rule | Source file and symbol | Class | Why it is still fixed | What closes it |
 |---|---|---|---|
-| Default and multi-screen screenshot/page/URL films: scene sequence, scene lengths, fallback copy (`See it in motion.`, `Try it today`), alternating color and recap composition | `src/motion/cli.ts` · `planStoryboard` | This local path remains rule-based; the separate editorial and bento screenshot recipes already send redacted OCR text, not images, to the planner | Let the planner choose sequence, timing and fallback copy for this local path |
-| Take films: title and closing copy | `src/motion/cli.ts` · `planTake` | The film call is not asked for a take's motion wrapper copy | Ask the film call for the wrapper copy |
-| Local CLI patterns and named recipes (`launch`, `feature`, `social`, `compare`): fixed sequences, scene durations, default copy and color alternation | `src/motion/cli.ts` · `RECIPES`, `planStoryboard`; `src/motion/types.ts` · `PATTERNS` | The local planner chooses a fixed recipe and timing; missing title, CTA or logo uses fixed copy such as `TakeOne` | Let the planner choose the pattern sequence, timing and fallback copy |
-| Editorial and bento recipe composition, screen framing and scene timing | `src/motion/editorial.ts` · `editorialStoryboard`, `PHONE_SCREEN_W`, `LENS_TEXT`, `LENS_W`, `grid`; `src/motion/bento.ts` · `bentoStoryboard`, `REEL_S` | The engine supplies words and screen choices from redacted OCR, while scene order, phone/lens layout, patterns, duration floors, the 12 s reel cap and optional music volume stay fixed | Let the planner choose composition, scene order, duration within the output limit, and audio mix |
-| Generated intro, callout and outro segment duration | `src/motion/film.ts` · `SEGMENT_S` | Each model-written segment is fixed at 3 s, regardless of its brief | Let the film call set each segment's duration within reading limits |
-| Per-pattern text reveal timing and choreography | `src/motion/storyboard.ts` · `sceneRevealDuration` | Each pattern uses a fixed reveal cadence before the reading floor is applied | Let the planner choose reveal timing for each scene |
-| Title on screen from 0.35 s to 3.1 s | `src/render/stage.ts` · `Math.min(duration, 3.1)` | A fixed window; the planner picks only the title text, bounded by `TITLE_MAX_S` in `src/decide/film.ts` | Let the film call give the title's seconds, floored by reading time |
-| A keycap stays 2.2 s | `src/render/overlays.ts` · `t0 + 2.2` | A fixed hold; the planner chooses which shortcuts show, not for how long | Hold = reading time of the keys, floored, as captions already are |
-| Overlay emphasis when the planner abstains | `src/render/overlays.ts` · `shortcutKeys` | Every detected shortcut and click gets the same emphasis, a fixed presentation choice | Let the planner choose overlay emphasis for fallback beats |
-| Caption, overlay and clip-label visual treatment | `src/render/stage.ts` · `captionAss`; `src/render/overlays.ts` · `keycapAss`, `keycapMotion`; `src/render/cursor.ts` · `ART`, `REST_H`, `PIN_S`, `LOOP_S`; `src/motion/hyperframes.ts` · `videoLayers`, `SPOTS` | Caption fades, keycap colors, shape and spring, pointer artwork and transitions, and clip-label styling and placement order are fixed presentation choices | Let the planner choose caption, overlay and clip-label styling and timing |
-| Synthesized click tick tone | `src/render/sound.ts` · `addSound` | The click uses a fixed 1800 Hz, 40 ms tone and fixed level | Let the planner choose the click sound |
-| Theme tokens and motion-only fonts | `src/themes.ts` · `midnight`; `src/motion/theme.ts` · `SYMBOL_FONT`, `RULE_FONT` | The planner chooses only a theme name; colors and motion typography remain fixed | Let the planner choose theme tokens and fonts |
-| Phone frame look | `src/render/render.ts` · `corner_radius: 36`, `PHONE_BAND_FLOOR` | The frame's corner radius and minimum source-width fit are fixed presentation choices | Let the planner choose the phone frame treatment |
-| Missing caption duration defaults to 3 s | `src/render/stage.ts` · `takeCaptions` | A caption with no positive finite duration gets a fixed hold | Require the film call to provide duration or derive it from reading time |
-| Fade in and out at the film boundaries | `src/render/render.ts` · `fade`; `src/camera/defaults.ts` · `fade_s` | The export applies a fixed default fade duration | Let the planner choose boundary fade timing |
+| Default and multi-screen screenshot/page/URL films: scene sequence, scene lengths, fallback copy (`See it in motion.`, `Try it today`), alternating color and recap composition | `src/motion/cli.ts` · `planStoryboard` | taste | This local path remains rule-based; the separate editorial and bento screenshot recipes already send redacted OCR text, not images, to the planner | Let the planner choose sequence, timing and fallback copy for this local path |
+| Take films: title and closing copy | `src/motion/cli.ts` · `planTake` | taste | The film call is not asked for a take's motion wrapper copy | Ask the film call for the wrapper copy |
+| Local CLI patterns and named recipes (`launch`, `feature`, `social`, `compare`): fixed sequences, scene durations, default copy and color alternation | `src/motion/cli.ts` · `RECIPES`, `planStoryboard`; `src/motion/types.ts` · `PATTERNS` | taste | The local planner chooses a fixed recipe and timing; missing title, CTA or logo uses fixed copy such as `TakeOne` | Let the planner choose the pattern sequence, timing and fallback copy |
+| Editorial and bento recipe composition, screen framing and scene timing | `src/motion/editorial.ts` · `editorialStoryboard`, `PHONE_SCREEN_W`, `LENS_TEXT`, `LENS_W`, `grid`; `src/motion/bento.ts` · `bentoStoryboard`, `REEL_S` | taste | The engine supplies words and screen choices from redacted OCR, while scene order, phone/lens layout, patterns, duration floors, the 12 s reel cap and optional music volume stay fixed | Let the planner choose composition, scene order, duration within the output limit, and audio mix |
+| Generated intro, callout and outro segment duration | `src/motion/film.ts` · `SEGMENT_S` | taste | Each model-written segment is fixed at 3 s, regardless of its brief | Let the film call set each segment's duration within reading limits |
+| Per-pattern text reveal timing and choreography | `src/motion/storyboard.ts` · `sceneRevealDuration` | taste | Each pattern uses a fixed reveal cadence before the reading floor is applied | Let the planner choose reveal timing for each scene |
+| Storyboard fallback copy and logo | `src/motion/storyboard.ts` · `sceneTexts`, `scene` | taste | Incomplete fragment fields use fixed interface copy such as `Create task` and `Design preview`; end-card and logo-sting scenes default a missing logo to `TakeOne` | Require the planner to provide copy and logo, or let it choose the fallback wording |
+| Title on screen from 0.35 s to 3.1 s | `src/render/stage.ts` · `Math.min(duration, 3.1)` | taste | A fixed window; the planner picks only the title text, bounded by `TITLE_MAX_S` in `src/decide/film.ts` | Let the film call give the title's seconds, floored by reading time |
+| Missing caption duration defaults to 3 s | `src/render/stage.ts` · `takeCaptions` | taste | A caption with no positive finite duration gets a fixed hold | Require the film call to provide duration or derive it from reading time |
+| A keycap stays 2.2 s | `src/render/overlays.ts` · `t0 + 2.2` | taste | A fixed hold; the planner chooses which shortcuts show, not for how long | Hold = reading time of the keys, floored, as captions already are |
+| Overlay emphasis when the planner abstains | `src/render/overlays.ts` · `shortcutKeys` | taste | Every detected shortcut and click gets the same emphasis, a fixed presentation choice | Let the planner choose overlay emphasis for fallback beats |
+| Caption, overlay and clip-label visual treatment | `src/render/stage.ts` · `captionAss`; `src/render/overlays.ts` · `keycapAss`, `keycapMotion`; `src/render/cursor.ts` · `ART`, `REST_H`, `PIN_S`, `LOOP_S`; `src/motion/hyperframes.ts` · `videoLayers`, `SPOTS` | taste | Caption fades, keycap colors, shape and spring, pointer artwork and transitions, and clip-label styling and placement order are fixed presentation choices | Let the planner choose caption, overlay and clip-label styling and timing |
+| Synthesized click tick tone | `src/render/sound.ts` · `addSound` | taste | The click uses a fixed 1800 Hz, 40 ms tone and fixed level | Let the planner choose the click sound |
+| Theme tokens and motion-only fonts | `src/themes.ts` · `midnight`; `src/motion/theme.ts` · `SYMBOL_FONT`, `RULE_FONT` | taste | The planner chooses only a theme name; colors and motion typography remain fixed | Let the planner choose theme tokens and fonts |
+| Phone frame look | `src/render/render.ts` · `corner_radius: 36`, `PHONE_BAND_FLOOR` | taste | The frame's corner radius and minimum source-width fit are fixed presentation choices | Let the planner choose the phone frame treatment |
+| Fade in and out at the film boundaries | `src/render/render.ts` · `fade`; `src/camera/defaults.ts` · `fade_s` | taste | The export applies a fixed default fade duration | Let the planner choose boundary fade timing |
 
 A click ring's size (`ripple_ms`, `ripple_r` in `src/camera/defaults.ts`) is presentation
 physics: which clicks ring is the planner's (`clicks`), the ring's size is not a choice.
