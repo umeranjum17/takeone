@@ -20,7 +20,7 @@ const REGIONS = ["320,120,520,540:To do", "870,120,520,400:In progress", "1984,1
 
 interface Gate { name: string; value: number | string; target: string; passed: boolean }
 interface Asset { id: string; file: string; kind: "video" | "image"; width: number; height: number; fps?: number; seconds?: [number, number]; recipe: string; note?: string }
-interface Entry extends Asset { sha256: string; bytes: number; probe?: Record<string, unknown>; gates: Gate[] }
+interface Entry extends Asset { sha256: string; bytes: number; probe?: Record<string, unknown>; gates: Gate[]; motion_gate?: { frozen_passed: boolean; frozen_seconds: number } }
 
 const sha = (file: string) => createHash("sha256").update(readFileSync(file)).digest("hex");
 const run = (cmd: string, args: string[]) => { execFileSync(cmd, args, { cwd: root, stdio: ["ignore", "inherit", "inherit"], maxBuffer: 64e6 }); };
@@ -71,7 +71,7 @@ const still = (video: string, t: number, output: string, size?: string) => ff("-
 const motion = (name: string, args: string[]) => { const dir = fresh(join(work, name)); takeone("motion", join(root, "resources/demo/tidewater-board.png"), "--out", dir, "--no-ai", "--title", "Tidewater", "--subtitle", "Plan the launch in one board", "--cta", "Try it today", ...args); return film(dir); };
 
 const A1 = { id: "A1", file: "hero.mp4", kind: "video", width: 1920, height: 1080, fps: 60, seconds: [20, 45], recipe: "scripts/headless-scene.mjs (3840x2160) -> takeone make --no-ai --set fps=60 -> delivery crf 24", note: "Spec section 4 asked for 20-30 s; the staged choreography plays about 39.5 s at idle_speed 4, so the range is 20-45 s." } satisfies Asset;
-const BUILDS: { id: string; assets: Asset[]; build: (put: (a: Asset, file: string) => void) => void }[] = [];
+const BUILDS: { id: string; assets: Asset[]; build: (put: (a: Asset, file: string, motionGate?: Entry["motion_gate"]) => void) => void }[] = [];
 // Takes shared between steps live here for one run, never across runs.
 const shared: Record<string, string> = {};
 
@@ -97,7 +97,14 @@ const A4: Asset = { id: "A4", file: "square.mp4", kind: "video", width: 1080, he
 BUILDS.push({ id: "A4", assets: [A4], build(put) { const f = join(work, "square.mp4"); deliver(film(board("a4", "square", "paper")), f); put(A4, f); } });
 
 const A5: Asset = { id: "A5", file: "motion-hero.mp4", kind: "video", width: 1920, height: 1080, fps: 60, recipe: "takeone motion tidewater-board.png --recipe launch --theme aurora -> delivery crf 24", note: "The launch recipe plans a logo sting, hero reveal, three-stop tour and end card, longer than the 12 s of section 4." };
-BUILDS.push({ id: "A5", assets: [A5], build(put) { const f = join(work, "motion-hero.mp4"); deliver(motion("a5", ["--recipe", "launch", "--theme", "aurora", ...REGIONS.flatMap(r => ["--region", r])]), f); put(A5, f); } });
+BUILDS.push({ id: "A5", assets: [A5], build(put) {
+  const f = join(work, "motion-hero.mp4");
+  deliver(motion("a5", ["--recipe", "launch", "--theme", "aurora", ...REGIONS.flatMap(r => ["--region", r])]), f);
+  const render = JSON.parse(readFileSync(join(work, "a5", "render.json"), "utf8")) as { gates?: { frozen?: { passed?: boolean; longest?: number } } };
+  const frozen = render.gates?.frozen;
+  if (!frozen || typeof frozen.passed !== "boolean" || typeof frozen.longest !== "number") throw new Error("A5 motion render is missing its frozen-time gate");
+  put(A5, f, { frozen_passed: frozen.passed, frozen_seconds: frozen.longest });
+} });
 
 const A6: Asset = { id: "A6", file: "motion-callouts.mp4", kind: "video", width: 1920, height: 1080, fps: 60, recipe: "takeone motion tidewater-board.png --recipe feature --theme paper (three labelled regions) -> delivery crf 24" };
 BUILDS.push({ id: "A6", assets: [A6], build(put) { const f = join(work, "motion-callouts.mp4"); deliver(motion("a6", ["--recipe", "feature", "--theme", "paper", ...REGIONS.flatMap(r => ["--region", r])]), f); put(A6, f); } });
@@ -150,11 +157,11 @@ function main() {
   const entries = new Map<string, Entry>();
   for (const b of BUILDS) {
     console.log(`== ${b.id}`);
-    b.build((a, file) => {
+    b.build((a, file, motionGate) => {
       const target = join(dest, a.file);
       mkdirSync(join(target, ".."), { recursive: true });
       copyFileSync(file, target);
-      const entry: Entry = { ...a, sha256: sha(target), bytes: statSync(target).size, ...measure(a, target) };
+      const entry: Entry = { ...a, sha256: sha(target), bytes: statSync(target).size, ...measure(a, target), ...(motionGate ? { motion_gate: motionGate } : {}) };
       entries.set(a.file, entry);
       console.log(`${entry.gates.every(g => g.passed) ? "pass" : "FAIL"} ${a.file} ${entry.bytes} B ${entry.sha256.slice(0, 12)}`);
     });
@@ -168,7 +175,7 @@ function main() {
     revision: git("rev-parse", "HEAD"), version: (JSON.parse(readFileSync(join(root, "package.json"), "utf8")) as { version: string }).version,
     ffmpeg: out("ffmpeg", ["-version"]).split("\n")[0], node: process.version,
     budgets: BUDGET, total, complete: BUILDS.every(b => b.assets.every(a => entries.has(a.file))),
-    passed: total.passed && assets.every(a => a.gates.every(g => g.passed)),
+    passed: total.passed && assets.every(a => a.gates.every(g => g.passed) && (a.id !== "A5" || a.motion_gate?.frozen_passed === true)),
     assets: assets.map(a => ({ ...a, file: a.file })),
   };
   writeFileSync(manifestFile, JSON.stringify(manifest, null, 2) + "\n");
