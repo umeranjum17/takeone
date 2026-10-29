@@ -103,9 +103,11 @@ export function beatViews(body: string): string[] {
  * establish hold and the lively camera. No ending is answered, so the take
  * keeps its last beat. */
 export function filmAnswers(body?: string): Record<string, unknown> {
-  const ending = body === undefined ? [] : Object.keys((JSON.parse(body) as { questions: { ending?: { criteria: Record<string, string> } } }).questions.ending?.criteria ?? {});
+  const questions = body === undefined ? {} : (JSON.parse(body) as { questions: Record<string, { criteria?: Record<string, string> }> }).questions;
+  const ending = Object.keys(questions.ending?.criteria ?? {});
+  const themes = Object.keys(questions.theme?.criteria ?? { midnight: "", paper: "", aurora: "", mono: "", neon: "", brutalist: "", sand: "", terminal: "", editorial: "" });
   return {
-    theme: { choice: "midnight", probabilities: { midnight: 1, paper: 0, aurora: 0, mono: 0, sand: 0, editorial: 0 }, confidence: 1 },
+    theme: { choice: "midnight", probabilities: Object.fromEntries(themes.map(id => [id, Number(id === "midnight")])), confidence: 1 },
     pace: { probabilities: [0, 1, 0, 0], confidence: 1 },
     opening: { choice: "establish", probabilities: { establish: 1, short: 0, straight: 0 }, confidence: 1 },
     camera_style: { choice: "lively", probabilities: { calm: 0, lively: 1 }, confidence: 1 },
@@ -147,6 +149,12 @@ export function recordedPlannerReply(body: string, firstZone = false, qualityBas
       }
       const answer = recorded.film[key as keyof typeof recorded.film];
       const choice = qualityBaseline && baselineChoices[key];
+      if (key === "theme") {
+        const ids = Object.keys(question.criteria ?? (answer as { probabilities: Record<string, number> }).probabilities);
+        const original = answer as { probabilities: Record<string, number> };
+        return [key, { ...original, ...(choice ? { choice, confidence: 1 } : {}),
+          probabilities: Object.fromEntries(ids.map(id => [id, choice ? Number(id === choice) : original.probabilities[id] ?? 0])) }];
+      }
       return [key, choice ? { choice, probabilities: Object.fromEntries(Object.keys((answer as { probabilities: Record<string, number> }).probabilities).map(id => [id, Number(id === choice)])), confidence: 1 } : answer];
     }));
   } else {
