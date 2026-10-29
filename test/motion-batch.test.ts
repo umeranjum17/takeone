@@ -14,6 +14,8 @@ test("CSV rows: quoted commas, quotes and line breaks, CRLF, a BOM and blank lin
   const { columns, rows } = parseCsv('﻿name,company\r\n"Okafor, Ada","The ""Lab""\nNorth"\r\n\r\nLi,Quarry');
   assert.deepEqual(columns, ["name", "company"]);
   assert.deepEqual(rows, [{ name: "Okafor, Ada", company: 'The "Lab"\nNorth' }, { name: "Li", company: "Quarry" }]);
+  assert.deepEqual(parseCsv('a,b\n Ada , "Lumen Labs" \n" x ",y').rows, [{ a: "Ada", b: "Lumen Labs" }, { a: " x ", b: "y" }], "spaces around a field are trimmed, a quoted field keeps its own");
+  assert.deepEqual(parseCsv('name\nAda\n""\nLi\n\n').rows, [{ name: "Ada" }, { name: "" }, { name: "Li" }], "a quoted empty cell is a row, a blank line is not");
   assert.throws(() => parseCsv("a,b\n1"), /data row 1: 1 fields for 2 columns/);
   assert.throws(() => parseCsv("a,a\n1,2"), /column a appears twice/);
   assert.throws(() => parseCsv("a\n"), /no rows/);
@@ -42,13 +44,13 @@ test("the demo template plans one checked film per row, each in its row's accent
 
 test("every bad row is named before anything renders: colour, glyphs, reading time, ids", () => {
   const csv = ["id,name,company,plan,accent", "ok,Ada,Lumen,Pro,#d9673f", "bad-colour,Li,Quarry,Team,teal", "glyphs,李伟,Quarry,Team,#2f6f5e",
-    "long,Ada,Lumen,Pro plan for the whole company and everyone in it,#d9673f", "ok,Jo,Fable,Starter,#f2c14e", "bad id,Jo,Fable,Starter,#f2c14e"].join("\n");
+    "long,Ada,Lumen,Pro plan for the whole company and everyone in it,#d9673f", "OK,Jo,Fable,Starter,#f2c14e", "bad id,Jo,Fable,Starter,#f2c14e"].join("\n");
   assert.throws(() => planBatch(template(), csv), (e: Error) => {
     assert.match(e.message, /^5 of 6 rows cannot be rendered; nothing was written/);
     assert.match(e.message, /row 2 \(bad-colour\): theme\.overrides/);
     assert.match(e.message, /row 3 \(glyphs\): .*missing glyph/);
     assert.match(e.message, /row 4 \(long\): .*reading-time floor/);
-    assert.match(e.message, /row 5 \(ok\): id ok repeats an earlier row/);
+    assert.match(e.message, /row 5 \(OK\): id OK repeats an earlier row/);
     assert.match(e.message, /row 6 \(bad id\): id "bad id"/);
     return true;
   });

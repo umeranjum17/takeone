@@ -12,28 +12,31 @@ export const MAX_ROWS = 1000;
 const ID = /^[A-Za-z0-9_-]{1,64}$/;
 const FIELD = /\{\{\s*([^{}]*?)\s*\}\}/g;
 
-/** RFC 4180 CSV: comma separated, `"` quotes a field and `""` is a quote inside one, CRLF or LF rows. The first row
- *  names the columns; blank lines are skipped. */
+/** RFC 4180 CSV: comma separated, `"` quotes a field and `""` is a quote inside one, CRLF or LF rows. Spaces around
+ *  a field are trimmed (a quoted field keeps its own). The first row names the columns; blank lines are skipped, so an
+ *  empty cell of a one-column file is written `""`. */
 export function parseCsv(text: string): { columns: string[]; rows: Record<string, string>[] } {
   const records: string[][] = [];
-  let record: string[] = [], field = "", quoted = false, i = 0;
+  let record: string[] = [], field = "", quoted = false, kept = false, i = 0;
   const src = text.replace(/^﻿/, "");
-  const endRecord = () => { record.push(field); field = ""; if (record.length > 1 || record[0] !== "") records.push(record); record = []; };
+  const endField = () => { record.push(kept ? field : field.trim()); field = ""; kept = false; };
+  const endRecord = () => { const blank = !record.length && !kept && !field.trim(); endField(); if (!blank) records.push(record); record = []; };
   while (i < src.length) {
     const ch = src[i]!;
     if (quoted) {
       if (ch === '"' && src[i + 1] === '"') { field += '"'; i += 2; continue; }
-      if (ch === '"') { quoted = false; i++; continue; }
+      if (ch === '"') { quoted = false; kept = true; i++; continue; }
       field += ch; i++; continue;
     }
-    if (ch === '"' && field === "") { quoted = true; i++; continue; }
-    if (ch === ",") { record.push(field); field = ""; i++; continue; }
+    if (ch === '"' && !kept && !field.trim()) { quoted = true; field = ""; i++; continue; }
+    if (ch === ",") { endField(); i++; continue; }
+    if (kept && (ch === " " || ch === "\t")) { i++; continue; } // spaces after a closing quote
     if (ch === "\r" && src[i + 1] === "\n") { endRecord(); i += 2; continue; }
     if (ch === "\n" || ch === "\r") { endRecord(); i++; continue; }
     field += ch; i++;
   }
   if (quoted) throw new Error("data: a quoted field is never closed");
-  if (field !== "" || record.length) endRecord();
+  if (field !== "" || kept || record.length) endRecord();
   const [head, ...body] = records;
   if (!head) throw new Error("data: no header row");
   const columns = head.map(c => c.trim());
@@ -79,8 +82,8 @@ export function planBatch(template: unknown, csv: string): BatchRow[] {
     const id = columns.includes("id") ? row["id"]! : String(n + 1).padStart(width, "0");
     try {
       if (!ID.test(id)) throw new Error(`id ${JSON.stringify(id)}: expected [A-Za-z0-9_-]{1,64}`);
-      if (seen.has(id)) throw new Error(`id ${id} repeats an earlier row`);
-      seen.add(id);
+      if (seen.has(id.toLowerCase())) throw new Error(`id ${id} repeats an earlier row (ids are compared ignoring case, as take directories are)`);
+      seen.add(id.toLowerCase());
       const filled = fillTemplate(template, row) as Record<string, unknown>;
       return [{ row: n + 1, id, storyboard: validateStoryboard({ ...filled, id }) }];
     } catch (e) {
@@ -106,7 +109,9 @@ export async function runBatch(dir: string, rows: BatchRow[], o: { engine: Motio
   writeFileSync(join(dir, "batch.json"), JSON.stringify({ version: 1, template: resolve(o.template), data: resolve(o.data), takes }, null, 2) + "\n");
   if (o.planOnly) { for (const t of takes) console.log(join(dir, t.dir, "storyboard.json")); return; }
   for (const [i, t] of takes.entries()) {
-    const { out, manifest } = await renderMotion(join(dir, t.dir), { engine: o.engine });
+    const { out, manifest } = await renderMotion(join(dir, t.dir), { engine: o.engine }).catch((e: Error) => {
+      throw new Error(`data row ${t.row} (${t.id}): ${e.message}; rows before it are rendered, rerun to render the rest`);
+    });
     log(`motion: ${i + 1}/${takes.length} ${t.id}: ${manifest.frames} frames ${manifest.width}x${manifest.height} in ${manifest.render_s} s`);
     console.log(out);
   }

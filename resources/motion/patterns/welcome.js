@@ -7,7 +7,7 @@
 window.WELCOME_ROW_MS = 700;
 PATTERNS.welcome = (layer, s, ctx) => {
   const { W, H } = ctx, u = Math.min(W, H), wide = W >= H * 1.2, accent = ctx.tokens.accent;
-  const cw = wide ? Math.min(W * 0.72, H * 1.32) : W * 0.8, ch = wide ? cw * 0.54 : Math.min(H * 0.72, cw * 1.45);
+  const cw = wide ? Math.min(W * 0.72, H * 1.32) : W * 0.8, ch = wide ? cw * 0.54 : Math.min(H * 0.86, cw * 1.45);
   const pw = wide ? cw * 0.3 : cw, ph = wide ? ch : ch * 0.34, pad = u * 0.045, colW = (wide ? cw - pw : cw) - 2 * pad;
   // Readable ink on the panel: dark on a light brand colour, white on a dark one.
   const [r, g, b] = [1, 3, 5].map((i) => parseInt(accent.slice(i, i + 2), 16) / 255).map((c) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
@@ -22,12 +22,13 @@ PATTERNS.welcome = (layer, s, ctx) => {
   const rows = s.tree ?? [], initial = [...new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(s.logo ?? "")][0]?.segment.toUpperCase() ?? "";
   const card = h(`<div style="position:absolute;left:${(W - cw) / 2}px;top:${(H - ch) / 2}px;width:${cw}px;height:${ch}px;border-radius:${u * 0.02}px;background:var(--card);border:1px solid var(--line);box-shadow:0 ${u * 0.02}px ${u * 0.06}px #0000001f"></div>`);
   const radius = wide ? `${u * 0.02}px 0 0 ${u * 0.02}px` : `${u * 0.02}px ${u * 0.02}px 0 0`;
-  const fill = h(`<div style="position:absolute;left:0;top:0;width:${pw}px;height:${ph}px;border-radius:${radius};background:${accent};transform-origin:50% 100%"></div>`);
+  const fill = h(`<div style="position:absolute;left:0;top:0;width:${pw}px;height:${ph}px;border-radius:${radius};background:${accent}"></div>`);
   const big = fit(initial, face("--display"), 400, ph * 0.55, pw * 0.6);
-  const mark = h(`<div style="position:absolute;left:0;top:0;width:${pw}px;height:${ph}px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:${u * 0.012}px;color:${onAccent}">
+  const mark = h(`<div style="position:absolute;left:0;top:0;width:${pw}px;height:${ph}px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:${u * 0.012 + big * 0.12}px;color:${onAccent}">
     <div data-safe style="font:400 ${big}px/1 var(--display)">${esc(initial)}</div>
-    <div data-safe style="font:${fit((s.logo ?? "").toUpperCase(), face("--mono"), 400, u * 0.022, pw * 0.7, 0.18)}px/1 var(--mono);letter-spacing:.18em;text-transform:uppercase;opacity:.9">${esc(s.logo ?? "")}</div></div>`);
-  const col = h(`<div style="position:absolute;left:${wide ? pw + pad : pad}px;top:${wide ? 0 : ph}px;width:${colW}px;height:${wide ? ch : ch - ph}px;display:flex;flex-direction:column;justify-content:center;gap:${u * 0.018}px"></div>`);
+    <div data-safe style="max-width:${pw * 0.8}px;font:${Math.max(u * 0.015, fit((s.logo ?? "").toUpperCase(), face("--mono"), 400, u * 0.022, pw * 0.7, 0.18))}px/1.4 var(--mono);letter-spacing:.18em;text-transform:uppercase;text-align:center;text-wrap:balance;opacity:.9">${esc(s.logo ?? "")}</div></div>`);
+  const col = h(`<div style="position:absolute;left:${wide ? pw + pad : pad}px;top:${wide ? 0 : ph}px;width:${colW}px;height:${wide ? ch : ch - ph}px;display:flex;flex-direction:column;justify-content:center"></div>`);
+  const stack = h(`<div style="display:flex;flex-direction:column;gap:${u * 0.018}px;transform-origin:left center"></div>`);
   const eyebrow = s.label ? h(`<div data-safe style="display:flex;align-items:center;gap:.7em;font:${fit((s.label ?? "").toUpperCase(), face("--mono"), 400, u * 0.022, colW - u * 0.03, 0.14)}px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--muted)"><i style="width:.6em;height:.6em;border-radius:50%;background:${accent}"></i>${esc(s.label)}</div>`) : null;
   const name = h(`<div data-safe style="font:400 ${fit(s.title ?? "", face("--display"), 400, u * 0.12, colW)}px/1.05 var(--display);letter-spacing:-.015em;color:var(--ink);white-space:nowrap">${wordSpans(s.title, "welcome-word")}</div>`);
   const line = s.subtitle ? h(`<div data-safe style="font:${u * 0.032}px/1.35 var(--body);color:var(--muted);text-wrap:balance">${esc(s.subtitle)}</div>`) : null;
@@ -44,12 +45,14 @@ PATTERNS.welcome = (layer, s, ctx) => {
     row.append(box, text); list.append(row);
     return { row, tickFill, path: tickMark.querySelector("path") };
   });
-  col.append(...[eyebrow, name, line, pill, list].filter(Boolean));
-  card.append(fill, mark, col); layer.append(card);
-  // The card is whole from the first frame (a cut point) and settles; the panel fills up, then the initial rises on it.
+  stack.append(...[eyebrow, name, line, pill, list].filter(Boolean));
+  col.append(stack); card.append(fill, mark, col); layer.append(card);
+  // A long line or a squarer frame can make the copy taller than its side of the card: scale it down to fit, never past it.
+  const room = col.clientHeight - 2 * pad;
+  if (stack.offsetHeight > room) stack.style.transform = `scale(${(room / stack.offsetHeight).toFixed(4)})`;
+  // The card and its panel are whole from the first frame (a cut point), the initial already rising, and the card settles.
   K(card, [[0, { transform: "scale(.97)" }, EXPO], [600, { transform: "none" }], [s.d * 1000, { transform: "scale(1.025)" }]]);
-  K(fill, [[0, { transform: "scaleY(.35)" }, EXPO], [550, { transform: "none" }]]);
-  riseIn(mark.children[0], 300); riseIn(mark.children[1], 450);
+  riseIn(mark.children[0], 0); riseIn(mark.children[1], 150);
   if (eyebrow) riseIn(eyebrow, 150);
   $$(".welcome-word", name).forEach((w, i) => riseIn(w, 250 + i * 60));
   if (line) riseIn(line, 600);

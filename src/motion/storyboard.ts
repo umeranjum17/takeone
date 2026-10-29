@@ -113,9 +113,9 @@ function sceneHolds(s: Scene): { text: string; reveal: number }[] {
     return [{ text: `${s.title} ${s.subtitle}`, reveal: 1.2 }, { text: `${s.label} $${s.reel!.value}`, reveal: .6 * s.d }, { text: s.reel!.feed.at(-1)!, reveal: .6 + s.reel!.feed.length - 1 }];
   }
   if (s.pattern === "halo-end") return [{ text: s.logo!, reveal: sceneRevealDuration(s) }, ...(s.credit ? [{ text: s.credit, reveal: 1.5 }] : [])];
-  if (s.pattern === "welcome") { // each part is read as it lands (welcome.js): eyebrow and name by 0.65 s, the line by 1 s, the pill by 1.25 s, a checklist row every 0.7 s from 1.3 s, ticked by 0.55 s after
+  if (s.pattern === "welcome") { // each part is read as it lands (welcome.js): the company by 0.55 s, eyebrow and name by 0.65 s, the line by 1 s, the pill by 1.25 s, a checklist row every 0.7 s from 1.3 s, ticked by 0.55 s after
     const words = (s.title ?? "").trim().split(/\s+/).filter(Boolean).length;
-    return [{ text: [s.label, s.title].filter(Boolean).join(" "), reveal: .65 + .06 * Math.max(0, words - 1) }, { text: s.logo ?? "", reveal: .85 },
+    return [{ text: [s.label, s.title].filter(Boolean).join(" "), reveal: .65 + .06 * Math.max(0, words - 1) }, { text: s.logo ?? "", reveal: .55 },
       { text: s.subtitle ?? "", reveal: 1 }, { text: s.cta ?? "", reveal: 1.25 }, ...(s.tree ?? []).map((t, j) => ({ text: t, reveal: 1.85 + .7 * j }))];
   }
   const text = s.pattern === "word-swap" ? [s.title, s.swaps?.at(-1)].join(" ") : sceneTexts(s).join(" ");
