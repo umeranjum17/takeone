@@ -28,7 +28,8 @@ test("glow --region cards add a deck beat of square real-screen crops after the 
     "glow-deck-test", [size], tap));
   assert.deepEqual(sb.scenes.map(s => s.pattern), ["glow-prompt", "glow-hero", "glow-tree", "glow-deck", "glow-screen", "glow-screen", "end-card"]);
   assert.deepEqual(sb.scenes[3]!.cards, [{ screen: "deck1", caption: "Plan the launch." }, { screen: "deck2", caption: "Track every task." }, { screen: "deck3", caption: "See what moved." }]);
-  assert.ok(Math.abs(sb.scenes[3]!.d - (0.55 * 3 + 0.45)) < 1 / 60, `deck is ${sb.scenes[3]!.d} s`);
+  assert.ok(Math.abs(sb.scenes[3]!.d - (0.25 * 3 + 0.25)) < 1 / 60, `deck is ${sb.scenes[3]!.d} s`);
+  assert.ok(filmDuration(sb) <= 10, `three-card glow promo is ${filmDuration(sb)} s`);
   // Each card is a square that holds its region whole and stays on the screen; the tall one grows across, not down.
   for (const [i, c] of regions.entries()) {
     const [x, y, w, h] = c.split(":")[0]!.split(",").map(Number) as [number, number, number, number], r = sb.crops![`deck${i + 1}`]!.rect;
