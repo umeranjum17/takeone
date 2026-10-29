@@ -490,9 +490,8 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
     // The film calls run first: their answers set the look, and their tokens are already reserved.
     if (filmPlan) {
       const replies: (Record<string, Answer> | undefined)[] = [];
-      const filmCache: DecideCache = { get: async () => undefined, set: () => {} };
       for (const part of filmPlan.calls) {
-        const r = await askChunk(part.state, part.questions, planner, filmCache, { fetchImpl: opts.fetchImpl, keepAnswers: true });
+        const r = await askChunk(part.state, part.questions, planner, cache, { fetchImpl: opts.fetchImpl, keepAnswers: true });
         requests++;
         requestTokens += part.tokens;
         if (r.decisionSource === "cache") cachedRequests++;
