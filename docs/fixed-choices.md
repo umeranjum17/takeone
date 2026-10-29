@@ -73,7 +73,7 @@ owns them, and the shipped ones need no entry here.
 ## Fixed, and a taste rule: not yet the planner's
 
 These are not limits. Each is a rule a person would call a style choice, kept fixed because
-the planner does not own it yet. They are the only open items.
+the planner does not own it yet. They are the only eight open items.
 
 | Rule | Where | Why it is still fixed | What closes it |
 |---|---|---|---|
@@ -84,11 +84,12 @@ the planner does not own it yet. They are the only open items.
 | Overlay emphasis when the planner abstains | `src/render/overlays.ts` · `shortcutKeys` | Every detected shortcut and click gets the same emphasis, a fixed presentation choice | Let the planner choose overlay emphasis for fallback beats |
 | Theme tokens | `src/themes.ts` · `midnight` | The planner chooses only a theme name; colours and typography remain fixed | Let the planner choose the theme tokens |
 | Phone frame look | `src/render/render.ts` · `corner_radius: 36` | The frame's corner radius is a fixed presentation choice | Let the planner choose the phone frame treatment |
+| Missing caption duration defaults to 3 s | `src/render/stage.ts` · `takeCaptions` | A caption with no positive finite duration gets a fixed hold | Require the film call to provide duration or derive it from reading time |
 
 A click ring's size (`ripple_ms`, `ripple_r` in `src/camera/defaults.ts`) is presentation
 physics: which clicks ring is the planner's (`clicks`), the ring's size is not a choice.
 
-Already planner-owned, and so absent from both tables: caption text and seconds (held to
-reading time, `src/decide/film.ts`), title text, spotlights, which keycaps and click rings
-show, theme, camera style, opening and ending, the closing beat, and the pitch film's
-structure and copy.
+Already planner-owned, and so absent from both tables: caption text and valid supplied
+seconds (bounded by reading time, `src/decide/film.ts`), title text, spotlights, which
+keycaps and click rings show, theme, camera style, opening and ending, the closing beat,
+and the pitch film's structure and copy.
