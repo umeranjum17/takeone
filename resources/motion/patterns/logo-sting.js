@@ -7,7 +7,8 @@ PATTERNS["logo-sting"] = (layer, s, ctx) => {
   const grow = track(0.85, [[0, 1]], { omega: 14, zeta: 0.8 });
   tick((ms) => {
     const tr = 0.2 * (1 - smootherstep(ms / 900));
-    mark.style.transform = `scale(${grow(ms).toFixed(4)})`;
+    const o = drift(ms, W);
+    mark.style.transform = `translate(${o.x.toFixed(2)}px,${o.y.toFixed(2)}px) scale(${grow(ms).toFixed(4)})`;
     mark.style.opacity = Math.max(0, Math.min(1, (ms + 225) / 450)).toFixed(4);
     mark.style.letterSpacing = `${tr.toFixed(4)}em`; mark.style.paddingLeft = `${tr.toFixed(4)}em`; // balances the trailing space so the word stays centred
   });
