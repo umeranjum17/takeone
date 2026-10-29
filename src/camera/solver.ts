@@ -1655,7 +1655,8 @@ function pressShots(frames: CameraFrame[], beats: Beat[], width: number, height:
   const spans: Act[] = [];
   for (const press of acts.filter((a) => a.press)) {
     if (redraws.some((t) => Math.abs(t - press.t0) <= d.cut_settle_ms / 1000)) continue;
-    if (shows(Math.max(start, press.t0 - lead), Math.min(end, press.t1), press.box)) continue;
+    // A tap must remain on screen after the press, not only until release.
+    if (shows(Math.max(start, press.t0 - lead), Math.min(end, press.t1 + tail), press.box)) continue;
     const last = spans.at(-1);
     const union = last && unionBBox(last.box, press.box);
     if (last && union && press.t0 - last.t1 < 2 * d.move_t_max && fits(union)) {
@@ -1801,7 +1802,9 @@ export function solveCameraDetailed(
       break;
     }
   }
-  if (cropped(width, height, d)) sampled = pressShots(sampled, directed, width, height, start, d, project, cuts);
+  // A letterboxed phone can still lose a tapped row during a long vertical pan.
+  if (cropped(width, height, d) || (take.device !== undefined && height > width))
+    sampled = pressShots(sampled, directed, width, height, start, d, project, cuts);
   // Bookends are editorial boundaries, independent of action dwell, move caps
   // and pointer follow. Ease out before the outro, then hold the exact stage.
   // Drag visibility is applied last, so a drag-safe viewport is never discarded:

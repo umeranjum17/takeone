@@ -304,7 +304,7 @@ test("render without trim_end uses the latest beat end", { timeout: 480_000, ski
     assert.throws(() =>
     assert.ok(square.length >= 20 && square.every(f => f.x === 0 && f.y === -840 && f.w === 3840 && f.h === 3840),
       "square camera stays at the centred rest frame"));
-    const box = { ...resolveTheme(undefined), out_w: 540, out_h: 540 };
+    const box = resolveCamera(dir, ["out_w=540", "out_h=540", "outro_s=0", "camera_path=solver"]);
     const boxStage = stageGeometry(3840, 2160, box);
     const squared = square.filter(f => f.t >= 3 && f.t <= 4.2)
       .map(f => sourceViewport(f, 3840, 2160, boxStage, box));
@@ -342,13 +342,15 @@ test("render without trim_end uses the latest beat end", { timeout: 480_000, ski
       "once the cut settles it arrives on the painted card"));
     // Instead the render names the late arrival, and the camera lands on the card at that time.
     const lateRun = spawnSync(process.execPath, ["bin/takeone.mjs", "render", dir, ...["out_w=960", "out_h=540", "fps=10",
-      "preset=ultrafast", "motion_blur=0", "idle_speed=1", "ripple_ms=0"].flatMap(v => ["--set", v])],
+      "preset=ultrafast", "motion_blur=0", "idle_speed=1", "ripple_ms=0", "camera_path=solver"].flatMap(v => ["--set", v])],
     { encoding: "utf8", env: { ...process.env, TAKEONE_DIR: dir, TAKEONE_STATE_DIR: join(dir, "state") } });
     const late = /zoom 2 ([\d.]+) s after its requested time, because it waits for the screen to paint/.exec(lateRun.stderr);
     assert.ok(lateRun.status === 0 && late, `a hold that waits for its box to paint reports how late it arrives: ${lateRun.stderr}`);
     const landed = widened.reduce((a, b) => Math.abs(b.t - 8.6 - Number(late[1])) < Math.abs(a.t - 8.6 - Number(late[1])) ? b : a);
-    assert.ok(contains(landed, [600, 400, 1000, 700]) && 3840 / landed.w > 2,
-      `once the cut settles it arrives on the painted card at the reported time: ${JSON.stringify(landed)}`);
+    const lateCamera = resolveCamera(dir, ["out_w=960", "out_h=540", "fps=10", "preset=ultrafast", "motion_blur=0", "idle_speed=1", "ripple_ms=0", "camera_path=solver"]);
+    const painted = sourceViewport(landed, 3840, 2160, stageGeometry(3840, 2160, lateCamera), lateCamera);
+    assert.ok(contains(painted, [600, 400, 1000, 700]) && 3840 / landed.w > 2,
+      `once the cut settles it arrives on the painted card at the reported time: ${JSON.stringify(painted)}`);
     await writeFile(join(dir, "take.json"), JSON.stringify({ ...plannedMeta,
       cuts: [{ t0: 1, t1: 1.5 }], speed: [{ t0: 3, t1: 4.2, rate: 2 }],
       zooms: [{ t0: 3, t1: 4.2, bbox: [1344, 504, 1152, 940], level: 3 }] }));
@@ -599,25 +601,33 @@ test("a phone take's portrait and wide exports move to each tapped control", { t
   const dir = await mkdtemp(join(tmpdir(), "takeone:phone-tap-"));
   try {
     await mkdir(join(dir, "analysis"));
-    execFileSync("ffmpeg", ["-v", "error", "-f", "lavfi", "-i", "testsrc2=s=540x1200:r=30:d=10",
+    // Two phone controls, not testsrc2's moving checkerboard (which text-masks every crop).
+    execFileSync("ffmpeg", ["-v", "error", "-f", "lavfi", "-i", "color=c=0xf6f7f9:s=540x1200:r=30:d=10",
+      "-vf", "drawbox=x=80:y=160:w=380:h=80:color=0x2e796f:t=fill,drawbox=x=80:y=1010:w=380:h=80:color=0x2e796f:t=fill",
       "-c:v", "mpeg4", "-q:v", "2", "-f", "matroska", "-y", join(dir, "screen.webm")]);
     await writeFile(join(dir, "take.json"), JSON.stringify({ id: "phone-tap", width: 540, height: 1200, device: "android",
       trim_start: 0, trim_end: 10 }));
     const taps = [{ id: "t1", t: 2.5, x: 270, y: 200 }, { id: "t2", t: 6.5, x: 270, y: 1050 }];
     const beats = taps.map(({ id, t, x, y }): Beat => ({ id, t0: t - 0.3, t1: t + 1, anchor_t: t, kind: "click",
-      actions: [{ k: "click", t, x, y, window_cls: "x" } as Action], zones: [zone("tap", [x - 60, y - 40, 120, 80])] }));
+      actions: [{ k: "click", t: t * 1000, x, y, window_cls: "x" } as Action], zones: [zone("tap", [x - 60, y - 40, 120, 80])] }));
     await writeFile(join(dir, "analysis/beats.json"), JSON.stringify(beats));
     await writeFile(join(dir, "analysis/decisions.jsonl"), beats.map(b => JSON.stringify({ ...decision(b, 2), A: "tap", L: 2 })).join("\n"));
     for (const [out_w, out_h] of [[360, 640], [640, 360]] as const) {
-      await renderTake(dir, { ...FAST, preset: "ultrafast", motion_blur: 0, out_w, out_h, idle_speed: 1, max_upscale: 2 });
+      const options = { ...FAST, preset: "ultrafast", motion_blur: 0, out_w, out_h, idle_speed: 1, max_upscale: 2 };
+      await renderTake(dir, options);
       const frames = JSON.parse(await readFile(join(dir, "camera.json"), "utf8")) as CameraFrame[];
       const at = (t: number) => frames[Math.round(t * FAST.fps)]!;
+      // A phone is letterboxed on a wider stage; camera.json is the stage input,
+      // while sourceViewport is the source rectangle the finished frame shows.
+      const shown = { ...options, corner_radius: 36, stage_margin: Math.max(0.16, options.stage_margin) };
+      const stage = stageGeometry(540, 1200, shown);
+      const viewAt = (t: number) => sourceViewport(at(t), 540, 1200, stage, shown);
       for (const { id, t, x, y } of taps) {
-        const view = at(t + 0.4);
+        const view = viewAt(t + 0.4);
         assert.ok(view.x <= x && x <= view.x + view.w && view.y <= y && y <= view.y + view.h,
           `${out_w}x${out_h}: the view shows the ${id} tap: ${JSON.stringify(view)}`);
       }
-      assert.ok(at(2.9).y + at(2.9).h / 2 < at(6.9).y + at(6.9).h / 2,
+      assert.ok(viewAt(2.9).y + viewAt(2.9).h / 2 < viewAt(6.9).y + viewAt(6.9).h / 2,
         `${out_w}x${out_h}: the view follows the taps down the screen`);
       assert.ok(frames.some(f => f.x !== frames[0]!.x || f.y !== frames[0]!.y || f.w !== frames[0]!.w),
         `${out_w}x${out_h}: the camera leaves the centred rest framing`);
