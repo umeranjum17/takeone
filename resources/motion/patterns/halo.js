@@ -107,8 +107,10 @@ const arrange = (kind, sizes, W, H, u) => {
     const sat = n > 1, hero = Math.min(((sat ? 0.6 : 0.62) * W) / aspect[0], (sat ? 0.6 : 0.68) * H) * aspect[0], hw = hero, hh = hero / aspect[0];
     const cx = sat ? W * 0.47 : W / 2, cy = H * 0.52, out = [{ cx, cy, w: hw, h: hh, z: 0.45, radius: radiusOf(hw, hh, aspect[0]) }];
     for (let j = 1; j < n; j++) {
-      const [fx, fy, sc] = SATELLITES[(j - 1) % SATELLITES.length], h2 = hh * 0.26 * sc, w2 = h2 * aspect[j];
-      out.push({ cx: cx - hw / 2 + fx * hw, cy: cy - hh / 2 + fy * hh, w: w2, h: h2, z: 0.9 + 0.1 * (j % 2), radius: radiusOf(w2, h2, aspect[j], "chips") });
+      const [fx, fy, sc] = SATELLITES[(j - 1) % SATELLITES.length], margin = u * 0.12;
+      const h2 = Math.min(hh * 0.26 * sc, H - 2 * margin, (W - 2 * margin) / aspect[j]), w2 = h2 * aspect[j];
+      const desiredX = cx - hw / 2 + fx * hw, desiredY = cy - hh / 2 + fy * hh;
+      out.push({ cx: Math.max(margin + w2 / 2, Math.min(W - margin - w2 / 2, desiredX)), cy: Math.max(margin + h2 / 2, Math.min(H - margin - h2 / 2, desiredY)), w: w2, h: h2, z: 0.9 + 0.1 * (j % 2), radius: radiusOf(w2, h2, aspect[j], "chips") });
     }
     return out;
   }
