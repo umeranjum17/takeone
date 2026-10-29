@@ -166,7 +166,8 @@ if (args.includes("auth") && args.includes("status")) {
     if (property.properties?.ranking) answers[name] = { ranking: property.properties.ranking.items.enum, confidence: 0.9 };
     else {
       const keys = Object.keys(property.properties.probabilities.properties);
-      answers[name] = { probabilities: Object.fromEntries(keys.map((key, index) => [key, keys.length === 1 ? 1 : index === 0 ? 0.9 : 0.1 / (keys.length - 1)])), pick: keys[0] };
+      const pick = keys.includes("false") ? "false" : keys[0];
+      answers[name] = { probabilities: Object.fromEntries(keys.map((key) => [key, key === pick ? 1 : 0])), pick };
       for (const key of property.required) if (!(key in answers[name])) answers[name][key] = "fixture";
     }
   }

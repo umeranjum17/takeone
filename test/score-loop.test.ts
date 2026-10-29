@@ -178,8 +178,8 @@ async function clickTake(act: [number, number, number, number], res: [number, nu
       actions: [{ k: "dwell", t0: 2.767, t1: 3.6 }, { k: "click", t: 3.683, x: act[0] + act[2] / 2, y: act[1] + act[3] / 2 }] },
   ];
   const decisions = [
-    { beat: "b1", A: "all", L: 0, p: 0, K: 1, conf: {}, decided_by: "heuristic" },
-    { beat: "b2", A: "control", L: 2, p: 0, K: 1, conf: {}, decided_by: "heuristic" },
+    { beat: "b1", A: "all", L: 0, p: 0, K: 1, conf: {}, decided_by: "ai" },
+    { beat: "b2", A: "control", L: 2, p: 1, K: 1, conf: {}, decided_by: "ai" },
   ];
   await mkdir(join(dir, "analysis"));
   await writeFile(join(dir, "analysis/beats.json"), JSON.stringify(beats));
