@@ -72,6 +72,8 @@ test("glow deck shows exactly one headline and one index, the front card's, on e
         if (Math.abs(local - Math.round(local / 550) * 550) > 1) {
           const i = Math.min(captions.length - 1, Math.floor(local / 550));
           assert.deepEqual([heads[0], nums[0]], [captions[i], `0${i + 1} / 03`], `frame ${f}`);
+          const front = await b.evaluate<number>(`(()=>{const cards=[...document.querySelectorAll('[data-pattern="glow-deck"] [data-safe^="card "]')], center=innerWidth/2;return cards.map((e,i)=>[i,Math.abs(e.getBoundingClientRect().left+e.getBoundingClientRect().width/2-center)]).sort((a,b)=>a[1]-b[1])[0][0];})()`);
+          assert.equal(front, i, `frame ${f}: caption ${heads[0]} but card ${front + 1} is front`);
         }
       }
     });
