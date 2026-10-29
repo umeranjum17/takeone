@@ -19,7 +19,7 @@ export function parsePiece(spec: string): { rect: [number, number, number, numbe
   return { rect: [+m[1]!, +m[2]!, +m[3]!, +m[4]!], kind: m[5] as (typeof KINDS)[number], ...(m[6] ? { title: m[6] } : {}), screen: m[7] ?? "S1" };
 }
 
-export function planHalo(a: GlowArgs, id: string): unknown {
+export function planHalo(a: GlowArgs, id: string, outputSize: readonly [number, number] = [1920, 1080]): unknown {
   if (!a.inputs.length || a.inputs.some(f => !/\.(png|jpe?g|webp)$/i.test(f))) throw new Error("--recipe halo takes screenshots (png, jpg or webp)");
   if (!a.pitch?.trim()) throw new Error("--recipe halo needs --pitch \"one line, in sentences: the tagline, then up to two kinetic lines\"");
   const sentences = a.pitch.split(/(?<=[.!?])\s+|\s*\|\s*/).map(s => s.trim()).filter(Boolean);
@@ -61,7 +61,7 @@ export function planHalo(a: GlowArgs, id: string): unknown {
   scenes.push(fit({ pattern: "halo-end", d: 0, mark, logo: a.logo ?? "TakeOne", ...(a.url ? { credit: a.url } : {}) }, 2));
   return {
     version: 1, id,
-    output: { ...(a.workers !== undefined ? { workers: a.workers } : {}) },
+    output: { out_w: outputSize[0], out_h: outputSize[1], ...(a.workers !== undefined ? { workers: a.workers } : {}) },
     theme: { name: "midnight", overrides: {} },
     source: { kind: "image", files: a.inputs.map(f => resolve(f)) },
     screens: Object.create(null), regions: [], crops,

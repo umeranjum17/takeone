@@ -501,7 +501,7 @@ export async function runMotion(argv: string[], takesDir: string, o: PlanOptions
       const plan = a.recipe === "bento" ? planBento : planEditorial;
       storyboard = await plan(a, id, o.warn ?? ((line: string) => console.error(line)));
     } else if (a.recipe === "glow") storyboard = await planGlow(a, id);
-    else if (a.recipe === "halo") storyboard = planHalo({ ...a }, id);
+    else if (a.recipe === "halo") storyboard = planHalo({ ...a }, id, ASPECTS[a.aspect ?? "landscape"]);
     else storyboard = await planMotion(a, id, o);
   }
   const sb = validateStoryboard(storyboard); // refuse bad plans before touching the disk

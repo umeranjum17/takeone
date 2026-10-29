@@ -32,6 +32,12 @@ test("every recipe plans its approved patterns in landscape and portrait, and so
         assert.deepEqual([sb!.output.out_w, sb!.output.out_h], aspect === "portrait" ? [1080, 1920] : [1920, 1080]);
       }
     }
+    const halo = [BOARD, "--recipe", "halo", "--pitch", "Your crew. Ship it.", "--logo", "Tidewater", "--region", "0,0,400,300:logo", "--region", "800,100,500,400:card"];
+    for (const [aspect, size] of [["landscape", [1920, 1080]], ["portrait", [1080, 1920]], ["square", [1080, 1080]]] as const) {
+      const { r, sb } = plan(dir, `halo-${aspect}`, [...halo, ...(aspect === "landscape" ? [] : ["--aspect", aspect])]);
+      assert.equal(r.status, 0, r.stderr);
+      assert.deepEqual([sb!.output.out_w, sb!.output.out_h], size);
+    }
     const social = plan(dir, "social-default", [BOARD, ...REGIONS, "--recipe", "social"]).sb!;
     assert.deepEqual([social.output.out_w, social.output.out_h], [1080, 1920]);
     const each = plan(dir, "each", [BOARD, BOARD, ...REGIONS, "--pattern", "logo-sting,spotlight,feature-callouts,before-after,device-orbit"]).sb!;
