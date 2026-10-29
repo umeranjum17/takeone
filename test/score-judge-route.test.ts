@@ -4,6 +4,7 @@ import { chmodSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { JUDGE_MODEL, resolveJudge } from "../src/decide/planner.ts";
+import { answerScore, JudgeUnavailable } from "../src/score/judge.ts";
 
 /** A throwaway PATH holding only a fake `claude` that answers `auth status`. */
 function fakeClaude(status: object | null): NodeJS.ProcessEnv {
@@ -44,4 +45,13 @@ test("no Claude CLI or an API-key login leaves the judge unavailable with the re
   const keyed = await resolveJudge({ env: fakeClaude({ loggedIn: true, authMethod: "api_key", apiProvider: "firstParty" }), configDir: join(tmpdir(), "judge-route-none") });
   assert.equal(keyed.active, false);
   assert.match(keyed.refusal ?? "", /API key/);
+});
+
+test("judge scores must be integers from 0 through 10", () => {
+  const answer = (value: number) => ({ answer: value }) as Parameters<typeof answerScore>[1];
+  assert.equal(answerScore("read", answer(0)), 0);
+  assert.equal(answerScore("read", answer(10)), 10);
+  for (const value of [-1, 2.5, 11]) {
+    assert.throws(() => answerScore("read", answer(value)), JudgeUnavailable);
+  }
 });

@@ -89,6 +89,9 @@ export function answerScore(id: string, answer: Answer | undefined): number {
   }
   const value = tied ?? (typeof answer!.answer === "number" ? answer!.answer : Number(answer!.answer));
   if (!Number.isFinite(value)) throw new JudgeUnavailable(`${id}: non-numeric answer`);
+  if (!Number.isInteger(value) || value < 0 || value > 10) {
+    throw new JudgeUnavailable(`${id}: score must be an integer from 0 to 10`);
+  }
   return value;
 }
 
