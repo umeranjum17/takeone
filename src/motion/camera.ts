@@ -145,7 +145,6 @@ export function sceneCameras(sb: Storyboard, dir?: string): Record<string, (Came
     paths[key] = Array.from({ length: Math.ceil(scene.d * sb.output.fps) + 1 }, (_, f) => {
       const t = f / sb.output.fps;
       let view = full, caption = "";
-      let holdAt = 0;
       for (const segment of segments) {
         if (t < segment.at) break;
         const u = Math.min(1, (t - segment.at) / segment.d), a = u * u * u * (u * (u * 6 - 15) + 10), { from, to } = segment;
@@ -153,15 +152,7 @@ export function sceneCameras(sb: Storyboard, dir?: string): Record<string, (Came
         view = { x: from.x + (to.x - from.x) * a, y: from.y + (to.y - from.y) * a, w, h: w * screen.height / screen.width };
         if (t >= segment.at + segment.d) {
           caption = segment.caption;
-          holdAt = segment.at + segment.d;
         }
-      }
-      // Keep reading holds alive with a restrained camera drift. Without it,
-      // the final stop is a long static screenshot and fails the motion freeze gate.
-      if (holdAt > 0 && t >= holdAt) {
-        const phase = ((t - holdAt) % 0.8) / 0.8;
-        const drift = phase < 0.5 ? phase * 4 - 1 : 3 - phase * 4;
-        view.y = Math.max(0, Math.min(screen.height - view.h, view.y + drift * view.h * 0.015));
       }
       const border = scene.device === "laptop" ? 12 : 2;
       const bar = (scene.device ?? "browser") === "browser" ? size.height * .075 : scene.device === "phone" ? size.height * .045 : 0;
