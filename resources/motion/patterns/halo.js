@@ -110,9 +110,11 @@ const arrange = (kind, sizes, W, H, u) => {
     return { w, h: hh, z: z(sc), radius: radiusOf(w, hh, aspect[i]) };
   });
   if (kind === "stack") {
-    const step = items.map((p) => p.h * 0.88), total = step.reduce((m, x) => m + x, 0) + items.at(-1).h * 0.12;
+    const fit = Math.min(1, H * 0.8 / (items.reduce((m, p) => m + p.h * 0.88, 0) + items.at(-1).h * 0.12));
+    const fitted = items.map((p) => ({ ...p, w: p.w * fit, h: p.h * fit }));
+    const step = fitted.map((p) => p.h * 0.88), total = step.reduce((m, x) => m + x, 0) + fitted.at(-1).h * 0.12;
     let y = (H - total) / 2;
-    return items.map((p, i) => { const c = { ...p, cx: W / 2 + (i % 2 ? 1 : -1) * W * 0.05, cy: y + p.h / 2 }; y += step[i]; return c; });
+    return fitted.map((p, i) => { const c = { ...p, cx: W / 2 + (i % 2 ? 1 : -1) * W * 0.05, cy: y + p.h / 2 }; y += step[i]; return c; });
   }
   const overlap = kind === "chips" ? 0.06 : 0.05, fit = Math.min(1, (W * 0.8) / (items.reduce((m, p) => m + p.w * (1 - overlap), 0) + items.at(-1).w * overlap));
   let x = 0;
