@@ -27,6 +27,7 @@ import { applyPlan, readPlan, validatePlan, withUserFilm } from "../decide/plan.
 import { withFilmText } from "../decide/film.ts";
 import { runFfmpeg } from "./ffmpeg.ts";
 import { addSound } from "./sound.ts";
+import { bubbleGraph, webcamClip } from "./webcam.ts";
 import { encodePng } from "../motion/png.ts";
 import { ensureProxy, previewDefaults, previewTiming, proxySize, scaleBand, scaleBeat, scaleEvent, scaleFrames, scaleMeta, type PreviewSpec } from "./preview.ts";
 import {
@@ -459,6 +460,8 @@ export async function renderTake(dir: string, camera?: CameraDefaults, preview?:
     }
   }
 
+  const webcam = webcamClip(dir, meta, d, videoStartMs(dir, meta));
+
   const outputDir = join(dir, "out");
   await mkdir(outputDir, { recursive: true });
   const id = meta.id ?? basename(dir);
@@ -540,7 +543,15 @@ export async function renderTake(dir: string, camera?: CameraDefaults, preview?:
       `[composed]null[keycapInput]`,
       keycapBackdropGraph(duration, d, filterPath(keyMaskFile)),
     ] : []),
-    `${hasDialogue(keys) ? "[keycapOutput]" : "[composed]"}null${cursorOverlay}${captionsOverlay}${keysOverlay}`
+    ...(webcam ? (() => {
+      // The bubble sits over the footage and the drawn cursor, under captions and keycaps.
+      const bubble = bubbleGraph({ input: "3:v", offset: webcam.offset, trimStart, trimEnd,
+        clock: clock?.filter ?? `setpts='${setptsExpr(squeezes, d.idle_speed)}'`, from, frames: cameraFrames,
+        restW: cameraW, fps: d.fps }, d);
+      return [`${hasDialogue(keys) ? "[keycapOutput]" : "[composed]"}null${cursorOverlay}[footage]`, ...bubble.lines,
+        `[footage][bubble]${bubble.overlay}[withBubble]`];
+    })() : []),
+    `${webcam ? "[withBubble]" : hasDialogue(keys) ? "[keycapOutput]" : "[composed]"}null${webcam ? "" : cursorOverlay}${captionsOverlay}${keysOverlay}`
       // Fading toward a flat colour also fades the stage grain, so dark gradients band in
       // 8-bit. The dither has to stay above one 8-bit level (c0s=6 measures 0.73 luma levels
       // and anything under c0s=4 rounds away at 8-bit) and at full strength for the whole
@@ -574,6 +585,7 @@ export async function renderTake(dir: string, camera?: CameraDefaults, preview?:
     "-i", source,
     "-framerate", String(d.fps), "-i", stageFile,
     "-framerate", String(d.fps), "-i", holesFile,
+    ...(webcam ? ["-i", webcam.file] : []),
     // Slice threads keep the stage filters from starving the encoder.
     // The encoder joins the cap only when TAKEONE_RENDER_THREADS sets one; unset keeps ffmpeg's own default.
     ...(process.env.TAKEONE_RENDER_THREADS === undefined ? [] : ["-threads", threads]),
