@@ -14,6 +14,7 @@ import { MAX_DURATION_S, minSceneDuration, readingFloor, validateStoryboard } fr
 import { planBento } from "./bento.ts";
 import { planEditorial } from "./editorial.ts";
 import { FILM_USAGE, newTakeDir, runFilm } from "./film.ts";
+import { planGlow } from "./glow.ts";
 import type { Device, MotionEngine, PatternName, Region, Scene } from "./types.ts";
 
 /** The named recipes the local planner lays out from flags: the patterns each one plays, in order. */
@@ -36,6 +37,7 @@ export const MOTION_USAGE = `takeone motion <image.png|page.html|https://url|tak
   [--engine hyperframes|legacy] [--alpha] [--redaction-dry-run --out DIR] [--public-domain example.com]...
 takeone motion <screenshot.png> --recipe editorial|bento --pitch TEXT [--logo WORD] [--cta TEXT] [--url TEXT] [--audio FILE] [--out DIR]
 takeone motion film <video.mp4> [--intro BRIEF] [--callout "BRIEF@SECONDS"]... [--outro BRIEF] [--tech html|canvas|three] [--out DIR]
+takeone motion <screen.png> [phone.png] --recipe glow --title HEADLINE --pitch TYPED_PROMPT --press "BUTTON TEXT"|x,y,w,h --logo WORD [--frame x,y,w,h] [--subtitle KINETIC_WORDS] [--tree "Crew,>Chief,>Scout"] [--cta TEXT] [--url TEXT] [--audio FILE] [--out DIR]
 takeone motion install-shell         download the pinned chrome-headless-shell (sha256 checked)
 takeone motion install-hyperframes   install hyperframes@0.8.200 + chrome-headless-shell@156.0.8078.47
 
@@ -57,6 +59,9 @@ takeone motion install-hyperframes   install hyperframes@0.8.200 + chrome-headle
   x,y,w,h:label marks the lit regions (spotlight, feature-callouts need them; callouts take 2 to 5), before-after
   takes two images (or two --state names) and --subtitle as its delta line. --aspect sets the output shape for
   any plan (portrait is 1080x1920); --recipe and --pattern are exclusive.
+  --recipe glow plans a 5-9 s promo locally, no engine: a typed prompt, kinetic words, a headline over a gradient
+  ribbon, a file tree, the real screen and a glowing click on the control that --press names (found by OCR), and
+  the end card, cut fast on a near-black navy stage with a blue glow.
 
   --recipe editorial plans an editorial launch film with the signed-in AI engine: a struck-word headline,
   the screen large on a phone with a tap, a stack of the screen's own UI lines, a four-tile canon, the
@@ -72,7 +77,7 @@ export interface MotionArgs {
   inputs: string[]; out?: string; patterns?: PatternName[]; theme?: string; title?: string;
   subtitle?: string; cta?: string; url?: string; logo?: string; device?: Device; regions: string[]; states: [string, string][];
   workers?: number; blur?: number; storyboard?: string; planOnly: boolean; noAi?: boolean; engine: MotionEngine;
-  recipe?: Recipe | "editorial" | "bento"; pitch?: string; audio?: string; alpha?: boolean; aspect?: Aspect;
+  recipe?: Recipe | "editorial" | "bento" | "glow"; press?: string; frame?: string; tree?: string; pitch?: string; audio?: string; alpha?: boolean; aspect?: Aspect;
   redactionDryRun?: boolean; publicDomains: string[];
 }
 
@@ -113,12 +118,15 @@ export function parseMotionArgs(argv: string[]): MotionArgs {
     else if (s === "--blur") a.blur = Number(v);
     else if (s === "--storyboard") a.storyboard = v;
     else if (s === "--recipe") {
-      if (v !== "editorial" && v !== "bento" && !Object.hasOwn(RECIPES, v)) throw new Error(`--recipe expects ${[...Object.keys(RECIPES), "editorial", "bento"].join(", ")}, got ${v}`);
-      a.recipe = v as Recipe | "editorial" | "bento";
+      if (v !== "editorial" && v !== "bento" && v !== "glow" && !Object.hasOwn(RECIPES, v)) throw new Error(`--recipe expects ${[...Object.keys(RECIPES), "editorial", "bento", "glow"].join(", ")}, got ${v}`);
+      a.recipe = v as Recipe | "editorial" | "bento" | "glow";
     } else if (s === "--aspect") {
       if (!Object.hasOwn(ASPECTS, v)) throw new Error(`--aspect expects ${Object.keys(ASPECTS).join(", ")}, got ${v}`);
       a.aspect = v as Aspect;
     } else if (s === "--pitch") a.pitch = v;
+    else if (s === "--press") a.press = v;
+    else if (s === "--frame") a.frame = v;
+    else if (s === "--tree") a.tree = v;
     else if (s === "--audio") a.audio = v;
     else if (s === "--engine") {
       if (v !== "hyperframes" && v !== "legacy") throw new Error(`--engine expects hyperframes or legacy, got ${v}`);
@@ -226,7 +234,7 @@ export function planStoryboard(a: MotionArgs, id: string): unknown {
   const wideRegions = a.regions.map((r, i) => parseRegion(r, i, screens[0]!, dsf));
   const regions = wideRegions.flatMap((r) => splitWide(r, dsf));
   if (a.recipe && a.patterns) throw new Error("--recipe and --pattern are exclusive; a recipe names its own patterns");
-  const recipe = a.recipe && a.recipe !== "editorial" && a.recipe !== "bento" ? a.recipe : undefined;
+  const recipe = a.recipe && a.recipe !== "editorial" && a.recipe !== "bento" && a.recipe !== "glow" ? a.recipe : undefined;
   const patterns: readonly PatternName[] = a.patterns ?? (recipe ? RECIPES[recipe] : ["hero-reveal", "zoom-tour", "end-card"]);
   const [outW, outH] = ASPECTS[a.aspect ?? (recipe === "social" ? "portrait" : "landscape")];
   const title = a.title ?? "See it in motion.";
@@ -477,7 +485,8 @@ export async function runMotion(argv: string[], takesDir: string, o: PlanOptions
       if (a.noAi) throw new Error(`--recipe ${a.recipe} is planned by the AI engine; there is no --no-ai plan for it`);
       const plan = a.recipe === "bento" ? planBento : planEditorial;
       storyboard = await plan(a, id, o.warn ?? ((line: string) => console.error(line)));
-    } else storyboard = await planMotion(a, id, o);
+    } else if (a.recipe === "glow") storyboard = await planGlow(a, id);
+    else storyboard = await planMotion(a, id, o);
   }
   const sb = validateStoryboard(storyboard); // refuse bad plans before touching the disk
   const dir = newTakeDir(a.out, takesDir);
