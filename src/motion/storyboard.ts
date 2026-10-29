@@ -230,6 +230,11 @@ function scene(raw: unknown, path: string): Scene {
     if (!Array.isArray(tree) || tree.length < 2 || tree.length > 8) throw new StoryboardError(`${path}.tree`, "glow-tree needs 2 to 8 rows");
     s.tree = tree.map((t, j) => str(t, `${path}.tree[${j}]`, 40));
   }
+  if (s.pattern === "glow-deck") {
+    const cards = raw["cards"];
+    if (!Array.isArray(cards) || cards.length < 2 || cards.length > 5 || cards.some(c => !isObj(c) || !ID.test(String(c["screen"])) || typeof c["caption"] !== "string" || !c["caption"].trim())) throw new StoryboardError(`${path}.cards`, "glow-deck needs 2 to 5 cards, each {screen: a crop id, caption}");
+    s.cards = cards.map((c, j) => ({ screen: String(c["screen"]), caption: str(c["caption"], `${path}.cards[${j}].caption`, 32) }));
+  }
   if (s.pattern === "glow-screen") {
     const tap = raw["tap"];
     if (typeof s.screen !== "string" || !Array.isArray(tap) || tap.length !== 4 || tap.some(v => typeof v !== "number" || !Number.isFinite(v))) throw new StoryboardError(`${path}.tap`, "glow-screen needs a crop screen and tap [x, y, w, h]");
@@ -469,6 +474,7 @@ export function validateStoryboard(raw: unknown): Storyboard {
     for (const c of s.reel?.shots ?? []) if (Object.keys(screens).length && !Object.hasOwn(screens, c)) throw new StoryboardError(`scenes[${i}].reel`, `unknown screen ${c}`);
     if ((s.pattern === "phone-story" || s.pattern === "glow-screen") && !Object.hasOwn(crops, s.screen!)) throw new StoryboardError(`scenes[${i}].screen`, `${s.pattern} shows a crop: name one of crops`);
     for (const c of [...(s.items ?? []), ...(s.mark ? [s.mark] : [])]) if (!Object.hasOwn(crops, c)) throw new StoryboardError(`scenes[${i}]`, `halo scenes show crops: ${c} is not one of crops`);
+    for (const c of s.cards ?? []) if (!Object.hasOwn(crops, c.screen)) throw new StoryboardError(`scenes[${i}].cards`, `glow-deck shows crops: ${c.screen} is not one of crops`);
     if (s.lens !== undefined && !Object.hasOwn(crops, s.lens)) throw new StoryboardError(`scenes[${i}].lens`, "the lens shows a crop: name one of crops");
     if (s.at! < 0) throw new StoryboardError(`scenes[${i}].at`, "negative scene starts are not supported");
     if (s.pattern === "clip") { // every footage segment must play to its end: a short clip would freeze

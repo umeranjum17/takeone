@@ -43,7 +43,7 @@ export const MOTION_USAGE = `takeone motion <image.png|page.html|https://url|tak
 takeone motion <screen.png>... --recipe halo --pitch "Tagline. Line one. Line two." --logo WORD --region x,y,w,h:logo@S1 --region x,y,w,h:row|stack|card|chips[:title]@S1... [--url CREDIT] [--out DIR]
 takeone motion <screenshot.png> --recipe editorial|bento --pitch TEXT [--logo WORD] [--cta TEXT] [--url TEXT] [--audio FILE] [--out DIR]
 takeone motion film <video.mp4> [--intro BRIEF] [--callout "BRIEF@SECONDS"]... [--outro BRIEF] [--tech html|canvas|three] [--out DIR]
-takeone motion <screen.png> [phone.png] --recipe glow --title HEADLINE --pitch TYPED_PROMPT --press "BUTTON TEXT"|x,y,w,h --logo WORD [--brand brand.json|DESIGN.md] [--frame x,y,w,h] [--subtitle KINETIC_WORDS] [--tree "Crew,>Chief,>Scout"] [--cta TEXT] [--url TEXT] [--audio FILE] [--out DIR]
+takeone motion <screen.png> [phone.png] --recipe glow --title HEADLINE --pitch TYPED_PROMPT --press "BUTTON TEXT"|x,y,w,h --logo WORD [--brand brand.json|DESIGN.md] [--frame x,y,w,h] [--subtitle KINETIC_WORDS] [--tree "Crew,>Chief,>Scout"] [--region x,y,w,h:CAPTION]... [--cta TEXT] [--url TEXT] [--audio FILE] [--out DIR]
 takeone motion <inputs...> --gauntlet [--max-rounds M]   after rendering, have a fresh critic score every scene against the reference and repair what falls short
 takeone gauntlet <motion-dir> [--max-rounds M]   the same critique, repair and ledger on a motion take already rendered
 takeone motion --storyboard template.json --data rows.csv [--out DIR] [--plan-only]
@@ -74,7 +74,9 @@ takeone motion install-hyperframes   install hyperframes@0.8.200 + chrome-headle
   any plan (portrait is 1080x1920); --recipe and --pattern are exclusive.
   --recipe glow plans a 5-9 s promo locally, no engine: a typed prompt, kinetic words, a headline over a gradient
   ribbon, a file tree, the real screen and a glowing click on the control that --press names (found by OCR), and
-  the end card, cut fast on a near-black navy stage with a blue glow. --brand reads a brand.json or a DESIGN.md
+  the end card, cut fast on a near-black navy stage with a blue glow. 2 to 5 --region x,y,w,h:caption add a deck
+  beat: those regions of the screen as cards fanned in depth, one stepping to the front every 0.55 s with its caption.
+  --brand reads a brand.json or a DESIGN.md
   (frontmatter colors, a Typography section) from disk and dresses the same promo in its colours, fonts (bundled
   families only; any other is an error) and an optional logo image; nothing is fetched and no model is called.
 
