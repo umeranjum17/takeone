@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { resolve } from "node:path";
 import { planHalo } from "../src/motion/halo.ts";
+import { frozenAllowList } from "../src/motion/gates.ts";
 import { readingFloor, validateStoryboard } from "../src/motion/storyboard.ts";
 
 const BOARD = resolve("resources/demo/tidewater-board.png");
@@ -32,6 +33,12 @@ test("halo end scene reserves reading time after its credit appears", () => {
   const sb = planHalo({ inputs: [BOARD], regions, pitch: "Your crew. No chatbot. Asks first.", url }, "halo-credit") as { scenes: { pattern: string; d: number }[] };
   const end = sb.scenes.find(s => s.pattern === "halo-end")!;
   assert.ok(end.d >= 1.5 + readingFloor(url));
+});
+
+test("halo end scene is treated as the designed final hold by the frozen-time gate", () => {
+  const sb = validateStoryboard(planHalo({ inputs: [BOARD], regions, pitch: "Your crew." }, "halo-frozen"));
+  const end = sb.scenes.find(s => s.pattern === "halo-end")!;
+  assert.deepEqual(frozenAllowList(sb), [[end.at, end.at! + end.d]]);
 });
 
 test("halo recipe carries the selected theme into its storyboard", () => {

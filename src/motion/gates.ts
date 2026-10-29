@@ -34,7 +34,7 @@ export function frozenRuns(ydif: number[], fps: number, allow: [number, number][
 
 /** The storyboard's end-card windows: the one place a motionless hold is the design. */
 export function frozenAllowList(sb: Storyboard): [number, number][] {
-  return sb.scenes.filter((s) => s.pattern === "end-card").map((s) => [s.at ?? 0, (s.at ?? 0) + s.d]);
+  return sb.scenes.filter((s) => s.pattern === "end-card" || s.pattern === "halo-end").map((s) => [s.at ?? 0, (s.at ?? 0) + s.d]);
 }
 
 export async function measureFrozen(film: string, sb: Storyboard, filmSeconds: number): Promise<FrozenReport> {

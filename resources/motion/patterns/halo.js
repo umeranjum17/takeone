@@ -77,7 +77,7 @@ PATTERNS["halo-open"] = (layer0, s, ctx) => {
   const pw = ph + gap * 0.6 + tw + ph * 0.45, inner = ph * 0.74;
   const hal = halo(layer, W, H, cx, cy, big * 3);
   K(hal, [[0, { opacity: 0, transform: "scale(.5)" }], [600, { opacity: 1, transform: "scale(1)" }, INOUT], [1500, { opacity: 0.55, transform: "scale(.8)" }], [s.d * 1000, { opacity: 0.8, transform: "scale(1.05)" }]]);
-  const pill = h(`<div style="position:absolute;left:${cx}px;top:${cy}px;height:${ph}px;margin-top:${-ph / 2}px;border-radius:${ph}px;background:#0a0d12cc;box-shadow:0 0 0 ${Math.max(2, u * 0.003)}px rgb(${accentRgb().join(",")} / .75),0 0 ${u * 0.05}px rgb(${accentRgb().join(",")} / .45)"></div>`);
+  const pill = h(`<div style="position:absolute;left:${cx}px;top:${cy}px;height:${ph}px;margin-top:${-ph / 2}px;border-radius:${ph}px;background:var(--card);box-shadow:0 0 0 ${Math.max(2, u * 0.003)}px rgb(${accentRgb().join(",")} / .75),0 0 ${u * 0.05}px rgb(${accentRgb().join(",")} / .45)"></div>`);
   layer.append(pill);
   K(pill, [[0, { opacity: 0, width: `${big}px`, transform: `translateX(${-big / 2}px)` }], [650, { opacity: 0, width: `${big}px`, transform: `translateX(${-big / 2}px)` }],
     [651, { opacity: 1, width: `${ph}px`, transform: `translateX(${-ph / 2}px)` }, EXPO], [1100, { opacity: 1, width: `${pw}px`, transform: `translateX(${-pw / 2}px)` }]]);
