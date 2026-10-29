@@ -86,3 +86,17 @@ test("takeone gauntlet with no signed-in judge stops with the sign-in line befor
     assert.ok(!existsSync(join(dir, "gauntlet.jsonl")) && !existsSync(join(dir, "out")), "nothing rendered, nothing logged");
   } finally { rmSync(home, { recursive: true, force: true }); }
 });
+
+test("motion --gauntlet with no signed-in judge exits 3 before making a take", () => {
+  const home = mkdtempSync(join(tmpdir(), "takeone-motion-gauntlet-nojudge-"));
+  try {
+    const takes = join(home, "takes");
+    const r = spawnSync(process.execPath, [resolve("bin/takeone.mjs"), "motion", BOARD, "--gauntlet", "--no-ai"], {
+      encoding: "utf8", timeout: 60_000,
+      env: { HOME: home, XDG_CONFIG_HOME: join(home, ".config"), TAKEONE_DIR: takes, TAKEONE_NO_KEYRING: "1", PATH: dirname(process.execPath) },
+    });
+    assert.equal(r.status, 3, r.stderr);
+    assert.match(r.stderr, /score judge: unavailable/);
+    assert.ok(!existsSync(takes) || readdirSync(takes).length === 0, "no take is created");
+  } finally { rmSync(home, { recursive: true, force: true }); }
+});

@@ -251,7 +251,7 @@ export async function main(argv: string[]): Promise<number> {
       return await runMotion(rest, takesDir());
     } catch (e) {
       console.error(e instanceof PlannerUnavailable && e.credentialMissing ? e.message : `takeone motion: ${e instanceof Error ? e.message : e}`);
-      return e instanceof PlannerUnavailable ? 3 : 1;
+      return e instanceof PlannerUnavailable || e instanceof JudgeUnavailable ? 3 : 1;
     }
   }
   if (cmd === "zoom" || cmd === "look") {
