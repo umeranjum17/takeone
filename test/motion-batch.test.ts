@@ -77,3 +77,21 @@ test("--data --plan-only writes a take per row and batch.json without rendering"
     await assert.rejects(runMotion(["shot.png", "--storyboard", TEMPLATE, "--data", csv], join(dir, "takes")), /--data fills a --storyboard template/);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
+
+test("--data rejects every option the batch path does not apply before reading inputs", async () => {
+  const unsupported = [
+    ["--pattern", "hero-reveal"], ["--theme", "midnight"], ["--title", "Title"], ["--subtitle", "Subtitle"],
+    ["--cta", "Try it"], ["--url", "example.com"], ["--logo", "Acme"], ["--device", "browser"],
+    ["--region", "1,2,3,4"], ["--state", "ready=wait 1"], ["--workers", "2"], ["--blur", "1"],
+    ["--no-ai"], ["--recipe", "launch"], ["--alpha"], ["--gauntlet"], ["--max-rounds", "3"],
+    ["--aspect", "portrait"], ["--redaction-dry-run"], ["--public-domain", "example.com"], ["--pitch", "Pitch"],
+    ["--press", "Submit"], ["--frame", "1,2,3,4"], ["--tree", "Crew"], ["--audio", "track.wav"],
+  ];
+  for (const [flag, ...args] of unsupported) {
+    await assert.rejects(
+      runMotion(["--storyboard", "missing-template.json", "--data", "missing-rows.csv", flag!, ...args], "unused-takes"),
+      new RegExp(`--data does not support ${flag}`),
+      `${flag} must be rejected before batch inputs are read`,
+    );
+  }
+});

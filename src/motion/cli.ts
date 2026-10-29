@@ -475,8 +475,8 @@ export async function runMotion(argv: string[], takesDir: string, o: PlanOptions
   if (argv[0] === "film") return await runFilm(argv.slice(1), takesDir, o.warn);
   if (!argv.length || argv.includes("--help") || argv.includes("-h")) { console.error(MOTION_USAGE); return argv.length ? 0 : 2; }
   const a = parseMotionArgs(argv);
-  if (a.publicDomains.length && !a.redactionDryRun) throw new Error("--public-domain applies only to --redaction-dry-run");
-  if (a.redactionDryRun) {
+  if (a.publicDomains.length && !a.redactionDryRun && a.data === undefined) throw new Error("--public-domain applies only to --redaction-dry-run");
+  if (a.redactionDryRun && a.data === undefined) {
     if (!a.out || !a.inputs.length || a.storyboard || a.inputs.some(f => inputKind(f) !== "image"))
       throw new Error("--redaction-dry-run needs PNG image inputs and --out DIR; no storyboard or URL");
     for (const f of a.inputs) if (!existsSync(f)) throw new Error("redaction input missing; image not sent");
@@ -492,17 +492,31 @@ export async function runMotion(argv: string[], takesDir: string, o: PlanOptions
     console.log(join(dir, "redaction-report.json"));
     return 0;
   }
+  if (a.data !== undefined) {
+    const unsupported: [boolean, string][] = [
+      [a.patterns !== undefined, "--pattern"], [a.theme !== undefined, "--theme"], [a.title !== undefined, "--title"],
+      [a.subtitle !== undefined, "--subtitle"], [a.cta !== undefined, "--cta"], [a.url !== undefined, "--url"],
+      [a.logo !== undefined, "--logo"], [a.device !== undefined, "--device"], [a.regions.length > 0, "--region"],
+      [a.states.length > 0, "--state"], [a.workers !== undefined, "--workers"], [a.blur !== undefined, "--blur"],
+      [a.noAi === true, "--no-ai"], [a.recipe !== undefined, "--recipe"], [a.alpha === true, "--alpha"],
+      [a.gauntlet === true, "--gauntlet"], [a.maxRounds !== undefined, "--max-rounds"], [a.aspect !== undefined, "--aspect"],
+      [a.redactionDryRun === true, "--redaction-dry-run"], [a.publicDomains.length > 0, "--public-domain"],
+      [a.pitch !== undefined, "--pitch"], [a.press !== undefined, "--press"], [a.frame !== undefined, "--frame"],
+      [a.tree !== undefined, "--tree"], [a.audio !== undefined, "--audio"],
+      [a.brand !== undefined, "--brand"],
+    ];
+    const ignored = unsupported.find(([present]) => present)?.[1];
+    if (ignored) throw new Error(`--data does not support ${ignored}`);
+    if (!a.storyboard || a.inputs.length) throw new Error("--data fills a --storyboard template, one film per row; it takes no inputs");
+    const rows = planBatch(JSON.parse(readFileSync(a.storyboard, "utf8")), readFileSync(a.data, "utf8")); // every row checked before the disk is touched
+    await runBatch(newTakeDir(a.out, takesDir), rows, { engine: a.engine, planOnly: a.planOnly, template: a.storyboard, data: a.data }, o.warn);
+    return 0;
+  }
   if (a.gauntlet) {
     if (a.planOnly) throw new Error("--gauntlet scores a rendered film; it cannot be combined with --plan-only");
     validateMaxRounds(a.maxRounds ?? DEFAULT_GAUNTLET_ROUNDS);
     const judge = await resolveJudge();
     if (!judge.active) throw new JudgeUnavailable(`unavailable - ${judge.label} cannot serve: ${judge.refusal ?? "no sign-in"}. Sign in with \`claude\`, or save another route in judge.json`);
-  }
-  if (a.data) {
-    if (!a.storyboard || a.inputs.length || a.recipe || a.patterns || a.alpha) throw new Error("--data fills a --storyboard template, one film per row; it takes no inputs, --recipe, --pattern or --alpha");
-    const rows = planBatch(JSON.parse(readFileSync(a.storyboard, "utf8")), readFileSync(a.data, "utf8")); // every row checked before the disk is touched
-    await runBatch(newTakeDir(a.out, takesDir), rows, { engine: a.engine, planOnly: a.planOnly, template: a.storyboard, data: a.data }, o.warn);
-    return 0;
   }
   if (a.brand && (a.recipe !== "glow" || a.storyboard)) throw new Error("--brand dresses the planned glow promo: use it with --recipe glow (and without --storyboard)");
   let storyboard: unknown;
