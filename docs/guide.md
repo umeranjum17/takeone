@@ -283,7 +283,7 @@ Use `takeone motion` to create a film from images, HTML, a URL or an existing ta
 takeone motion design.png --out takes/launch --theme editorial --title "Ship your next idea" --device browser
 ```
 
-See [Motion renders](motion.md) for shell setup, capture states, pattern options and the storyboard contract.
+`takeone motion --storyboard template.json --data rows.csv` renders one film per spreadsheet row, filling the template's `{{column}}` fields from each row. See [Motion renders](motion.md) for shell setup, capture states, pattern options, batches and the storyboard contract.
 
 ## Plan and render
 
