@@ -8,9 +8,8 @@ judgement). Anything else is a taste decision. Taste belongs to the planner, so 
 that is still fixed is listed in the second table as open, with what closes it. It is never
 hidden among the limits.
 
-Each row names the file and the symbol that sets it, so the row is checked against the code
-by `test/fixed-choices.test.ts`: a renamed or removed symbol fails the test until the row
-is re-classified.
+Each row names the file and the symbol that sets it, making the inventory traceable to the
+implementation.
 
 Reclassified against `main` at v0.5.0, from the 94-row inventory in the AI-first design
 (17 Oct 2026). That inventory's own total said 34 fixed rows; counting its rows marked F,
@@ -84,12 +83,10 @@ the planner does not own it yet. They are the only open items.
 | Take films: title and closing copy | `src/motion/cli.ts` · `planTake` | The film call is not asked for a take's motion wrapper copy | Ask the film call for the wrapper copy |
 | Title on screen from 0.35 s to 3.1 s | `src/render/stage.ts` · `Math.min(duration, 3.1)` | A fixed window; the planner picks only the title text, bounded by `TITLE_MAX_S` in `src/decide/film.ts` | Let the film call give the title's seconds, floored by reading time |
 | A keycap stays 2.2 s | `src/render/overlays.ts` · `t0 + 2.2` | A fixed hold; the planner chooses which shortcuts show, not for how long | Hold = reading time of the keys, floored, as captions already are |
+| Overlay emphasis when the planner abstains | `src/render/overlays.ts` · `shortcutKeys` | Every detected shortcut and click gets the same emphasis, a fixed presentation choice | Let the planner choose overlay emphasis for fallback beats |
 
-Two overlay rules look like taste but are not open. A click ring's size (`ripple_ms`,
-`ripple_r` in `src/camera/defaults.ts`) is presentation physics: which clicks ring is the
-planner's (`clicks`), the ring's size is not a choice. When the planner abstains, every
-shortcut and click is marked (`src/render/overlays.ts` · `shortcutKeys`): that is the
-offline limit in the first table, and the film records itself as a fallback.
+A click ring's size (`ripple_ms`, `ripple_r` in `src/camera/defaults.ts`) is presentation
+physics: which clicks ring is the planner's (`clicks`), the ring's size is not a choice.
 
 Already planner-owned, and so absent from both tables: caption text and seconds (held to
 reading time, `src/decide/film.ts`), title text, spotlights, which keycaps and click rings
