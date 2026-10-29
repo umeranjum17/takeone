@@ -1060,7 +1060,7 @@ test("the whole plan is editable: focus, tightness and the film's look are kept 
     refuses((p) => { beat(p, "b1").merge_prev = { value: true, by: "user" }; }, /beat b1 has unsupported field merge_prev/);
     refuses((p) => { p.film.captions = { value: "x", by: "user" }; }, /film has unsupported field captions/);
     refuses((p) => { beat(p, "b1").tightness = { value: 7, by: "user" }; }, /b1\.tightness\.value must be a whole number from 0 to 3/);
-    refuses((p) => { p.film.theme = { value: "neon", by: "user" }; }, /film\.theme\.value must be one of/);
+    refuses((p) => { p.film.theme = { value: "no-such-theme", by: "user" }; }, /film\.theme\.value must be one of/);
     // An edit the render cannot honour names the beat and says why.
     refuses((p) => { beat(p, "b1").focus_start = { value: "no-such-zone", by: "user" }; }, /beat b1 \(click\): focus_start=no-such-zone is not a zone of this beat/);
     refuses((p) => { beat(p, "b3").tightness = { value: 1, by: "user" }; }, /beat b3 \(scroll\): tightness cannot be honoured/);
@@ -1350,7 +1350,7 @@ test("the film call sets the look and ending; a --set key stays pinned", async (
       const endings = Object.keys(filmRequest!.questions.ending.criteria);
       const last = endings.at(-1)!;
       const answers = {
-        theme: { choice: "paper", probabilities: { midnight: 0, paper: 1, aurora: 0, mono: 0, sand: 0, editorial: 0 }, confidence: 1 },
+        theme: { choice: "paper", probabilities: { midnight: 0, paper: 1, aurora: 0, mono: 0, neon: 0, brutalist: 0, sand: 0, terminal: 0, editorial: 0 }, confidence: 1 },
         pace: { probabilities: [0, 0, 0, 1], confidence: 1 },
         opening: { choice: "straight", probabilities: { establish: 0, short: 0, straight: 1 }, confidence: 1 },
         camera_style: { choice: "calm", probabilities: { calm: 1, lively: 0 }, confidence: 1 },
@@ -1624,7 +1624,7 @@ test("a long take's film is planned in chunks under the cap and joined into one 
         // The first call asks the film-wide questions; every call captions its own beats.
         input = {
           ...(questions.theme ? {
-            theme: { pick: "paper", probabilities: { midnight: 0, paper: 1, aurora: 0, mono: 0, sand: 0, editorial: 0 }, confidence: 1 },
+            theme: { pick: "paper", probabilities: { midnight: 0, paper: 1, aurora: 0, mono: 0, neon: 0, brutalist: 0, sand: 0, terminal: 0, editorial: 0 }, confidence: 1 },
             pace: { probabilities: [0, 1, 0, 0], confidence: 1 },
             opening: { pick: "establish", probabilities: { establish: 1, short: 0, straight: 0 }, confidence: 1 },
             camera_style: { pick: "calm", probabilities: { calm: 1, lively: 0 }, confidence: 1 },

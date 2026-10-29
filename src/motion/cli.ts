@@ -29,7 +29,7 @@ type Aspect = keyof typeof ASPECTS;
 
 export const MOTION_USAGE = `takeone motion <image.png|page.html|https://url|take-dir>... [--out DIR] [--pattern hero-reveal,zoom-tour,end-card,kinetic-type,logo-sting,spotlight,feature-callouts,before-after,device-orbit]
   [--recipe launch|feature|social|compare] [--aspect landscape|portrait|square]
-  [--theme midnight|paper|aurora|mono|sand|editorial]
+  [--theme midnight|paper|aurora|mono|neon|brutalist|sand|terminal|editorial]
   [--title TEXT] [--subtitle TEXT] [--cta TEXT] [--url TEXT] [--logo WORD] [--device browser|phone|laptop|none]
   [--region x,y,w,h[:label][@SCREEN]]... [--state NAME='click #id; type #id "text"; drag #a #b; wait 300']...
   [--workers N] [--blur 0|1] [--storyboard file.json] [--plan-only] [--no-ai]

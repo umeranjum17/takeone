@@ -33,7 +33,10 @@ export const THEME_NOTES: Record<ThemeName, string> = {
   paper: "warm paper with serif type, for light app screens",
   aurora: "deep blue and violet gradient, bold and techy",
   mono: "black and white, flat, for code or terminal work",
+  neon: "dark magenta glow, loud and playful, for bold consumer apps",
+  brutalist: "flat yellow with hard black shadows, blunt and graphic",
   sand: "warm sand tones, soft and friendly, for light app screens",
+  terminal: "green monospace on near-black, for developer tools and CLIs",
   editorial: "cream and ink, type-led, for documents and text",
 };
 /** The film's ending can be any of the last few beats. */

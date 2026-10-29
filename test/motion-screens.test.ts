@@ -119,7 +119,7 @@ test("a flag the local rules reject fails before any planning happens", { timeou
   const dir = mkdtempSync(join(tmpdir(), "takeone-screens-"));
   try {
     const files = screenshots(dir);
-    for (const bad of [["--region", "0,0,abc"], ["--theme", "neon"], ["--pattern", "bento"]]) {
+    for (const bad of [["--region", "0,0,abc"], ["--theme", "no-such-theme"], ["--pattern", "bento"]]) {
       await assert.rejects(planMotion(parseMotionArgs([...files, ...bad]), "motion", { warn: () => {} }));
     }
   } finally {
