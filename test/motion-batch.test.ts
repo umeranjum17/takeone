@@ -55,6 +55,7 @@ test("every bad row is named before anything renders: colour, glyphs, reading ti
     return true;
   });
   assert.throws(() => planBatch({ ...template(), theme: { name: "editorial", overrides: {} }, scenes: [{ pattern: "statement", d: 3, title: "Hi" }] }, "name\nAda"), /no \{\{column\}\} field/);
+  assert.throws(() => planBatch({ "{{name}}": 1 }, "name\nAda\nLi"), /no \{\{column\}\} field/);
   assert.throws(() => planBatch(template(), "name,company,plan\nAda,Lumen,Pro"), /\{\{accent\}\} names no column; the columns are name, company, plan/);
   assert.deepEqual(planBatch(template(), "name,company,plan,accent\nAda,Lumen,Pro,#d9673f\nLi,Quarry,Team,#2f6f5e").map(r => r.id), ["1", "2"]);
 });

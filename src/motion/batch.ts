@@ -73,7 +73,13 @@ export interface BatchRow { row: number; id: string; storyboard: Storyboard }
  *  every row that fails, so a batch either plans whole or not at all. */
 export function planBatch(template: unknown, csv: string): BatchRow[] {
   const { columns, rows } = parseCsv(csv);
-  const used = [...JSON.stringify(template).matchAll(FIELD)].map(m => m[1]!);
+  const used: string[] = [];
+  const collect = (value: unknown) => {
+    if (typeof value === "string") used.push(...[...value.matchAll(FIELD)].map(m => m[1]!));
+    else if (Array.isArray(value)) value.forEach(collect);
+    else if (typeof value === "object" && value !== null) Object.values(value).forEach(collect);
+  };
+  collect(template);
   if (!used.length) throw new Error("--data: the storyboard has no {{column}} field to fill");
   const missing = [...new Set(used.filter(name => !columns.includes(name)))];
   if (missing.length) throw new Error(`--data: ${missing.map(n => `{{${n}}}`).join(", ")} names no column; the columns are ${columns.join(", ")}`);
