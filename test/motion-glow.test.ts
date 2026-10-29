@@ -96,19 +96,26 @@ test("glow deck shows exactly one headline and one index, the front card's, on e
       const [start, d] = await b.evaluate<[number, number]>(`(()=>{const l=document.querySelector('[data-pattern="glow-deck"]');return [Number(l.dataset.start),Number(l.dataset.duration)];})()`);
       const isIndex = (t: string) => /^\d\d \/ \d\d$/.test(t);
       // The deck's first frame is a cut, which every scene's text skips; from the next frame to its last, one card is named.
-      for (let f = 1; f < Math.round(d * 60); f++) {
-        const local = f * 1000 / 60;
-        await b.evaluate(`__seek(${start * 1000 + local})`);
-        const shown = await b.evaluate<string[]>(`[...document.querySelectorAll('[data-pattern="glow-deck"] > div[data-safe=""]')].filter(e=>getComputedStyle(e).visibility==="visible").map(e=>e.textContent)`);
+      const samples = await b.evaluate<{ local: number; shown: string[]; front: number }[]>(`(()=>{
+        const layer=document.querySelector('[data-pattern="glow-deck"]'),cards=[...layer.querySelectorAll('[data-safe^="card "]')],out=[];
+        for(let f=1;f<Math.round(${d}*60);f++){
+          const local=f*1000/60;window.__apply(${start}*1000+local);
+          const shown=[...layer.querySelectorAll(':scope > div[data-safe=""]')].filter(e=>getComputedStyle(e).visibility==="visible").map(e=>e.textContent);
+          const front=cards.map((e,i)=>[i,Number(getComputedStyle(e).zIndex)]).sort((a,b)=>b[1]-a[1])[0][0];
+          out.push({local,shown,front});
+        }
+        return out;
+      })()`);
+      for (const { local, shown, front } of samples) {
+        const frame = Math.round(local * 60 / 1000);
         const heads = shown.filter(t => !isIndex(t)), nums = shown.filter(isIndex);
-        assert.equal(heads.length, 1, `frame ${f}: headlines ${JSON.stringify(heads)}`);
-        assert.equal(nums.length, 1, `frame ${f}: indices ${JSON.stringify(nums)}`);
+        assert.equal(heads.length, 1, `frame ${frame}: headlines ${JSON.stringify(heads)}`);
+        assert.equal(nums.length, 1, `frame ${frame}: indices ${JSON.stringify(nums)}`);
         // Cards step every 0.55 s; a frame within 1 ms of a step may show either card.
         if (Math.abs(local - Math.round(local / 550) * 550) > 1) {
           const i = Math.min(captions.length - 1, Math.floor(local / 550));
-          assert.deepEqual([heads[0], nums[0]], [captions[i], `0${i + 1} / 03`], `frame ${f}`);
-          const front = await b.evaluate<number>(`(()=>{const cards=[...document.querySelectorAll('[data-pattern="glow-deck"] [data-safe^="card "]')];return cards.map((e,i)=>[i,Number(getComputedStyle(e).zIndex)]).sort((a,b)=>b[1]-a[1])[0][0];})()`);
-          assert.equal(front, i, `frame ${f}: caption ${heads[0]} but card ${front + 1} is on top`);
+          assert.deepEqual([heads[0], nums[0]], [captions[i], `0${i + 1} / 03`], `frame ${frame}`);
+          assert.equal(front, i, `frame ${frame}: caption ${heads[0]} but card ${front + 1} is on top`);
         }
       }
     });
