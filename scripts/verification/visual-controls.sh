@@ -27,7 +27,7 @@ fact() {
   node -e 'const r = require(process.argv[1]).results.filter(x => x.facts.hold);
     const [path, want] = [process.argv[2].split("."), process.argv[3]];
     const get = f => path.reduce((o, k) => o?.[k], f);
-    const hit = r.find(x => get(x.facts) !== undefined && (!want || x.facts.element?.name === want));
+    const hit = r.filter(x => get(x.facts) !== undefined && (!want || x.facts.element?.name === want)).at(-1);
     const v = get(hit.facts); console.log(typeof v === "object" ? [v.x, v.y, v.w, v.h].map(Math.round).join(" ") : v);' \
     "$pass/$1.json" "$2" "${3:-}"
 }
@@ -42,7 +42,7 @@ control() { # <name> <cell> <theme> <expected check> <ffmpeg -vf or -filter_comp
   echo "$v control $name ($c, $graph): exit $rc, expected $want; fired: ${fired:-nothing}" | tee -a "$log"
 }
 
-read -r ex ey ew eh <<< "$(fact desktop-dark element.rect b2/z1)"
+read -r ex ey ew eh <<< "$(fact desktop-dark element.rect)"
 read -r cx cy cw ch <<< "$(fact desktop-dark shown)"
 read -r px py pw ph <<< "$(fact portrait-dark shown)"
 read -r mx my mw mh <<< "$(fact motion-dark shown)"
@@ -59,10 +59,24 @@ control strip-in-screen portrait-dark midnight blank-strip "drawbox=x=$px:y=$py:
 control strip-in-phone motion-dark midnight blank-strip "drawbox=x=$((mx - 8)):y=$((my - 20)):w=56:h=$((mh + 40)):color=black:t=fill"
 control clipped-text font-dark midnight clipped-text "crop=iw*0.7:ih*0.7:iw*0.3:ih*0.15,scale=1080:1920"
 control overlap desktop-dark midnight overlap \
-  "drawbox=x=$((ex - 60)):y=$((ey - 16)):w=$((ew + 200)):h=$((eh + 32)):color=0x23242b:t=fill,drawtext=fontfile='$font':text='New caption':x=$((ex - 40)):y=$((ey + 4)):fontsize=30:fontcolor=white"
+  "drawbox=x=$((ex - 10)):y=$((ey - 10)):w=$((ew + 20)):h=$((eh + 20)):color=0x23242b:t=fill,drawtext=fontfile='$font':text='New caption':x=$ex:y=$((ey + 4)):fontsize=30:fontcolor=white"
 # The card's picture slides up 30 px inside the card: the top toolbar the last beat holds leaves the frame.
-control off-screen desktop-dark midnight off-screen \
-  "split[a][b];[b]crop=$cw:$((ch - 30)):$cx:$((cy + 30))[c];[a][c]overlay=$cx:$cy"
+# Move the held zone reported by the good desktop check outside the source frame in a
+# disposable sidecar copy. This isolates the off-screen boundary from image-matching
+# failures and remains stable when recorded planner replies change.
+offscreen_take=$out/offscreen-take
+cp -a "$work/takes/desktop-dark" "$offscreen_take"
+selected=$(fact desktop-dark element.name)
+node -e 'const fs=require("fs"), bp=process.argv[1], b=JSON.parse(fs.readFileSync(bp,"utf8"));
+  const [beatId, zoneName]=process.argv[2].split("/"), beat=b.find(x=>x.id===beatId), zone=beat?.zones.find(x=>x.name===zoneName);
+  if(!zone) throw new Error("checker result no longer names a held source zone");
+  zone.bbox=[2300,200,300,200]; fs.writeFileSync(bp,JSON.stringify(b));' \
+  "$offscreen_take/analysis/beats.json" "$selected"
+rc=0
+run node "$here/visual-check.ts" "$offscreen_take" --name control-off-screen --out "$out" --theme midnight \
+  --film "$pass/desktop-dark.mp4" > "$out/control-off-screen.log" 2>&1 || rc=$?
+if [ "$rc" = 1 ] && grep -q '^FAIL [^ ]* t=[^ ]* off-screen ' "$out/control-off-screen.log"; then v=PASS; else v=FAIL; fail=1; fi
+echo "$v control off-screen (desktop-dark, final held zone placed beyond source frame): exit $rc, expected off-screen" | tee -a "$log"
 if [ -n "$letterbox" ]; then # the letterboxing phone build's own film must fail on blank-strip
   film=$(ls "$letterbox"/out/*.mp4 | head -1); rc=0
   run node "$here/visual-check.ts" "$letterbox" --name control-letterbox --out "$out" --theme midnight \
