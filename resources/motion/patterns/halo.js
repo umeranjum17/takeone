@@ -125,7 +125,7 @@ const arrange = (kind, sizes, W, H, u) => {
     let y = (H - total) / 2;
     return fitted.map((p, i) => { const c = { ...p, cx: W / 2 + (i % 2 ? 1 : -1) * W * 0.05, cy: y + p.h / 2 }; y += step[i]; return c; });
   }
-  const overlap = kind === "chips" ? 0.06 : 0.05, fit = Math.min(1, (W * 0.8) / (items.reduce((m, p) => m + p.w * (1 - overlap), 0) + items.at(-1).w * overlap));
+  const overlap = kind === "chips" ? 0.06 : 0.05, fit = Math.min(1, (W * 0.8) / (items.reduce((m, p) => m + p.w * (1 - overlap), 0) + items.at(-1).w * overlap), (H * 0.68) / Math.max(...items.map((p) => p.h)));
   let x = 0;
   const placed = items.map((p, i) => { const w = p.w * fit, hh = p.h * fit, c = { ...p, w, h: hh, cx: x + w / 2, cy: H * 0.5 + LIFT[i % LIFT.length] * u * 1.4 }; x += w * (1 - overlap); return c; });
   const span = x + placed.at(-1).w * overlap, shift = (W - span) / 2;
