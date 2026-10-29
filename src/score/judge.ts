@@ -1,5 +1,5 @@
-import { readFileSync } from "node:fs";
 import type { Answer, DecideCache, ImageInput, Question } from "@byokit/decide";
+import { blurredStill } from "../decide/ocr.ts";
 import { askChunk, seesImages, type ResolvedPlanner } from "../decide/planner.ts";
 import { RUBRIC, scoreCard, type MeasuredFacts, type RubricId, type ScoreCard } from "./rubric.ts";
 
@@ -66,14 +66,11 @@ function questions(f: MeasuredFacts): Record<string, Question> {
   return out;
 }
 
-function imageInputs(f: MeasuredFacts): ImageInput[] | undefined {
+/** The judged frames show the recorded screen, so they go out blurred whole: the judge sees layout, framing and zoom, not words. */
+async function imageInputs(f: MeasuredFacts): Promise<ImageInput[] | undefined> {
   const frames = f.frames.slice(0, MAX_IMAGES);
   if (frames.length === 0) return undefined;
-  return frames.map((frame) => ({
-    id: frame.label,
-    mime: "image/png",
-    bytes: new Uint8Array(readFileSync(frame.path)),
-  }));
+  return Promise.all(frames.map(async (frame) => ({ id: frame.label, mime: "image/png", bytes: await blurredStill(frame.path) })));
 }
 
 /** A score the judge split evenly between levels abstains as a tie; the strict reading is the lower tied level. */
@@ -97,12 +94,12 @@ export async function judgeRound(
 ): Promise<ScoreCard> {
   if (!planner.active) throw new JudgeUnavailable(`${planner.label} is not available${planner.refusal ? `: ${planner.refusal}` : ""}`);
   const vision = await seesImages(planner);
-  const images = vision ? imageInputs(facts) : undefined;
+  const images = vision ? await imageInputs(facts) : undefined;
   const state = {
     task: "Score a 15-second-scale SaaS product film against a written rubric. Be strict: a film that only scrolls is not an interaction film.",
     scale: "Each item is an integer from 0 (absent or broken) to 10 (at the reference bar).",
     frameNote: vision
-      ? "The attached stills are single frames from this round's film, in the order listed."
+      ? "The attached stills are single frames from this round's film, in the order listed, blurred so no screen text is readable; judge layout, framing and zoom from them and the measured facts."
       : "Single frames were extracted from this round's film and measured; this route is text-only, so score the measured facts.",
     measured: {
       duration: facts.duration,
