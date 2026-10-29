@@ -65,6 +65,16 @@ test("halo kinetic lines read together: light lead-ins, a heavy last line that t
   assert.deepEqual(paper.theme.overrides, {}, "a theme with two faces keeps its own");
 });
 
+test("halo kinetic lines reject blank text in every position", () => {
+  const valid = planHalo({ inputs: [BOARD], regions, pitch: "Your crew. No chatbot. Asks first." }, "halo-lines-blank") as { scenes: { pattern: string; lines?: string[] }[] };
+  const scene = valid.scenes.find(s => s.pattern === "halo-lines")!;
+  for (const index of [0, scene.lines!.length - 1]) for (const text of ["", "   "]) {
+    scene.lines![index] = text;
+    assert.throws(() => validateStoryboard(valid), /\.lines\[\d+\]: expected non-empty text/);
+    scene.lines![index] = index === 0 ? "No chatbot." : "Asks first.";
+  }
+});
+
 test("halo kinetic lines type the last line on a frame at a time, never a bare caret, over a static grain", { timeout: 120_000 }, async () => {
   const sb = validateStoryboard(planHalo({ inputs: [BOARD], regions, pitch: "Your crew. No chatbot. Asks first." }, "halo-lines-page"));
   const dir = mkdtempSync(join(tmpdir(), "takeone-halo-lines-"));
