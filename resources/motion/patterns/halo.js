@@ -29,7 +29,7 @@ let beat = 0;
 const BEATS = [[0.5, 0], [0.3, 0.35], [0.7, 0.6], [0.45, 0.2], [0.62, 0.5], [0.5, 0.15], [0.5, 0]]; // glow x, and how far its hue leans to violet
 // The film's stage: ink with the accent glowing up from below, the same on every beat so cuts do not jump.
 const glowStage = (layer, W, H, d) => {
-  const [r, g, b] = accentRgb(), ink = [7 + r * 0.02, 8 + g * 0.02, 10 + b * 0.025].map(Math.round);
+  const [r, g, b] = accentRgb(), ink = rgb(STORYBOARD.tokens?.background ?? "#07080a");
   const [gx, lean] = BEATS[beat++ % BEATS.length], tint = [r + (150 - r) * lean * 0.6, g + (70 - g) * lean * 0.6, b + (230 - b) * lean * 0.3].map(Math.round);
   const key = `${W}x${H}:${gx}:${lean}`;
   stages[key] ??= glowCanvas(W, H, { cx: W * gx, cy: H * 1.08, rx: W * 0.68, ry: H * 0.8, peak: 0.3, base: ink, color: tint });
