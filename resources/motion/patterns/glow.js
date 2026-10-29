@@ -135,6 +135,8 @@ PATTERNS["glow-deck"] = (layer, s, ctx) => {
     const head = h(`<div data-safe style="position:absolute;left:${W * 0.08}px;top:${top}px;font:700 ${size}px/1.05 var(--display);letter-spacing:-.03em;color:#fff;white-space:nowrap">${esc(c.caption)}</div>`);
     const num = h(`<div data-safe style="position:absolute;right:${W * 0.08}px;top:${top + (size - mono) / 2}px;font:500 ${mono}px/1 var(--mono);letter-spacing:.08em;color:#fff;white-space:pre">${String(i + 1).padStart(2, "0")}<span style="color:#7f93c8"> / ${String(n).padStart(2, "0")}</span></div>`);
     layer.append(head, num);
+    const headWidth = head.getBoundingClientRect().width;
+    if (headWidth > W * 0.56) head.style.fontSize = `${size * W * 0.56 / headWidth}px`;
     const t0 = i * step, t1 = i === n - 1 ? s.d * 1000 : (i + 1) * step;
     WINDOW(head, t0, t1); WINDOW(num, t0, t1);
     K(head, [[t0, { transform: `translateY(${size * 0.18}px)` }, EXPO], [t0 + 300, { transform: "none" }]]);
@@ -156,9 +158,14 @@ PATTERNS["glow-deck"] = (layer, s, ctx) => {
   cards.forEach((c, i) => {
     const scr = ctx.screen(c.screen), cap = Math.min(cw * 0.055, (cw * 0.72) / (0.55 * c.caption.length));
     const card = h(`<div data-safe="card ${i + 1}" style="position:absolute;left:${cx}px;top:${cy}px;width:${cw}px;height:${ch}px;border-radius:${u * 0.018}px;overflow:hidden;background:#0e111b"></div>`);
-    card.append(h(`<div style="height:${panel}px;background:#ffffff;display:grid;place-items:center"><img src="${scr.url}" style="max-width:100%;max-height:100%;display:block"></div>`),
-      h(`<div style="height:${foot}px;display:flex;align-items:center;justify-content:space-between;padding:0 ${cw * 0.06}px;color:#fff;font:600 ${cap}px/1 var(--body);white-space:nowrap"><span>${esc(c.caption)}</span><span style="font:500 ${cw * 0.04}px/1 var(--mono);color:#7f93c8">${String(i + 1).padStart(2, "0")}</span></div>`));
+    const footer = h(`<div style="height:${foot}px;display:flex;align-items:center;justify-content:space-between;padding:0 ${cw * 0.06}px;color:#fff;font:600 ${cap}px/1 var(--body);white-space:nowrap"></div>`);
+    const caption = h(`<span style="flex:none">${esc(c.caption)}</span>`), index = h(`<span style="font:500 ${cw * 0.04}px/1 var(--mono);color:#7f93c8">${String(i + 1).padStart(2, "0")}</span>`);
+    footer.append(caption, index);
+    card.append(h(`<div style="height:${panel}px;background:#ffffff;display:grid;place-items:center"><img src="${scr.url}" style="max-width:100%;max-height:100%;display:block"></div>`), footer);
     deck.append(card);
+    const footerStyle = getComputedStyle(footer), footerRoom = footer.clientWidth - parseFloat(footerStyle.paddingLeft) - parseFloat(footerStyle.paddingRight) - index.getBoundingClientRect().width;
+    const captionWidth = caption.getBoundingClientRect().width;
+    if (captionWidth > footerRoom) caption.style.fontSize = `${cap * footerRoom / captionWidth}px`;
     // Opens settling up into place, then moves one place left before each step changes; stacking and caption switch together.
     const settle = Math.min(400, step * 0.7);
     K(card, [[0, pose(i, u * 0.03), EXPO], [settle, pose(i)], ...cards.slice(1).flatMap((_, j) => [[Math.max(settle, (j + 1) * step - move), pose(i - j), EXPO], [(j + 1) * step, pose(i - j - 1)]])]);

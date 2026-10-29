@@ -57,6 +57,32 @@ test("glow deck captions must be covered by both display and caption fonts", asy
   assert.throws(() => validateStoryboard(input), /missing glyph in Instrument Serif for "¤"/);
 });
 
+test("glow deck measures wide captions and preserves sizes that already fit", { timeout: 120_000 }, async () => {
+  const size = imageSize(BOARD), tap = await pressBox(BOARD, "1,2,3,4"), wide = "W".repeat(32), captions = [wide, "Short"];
+  const regions = [`316,120,520,520:${wide}`, "868,120,520,520:Short"];
+  const sb = validateStoryboard(glowStoryboard({ inputs: [BOARD], title: "Meet the crew", pitch: "Plan the launch", logo: "Tidewater", regions },
+    "glow-deck-width-test", [size], tap));
+  const dir = mkdtempSync(join(tmpdir(), "takeone-glow-deck-width-"));
+  try {
+    await ingest(dir, sb);
+    await withPage(writePage(dir, sb).html, 1920, 1080, async b => {
+      const measured = await b.evaluate<{ headline: { text: string; size: number; width: number; max: number }[]; footer: { text: string; size: number; width: number; max: number }[] }>(`(()=>{
+        const root=document.querySelector('[data-pattern="glow-deck"]');
+        const headline=[...root.querySelectorAll(':scope > div[data-safe=""]')].filter(e=>!e.textContent.includes(' / ')).map(e=>({text:e.textContent,size:parseFloat(getComputedStyle(e).fontSize),width:e.getBoundingClientRect().width,max:innerWidth*.56}));
+        const footer=[...root.querySelectorAll('[data-safe^="card "]')].map(card=>{const f=card.lastElementChild,c=f.firstElementChild,i=f.lastElementChild,cs=getComputedStyle(f);return{text:c.textContent,size:parseFloat(getComputedStyle(c).fontSize),width:c.getBoundingClientRect().width,max:f.clientWidth-parseFloat(cs.paddingLeft)-parseFloat(cs.paddingRight)-i.getBoundingClientRect().width};});
+        return {headline,footer};
+      })()`);
+      const baseHeadline = Math.min(1080 * 0.085, 1920 * 0.56 / (0.55 * wide.length));
+      const cardWidth = Math.min(1920 * 0.84 / (2 * 0.86), 1080 * 0.62 / 1.18);
+      assert.ok(measured.headline[0]!.size < baseHeadline);
+      assert.ok(Math.abs(measured.headline[1]!.size - baseHeadline) < 0.001);
+      assert.ok(measured.footer[0]!.size < Math.min(cardWidth * 0.055, (cardWidth * 0.72) / (0.55 * wide.length)));
+      assert.ok(Math.abs(measured.footer[1]!.size - Math.min(cardWidth * 0.055, (cardWidth * 0.72) / (0.55 * captions[1]!.length))) < 0.001);
+      for (const text of [...measured.headline, ...measured.footer]) assert.ok(text.width <= text.max + 0.5, `${text.text}: ${text.width} > ${text.max}`);
+    });
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
 test("glow deck shows exactly one headline and one index, the front card's, on every frame after its first", { timeout: 120_000 }, async () => {
   const size = imageSize(BOARD), tap = await pressBox(BOARD, "1,2,3,4");
   const captions = ["Plan the launch.", "Track every task.", "See what moved."];
