@@ -1,8 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { resolve } from "node:path";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import { deckCards, glowStoryboard, pressBox, treeRows } from "../src/motion/glow.ts";
-import { imageSize } from "../src/motion/ingest.ts";
+import { imageSize, ingest } from "../src/motion/ingest.ts";
+import { writePage } from "../src/motion/motion.ts";
+import { withPage } from "../src/motion/render.ts";
 import { filmDuration, validateStoryboard } from "../src/motion/storyboard.ts";
 
 const BOARD = resolve("resources/demo/tidewater-board.png");
@@ -42,4 +46,34 @@ test("glow --region cards add a deck beat of square real-screen crops after the 
   assert.throws(() => deckCards(["1,2,3,4:Only one"], size.width, size.height), /2 to 5 --region cards/);
   assert.throws(() => deckCards(["1,2,3,4", "5,6,7,8:B"], size.width, size.height), /x,y,w,h:Caption/);
   assert.throws(() => validateStoryboard({ ...(sb as object), scenes: [{ pattern: "glow-deck", d: 2, cards: [{ screen: "nope", caption: "A" }, { screen: "deck1", caption: "B" }] }] }), /not one of crops/);
+});
+
+test("glow deck shows exactly one headline and one index, the front card's, on every frame after its first", { timeout: 120_000 }, async () => {
+  const size = imageSize(BOARD), tap = await pressBox(BOARD, "1,2,3,4");
+  const captions = ["Plan the launch.", "Track every task.", "See what moved."];
+  const regions = ["316,120,520,520", "868,120,520,520", "1984,128,544,600"].map((r, i) => `${r}:${captions[i]}`);
+  const sb = validateStoryboard(glowStoryboard({ inputs: [BOARD], title: "Meet the crew", pitch: "Plan the launch", logo: "Tidewater", tree: "Crew,>Chief,>Scout", regions },
+    "glow-deck-window-test", [size], tap));
+  const dir = mkdtempSync(join(tmpdir(), "takeone-glow-deck-"));
+  try {
+    await ingest(dir, sb); // cuts the deck crops out of the board, as a first render does
+    await withPage(writePage(dir, sb).html, 1920, 1080, async (b) => {
+      const [start, d] = await b.evaluate<[number, number]>(`(()=>{const l=document.querySelector('[data-pattern="glow-deck"]');return [Number(l.dataset.start),Number(l.dataset.duration)];})()`);
+      const isIndex = (t: string) => /^\d\d \/ \d\d$/.test(t);
+      // The deck's first frame is a cut, which every scene's text skips; from the next frame to its last, one card is named.
+      for (let f = 1; f < Math.round(d * 60); f++) {
+        const local = f * 1000 / 60;
+        await b.evaluate(`__seek(${start * 1000 + local})`);
+        const shown = await b.evaluate<string[]>(`[...document.querySelectorAll('[data-pattern="glow-deck"] > div[data-safe=""]')].filter(e=>getComputedStyle(e).visibility==="visible").map(e=>e.textContent)`);
+        const heads = shown.filter(t => !isIndex(t)), nums = shown.filter(isIndex);
+        assert.equal(heads.length, 1, `frame ${f}: headlines ${JSON.stringify(heads)}`);
+        assert.equal(nums.length, 1, `frame ${f}: indices ${JSON.stringify(nums)}`);
+        // Cards step every 0.55 s; a frame within 1 ms of a step may show either card.
+        if (Math.abs(local - Math.round(local / 550) * 550) > 1) {
+          const i = Math.min(captions.length - 1, Math.floor(local / 550));
+          assert.deepEqual([heads[0], nums[0]], [captions[i], `0${i + 1} / 03`], `frame ${f}`);
+        }
+      }
+    });
+  } finally { rmSync(dir, { recursive: true, force: true }); }
 });
