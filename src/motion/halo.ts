@@ -7,7 +7,7 @@ import { imageSize } from "./ingest.ts";
 import { minSceneDuration } from "./storyboard.ts";
 import type { Crop, Scene } from "./types.ts";
 
-export interface GlowArgs { inputs: string[]; regions: string[]; pitch?: string; logo?: string; title?: string; cta?: string; url?: string; workers?: number }
+export interface GlowArgs { inputs: string[]; regions: string[]; pitch?: string; logo?: string; title?: string; cta?: string; url?: string; workers?: number; theme?: string }
 
 const KINDS = ["logo", "row", "stack", "card", "chips"] as const;
 const grid = (s: number) => Math.ceil(s * 60 - 1e-9) / 60;
@@ -62,7 +62,7 @@ export function planHalo(a: GlowArgs, id: string, outputSize: readonly [number, 
   return {
     version: 1, id,
     output: { out_w: outputSize[0], out_h: outputSize[1], ...(a.workers !== undefined ? { workers: a.workers } : {}) },
-    theme: { name: "midnight", overrides: {} },
+    theme: { name: a.theme ?? "midnight", overrides: {} },
     source: { kind: "image", files: a.inputs.map(f => resolve(f)) },
     screens: Object.create(null), regions: [], crops,
     layout: { kind: "single" }, scenes,

@@ -33,3 +33,8 @@ test("halo end scene reserves reading time after its credit appears", () => {
   const end = sb.scenes.find(s => s.pattern === "halo-end")!;
   assert.ok(end.d >= 1.5 + readingFloor(url));
 });
+
+test("halo recipe carries the selected theme into its storyboard", () => {
+  const sb = planHalo({ inputs: [BOARD], regions, pitch: "Your crew.", theme: "paper" }, "halo-paper") as { theme: { name: string } };
+  assert.equal(sb.theme.name, "paper");
+});
