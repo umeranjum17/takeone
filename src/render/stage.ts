@@ -195,7 +195,14 @@ export function cornerSize(st: Stage, d: CameraDefaults): number {
  * card's shadow, and [holes], the same image with the card cut out as alpha. The
  * screen is opaque, so the render only needs the four corners of [holes] on top.
  */
-export function stageImageFilter(width: number, height: number, st: Stage, d: CameraDefaults, phone = false): string {
+export type DeviceFrame = "phone" | "browser" | "laptop" | null;
+
+/** The chrome a render draws: the take's own `frame` token, where `auto` is a phone take in its handset. */
+export function deviceFrame(token: CameraDefaults["frame"], phone: boolean): DeviceFrame {
+  return token === "auto" ? (phone ? "phone" : null) : token === "none" ? null : token;
+}
+
+export function stageImageFilter(width: number, height: number, st: Stage, d: CameraDefaults, frame: DeviceFrame = null): string {
   const radius = d.corner_radius / st.restScale;
   const shadowY = Math.round(d.shadow_y / st.restScale);
   const blur = (d.shadow_blur / st.restScale).toFixed(1);
@@ -222,8 +229,9 @@ export function stageImageFilter(width: number, height: number, st: Stage, d: Ca
       `[accent][accentmask]alphamerge[edge]`,
       `[base][edge]overlay=format=auto[look]`,
     ] : [`[base]null[look]`]),
-    ...(phone ? phoneFrameFilter(width, height, st, radius) : []),
-    `[${phone ? "framed" : "look"}]format=rgb24,split[stage][cut]`,
+    ...(frame === "phone" ? phoneFrameFilter(width, height, st, radius)
+      : frame ? windowFrameFilter(frame, width, height, st, radius) : []),
+    `[${frame ? "framed" : "look"}]format=rgb24,split[stage][cut]`,
     `[m2]negate,pad=${st.w}:${st.h}:${st.screenX}:${st.screenY}:white[hole]`,
     `[cut][hole]alphamerge[holes]`,
   ].join(";");
@@ -247,6 +255,46 @@ function phoneFrameFilter(width: number, height: number, st: Stage, radius: numb
     `color=black:s=${st.w}x${st.h}:d=1,format=gray,${mask(bezel - 1.5 / st.restScale)}[bezelMask]`,
     `[bezel][bezelMask]alphamerge[bezelAlpha]`,
     `[metal][bezelAlpha]overlay=format=auto,drawbox=x=${x}:y=${Math.round(st.screenY + height * .24)}:w=${buttonW}:h=${Math.round(height * .08)}:color=0x626975:t=fill,drawbox=x=${Math.round(st.screenX - bezel - buttonW + 1)}:y=${Math.round(st.screenY + height * .18)}:w=${buttonW}:h=${Math.round(height * .1)}:color=0x626975:t=fill[framed]`,
+  ];
+}
+
+/** A flat colour shaped by a rounded rectangle (stage px), laid over `from` to make `to`. */
+function chromePiece(from: string, to: string, colour: string, st: Stage, x: number, y: number, w: number, h: number, r: number, id: string): string[] {
+  const cx = x + w / 2, cy = y + h / 2, r1 = Math.min(r, w / 2, h / 2);
+  return [
+    `color=${colour}:s=${st.w}x${st.h}:d=1,format=rgba[${id}c]`,
+    `color=black:s=${st.w}x${st.h}:d=1,format=gray,geq=lum='255*clip(${r1.toFixed(2)}+0.5-hypot(max(abs(X+0.5-${cx.toFixed(2)})-${(w / 2 - r1).toFixed(2)},0),max(abs(Y+0.5-${cy.toFixed(2)})-${(h / 2 - r1).toFixed(2)},0)),0,1)'[${id}m]`,
+    `[${id}c][${id}m]alphamerge[${id}a]`,
+    `[${from}][${id}a]overlay=format=auto[${to}]`,
+  ];
+}
+
+/**
+ * Browser window or laptop around the screen, drawn on the stage behind the source so app pixels
+ * and pointer coordinates stay unchanged: a window gets a title bar above the card (traffic lights,
+ * address pill), a laptop a bezel and an aluminium base. Both rest in the stage margin and ease
+ * away as the camera pushes in, like the handset.
+ */
+function windowFrameFilter(frame: "browser" | "laptop", width: number, height: number, st: Stage, radius: number): string[] {
+  const u = 1 / st.restScale; // one output px, in stage px
+  const x = st.screenX, y = st.screenY;
+  if (frame === "browser") {
+    const bar = 40 * u;
+    const lights = [["0xff5f57", 20], ["0xfebc2e", 40], ["0x28c840", 60]] as const;
+    const pillW = width * .5;
+    return [
+      ...chromePiece("look", "w0", "0x23262d", st, x, y - bar, width, height + bar, radius, "win"),
+      ...lights.flatMap(([colour, dx], i) => chromePiece(`w${i}`, `w${i + 1}`, colour, st, x + dx * u - 6 * u, y - bar / 2 - 6 * u, 12 * u, 12 * u, 6 * u, `tl${i}`)),
+      ...chromePiece("w3", "framed", "0x353a44", st, x + (width - pillW) / 2, y - bar / 2 - 13 * u, pillW, 26 * u, 13 * u, "url"),
+    ];
+  }
+  const bezel = 16 * u, baseH = 22 * u, overhang = Math.max(24 * u, width * .04);
+  const slabY = y + height + bezel;
+  return [
+    ...chromePiece("look", "l0", "0x15171c", st, x - bezel, y - bezel, width + 2 * bezel, height + 2 * bezel, radius + bezel, "bez"),
+    ...chromePiece("l0", "l1", "0xc4c8cf", st, x - bezel - overhang, slabY, width + 2 * (bezel + overhang), baseH, 10 * u, "base"),
+    // A hinge notch in the top of the base.
+    ...chromePiece("l1", "framed", "0x9a9fa8", st, x + (width - width * .16) / 2, slabY, width * .16, 7 * u, 3.5 * u, "notch"),
   ];
 }
 
