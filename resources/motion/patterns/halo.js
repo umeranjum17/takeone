@@ -24,23 +24,72 @@ const glowCanvas = (w, hgt, { cx, cy, rx, ry, peak, base, color }) => {
   g.putImageData(img, 0, 0);
   return c;
 };
+// A stage lit by several falloffs of light summed over the ink, each an elliptical gaussian, so the light has depth
+// instead of one centred radial. The same 2x2 dither as a single glow keeps every gradient free of bands.
+const layeredCanvas = (w, hgt, base, lobes) => {
+  const c = document.createElement("canvas"); c.width = w; c.height = hgt;
+  const g = c.getContext("2d"), img = g.createImageData(w, hgt), d = img.data;
+  for (let y = 0; y < hgt; y++) for (let x = 0; x < w; x++) {
+    const p = (y * w + x) * 4, bx = x >> 1, by = y >> 1, v = [...base];
+    for (const { cx, cy, rx, ry, peak, color } of lobes) {
+      const f = Math.exp(-3 * (((x - cx) / rx) ** 2 + ((y - cy) / ry) ** 2)) * peak;
+      for (let i = 0; i < 3; i++) v[i] += (color[i] - base[i]) * f;
+    }
+    for (let i = 0; i < 3; i++) d[p + i] = Math.min(255, Math.max(0, Math.round(v[i] + 2 * (hash(bx, by, 2 * i) + hash(bx, by, 2 * i + 1) - 1))));
+    d[p + 3] = 255;
+  }
+  g.putImageData(img, 0, 0);
+  return c;
+};
+// Film grain: a mid-grey field of 2x2 luminance specks laid over the stage in overlay mode, so it multiplies the light
+// under it: rich in the glow, almost nothing in the ink. It is still within a beat: grain that changed every frame
+// would read as motion to the frozen-time check and hide a real freeze. Each beat shows the texture at its own offset.
+const GRAIN_PAD = 96;
+let grainTexture;
+const grainCanvas = (W, H, k) => {
+  if (grainTexture?.width !== W + GRAIN_PAD || grainTexture?.height !== H + GRAIN_PAD) {
+    const w = W + GRAIN_PAD, hgt = H + GRAIN_PAD, t = document.createElement("canvas"); t.width = w; t.height = hgt;
+    const g = t.getContext("2d"), img = g.createImageData(w, hgt), d = img.data;
+    for (let y = 0; y < hgt; y++) for (let x = 0; x < w; x++) {
+      const bx = x >> 1, by = y >> 1, n = (hash(bx, by, 11) + hash(bx, by, 12) + hash(bx, by, 13)) / 3 - 0.5, p = (y * w + x) * 4;
+      d[p] = d[p + 1] = d[p + 2] = Math.round(128 + n * 96); d[p + 3] = 255;
+    }
+    g.putImageData(img, 0, 0); grainTexture = t;
+  }
+  const c = document.createElement("canvas"); c.width = W; c.height = H;
+  c.getContext("2d").drawImage(grainTexture, -((k * 37) % GRAIN_PAD), -((k * 59) % GRAIN_PAD));
+  return c;
+};
 const stages = {};
 let beat = 0;
 const BEATS = [[0.5, 0], [0.3, 0.35], [0.7, 0.6], [0.45, 0.2], [0.62, 0.5], [0.5, 0.15], [0.5, 0]]; // glow x, and how far its hue leans to violet
-// The film's stage: ink with the accent glowing up from below, the same on every beat so cuts do not jump.
+// The film's stage: ink with the accent glowing up from below, the same on every beat so cuts do not jump, under grain.
+// Returns the stage element; it is already in the layer.
 const glowStage = (layer, W, H, d) => {
-  const [r, g, b] = accentRgb(), ink = rgb(STORYBOARD.tokens?.background ?? "#07080a");
+  const [r, g, b] = accentRgb(), ink = rgb(STORYBOARD.tokens?.background ?? "#07080a"), k = beat;
   const [gx, lean] = BEATS[beat++ % BEATS.length], tint = [r + (150 - r) * lean * 0.6, g + (70 - g) * lean * 0.6, b + (230 - b) * lean * 0.3].map(Math.round);
+  const core = tint.map((v) => Math.round(v + (255 - v) * 0.15)), cool = [Math.round(r * 0.3 + 119 * 0.7), Math.round(g * 0.3 + 115 * 0.7), Math.round(b * 0.3 + 200 * 0.7)];
+  const side = gx > 0.5 ? gx - 0.14 : gx + 0.14;
   const key = `${W}x${H}:${gx}:${lean}`;
-  stages[key] ??= glowCanvas(W, H, { cx: W * gx, cy: H * 1.08, rx: W * 0.68, ry: H * 0.8, peak: 0.3, base: ink, color: tint });
-  const stageCanvas = stages[key];
+  // The underglow of the first-draft board (Monument & Underglow): a faint wash that keeps the room lit, a base pooled
+  // below the frame, a bright core on the bottom edge, and a cooler lobe beside it.
+  stages[key] ??= layeredCanvas(W, H, ink, [
+    { cx: W * gx, cy: H * 1.15, rx: W * 0.9, ry: H * 1.0, peak: 0.1, color: tint },
+    { cx: W * gx, cy: H * 1.22, rx: W * 0.42, ry: H * 0.48, peak: 0.25, color: tint },
+    { cx: W * gx, cy: H * 1.0, rx: W * 0.2, ry: H * 0.3, peak: 0.5, color: core },
+    { cx: W * side, cy: H * 1.11, rx: W * 0.27, ry: H * 0.32, peak: 0.19, color: cool },
+  ]);
+  const stage = h(`<div style="position:absolute;inset:0;overflow:hidden;isolation:isolate"></div>`);
   const c = document.createElement("canvas"); c.width = W; c.height = H;
-  c.getContext("2d").drawImage(stageCanvas, 0, 0);
+  c.getContext("2d").drawImage(stages[key], 0, 0);
   c.style.cssText = "position:absolute;left:0;top:0;width:100%;height:100%";
-  layer.append(c);
-  // The glow slowly rises and widens, so a held beat is never a still picture.
+  const grain = grainCanvas(W, H, k);
+  grain.style.cssText = "position:absolute;left:0;top:0;width:100%;height:100%;mix-blend-mode:overlay;opacity:.55";
+  stage.append(c, grain); layer.append(stage);
+  // The glow slowly rises and widens, so a held beat is never a still picture; the grain stays put over it.
   c.style.transformOrigin = "50% 100%";
   K(c, [[0, { transform: "scale(1)" }], [d * 1000, { transform: "scale(1.12)" }]]);
+  return stage;
 };
 const halo = (layer, W, H, cx, cy, size) => {
   const hw = Math.round(size * 2), c = glowCanvas(hw, hw, { cx: hw / 2, cy: hw / 2, rx: hw * 0.42, ry: hw * 0.42, peak: 0.55, color: accentRgb() });
@@ -68,7 +117,7 @@ PATTERNS["halo-open"] = (layer0, s, ctx) => {
   const layer = h(`<div style="position:absolute;inset:0"></div>`); layer0.append(layer);
   K(layer, [[0, { scale: "1", opacity: 1 }], [s.d * 1000 - 220, { scale: "1.045", opacity: 1 }, "ease-in"], [s.d * 1000, { scale: "1.05", opacity: 0 }]]);
   const { W, H } = ctx, u = Math.min(W, H), cx = W / 2, cy = H / 2, mark = ctx.screen(s.mark);
-  glowStage(layer0, W, H, s.d); layer0.insertBefore(layer0.lastChild, layer);
+  layer0.insertBefore(glowStage(layer0, W, H, s.d), layer);
   const big = u * 0.2, ph = u * 0.14, gap = ph * 0.3, fs = ph * 0.4;
   const ghost = h(`<span style="position:absolute;visibility:hidden;white-space:nowrap;font:${fs}px/1 var(--display)">${esc(s.title)}</span>`);
   layer.append(ghost);
@@ -171,7 +220,7 @@ PATTERNS["halo-float"] = (layer, s, ctx) => {
 // clear of the centred type, drifting on the same parallax as the beats they came from. [x, y, size, depth].
 const BACKDROP = [[0.13, 0.76, 1, 0.4], [0.87, 0.24, 0.8, 0.15], [0.86, 0.78, 1.1, 0.55], [0.14, 0.24, 0.75, 0.1]];
 PATTERNS["halo-lines"] = (layer, s, ctx) => {
-  const { W, H } = ctx, u = Math.min(W, H), lines = s.lines ?? [], slot = (s.d * 1000) / lines.length, end = s.d * 1000;
+  const { W, H } = ctx, u = Math.min(W, H), lines = s.lines ?? [], end = s.d * 1000;
   glowStage(layer, W, H, s.d);
   (s.items ?? []).slice(0, BACKDROP.length).forEach((id, i) => {
     const c = ctx.screen(id), [fx, fy, sc, z] = BACKDROP[i], a = c.width / c.height;
@@ -184,16 +233,29 @@ PATTERNS["halo-lines"] = (layer, s, ctx) => {
     const pan = u * 0.05 * (0.3 + 1.4 * z), bob = u * 0.006 * (0.5 + z);
     tick((ms) => { const t = Math.min(1, Math.max(0, ms / end)); el.style.translate = `${((0.5 - t) * 2 * pan).toFixed(3)}px ${(Math.sin((ms / 2800) * Math.PI * 2 + i * 1.7) * bob).toFixed(3)}px`; });
   });
-  lines.forEach((text, k) => {
-    const last = k === lines.length - 1, size = u * 0.075;
-    const el = h(`<div data-safe style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);white-space:nowrap;text-align:center;font:${size}px/1.1 var(--display);letter-spacing:-.015em;color:var(--text)">${wordSpans(text, "glow-word")}</div>`);
-    layer.append(el); fitText(el, W * 0.84, size);
-    const base = BASE; BASE = base + slot * k; $$(".glow-word", el).forEach((w, i) => riseIn(w, i * 70)); BASE = base;
-    WINDOW(el, slot * k, last ? s.d * 1000 : slot * (k + 1));
-    if (!last) { const sb = BASE; BASE = sb + slot * k; K(el, [[0, { opacity: 0.72 }], [slot - 200, { opacity: 0.72 }, "ease-in"], [slot - 1, { opacity: 0 }]]); BASE = sb; }
-    // The line before the last is the grey lead-in; the last one is bright.
-    const sb = BASE; BASE = sb + slot * k; K(el, [[0, { scale: "1" }], [slot, { scale: "1.06" }]]); BASE = sb;
+  // One lockup, two voices: the lead-ins small, light and muted, one every 450 ms, a word at a time; then the last line,
+  // big and heavy, types on a grapheme every 50 ms behind a thin caret across its own final measure, so it never
+  // re-centres. Every line holds to the end, so the reads overlap (storyboard.ts haloLineHolds keeps the same clock).
+  // The whole lockup pushes in slowly.
+  const leads = lines.slice(0, -1), last = lines.at(-1) ?? "", leadSize = u * 0.037, paySize = u * 0.178;
+  const lockup = h(`<div style="position:absolute;left:0;right:0;top:50%;transform:translateY(-50%);display:flex;flex-direction:column;align-items:center;gap:${u * 0.01}px"></div>`);
+  layer.append(lockup);
+  leads.forEach((text, k) => {
+    const el = h(`<div data-safe style="white-space:nowrap;font:${leadSize}px/1.25 var(--body);color:var(--muted)">${wordSpans(text, "glow-word")}</div>`);
+    lockup.append(el); fitText(el, W * 0.84, leadSize);
+    const base = BASE; BASE = base + 450 * k; $$(".glow-word", el).forEach((w, i) => riseIn(w, i * 70)); BASE = base;
   });
+  const pay = h(`<div data-safe style="position:relative;white-space:nowrap;font:${paySize}px/1.04 var(--display);letter-spacing:-.036em;color:var(--text)"><span style="visibility:hidden">${esc(last)}</span><span style="position:absolute;left:0;top:0;white-space:nowrap"><span class="halo-typed"></span><i style="display:inline-block;width:.035em;height:.86em;margin-left:.05em;vertical-align:-.08em;background:var(--text)"></i></span></div>`);
+  lockup.append(pay); fitText(pay, W * 0.84, paySize);
+  const glyphs = [...new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(last)].map((g) => g.segment);
+  const typeAt = leads.length ? 450 * (leads.length - 1) + 450 : 0, typed = $(".halo-typed", pay), caret = $("i", pay), done = typeAt + 50 * (glyphs.length - 1);
+  // Never a bare caret: the first glyph lands with it. The caret holds a beat after the last glyph, then goes.
+  WINDOW(pay, typeAt, end);
+  tick((ms) => {
+    typed.textContent = glyphs.slice(0, Math.min(glyphs.length, Math.max(1, Math.floor((ms - typeAt) / 50) + 1))).join("");
+    caret.style.opacity = Math.min(1, Math.max(0, 1 - (ms - done - 450) / 150)).toFixed(3);
+  });
+  K(lockup, [[0, { scale: "1" }], [end, { scale: "1.05" }]]);
 };
 
 PATTERNS["halo-end"] = (layer, s, ctx) => {

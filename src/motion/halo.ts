@@ -1,10 +1,11 @@
 // The halo recipe: real product screens and a one-line pitch in, a ~9 s promo out. No planner and no
 // network: the caller names the real UI pieces (--region x,y,w,h:KIND@SCREEN, KIND = logo, row, stack, card or chips)
 // and TakeOne lays them on the glow grammar, each beat at varied scales with overlap, shadow and parallax. The pitch is its sentences: the first is the pill's tagline, the
-// rest are the kinetic lines.
+// rest are the kinetic lines: light lead-ins and a heavy last line that types on.
 import { resolve } from "node:path";
 import { imageSize } from "./ingest.ts";
 import { minSceneDuration } from "./storyboard.ts";
+import { themeDefaults } from "../themes.ts";
 import type { Crop, Scene } from "./types.ts";
 
 export interface GlowArgs { inputs: string[]; regions: string[]; pitch?: string; logo?: string; title?: string; cta?: string; url?: string; workers?: number; theme?: string }
@@ -59,10 +60,12 @@ export function planHalo(a: GlowArgs, id: string, outputSize: readonly [number, 
   for (const pass of [0, 1]) for (const f of floats) for (const id of pass ? f.items!.slice(1) : f.items!.slice(0, 1)) if (backdrop.length < 4 && !seen.has(id)) { seen.add(id); backdrop.push(id); }
   if (lines.length) scenes.push(fit({ pattern: "halo-lines", d: 0, lines, ...(backdrop.length ? { items: backdrop } : {}) }, 1));
   scenes.push(fit({ pattern: "halo-end", d: 0, mark, logo: a.logo ?? "TakeOne", ...(a.url ? { credit: a.url } : {}) }, 2));
+  // The kinetic lines pair a light lead-in with a heavy last line: a theme whose two faces are one font gets Geist for the light one.
+  const faces = themeDefaults(a.theme ?? "midnight"), overrides = faces.display_font === faces.caption_font ? { caption_font: "Geist" } : {};
   return {
     version: 1, id,
     output: { out_w: outputSize[0], out_h: outputSize[1], ...(a.workers !== undefined ? { workers: a.workers } : {}) },
-    theme: { name: a.theme ?? "midnight", overrides: {} },
+    theme: { name: a.theme ?? "midnight", overrides },
     source: { kind: "image", files: a.inputs.map(f => resolve(f)) },
     screens: Object.create(null), regions: [], crops,
     layout: { kind: "single" }, scenes,
