@@ -58,7 +58,7 @@ PATTERNS["glow-prompt"] = (layer, s, ctx) => {
   // Typing fills 62% of the beat, a character at a time; the send button presses at 80% and glows.
   const typed = $(".gl-typed", line), per = (d * 0.62) / Math.max(1, text.length);
   tick((ms) => { typed.textContent = text.slice(0, Math.min(text.length, Math.max(1, Math.floor(ms / per) + 1))); });
-  K(card, [[0, { transform: "scale(.96)" }, EXPO], [450, { transform: "none" }], [d, { transform: "scale(1.03)" }]]);
+  K(card, [[0, { transform: "scale(.96)" }, EXPO], [450, { transform: "none" }], [d, { transform: "scale(1.03) translateY(-60px)" }]]);
   K(send, [[0, { transform: "scale(1)", boxShadow: `0 0 0 0 ${GL_BLUE}00` }], [sendAt - 20, { transform: "scale(1)", boxShadow: `0 0 0 0 ${GL_BLUE}00` }, EXPO], [sendAt + 80, { transform: "scale(.86)", boxShadow: `0 0 ${u * 0.07}px ${u * 0.02}px ${glC("#6aaaffdd")}` }], [sendAt + 260, { transform: "scale(1)", boxShadow: `0 0 ${u * 0.05}px ${u * 0.012}px ${glC("#6aaaff99")}` }]]);
 };
 
@@ -105,11 +105,12 @@ PATTERNS["glow-hero"] = (layer, s, ctx) => {
 
 // A file tree: rows (two spaces of indent per level) reveal fast, connectors drawn, the last row selected.
 PATTERNS["glow-tree"] = (layer, s, ctx) => {
-  const { W, H } = ctx, u = Math.min(W, H), rows = (s.tree ?? []).map((t) => ({ depth: /^ */.exec(t)[0].length >> 1, t: t.trim() }));
+  const { W, H } = ctx, u = Math.min(W, H), d = s.d * 1000, rows = (s.tree ?? []).map((t) => ({ depth: /^ */.exec(t)[0].length >> 1, t: t.trim() }));
   glowBg(layer, W, H, [0.18, 0.9]);
   const size = Math.min(u * 0.062, (H * 0.72) / (rows.length * 1.6)), pitch = size * 1.6, step = size * 1.5;
   const col = h(`<div data-safe style="position:absolute;left:${W * 0.32}px;top:${(H - rows.length * pitch) / 2}px;width:${W * 0.4}px"></div>`);
   layer.append(col);
+  K(col, [[0, { transform: "translateY(18px)" }], [d, { transform: "translateY(-18px)" }]]);
   rows.forEach((r, i) => {
     const last = i === rows.length - 1, ic = size * 0.8;
     const row = h(`<div style="position:relative;height:${pitch}px;margin-left:${r.depth * step}px;display:flex;align-items:center;gap:${size * 0.4}px;padding:0 ${size * 0.5}px;border-radius:${size * 0.4}px;font:500 ${size}px/1 var(--body);color:${last ? GL_TEXT : GL_MUTED};white-space:nowrap;${last ? `background:${GL_BLUE}40;box-shadow:0 0 0 ${Math.max(1.5, u * 0.003)}px ${glC("#5aa0ff")},0 0 ${u * 0.04}px ${GL_BLUE}99;` : ""}"></div>`);
