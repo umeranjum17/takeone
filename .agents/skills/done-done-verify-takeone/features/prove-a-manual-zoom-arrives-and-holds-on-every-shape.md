@@ -18,7 +18,7 @@ Harness: Shell (bash), ffmpeg/ffprobe, `fm-mem-gate.sh` for every capture and re
 never the proof: use the realistic board scene (`scripts/headless-scene.mjs`, docs/headless-scene.md).
 
 1. `npm run build`; capture the board at the shape you export: `node scripts/headless-scene.mjs <dir> --aspect=portrait`
-   (and `--aspect=square`); `node bin/takeone.mjs make <dir> --no-ai --set fps=60` with
+   (and `--aspect=square`); `node bin/takeone.mjs make <dir> --set fps=60` with a signed-in engine and
    `TAKEONE_DIR`/`TAKEONE_STATE_DIR` in tmp (`make` takes no `--aspect`; the square take's own 16:9 render
    then stops at the safe-area gate, after the plan in `analysis/` is written, which is all step 2 needs). Delete `<dir>/text-boxes.json` from the copy you zoom: a push-in
    crops board text across the 5% inset, which the safe-area gate refuses.
