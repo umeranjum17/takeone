@@ -27,3 +27,17 @@ in `src/motion/gates.ts`.
 > AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF
 > CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 > DEALINGS IN THE SOFTWARE.
+
+## GSAP
+
+https://gsap.com, version 3.13.0. Copyright 2025, GreenSock. Used under GreenSock's "Standard No Charge" licence, https://gsap.com/standard-license.
+
+Vendored unmodified as `resources/motion/vendor/gsap.min.js` (its licence header kept) and inlined into every HyperFrames
+motion project. The no-charge terms apply only while end users are not charged a fee to use the product the library ships in.
+
+## Brand file shape
+
+The brand reader in `src/motion/brand.ts` follows the published `brand.json` and DESIGN.md frontmatter shape of
+https://github.com/nexu-io/open-design (Apache License 2.0): the colour roles (background, surface, foreground, muted, border,
+accent, accent-secondary), the display, body and mono typography families and the logo path. Format reference only: no upstream
+file or code is copied or vendored, so no upstream licence text is bundled.

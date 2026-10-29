@@ -79,6 +79,8 @@ export interface Scene {
   url?: string;
   /** Wordmark text for the end card (set in the display font, letters at kerned x). */
   logo?: string;
+  /** end-card: absolute path of a logo image (png, jpg, webp, svg) drawn above the wordmark. */
+  logo_image?: string;
   /** fragment pattern: kind and state, laid out by FRAGMENTS[kind]. */
   kind?: string;
   state?: string;
