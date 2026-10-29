@@ -72,7 +72,7 @@ takeone motion install-hyperframes   install hyperframes@0.8.200 + chrome-headle
   x,y,w,h:label marks the lit regions (spotlight, feature-callouts need them; callouts take 2 to 5), before-after
   takes two images (or two --state names) and --subtitle as its delta line. --aspect sets the output shape for
   any plan (portrait is 1080x1920); --recipe and --pattern are exclusive.
-  --recipe glow plans a 5-9 s promo locally, no engine: a typed prompt, kinetic words, a headline over a gradient
+  --recipe glow plans a 5-9 s promo locally (up to about 12 s with a deck), no engine: a typed prompt, kinetic words, a headline over a gradient
   ribbon, a file tree, the real screen and a glowing click on the control that --press names (found by OCR), and
   the end card, cut fast on a near-black navy stage with a blue glow. 2 to 5 --region x,y,w,h:caption add a deck
   beat: those regions of the screen as cards fanned in depth, one stepping to the front every 0.55 s with its caption.
