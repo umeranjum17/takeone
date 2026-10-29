@@ -38,7 +38,7 @@ const deliver = (input: string, output: string, extra: string[] = []) => ff("-i"
 /** A headless board take in one aspect, planned locally at 60 fps. */
 function board(name: string, aspect: "landscape" | "portrait" | "square", theme?: string) {
   const dir = fresh(join(work, name));
-  run("node", ["scripts/headless-scene.mjs", dir, `--aspect=${aspect}`, "--scale=2"]);
+  run("node", ["scripts/headless-scene.mjs", dir, `--aspect=${aspect}`, `--scale=${aspect === "landscape" ? 2 : 1}`]);
   takeone("make", dir, "--no-ai", "--set", "fps=60", ...theme ? ["--theme", theme] : []);
   if (aspect !== "landscape") takeone("render", dir, "--set", "fps=60", ...theme ? ["--theme", theme] : [], "--aspect", aspect);
   return dir;
