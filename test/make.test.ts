@@ -177,16 +177,19 @@ test("render --preview frames the film like the full render, at preview speed", 
     // The preview's 30 fps cursor follows the camera at its own time, not the 60 fps camera frame of the same
     // index: its arrow tip sits where the full render's does at that second.
     const tips = (file: string) => new Map(readFileSync(file, "utf8").split("\n").flatMap((line) => {
-      // Each line spans its frame's half-frame either side: key it on its centre, the frame's own time.
+      // Key the midpoint on the 60 fps film clock: centiseconds alone collapse neighbouring full frames.
       const m = /^Dialogue: 1,(\d+):(\d+):([\d.]+),(\d+):(\d+):([\d.]+),.*\}m ([-\d.]+) ([-\d.]+)/.exec(line);
       const at = (h: string, mm: string, ss: string) => +h * 3600 + +mm * 60 + +ss;
-      return m ? [[Math.round((at(m[1]!, m[2]!, m[3]!) + at(m[4]!, m[5]!, m[6]!)) * 50), [+m[7]!, +m[8]!]] as const] : [];
+      return m ? [[Math.round((at(m[1]!, m[2]!, m[3]!) + at(m[4]!, m[5]!, m[6]!)) * 30), [+m[7]!, +m[8]!]] as const] : [];
     }));
     const full = tips(join(dir, "cursor.ass")), preview = tips(join(dir, "preview", "cursor.ass"));
-    const off = [...preview].filter(([t]) => full.has(t)).map(([t, [x, y]]) => Math.hypot(x - full.get(t)![0], y - full.get(t)![1]));
+    const off = [...preview].filter(([t]) => full.has(t)).map(([t, [x, y]]) => ({
+      t, delta: Math.hypot(x - full.get(t)![0], y - full.get(t)![1]), full: full.get(t), preview: [x, y],
+    }));
     // The cursor's own smoothing steps at the output rate, so a 3x push-in magnifies its sub-pixel lag to
     // under 2 px; looking the camera up by frame index instead puts the arrow 65 px off on this take.
-    assert.ok(off.length > 20 && Math.max(...off) <= 2.5, `${off.length} matched frames, worst ${Math.max(...off).toFixed(1)} px`);
+    const worst = off.reduce((a, b) => b.delta > a.delta ? b : a);
+    assert.ok(off.length > 20 && worst.delta <= 2.5, `${off.length} matched frames, worst ${worst.delta.toFixed(1)} px at ${worst.t / 60}s (${worst.full} vs ${worst.preview})`);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -1068,7 +1071,7 @@ test("the whole plan is editable: focus, tightness and the film's look are kept 
   const dir = buildKindsTake(mkdtempSync(join(tmpdir(), "takeone-wholeplan-")));
   const fast = ["out_w=160", "out_h=90", "preset=veryfast", "ripple_ms=0", "fade_s=0", "idle_speed=1"];
   const cli = (command: string, extra: string[] = []) => spawnSync(process.execPath,
-    ["bin/takeone.mjs", command, dir, ...(command === "make" ? ["--no-ai"] : []), ...fast.flatMap((value) => ["--set", value]), ...extra],
+    [command === "make" ? "scripts/test-planner.mjs" : "bin/takeone.mjs", command, dir, ...fast.flatMap((value) => ["--set", value]), ...extra],
     { encoding: "utf8", env: { ...process.env, TAKEONE_DIR: dir, TAKEONE_STATE_DIR: join(dir, "state") } });
   const planFile = join(dir, "analysis", "plan.json");
   const read = (): Plan & { film: Record<string, { value?: unknown; by: string }> } => JSON.parse(readFileSync(planFile, "utf8"));

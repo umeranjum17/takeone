@@ -91,18 +91,22 @@ export function cursorAss(o: CursorOptions): string {
   };
 
   const count = Math.floor(o.duration * fps) + 1;
-  const raw = Array.from({ length: count }, (_, i) => at(i / fps));
-  const window = Math.max(1, Math.round(0.12 * fps));
-  const pos = raw.map((_, i) => {
+  // Smooth on one film clock so a 30 fps preview cannot blend an idle cut
+  // differently from the 60 fps final at the same instant.
+  const smoothFps = Math.max(60, fps);
+  const smoothCount = Math.floor(o.duration * smoothFps) + 1;
+  const raw = Array.from({ length: smoothCount }, (_, i) => at(i / smoothFps));
+  const window = Math.max(1, Math.round(0.12 * smoothFps));
+  const smoothed = raw.map((_, i) => {
     let sx = 0, sy = 0, n = 0;
     for (let j = i - window; j <= i + window; j++) {
-      const p = raw[clamp(j, 0, count - 1)]!;
+      const p = raw[clamp(j, 0, smoothCount - 1)]!;
       const weight = 1 + Math.cos(Math.PI * (j - i) / (window + 1));
       sx += p.x * weight; sy += p.y * weight; n += weight;
     }
     return { x: sx / n, y: sy / n };
   });
-
+  const pos = Array.from({ length: count }, (_, i) => smoothed[Math.min(smoothCount - 1, Math.round(i * smoothFps / fps))]!);
   // The window averages a click with the motion around it, so draw the cursor
   // onto each click ripple's centre, easing in and out over PIN_S (never past
   // a neighbouring click): the ripple and the arrow tip meet exactly.
@@ -111,7 +115,9 @@ export function cursorAss(o: CursorOptions): string {
     const half = Math.max(2 / fps, Math.min(PIN_S, c.t - (clicks[k - 1]?.t ?? -Infinity), (clicks[k + 1]?.t ?? Infinity) - c.t));
     for (let i = Math.max(0, Math.ceil((c.t - half) * fps)); i < count && i / fps <= c.t + half; i++) {
       const gap = Math.abs(i / fps - c.t);
-      const w = gap <= 1 / fps ? 1 : 0.5 + 0.5 * Math.cos(Math.PI * (gap - 1 / fps) / (half - 1 / fps));
+      // Pin for the same span of film time at both 60 fps and 30 fps preview.
+      const core = 1 / 60;
+      const w = gap <= core ? 1 : 0.5 + 0.5 * Math.cos(Math.PI * (gap - core) / (half - core));
       pos[i] = { x: pos[i]!.x + (c.x - pos[i]!.x) * w, y: pos[i]!.y + (c.y - pos[i]!.y) * w };
     }
   });
