@@ -1,7 +1,8 @@
-// The glow-reel recipe: real screens and a few lines of copy in, a 5-9 s promo out, planned locally (no engine, no
-// network). A typed prompt, kinetic words, a headline over a gradient ribbon, a file tree, the screen with a glowing
-// click and the end card, cut fast on a near-black navy stage. The copy is the caller's; only the pressed control is found
-// (by OCR, on this machine) so the click lands on a real button of the real screen.
+// The glow-reel recipe: real screens and a few lines of copy in, a 5-9 s promo out (up to about 12 s with a deck), planned
+// locally (no engine, no network). A typed prompt, kinetic words, a headline over a gradient ribbon, a file tree, an
+// optional deck of real-screen cards, the screen with a glowing click and the end card, cut fast on a near-black navy
+// stage. The copy is the caller's; only the pressed control is found (by OCR, on this machine) so the click lands on a
+// real button of the real screen.
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -12,7 +13,7 @@ import { imageSize } from "./ingest.ts";
 import { minSceneDuration } from "./storyboard.ts";
 import type { Crop, Rect, Scene } from "./types.ts";
 
-export interface GlowArgs { inputs: string[]; title?: string; subtitle?: string; pitch?: string; press?: string; frame?: string; tree?: string; cta?: string; logo?: string; url?: string; audio?: string; workers?: number; brand?: string }
+export interface GlowArgs { inputs: string[]; title?: string; subtitle?: string; pitch?: string; press?: string; frame?: string; tree?: string; regions?: string[]; cta?: string; logo?: string; url?: string; audio?: string; workers?: number; brand?: string }
 
 /** The zoom beat's window: wide enough to read the control, never magnified past ~2x of the source, around the control. */
 export const ZOOM_W = 860;
@@ -48,15 +49,33 @@ export function treeRows(spec: string): string[] {
 export const GLOW_THEME = { background: "#030719", background_to: "#030719", bg_style: "solid", text: "#ffffff", accent: "#2f7bff", display_font: "Inter Bold",
   card: "#0e111b", border_color: "#2b3144", line: "#3b4a78", muted: "#c9d6f5" };
 
-/** The storyboard for one or two screens and the copy. Pure given the pressed control's box (and the brand read from its file). */
+/** `--region x,y,w,h:Caption` (2 to 5): deck cards cut from the first screen, each grown to a square around its region
+ *  (centred across, top-anchored, kept inside the screen) so every card shows the region whole at one shape. */
+export function deckCards(specs: string[], W: number, H: number): { rect: Rect; caption: string }[] {
+  if (specs.length && (specs.length < 2 || specs.length > 5)) throw new Error(`--recipe glow takes 2 to 5 --region cards for its deck, got ${specs.length}`);
+  return specs.map((spec) => {
+    const m = /^\s*(\d+(?:\.\d+)?),(\d+(?:\.\d+)?),(\d+(?:\.\d+)?),(\d+(?:\.\d+)?):(.+)$/.exec(spec);
+    if (!m || !m[5]!.trim()) throw new Error(`--recipe glow --region expects x,y,w,h:Caption (a deck card and its line), got ${spec}`);
+    const [x, y, w, h] = m.slice(1, 5).map(Number) as Rect;
+    if (w <= 0 || h <= 0 || x + w > W || y + h > H || Math.max(w, h) > Math.min(W, H)) {
+      throw new Error(`--recipe glow --region must have positive dimensions and fit inside the screen as a square card, got ${spec}`);
+    }
+    const side = Math.ceil(Math.max(w, h));
+    return { rect: [Math.floor(Math.max(0, Math.min(x + w / 2 - side / 2, W - side))), Math.floor(Math.max(0, Math.min(y, H - side))), side, side], caption: m[5]!.trim() };
+  });
+}
+
+/** The storyboard for one or two screens and the copy. Pure given the pressed control's box and optional brand. */
 export function glowStoryboard(a: GlowArgs, id: string, sizes: { width: number; height: number }[], tap: Rect, frame?: Rect, brand?: Brand): unknown {
   const { width: W, height: H } = sizes[0]!;
   const zw = Math.min(ZOOM_W, W), zh = Math.min(Math.round(zw * 9 / 16), H);
   const rect = (c: number, len: number, max: number) => Math.round(Math.max(0, Math.min(c - len / 2, max - len)));
+  const deck = deckCards(a.regions ?? [], W, H);
   const crops: Record<string, Crop> = {
     win: { screen: "S1", rect: [0, 0, W, H], exact: true },
     press: { screen: "S1", rect: frame ?? [rect(tap[0] + tap[2] / 2, zw, W), rect(tap[1] + tap[3] / 2, zh, H), zw, zh], exact: true },
     ...(sizes[1] ? { phone: { screen: "S2", rect: [0, 0, sizes[1].width, sizes[1].height], exact: true } } : {}),
+    ...Object.fromEntries(deck.map((c, i) => [`deck${i + 1}`, { screen: "S1", rect: c.rect, exact: true }])),
   };
   const fit = (s: Scene, floor: number): Scene => ({ ...s, cut: true, d: Math.round(Math.max(floor, minSceneDuration(s)) * 60) / 60 });
   const scenes: Scene[] = [
@@ -64,6 +83,8 @@ export function glowStoryboard(a: GlowArgs, id: string, sizes: { width: number; 
     ...(a.subtitle ? [fit({ pattern: "glow-words", d: 0, title: a.subtitle }, 0.27 * a.subtitle.split(/\s+/).length)] : []),
     fit({ pattern: "glow-hero", d: 0, title: a.title!, text: a.cta ?? "Get started" }, 2.2),
     ...(a.tree ? [fit({ pattern: "glow-tree", d: 0, tree: treeRows(a.tree) }, 0.8)] : []),
+    // Cards step every 0.55 s; the last holds for 1 s.
+    ...(deck.length ? [fit({ pattern: "glow-deck", d: 0, cards: deck.map((c, i) => ({ screen: `deck${i + 1}`, caption: c.caption })) }, 0.55 * deck.length + 0.45)] : []),
     fit({ pattern: "glow-screen", d: 0, screen: "win", tap, ...(sizes[1] ? { phone: "phone" } : {}) }, 0.6),
     fit({ pattern: "glow-screen", d: 0, screen: "press", tap, zoom: true }, 0.9),
     fit({ pattern: "end-card", d: 0, logo: a.logo ?? brand?.name ?? "", ...(brand?.logo ? { logo_image: brand.logo } : {}), cta: a.cta ?? "Get started", ...(a.url ? { url: a.url } : {}), glow: true }, 2.3),
