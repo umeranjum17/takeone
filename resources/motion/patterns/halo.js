@@ -51,10 +51,9 @@ const halo = (layer, W, H, cx, cy, size) => {
 // A real UI piece as a designed object, not a raw crop: its own rounded plate (a circle for a square avatar), a
 // hairline rim with a lit top edge, and shadows that deepen with `z` (0 far, 1 near): a tight contact shadow, a long
 // ambient one, and a separate blurred cast shadow thrown below and behind it so it floats off whatever lies under it.
-// The far ones are softly out of focus (a few pixels at most), never a blurred copy behind a sharp one.
 const piece = (src, w, hh, radius, z, u) => {
-  const lift = u * (0.012 + 0.045 * z), soft = Math.max(0, 0.5 - z) * u * 0.007;
-  return h(`<div style="position:absolute;width:${w}px;height:${hh}px;${soft > 0.2 ? `filter:blur(${soft.toFixed(2)}px);` : ""}"><div style="position:absolute;left:${w * 0.07}px;right:${w * 0.07}px;top:${hh * 0.14 + lift}px;bottom:${-lift}px;border-radius:${radius}px;background:#000;opacity:${0.55 + 0.3 * z};filter:blur(${u * (0.012 + 0.03 * z)}px)"></div><div style="position:absolute;inset:0;border-radius:${radius}px;background:#10141b;box-shadow:0 ${u * 0.002}px ${u * 0.006}px #000000c0,0 ${u * (0.01 + 0.04 * z)}px ${u * (0.02 + 0.07 * z)}px #000000b0,0 0 ${u * 0.1 * z}px rgb(${accentRgb().join(",")} / .16)"><img src="${src}" style="width:100%;height:100%;display:block;border-radius:inherit"><div style="position:absolute;inset:0;border-radius:inherit;box-shadow:inset 0 0 0 1px #ffffff2e,inset 0 1px 0 #ffffff4d"></div></div></div>`);
+  const lift = u * (0.012 + 0.045 * z);
+  return h(`<div style="position:absolute;width:${w}px;height:${hh}px"><div style="position:absolute;left:${w * 0.07}px;right:${w * 0.07}px;top:${hh * 0.14 + lift}px;bottom:${-lift}px;border-radius:${radius}px;background:#000;opacity:${0.55 + 0.3 * z};filter:blur(${u * (0.012 + 0.03 * z)}px)"></div><div style="position:absolute;inset:0;border-radius:${radius}px;background:#10141b;box-shadow:0 ${u * 0.002}px ${u * 0.006}px #000000c0,0 ${u * (0.01 + 0.04 * z)}px ${u * (0.02 + 0.07 * z)}px #000000b0,0 0 ${u * 0.1 * z}px rgb(${accentRgb().join(",")} / .16)"><img src="${src}" style="width:100%;height:100%;display:block;border-radius:inherit"><div style="position:absolute;inset:0;border-radius:inherit;box-shadow:inset 0 0 0 1px #ffffff2e,inset 0 1px 0 #ffffff4d"></div></div></div>`);
 };
 const markEl = (src, size) => h(`<div style="position:absolute;width:${size}px;height:${size}px;border-radius:${size * 0.23}px;overflow:hidden;box-shadow:0 0 0 1px #ffffff26,0 0 ${size * 0.5}px rgb(${accentRgb().join(",")} / .5)"><img src="${src}" style="width:100%;height:100%;display:block"></div>`);
 const fitText = (el, maxWidth, size) => {
@@ -103,7 +102,7 @@ const SATELLITES = [[1, 1, 1], [0, 0, 0.8], [1.04, 0.3, 0.65], [0.55, 1.03, 0.9]
 // Lay the beat's pieces out: [{cx, cy, w, h, z, radius}], from the crops' sizes. `z` is depth, 0 far to 1 near.
 const arrange = (kind, sizes, W, H, u) => {
   const n = sizes.length, S = SCALES[n - 1], aspect = sizes.map(([w, hh]) => w / hh), z = (s) => Math.min(1, Math.max(0, (s - 0.68) / 0.72));
-  const radiusOf = (w, hh, a, k = kind) => (k === "row" || k === "chips") && a > 0.85 && a < 1.18 ? Math.min(w, hh) / 2 : k === "chips" ? hh / 2 : k === "stack" ? Math.min(w, hh) * 0.3 : Math.min(w, hh) * 0.09;
+  const radiusOf = (w, hh, a, k = kind) => a > 0.85 && a < 1.18 ? Math.min(w, hh) / 2 : k === "chips" ? hh / 2 : k === "stack" ? Math.min(w, hh) * 0.3 : Math.min(w, hh) * 0.09;
   if (kind === "card") {
     const sat = n > 1, hero = Math.min(((sat ? 0.6 : 0.62) * W) / aspect[0], (sat ? 0.6 : 0.68) * H) * aspect[0], hw = hero, hh = hero / aspect[0];
     const cx = sat ? W * 0.47 : W / 2, cy = H * 0.52, out = [{ cx, cy, w: hw, h: hh, z: 0.45, radius: radiusOf(hw, hh, aspect[0]) }];
