@@ -15,7 +15,7 @@ import { planBento } from "./bento.ts";
 import { planEditorial } from "./editorial.ts";
 import { FILM_USAGE, newTakeDir, runFilm } from "./film.ts";
 import { planGlow } from "./glow.ts";
-import { DEFAULT_GAUNTLET_ROUNDS, runGauntlet } from "./gauntlet.ts";
+import { DEFAULT_GAUNTLET_ROUNDS, runGauntlet, validateMaxRounds } from "./gauntlet.ts";
 import { resolveJudge } from "../decide/planner.ts";
 import { JudgeUnavailable } from "../score/judge.ts";
 import type { Device, MotionEngine, PatternName, Region, Scene } from "./types.ts";
@@ -481,6 +481,7 @@ export async function runMotion(argv: string[], takesDir: string, o: PlanOptions
   }
   if (a.gauntlet) {
     if (a.planOnly) throw new Error("--gauntlet scores a rendered film; it cannot be combined with --plan-only");
+    validateMaxRounds(a.maxRounds ?? DEFAULT_GAUNTLET_ROUNDS);
     const judge = await resolveJudge();
     if (!judge.active) throw new JudgeUnavailable(`unavailable - ${judge.label} cannot serve: ${judge.refusal ?? "no sign-in"}. Sign in with \`claude\`, or save another route in judge.json`);
   }
@@ -523,6 +524,7 @@ export async function runGauntletCommand(argv: string[]): Promise<number> {
     if (rest[i] !== "--max-rounds" || rest[i + 1] === undefined || !Number.isFinite(v)) throw new Error("gauntlet takes only --max-rounds M");
     maxRounds = v;
   }
+  validateMaxRounds(maxRounds);
   if (!isMotionTake(dir)) throw new Error(`${dir} is not a motion take (no take.json motion entry)`);
   return gauntletOn(resolve(dir), maxRounds);
 }

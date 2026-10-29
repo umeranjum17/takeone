@@ -16,6 +16,9 @@ import type { MotionEngine, Scene, Storyboard } from "./types.ts";
 export const DEFAULT_BAR = 8;
 export const DEFAULT_GAUNTLET_ROUNDS = 2;
 export const MAX_GAUNTLET_ROUNDS = 5;
+export function validateMaxRounds(maxRounds: number): void {
+  if (!Number.isInteger(maxRounds) || maxRounds < 1 || maxRounds > MAX_GAUNTLET_ROUNDS) throw new Error(`--max-rounds expects an integer 1-${MAX_GAUNTLET_ROUNDS}`);
+}
 /** A scene may grow by at most this many beat-grid steps over the film's first plan, so repairs cannot run away. */
 export const MAX_GROWTH_STEPS = 2;
 const GAIN_EPSILON = 0.2;
@@ -128,7 +131,7 @@ async function filmFor(dir: string, sb: Storyboard, raw: string): Promise<{ film
 export async function runGauntlet(o: GauntletOptions): Promise<GauntletResult> {
   const log = o.log ?? ((line: string) => console.log(line));
   const bar = DEFAULT_BAR, maxRounds = o.maxRounds ?? DEFAULT_GAUNTLET_ROUNDS;
-  if (!Number.isInteger(maxRounds) || maxRounds < 1 || maxRounds > MAX_GAUNTLET_ROUNDS) throw new Error(`--max-rounds expects an integer 1-${MAX_GAUNTLET_ROUNDS}`);
+  validateMaxRounds(maxRounds);
   if (!o.planner.active) throw new JudgeUnavailable(`unavailable - ${o.planner.label} cannot serve: ${o.planner.refusal ?? "no sign-in"}. Sign in with \`claude\`, or save another route in judge.json`);
   const storyboardFile = join(o.dir, "storyboard.json"), ledger = join(o.dir, "gauntlet.jsonl"), keep = join(o.dir, "out", "gauntlet");
   mkdirSync(keep, { recursive: true });
@@ -142,49 +145,60 @@ export async function runGauntlet(o: GauntletOptions): Promise<GauntletResult> {
   const first = sb;
   const rounds: { n: number; score: number; film: string; storyboard: string; manifest: string; findings: Finding[] }[] = [];
   let stop: GauntletResult["stop"] = "max-rounds";
+  let finalized = false;
+  const finalize = (best: typeof rounds[number], finalStop: GauntletResult["stop"] | "failed", error?: unknown) => {
+    copyFileSync(best.storyboard, storyboardFile);
+    copyFileSync(best.manifest, join(o.dir, "render.json"));
+    const manifest = JSON.parse(readFileSync(best.manifest, "utf8")) as { out: string };
+    const film = join(o.dir, manifest.out);
+    copyFileSync(best.film, film);
+    const reached = best.findings.every((f) => f.score >= bar);
+    const remaining = best.findings.filter((f) => f.score < bar).map((f) => `scene ${f.scene} ${f.pattern} ${f.criterion}: ${f.score}/10`);
+    row({ type: "final", stop: finalStop, bar, bestRound: best.n, bestScore: +best.score.toFixed(2), reached, rounds: rounds.length, modelCalls: rounds.length, cap: maxRounds, remaining,
+      ...(error === undefined ? {} : { error: error instanceof Error ? error.message : String(error) }) });
+    return { reached, film, remaining };
+  };
 
-  for (let n = 1; n <= maxRounds; n++) {
-    const { film, seconds } = await filmFor(o.dir, sb, raw);
-    const copy = join(runKeep, `round-${n}.mp4`);
-    copyFileSync(film, copy);
-    copyFileSync(storyboardFile, join(runKeep, `round-${n}.storyboard.json`));
-    copyFileSync(join(o.dir, "render.json"), join(runKeep, `round-${n}.render.json`));
-    const { findings } = await critique(o.planner, sb, film, runKeep, n);
-    const score = mean(findings);
-    const failing = findings.filter((f) => f.score < bar);
-    rounds.push({ n, score, film: copy, storyboard: join(runKeep, `round-${n}.storyboard.json`), manifest: join(runKeep, `round-${n}.render.json`), findings });
-    log(`gauntlet: round ${n} ${score.toFixed(1)}/10, ${failing.length} of ${findings.length} checks under ${bar}`);
-    for (const f of failing) log(`gauntlet:   scene ${f.scene} ${f.pattern} ${f.criterion} ${f.score}/10`);
-    const previous = rounds.at(-2);
-    let repairs: Repair[] = [];
-    let next: Storyboard | undefined;
-    if (!failing.length) stop = "bar-met";
-    else if (previous && score - previous.score < GAIN_EPSILON) stop = "no-gain";
-    else if (n === maxRounds) stop = "max-rounds";
-    else {
-      const r = repairStoryboard(sb, first, findings);
-      repairs = r.repairs;
-      if (!repairs.length) stop = "no-repair"; else next = r.storyboard;
+  try {
+    for (let n = 1; n <= maxRounds; n++) {
+      const { film, seconds } = await filmFor(o.dir, sb, raw);
+      const copy = join(runKeep, `round-${n}.mp4`);
+      copyFileSync(film, copy);
+      copyFileSync(storyboardFile, join(runKeep, `round-${n}.storyboard.json`));
+      copyFileSync(join(o.dir, "render.json"), join(runKeep, `round-${n}.render.json`));
+      const { findings } = await critique(o.planner, sb, film, runKeep, n);
+      const score = mean(findings);
+      const failing = findings.filter((f) => f.score < bar);
+      rounds.push({ n, score, film: copy, storyboard: join(runKeep, `round-${n}.storyboard.json`), manifest: join(runKeep, `round-${n}.render.json`), findings });
+      const previous = rounds.at(-2);
+      let repairs: Repair[] = [];
+      let next: Storyboard | undefined;
+      if (!failing.length) stop = "bar-met";
+      else if (previous && score - previous.score < GAIN_EPSILON) stop = "no-gain";
+      else if (n === maxRounds) stop = "max-rounds";
+      else {
+        const r = repairStoryboard(sb, first, findings);
+        repairs = r.repairs;
+        if (!repairs.length) stop = "no-repair"; else next = r.storyboard;
+      }
+      row({ type: "round", round: n, film: `out/gauntlet/run-${run}/round-${n}.mp4`, filmSha256: sha(readFileSync(copy)), storyboardSha256: sha(raw), seconds: +seconds.toFixed(2),
+        judge: o.planner.label, sawStills: false, calls: 1, score: +score.toFixed(2), findings, repairs });
+      log(`gauntlet: round ${n} ${score.toFixed(1)}/10, ${failing.length} of ${findings.length} checks under ${bar}`);
+      for (const f of failing) log(`gauntlet:   scene ${f.scene} ${f.pattern} ${f.criterion} ${f.score}/10`);
+      if (!next) break;
+      for (const r of repairs) log(`gauntlet: round ${n + 1} will change scene ${r.scene}: ${r.change}`);
+      raw = JSON.stringify(next, null, 2) + "\n";
+      writeFileSync(storyboardFile, raw);
+      sb = next;
     }
-    row({ type: "round", round: n, film: `out/gauntlet/run-${run}/round-${n}.mp4`, filmSha256: sha(readFileSync(copy)), storyboardSha256: sha(raw), seconds: +seconds.toFixed(2),
-      judge: o.planner.label, sawStills: false, calls: 1, score: +score.toFixed(2), findings, repairs });
-    if (!next) break;
-    for (const r of repairs) log(`gauntlet: round ${n + 1} will change scene ${r.scene}: ${r.change}`);
-    raw = JSON.stringify(next, null, 2) + "\n";
-    writeFileSync(storyboardFile, raw);
-    sb = next;
+    const best = rounds.reduce((top, r) => (r.score > top.score ? r : top));
+    const result = finalize(best, stop);
+    finalized = true;
+    log(result.reached ? `gauntlet: bar ${bar} met in round ${best.n} (${best.score.toFixed(1)}/10)` : `gauntlet: BELOW BAR - best round ${best.n} ${best.score.toFixed(1)}/10; ${result.remaining.length} check(s) still under ${bar}`);
+    log(`gauntlet: ledger ${ledger}`);
+    return { stop, best: best.score, reached: result.reached, ledger, film: result.film };
+  } catch (error) {
+    if (rounds.length && !finalized) finalize(rounds.reduce((top, r) => r.score > top.score ? r : top), "failed", error);
+    throw error;
   }
-
-  const best = rounds.reduce((top, r) => (r.score > top.score ? r : top));
-  // The film kept is the best round's: put its storyboard, render manifest and film back where `takeone render` reads them.
-  copyFileSync(best.storyboard, storyboardFile);
-  copyFileSync(best.manifest, join(o.dir, "render.json"));
-  copyFileSync(best.film, join(o.dir, (JSON.parse(readFileSync(best.manifest, "utf8")) as { out: string }).out));
-  const reached = best.findings.every((f) => f.score >= bar);
-  const remaining = best.findings.filter((f) => f.score < bar).map((f) => `scene ${f.scene} ${f.pattern} ${f.criterion}: ${f.score}/10`);
-  row({ type: "final", stop, bar, bestRound: best.n, bestScore: +best.score.toFixed(2), reached, rounds: rounds.length, modelCalls: rounds.length, cap: maxRounds, remaining });
-  log(reached ? `gauntlet: bar ${bar} met in round ${best.n} (${best.score.toFixed(1)}/10)` : `gauntlet: BELOW BAR - best round ${best.n} ${best.score.toFixed(1)}/10; ${remaining.length} check(s) still under ${bar}`);
-  log(`gauntlet: ledger ${ledger}`);
-  const manifest = JSON.parse(readFileSync(join(o.dir, "render.json"), "utf8")) as { out: string };
-  return { stop, best: best.score, reached, ledger, film: join(o.dir, manifest.out) };
 }

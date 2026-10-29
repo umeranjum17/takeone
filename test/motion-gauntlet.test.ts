@@ -1,11 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { screenLines } from "../src/decide/ocr.ts";
 import { candidateLines, editorialStoryboard, screenGrey } from "../src/motion/editorial.ts";
+import { runMotion } from "../src/motion/cli.ts";
 import { MAX_GROWTH_STEPS, repairStoryboard, type Finding } from "../src/motion/gauntlet.ts";
 import { validateStoryboard } from "../src/motion/storyboard.ts";
 
@@ -25,6 +26,14 @@ async function editorialFilm() {
 }
 
 const finding = (scene: number, criterion: Finding["criterion"], score: number): Finding => ({ id: `s${scene}-${criterion}`, scene, pattern: "x", criterion, score, note: "" });
+
+test("motion gauntlet rejects an invalid round cap before making a take", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "takeone-gauntlet-round-cap-"));
+  try {
+    await assert.rejects(runMotion([BOARD, "--gauntlet", "--max-rounds", "0"], dir), /--max-rounds expects an integer 1-5/);
+    assert.deepEqual(readdirSync(dir), []);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
 
 test("gauntlet extends only under-read scenes and keeps later cuts on the grid", async () => {
   const sb = await editorialFilm();
