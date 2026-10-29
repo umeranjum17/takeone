@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // One command rebuilds the approved dogfood set A1-A10 and writes manifest.json: every file's sha256,
 // its ffprobe facts, the command that made it and the gates it was held to. See docs/readme-assets.md.
-//   node scripts/readme-assets.ts [out-dir] [--only A1,A5] [--verify]
+//   node scripts/readme-assets.ts [out-dir]
 // Offline: the headless board scene, the synthetic take, the saved Tidewater screenshot and ffmpeg.
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -11,7 +11,7 @@ import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
-const { values, positionals } = parseArgs({ options: { only: { type: "string" }, verify: { type: "boolean" } }, allowPositionals: true });
+const { positionals } = parseArgs({ options: {}, allowPositionals: true });
 const dest = resolve(positionals[0] ?? join(root, "tmp/readme-assets"));
 const work = join(dest, "work");
 const manifestFile = join(dest, "manifest.json");
@@ -111,7 +111,7 @@ BUILDS.push({ id: "A7", assets: [A7], build(put) {
 const A8: Asset = { id: "A8", file: "before-after.mp4", kind: "video", width: 1920, height: 540, fps: 60, recipe: "A1 raw screen.webm (paced as the render paced it) beside A1's render, hstack 2x960" };
 BUILDS.push({ id: "A8", assets: [A8], build(put) {
   const take = shared.a1 ?? join(work, "a1");
-  if (!existsSync(join(take, "out"))) throw new Error("A8 needs the A1 take; run A1 first (--only A1,A8)");
+  if (!existsSync(join(take, "out"))) throw new Error("A8 needs the A1 take from this build");
   // The render's own pacing: the first setpts in camera.cmd is the warp it applied to the screen.
   const meta = JSON.parse(readFileSync(join(take, "take.json"), "utf8")) as { trim_start?: number };
   const pts = readFileSync(join(take, "camera.cmd"), "utf8").match(/setpts='([^']*)'/)?.[1];
@@ -145,25 +145,11 @@ BUILDS.push({ id: "A10", assets: stillAssets, build(put) {
   }
 } });
 
-function verify() {
-  const m = JSON.parse(readFileSync(manifestFile, "utf8")) as { assets: Entry[] };
-  const bad = m.assets.filter(a => !existsSync(join(dest, a.file)) || sha(join(dest, a.file)) !== a.sha256);
-  for (const a of m.assets) console.log(`${bad.includes(a) ? "CHANGED" : "ok     "} ${a.id} ${a.file}`);
-  process.exit(bad.length ? 1 : 0);
-}
-
 function main() {
-  if (values.verify) return verify();
-  const only = values.only?.split(",").map(s => s.trim().toUpperCase());
-  const unknown = only?.filter(id => !BUILDS.some(b => b.id === id));
-  if (unknown?.length) throw new Error(`unknown asset ${unknown.join(",")}; use ${BUILDS.map(b => b.id).join(",")}`);
   mkdirSync(dest, { recursive: true });
-  const previous = existsSync(manifestFile) ? (JSON.parse(readFileSync(manifestFile, "utf8")) as { assets: Entry[] }).assets : [];
-  const entries = new Map(previous.map(e => [e.file, e]));
+  const entries = new Map<string, Entry>();
   for (const b of BUILDS) {
-    if (only && !only.includes(b.id)) continue;
     console.log(`== ${b.id}`);
-    for (const a of b.assets) entries.delete(a.file);
     b.build((a, file) => {
       const target = join(dest, a.file);
       mkdirSync(join(target, ".."), { recursive: true });
