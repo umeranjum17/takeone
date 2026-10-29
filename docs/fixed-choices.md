@@ -10,6 +10,7 @@ hidden among the limits.
 
 Each row names the file and the symbol that sets it, making the inventory traceable to the
 implementation.
+This inventory lists known fixed values by file and class; it is not proven exhaustive.
 
 Reclassified against `main` at v0.5.0, this code-level inventory is grouped by implementation
 rule; one design decision may correspond to multiple implementation rules here.
@@ -31,8 +32,8 @@ rule; one design decision may correspond to multiple implementation rules here.
 | Reading a tightness distribution as one level | `src/decide/mapping.ts` · `medianLevel` | measurement | Interpreting an answer, not choosing one |
 | Answer validity (probabilities sum to 1) | `src/decide/mapping.ts` · `CONF_SUM_TOL` | measurement | Validation boundary; an invalid answer falls back |
 | Beats per minute | `src/beats/segment.ts` · `MAX_BEATS_PER_MIN` | cost | The bound behind every per-beat price |
-| What counts as "the result" of an action | `src/beats/segment.ts` · `RESULT_AFTER_MS` | measurement | A perception threshold |
-| When a cut has settled | `src/beats/segment.ts` · `CUT_SETTLE_MS` | measurement | Signal settling |
+| What counts as "the result" of an action | `src/beats/segment.ts` · `RESULT_MIN_AREA`, `RESULT_PART_AREA`, `RESULT_AFTER_MS` | measurement | Fixed region-size and timing thresholds associate visible results with an action |
+| When a cut has settled | `src/beats/segment.ts` · `CUT_SETTLE_FRAC`, `CUT_SETTLE_MS` | measurement | Fixed signal-settling thresholds |
 | Minimum time between shots | `src/camera/defaults.ts` · `min_shot` | physics | A floor below which a move is unreadable; the planner picks shots above it |
 | Moves per window | `src/camera/defaults.ts` · `rate_max` | physics | Anti-jitter cap; the planner's importance ranks inside it |
 | Arrival timing | `src/camera/defaults.ts` · `anchor_early` | physics | Perceptual timing: the camera lands just before the action |
@@ -50,7 +51,6 @@ rule; one design decision may correspond to multiple implementation rules here.
 | Redaction of every word | `src/decide/redact.ts` · `redactWord` | privacy | Only plain short words leave the machine |
 | Text band layout | `src/render/stage.ts` · `bandRows` | format | Only a 16:9 source exported at 16:9 gets the band |
 | Keycap placement | `src/render/overlays.ts` · `clearance` | physics | One dock above the text band; skipped rather than covering the subject |
-| Keycap glyph set | `src/camera/defaults.ts` · `keycap_style` | format | Follows the recorder's operating system |
 | Blur is never removed | `src/camera/types.ts` · `blur` | privacy | The planner may suggest blur; a user's blur always wins |
 | Dialog and toast windows | `src/perceive/dialogs.ts` · `dialog` | measurement | Detected from pixels, not an editorial call |
 | Cursor movement detection | `src/render/cursor.ts` · `MOVE_EPS` | measurement | A 1.5 source-pixel threshold over 0.2 s filters smoothed pointer jitter from actual movement |
@@ -62,11 +62,13 @@ rule; one design decision may correspond to multiple implementation rules here.
 | GIF output size ceiling | `src/cli.ts` · `GIF_MAX_BYTES` | cost | Caps GIF output at the 15 MiB social upload limit |
 | Motion storyboard duration cap | `src/motion/storyboard.ts` · `MAX_DURATION_S` | cost | Caps rendered frames and output length at 120 s |
 | Reading-time floor | `src/motion/storyboard.ts` · `readingFloor` | physics | Keeps generated text on screen long enough to read |
-| Perception thresholds and capture rates | `src/perceive/regions.ts` · `DIFF_THRESHOLD` | measurement | Pixel and input thresholds; capture stays with the recorder |
+| Change-region detection thresholds | `src/perceive/regions.ts` · `DIFF_THRESHOLD`, `POINTER_MASK`, `DILATE`, `MIN_COMPONENT`, `CUT_FRAC` | measurement | Fixed pixel-change, pointer-mask, component-size and cut thresholds define detected changes |
+| Beat grouping thresholds | `src/beats/segment.ts` · `BEAT_GAP_MS`, `BEAT_SPREAD_FRAC`, `IDLE_GAP_MS`, `MERGE_SHORT_MS` | measurement | Fixed timing and distance thresholds group and merge actions into beats |
+| Candidate-zone geometry and filtering thresholds | `src/beats/zones.ts` · `ACT_PAD_LOGICAL`, `DEDUPE_IOU`, `RES_IOU_MAX`, `SMALL_REGION_AREA`, `ACT_REGION_MS`, `PANEL_MAX_AREA`, `WIN_MAX_COVER` | measurement | Fixed geometry and overlap thresholds determine candidate zones from measured actions and regions |
 | Motion and audio measurements | `src/motion/gates.ts` · `FROZEN_SAMPLE_FPS`, `FROZEN_YDIF`, `TRUE_PEAK_MAX_DBTP`, `LOUDNESS_BAND_LUFS` | measurement | Detects frozen frames and verifies encoded audio peak and loudness |
 | Analysis and render sampling thresholds | `src/perceive/decode.ts` · `ANALYSIS_FPS`; `src/render/render.ts` · `DECODE_WINDOW`, `DECODE_WINDOWS`; `src/render/camera-filter.ts` · `PREFILTER_SIGMA`; `src/motion/hyperframes.ts` · `CHIP_FPS`, `TEXT_RUNS`, `STROKE_STEP`, `BLANK_LUMA_RANGE` | measurement | Fixed sample rates and pixel thresholds measure perceived changes, text overlap and blank frames; sigma 0.7 reduces measured motion-edge wobble from 0.47 RMS to 0.11–0.13 under minification |
 | UI-box references per second | `src/perceive/boxes.ts` · `BOX_MAX_PER_FRAME` | cost | Bounds the boxes a frame yields |
-| Click and dwell detection | `src/perceive/actions.ts` · `CLICK_RELEASE_MAX_MS` | measurement | Input thresholds |
+| Action recognition thresholds | `src/perceive/actions.ts` · `CLICK_RELEASE_MAX_MS`, `CLICK_RELEASE_MAX_PX`, `DOUBLE_MS`, `DOUBLE_MAX_PX`, `SCROLL_GAP_MS`, `TYPE_GAP_MS`, `DWELL_MIN_MS`, `DWELL_MAX_PX`, `TRAVEL_WINDOW_MS`, `TRAVEL_FRAC` | measurement | Fixed timing and movement thresholds classify clicks, double-clicks, scrolls, typing, dwell and travel |
 | Synthesized click tick count | `src/render/sound.ts` · `MAX_TICKS` | cost | Bounds audio filter branches for dense click tracks |
 | Pinned render engines | `src/motion/hyperframes.ts` · `HYPERFRAMES_VERSION`, `HYPERFRAMES_SHELL_VERSION`, `HYPERFRAMES_SHELL_SHA256`; `src/motion/shell.ts` · `SHELL_VERSION`, `SHELL_ARCHIVE_SHA256`, `SHELL_SHA256` | measurement | Exact engine versions are checksum-verified and held to the deterministic-render gate |
 
@@ -93,6 +95,7 @@ value must be classified here or in the limits table when it is introduced.
 | Overlay emphasis when the planner abstains | `src/render/overlays.ts` · `shortcutKeys` | taste | Every detected shortcut and click gets the same emphasis, a fixed presentation choice | Let the planner choose overlay emphasis for fallback beats |
 | Caption, overlay and clip-label visual treatment | `src/render/stage.ts` · `captionAss`; `src/render/overlays.ts` · `keycapAss`, `keycapMotion`; `src/render/cursor.ts` · `ART`, `REST_H`, `PIN_S`, `LOOP_S`; `src/motion/hyperframes.ts` · `videoLayers`, `SPOTS` | taste | Caption fades, keycap colors, shape and spring, pointer artwork and transitions, and clip-label styling and placement order are fixed presentation choices | Let the planner choose caption, overlay and clip-label styling and timing |
 | Cursor idle fade timing | `src/render/cursor.ts` · `IDLE_FADE` | taste | The duration of the pointer's fade after stillness is a visual treatment choice | Let the planner choose whether and how quickly the pointer fades |
+| Default keycap style | `src/camera/defaults.ts` · `keycap_style` | taste | The fixed default is `linux`; users can override it with `--set`, but the default glyph treatment remains an editorial choice | Let the planner select the default style while honoring explicit user overrides |
 | Frozen-frame tolerance | `src/motion/gates.ts` · `FROZEN_LONGEST_S`, `FROZEN_PER_30S`, `FROZEN_TOTAL_MIN_FILM_S` | taste | The tolerated amount of stillness is a motion-style quality bar rather than a format or perception limit | Let the planner vary stillness tolerance by film style |
 | Encoder quality settings | `src/render/render.ts` · `encodingOptions`; `src/motion/render.ts` · `MOTION_CRF`; `src/motion/hyperframes.ts` · `-crf 10` | taste | CRF controls the quality/file-size tradeoff; no fixed output-size or render-time budget requires these values | Let the user or planner choose quality, or set a concrete size/time budget |
 | Capture frame rate and bitrate defaults | `src/session.ts` · `DEFAULT_FPS`, `DEFAULT_BITRATE_KBPS`; `src/android/video.ts` · `MAX_FPS`, `VIDEO_BIT_RATE` | taste | Capture rates set smoothness and the quality/data-size tradeoff; no fixed capture-size budget requires these values | Let the user or planner choose capture quality and rate, or set a concrete size budget |
