@@ -28,6 +28,10 @@ export function parseCsv(text: string): { columns: string[]; rows: Record<string
       if (ch === '"') { quoted = false; kept = true; i++; continue; }
       field += ch; i++; continue;
     }
+    if (kept && ch !== "," && ch !== "\r" && ch !== "\n" && ch !== " " && ch !== "\t") {
+      throw new Error("data: unexpected character after a closing quote");
+    }
+    if (ch === '"' && field.trim()) throw new Error("data: quote inside an unquoted field");
     if (ch === '"' && !kept && !field.trim()) { quoted = true; field = ""; i++; continue; }
     if (ch === ",") { endField(); i++; continue; }
     if (kept && (ch === " " || ch === "\t")) { i++; continue; } // spaces after a closing quote

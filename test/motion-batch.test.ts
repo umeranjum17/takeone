@@ -20,6 +20,8 @@ test("CSV rows: quoted commas, quotes and line breaks, CRLF, a BOM and blank lin
   assert.throws(() => parseCsv("a,a\n1,2"), /column a appears twice/);
   assert.throws(() => parseCsv("a\n"), /no rows/);
   assert.throws(() => parseCsv('a\n"open'), /never closed/);
+  assert.throws(() => parseCsv('name\n"Ada"x'), /unexpected character after a closing quote/);
+  assert.throws(() => parseCsv('name\nAd"a'), /quote inside an unquoted field/);
 });
 
 test("a template's {{column}} strings are filled from the row; numbers and keys are left alone", () => {
