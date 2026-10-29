@@ -22,6 +22,7 @@ test("halo recipe lays real screen pieces and a pitch into a valid local film, n
 
 test("halo recipe stops on a missing logo, an off-screen piece and a pitch with no tagline", () => {
   assert.throws(() => planHalo({ inputs: [BOARD], regions: regions.slice(1), pitch: "A. B." }, "x"), /needs the logo as a piece/);
+  assert.throws(() => planHalo({ inputs: [BOARD], regions: [regions[0]!], pitch: "A. B." }, "x"), /needs at least one non-logo UI piece/);
   assert.throws(() => planHalo({ inputs: [BOARD], regions: ["0,0,400,300:logo@S1", "5000,0,400,300:card@S1"], pitch: "A. B." }, "x"), /lies outside S1/);
   assert.throws(() => planHalo({ inputs: [BOARD], regions }, "x"), /needs --pitch/);
 });

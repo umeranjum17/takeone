@@ -29,6 +29,8 @@ export function planHalo(a: GlowArgs, id: string): unknown {
   const pieces = a.regions.map(parsePiece);
   const logo = pieces.find(p => p.kind === "logo");
   if (!logo) throw new Error("--recipe halo needs the logo as a piece: --region x,y,w,h:logo@S1");
+  const floatPieces = pieces.filter(p => p.kind !== "logo");
+  if (!floatPieces.length) throw new Error("--recipe halo needs at least one non-logo UI piece");
   const crops: Record<string, Crop> = {};
   const crop = (key: string, p: ReturnType<typeof parsePiece>): string => {
     const size = sizes[Number(p.screen.slice(1)) - 1];
@@ -43,7 +45,7 @@ export function planHalo(a: GlowArgs, id: string): unknown {
   const scenes: Scene[] = [fit({ pattern: "halo-open", d: 0, mark, title: tagline! }, 2.2)];
   // Consecutive pieces of one kind are one beat; a piece's title heads its beat.
   let n = 0;
-  for (const p of pieces.filter(p => p.kind !== "logo")) {
+  for (const p of floatPieces) {
     const last = scenes.at(-1);
     const items = [crop(`piece${++n}`, p)];
     if (last?.pattern === "halo-float" && last.kind === p.kind && !p.title) { last.items!.push(...items); continue; }
