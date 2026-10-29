@@ -1060,7 +1060,7 @@ test("the whole plan is editable: focus, tightness and the film's look are kept 
     refuses((p) => { beat(p, "b1").merge_prev = { value: true, by: "user" }; }, /beat b1 has unsupported field merge_prev/);
     refuses((p) => { p.film.captions = { value: "x", by: "user" }; }, /film has unsupported field captions/);
     refuses((p) => { beat(p, "b1").tightness = { value: 7, by: "user" }; }, /b1\.tightness\.value must be a whole number from 0 to 3/);
-    refuses((p) => { p.film.theme = { value: "neon", by: "user" }; }, /film\.theme\.value must be one of/);
+    refuses((p) => { p.film.theme = { value: "no-such-theme", by: "user" }; }, /film\.theme\.value must be one of/);
     // An edit the render cannot honour names the beat and says why.
     refuses((p) => { beat(p, "b1").focus_start = { value: "no-such-zone", by: "user" }; }, /beat b1 \(click\): focus_start=no-such-zone is not a zone of this beat/);
     refuses((p) => { beat(p, "b3").tightness = { value: 1, by: "user" }; }, /beat b3 \(scroll\): tightness cannot be honoured/);

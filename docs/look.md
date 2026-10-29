@@ -25,7 +25,7 @@ selection in the take; `render --theme` previews a different look without
 changing that saved selection.
 
 
-![Recording themes on the real take at 1080p60, all six proven against fade banding](assets/themes/takeone-themes-grid.png)
+![Recording themes on the real take at 1080p60, nine themes, six of them in the committed grid](assets/themes/takeone-themes-grid.png)
 
 Theme fonts are bundled under OFL 1.1 with their licence files in
 `resources/fonts/`. Caption measurement and final rendering use the same
@@ -52,10 +52,11 @@ Overlay spring tokens adjust caption arrival time only; the recording camera
 remains critically damped. Recording `pace` scales camera holds (`dwell`,
 `dwell_k2`, `min_shot`) while keeping move durations and caption reading time.
 
-The committed theme preview assets are historical real-take stills at 1080p60: one full-resolution frame per kept theme plus the grid above. They predate the near-black midnight default and are not current-candidate acceptance evidence. [Provenance](assets/themes/provenance.json)
+The committed theme preview assets are historical real-take stills at 1080p60: one full-resolution frame per theme in the grid above. They predate the near-black midnight default and are not current-candidate acceptance evidence. [Provenance](assets/themes/provenance.json)
 records the source take, generator, proof status per theme and output hashes.
-That historical qualification covered all six on the real take: worst fade CAMBI 0.279 (mono) and worst
+That historical qualification covered midnight, paper, aurora, mono, sand and editorial on the real take: worst fade CAMBI 0.279 (mono) and worst
 whole-take CAMBI 0.043, measured on every frame of both fade windows.
+`neon`, `brutalist` and `terminal` (cut in #71, restored here) are not in that grid or its CAMBI figures; they were rendered on the real board take and checked by eye at settled and fade frames only.
 Regenerate with `node scripts/theme-proof.ts tmp/theme-proof`.
 For a real 1080p60 take, use `node scripts/theme-proof.ts tmp/theme-real --take path/to/take`;
 each theme shows its title above a caption frame. The synthetic fixture is a fictional
