@@ -11,10 +11,10 @@ hidden among the limits.
 Each row names the file and the symbol that sets it, making the inventory traceable to the
 implementation.
 
-Reclassified against `main` at v0.5.0, from the 94-row inventory in the AI-first design
-(17 Oct 2026). That inventory's own total said 34 fixed rows; counting its rows marked F,
-F + M and F + user gives 44. Rows marked "M" or "M + T" there are not limits: the planner
-owns them, and the shipped ones need no entry here.
+Reclassified against `main` at v0.5.0. This code-level inventory has 49 limit-bound rules
+and eight open taste rules. It is not a one-to-one recount of the 94-row AI-first design
+inventory (17 Oct 2026), which reported 34 fixed decisions; individual design decisions
+may correspond to multiple implementation rules here.
 
 ## Fixed because of a limit
 
