@@ -124,7 +124,7 @@ PATTERNS["glow-tree"] = (layer, s, ctx) => {
 // The deck (a stack cascade): real-screen cards fanned in depth, the front one lit. Every step the next card comes to the
 // front, the ones before it fall back to the left, the headline cuts to that card's line and the index ticks on.
 PATTERNS["glow-deck"] = (layer, s, ctx) => {
-  const { W, H } = ctx, u = Math.min(W, H), cards = s.cards ?? [], n = cards.length, step = Math.min(550, (s.d * 1000) / n), move = Math.min(420, step * 0.75);
+  const { W, H } = ctx, u = Math.min(W, H), cards = s.cards ?? [], n = cards.length, step = 550, move = Math.min(420, step * 0.75);
   const g = glowBg(layer, W, H, [0.5, 0.8]);
   const spots = [[-0.24, 0.1], [0.22, -0.08], [-0.06, 0.18], [0.26, 0.14], [-0.18, -0.06]].map(([x, y]) => `translate(${W * x}px,${H * y}px)`);
   K(g, [[0, { transform: spots[0] }], ...cards.slice(1).flatMap((_, i) => SW((i + 1) * step, { transform: spots[i] }, { transform: spots[i + 1] }))]);
@@ -134,7 +134,7 @@ PATTERNS["glow-deck"] = (layer, s, ctx) => {
     const head = h(`<div data-safe style="position:absolute;left:${W * 0.08}px;top:${top}px;font:700 ${size}px/1.05 var(--display);letter-spacing:-.03em;color:#fff;white-space:nowrap">${esc(c.caption)}</div>`);
     const num = h(`<div data-safe style="position:absolute;right:${W * 0.08}px;top:${top + (size - mono) / 2}px;font:500 ${mono}px/1 var(--mono);letter-spacing:.08em;color:#fff;white-space:pre">${String(i + 1).padStart(2, "0")}<span style="color:#7f93c8"> / ${String(n).padStart(2, "0")}</span></div>`);
     layer.append(head, num);
-    const t0 = i * step, t1 = i === n - 1 ? s.d * 1000 + 1 : (i + 1) * step;
+    const t0 = i * step, t1 = i === n - 1 ? s.d * 1000 : (i + 1) * step;
     WINDOW(head, t0, t1); WINDOW(num, t0, t1);
     K(head, [[t0, { transform: `translateY(${size * 0.18}px)` }, EXPO], [t0 + 300, { transform: "none" }]]);
   });

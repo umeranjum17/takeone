@@ -83,8 +83,8 @@ export function glowStoryboard(a: GlowArgs, id: string, sizes: { width: number; 
     ...(a.subtitle ? [fit({ pattern: "glow-words", d: 0, title: a.subtitle }, 0.27 * a.subtitle.split(/\s+/).length)] : []),
     fit({ pattern: "glow-hero", d: 0, title: a.title!, text: a.cta ?? "Get started" }, 2.2),
     ...(a.tree ? [fit({ pattern: "glow-tree", d: 0, tree: treeRows(a.tree) }, 0.8)] : []),
-    // One card in front every 0.55 s, the last held a beat longer.
-    ...(deck.length ? [fit({ pattern: "glow-deck", d: 0, cards: deck.map((c, i) => ({ screen: `deck${i + 1}`, caption: c.caption })) }, 0.25 * deck.length + 0.25)] : []),
+    // Cards step every 0.55 s; the last holds for 1 s.
+    ...(deck.length ? [fit({ pattern: "glow-deck", d: 0, cards: deck.map((c, i) => ({ screen: `deck${i + 1}`, caption: c.caption })) }, 0.55 * deck.length + 0.45)] : []),
     fit({ pattern: "glow-screen", d: 0, screen: "win", tap, ...(sizes[1] ? { phone: "phone" } : {}) }, 0.6),
     fit({ pattern: "glow-screen", d: 0, screen: "press", tap, zoom: true }, 0.9),
     fit({ pattern: "end-card", d: 0, logo: a.logo ?? brand?.name ?? "", ...(brand?.logo ? { logo_image: brand.logo } : {}), cta: a.cta ?? "Get started", ...(a.url ? { url: a.url } : {}), glow: true }, 2.3),
