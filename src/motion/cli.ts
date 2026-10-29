@@ -19,6 +19,7 @@ import { planGlow } from "./glow.ts";
 import { DEFAULT_GAUNTLET_ROUNDS, runGauntlet, validateMaxRounds } from "./gauntlet.ts";
 import { resolveJudge } from "../decide/planner.ts";
 import { JudgeUnavailable } from "../score/judge.ts";
+import { planBatch, runBatch } from "./batch.ts";
 import type { Device, MotionEngine, PatternName, Region, Scene } from "./types.ts";
 
 /** The named recipes the local planner lays out from flags: the patterns each one plays, in order. */
@@ -45,11 +46,16 @@ takeone motion film <video.mp4> [--intro BRIEF] [--callout "BRIEF@SECONDS"]... [
 takeone motion <screen.png> [phone.png] --recipe glow --title HEADLINE --pitch TYPED_PROMPT --press "BUTTON TEXT"|x,y,w,h --logo WORD [--brand brand.json|DESIGN.md] [--frame x,y,w,h] [--subtitle KINETIC_WORDS] [--tree "Crew,>Chief,>Scout"] [--cta TEXT] [--url TEXT] [--audio FILE] [--out DIR]
 takeone motion <inputs...> --gauntlet [--max-rounds M]   after rendering, have a fresh critic score every scene against the reference and repair what falls short
 takeone gauntlet <motion-dir> [--max-rounds M]   the same critique, repair and ledger on a motion take already rendered
+takeone motion --storyboard template.json --data rows.csv [--out DIR] [--plan-only]
 takeone motion install-shell         download the pinned chrome-headless-shell (sha256 checked)
 takeone motion install-hyperframes   install hyperframes@0.8.200 + chrome-headless-shell@156.0.8078.47
 
   A take-dir (a directory holding take.json) plays that take's own footage, out/<id>.mp4 or else screen.webm,
   edge to edge between a title and a closing line; edit storyboard.json (clips.footage start/d/crop) to cut it.
+
+  --data renders one film per CSV row: every {{column}} in the template's text is filled from that row (a name,
+  a company, a plan, a #rrggbb theme accent), each row's take lands in <out>/<id>/ (the id column, else the row
+  number) with batch.json listing them, and every row is checked before the first render, naming the rows that fail.
 
   motion writes a take-shaped directory (take.json, sources/, storyboard.json, out/<id>.mp4, render.json);
   --alpha writes out/<id>.mov instead: ProRes 4444 with a real alpha channel, the themed backdrop dropped so
@@ -87,6 +93,7 @@ export interface MotionArgs {
   subtitle?: string; cta?: string; url?: string; logo?: string; device?: Device; regions: string[]; states: [string, string][];
   workers?: number; blur?: number; storyboard?: string; planOnly: boolean; noAi?: boolean; engine: MotionEngine;
   recipe?: Recipe | "editorial" | "bento" | "glow" | "halo"; press?: string; frame?: string; tree?: string; pitch?: string; brand?: string; audio?: string; alpha?: boolean; gauntlet?: boolean; maxRounds?: number; aspect?: Aspect;
+  data?: string;
   redactionDryRun?: boolean; publicDomains: string[];
 }
 
@@ -127,6 +134,7 @@ export function parseMotionArgs(argv: string[]): MotionArgs {
     } else if (s === "--workers") a.workers = Number(v);
     else if (s === "--blur") a.blur = Number(v);
     else if (s === "--storyboard") a.storyboard = v;
+    else if (s === "--data") a.data = v;
     else if (s === "--recipe") {
       if (v !== "editorial" && v !== "bento" && v !== "glow" && v !== "halo" && !Object.hasOwn(RECIPES, v)) throw new Error(`--recipe expects ${[...Object.keys(RECIPES), "editorial", "bento", "glow", "halo"].join(", ")}, got ${v}`);
       a.recipe = v as Recipe | "editorial" | "bento" | "glow" | "halo";
@@ -489,6 +497,12 @@ export async function runMotion(argv: string[], takesDir: string, o: PlanOptions
     validateMaxRounds(a.maxRounds ?? DEFAULT_GAUNTLET_ROUNDS);
     const judge = await resolveJudge();
     if (!judge.active) throw new JudgeUnavailable(`unavailable - ${judge.label} cannot serve: ${judge.refusal ?? "no sign-in"}. Sign in with \`claude\`, or save another route in judge.json`);
+  }
+  if (a.data) {
+    if (!a.storyboard || a.inputs.length || a.recipe || a.patterns || a.alpha) throw new Error("--data fills a --storyboard template, one film per row; it takes no inputs, --recipe, --pattern or --alpha");
+    const rows = planBatch(JSON.parse(readFileSync(a.storyboard, "utf8")), readFileSync(a.data, "utf8")); // every row checked before the disk is touched
+    await runBatch(newTakeDir(a.out, takesDir), rows, { engine: a.engine, planOnly: a.planOnly, template: a.storyboard, data: a.data }, o.warn);
+    return 0;
   }
   if (a.brand && (a.recipe !== "glow" || a.storyboard)) throw new Error("--brand dresses the planned glow promo: use it with --recipe glow (and without --storyboard)");
   let storyboard: unknown;

@@ -54,7 +54,7 @@ export function lintFonts(sb: Storyboard): void {
     const display = [s.title, s.logo, ...(s.swaps ?? []), ...(s.lines ?? []), ...((s.tiles ?? []).map(t => t.title))];
     const body = [s.subtitle, s.cta, s.text, s.credit, ...(s.tree ?? []), ...(!monoFragment ? feedRow ? fragmentTexts.slice(0, 2) : fragmentTexts : []), ...(s.stops ?? []).map(t => t.caption), ...(device === "browser" ? ["Design preview"] : [])];
     // clip labels and statement notes are set uppercase in the mono face
-    const mono = [s.url, ...[s.label, s.note, ...(s.cuts ?? []).map(c => c.label)].map(t => t?.toUpperCase()), ...(monoFragment ? fragmentTexts : []), ...(s.kind === "counter" ? ["0123456789"] : []), ...(feedRow ? ["Just now"] : []), ...(device === "phone" ? ["9:41"] : [])];
+    const mono = [s.url, ...[s.label, s.note, ...(s.cuts ?? []).map(c => c.label)].map(t => t?.toUpperCase()), ...(s.pattern === "welcome" ? [s.logo?.toUpperCase()] : []), ...(monoFragment ? fragmentTexts : []), ...(s.kind === "counter" ? ["0123456789"] : []), ...(feedRow ? ["Just now"] : []), ...(device === "phone" ? ["9:41"] : [])];
     const symbols = [...(s.kind === "toast" ? ["✓"] : []), ...(device === "browser" ? ["● ● ●"] : [])];
     for (const [family, strings] of [[tokens.display_font, display], [tokens.caption_font, body], [tokens.mono_font, mono], [SYMBOL_FONT, symbols], [RULE_FONT, device === "phone" ? ["━"] : []]] as const) {
       for (const text of strings) if (text && !fontCovers(fontFile(family)!, text)) throw new Error(`scenes[${i}]: missing glyph in ${family} for ${JSON.stringify(text)}; select a bundled font with coverage`);

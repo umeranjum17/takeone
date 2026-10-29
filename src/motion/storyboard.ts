@@ -45,6 +45,7 @@ export function sceneTexts(s: Scene): string[] {
   if (s.pattern === "halo-lines") return s.lines ?? [];
   if (s.pattern === "halo-end") return [s.logo, s.credit].filter((t): t is string => !!t);
   if (s.pattern === "logo-sting") return [s.logo].filter((t): t is string => !!t);
+  if (s.pattern === "welcome") return [s.label, s.title, s.subtitle, s.cta, ...(s.tree ?? []), s.logo].filter((t): t is string => !!t);
   if (s.pattern === "before-after") return [s.title].filter((t): t is string => !!t);
   if (s.pattern === "end-card") return [s.logo, s.cta, s.url].filter((t): t is string => !!t);
   if (s.pattern === "fragment") {
@@ -112,6 +113,11 @@ function sceneHolds(s: Scene): { text: string; reveal: number }[] {
     return [{ text: `${s.title} ${s.subtitle}`, reveal: 1.2 }, { text: `${s.label} $${s.reel!.value}`, reveal: .6 * s.d }, { text: s.reel!.feed.at(-1)!, reveal: .6 + s.reel!.feed.length - 1 }];
   }
   if (s.pattern === "halo-end") return [{ text: s.logo!, reveal: sceneRevealDuration(s) }, ...(s.credit ? [{ text: s.credit, reveal: 1.5 }] : [])];
+  if (s.pattern === "welcome") { // each part is read as it lands (welcome.js): eyebrow and name by 0.65 s, the line by 1 s, the pill by 1.25 s, a checklist row every 0.7 s from 1.3 s, ticked by 0.55 s after
+    const words = (s.title ?? "").trim().split(/\s+/).filter(Boolean).length;
+    return [{ text: [s.label, s.title].filter(Boolean).join(" "), reveal: .65 + .06 * Math.max(0, words - 1) }, { text: s.logo ?? "", reveal: .85 },
+      { text: s.subtitle ?? "", reveal: 1 }, { text: s.cta ?? "", reveal: 1.25 }, ...(s.tree ?? []).map((t, j) => ({ text: t, reveal: 1.85 + .7 * j }))];
+  }
   const text = s.pattern === "word-swap" ? [s.title, s.swaps?.at(-1)].join(" ") : sceneTexts(s).join(" ");
   let holds = s.pattern === "zoom-tour" ? [] : s.pattern === "halo-lines" ? haloLineHolds(s) : [{ text, reveal: sceneRevealDuration(s) }];
   if (s.pattern === "spotlight" || s.pattern === "feature-callouts") {
@@ -211,6 +217,12 @@ function scene(raw: unknown, path: string): Scene {
     if (typeof s.screen !== "string" || !Array.isArray(tap) || tap.length !== 4 || tap.some(v => typeof v !== "number" || !Number.isFinite(v))) throw new StoryboardError(`${path}.tap`, "phone-story needs a crop screen and tap [x, y, w, h]");
     s.tap = tap as Rect;
     if (raw["lens"] !== undefined && !ID.test(String(raw["lens"]))) throw new StoryboardError(`${path}.lens`, "expected a crop id");
+  }
+  if (s.pattern === "welcome") {
+    if (!s.title?.trim() || !s.logo?.trim()) throw new StoryboardError(path, "welcome needs a title (the name) and a logo (the company, whose initial sits on the accent panel)");
+    const tree = raw["tree"] ?? [];
+    if (!Array.isArray(tree) || tree.length > 4) throw new StoryboardError(`${path}.tree`, "welcome takes up to 4 checklist rows");
+    s.tree = tree.map((t, j) => str(t, `${path}.tree[${j}]`, 40));
   }
   if (s.pattern === "glow-words" && !s.title?.trim()) throw new StoryboardError(`${path}.title`, "glow-words needs a title: its words cut in one at a time");
   if (s.pattern === "glow-tree") {

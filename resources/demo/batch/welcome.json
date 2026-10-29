@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "id": "welcome",
+  "output": { "out_w": 1920, "out_h": 1080 },
+  "theme": { "name": "editorial", "overrides": { "background": "#f3f0ea", "background_to": "#f3f0ea", "card": "#fbfaf7", "accent": "{{accent}}" } },
+  "source": { "kind": "image", "files": [] },
+  "screens": {},
+  "regions": [],
+  "layout": { "kind": "single" },
+  "scenes": [
+    { "pattern": "welcome", "d": 6, "label": "Welcome aboard", "title": "{{name}}", "logo": "{{company}}",
+      "subtitle": "Your {{plan}} workspace at {{company}} is ready.", "cta": "{{plan}} plan",
+      "tree": ["Invite your team", "Connect your data", "Ship your first report"] },
+    { "pattern": "end-card", "d": 3.5, "logo": "Tidewater", "cta": "Open your workspace", "url": "tidewater.app", "invert": true }
+  ],
+  "planner": { "by": "user", "abstained": [] }
+}
