@@ -15,7 +15,7 @@ import { planBento } from "./bento.ts";
 import { planEditorial } from "./editorial.ts";
 import { FILM_USAGE, newTakeDir, runFilm } from "./film.ts";
 import { planGlow } from "./glow.ts";
-import { DEFAULT_BAR, DEFAULT_GAUNTLET_ROUNDS, runGauntlet } from "./gauntlet.ts";
+import { DEFAULT_GAUNTLET_ROUNDS, runGauntlet } from "./gauntlet.ts";
 import { resolveJudge } from "../decide/planner.ts";
 import { JudgeUnavailable } from "../score/judge.ts";
 import type { Device, MotionEngine, PatternName, Region, Scene } from "./types.ts";
@@ -42,7 +42,7 @@ takeone motion <screenshot.png> --recipe editorial|bento --pitch TEXT [--logo WO
 takeone motion film <video.mp4> [--intro BRIEF] [--callout "BRIEF@SECONDS"]... [--outro BRIEF] [--tech html|canvas|three] [--out DIR]
 takeone motion <screen.png> [phone.png] --recipe glow --title HEADLINE --pitch TYPED_PROMPT --press "BUTTON TEXT"|x,y,w,h --logo WORD [--frame x,y,w,h] [--subtitle KINETIC_WORDS] [--tree "Crew,>Chief,>Scout"] [--cta TEXT] [--url TEXT] [--audio FILE] [--out DIR]
 takeone motion <inputs...> --gauntlet [--max-rounds M]   after rendering, have a fresh critic score every scene against the reference and repair what falls short
-takeone gauntlet <motion-dir> [--max-rounds M] [--bar N]   the same critique, repair and ledger on a motion take already rendered
+takeone gauntlet <motion-dir> [--max-rounds M]   the same critique, repair and ledger on a motion take already rendered
 takeone motion install-shell         download the pinned chrome-headless-shell (sha256 checked)
 takeone motion install-hyperframes   install hyperframes@0.8.200 + chrome-headless-shell@156.0.8078.47
 
@@ -516,21 +516,21 @@ export async function runMotion(argv: string[], takesDir: string, o: PlanOptions
 /** `takeone gauntlet <motion-dir>`: exit 3 before any critique when no judge route can serve. */
 export async function runGauntletCommand(argv: string[]): Promise<number> {
   const [dir, ...rest] = argv;
-  if (!dir || dir.startsWith("--")) { console.error("usage: takeone gauntlet <motion-dir> [--max-rounds M] [--bar N]"); return 2; }
-  let maxRounds = DEFAULT_GAUNTLET_ROUNDS, bar = DEFAULT_BAR;
+  if (!dir || dir.startsWith("--")) { console.error("usage: takeone gauntlet <motion-dir> [--max-rounds M]"); return 2; }
+  let maxRounds = DEFAULT_GAUNTLET_ROUNDS;
   for (let i = 0; i < rest.length; i += 2) {
     const v = Number(rest[i + 1]);
-    if (!["--max-rounds", "--bar"].includes(rest[i]!) || rest[i + 1] === undefined || !Number.isFinite(v)) throw new Error("gauntlet takes only --max-rounds M and --bar N");
-    if (rest[i] === "--bar") bar = v; else maxRounds = v;
+    if (rest[i] !== "--max-rounds" || rest[i + 1] === undefined || !Number.isFinite(v)) throw new Error("gauntlet takes only --max-rounds M");
+    maxRounds = v;
   }
   if (!isMotionTake(dir)) throw new Error(`${dir} is not a motion take (no take.json motion entry)`);
-  return gauntletOn(resolve(dir), maxRounds, bar);
+  return gauntletOn(resolve(dir), maxRounds);
 }
 
-async function gauntletOn(dir: string, maxRounds: number, bar = DEFAULT_BAR): Promise<number> {
+async function gauntletOn(dir: string, maxRounds: number): Promise<number> {
   const planner = await resolveJudge();
   try {
-    await runGauntlet({ dir, planner, maxRounds, bar });
+    await runGauntlet({ dir, planner, maxRounds });
     return 0;
   } catch (e) {
     if (!(e instanceof JudgeUnavailable)) throw e;

@@ -30,7 +30,7 @@ test("gauntlet repairs move one beat on the scene that fell short and keep every
   const sb = await editorialFilm();
   const [swap, , , canon, statement] = sb.scenes;
   assert.equal(canon!.pattern, "canon");
-  const { storyboard, repairs } = repairStoryboard(sb, sb, [finding(1, "read", 5), finding(4, "drag", 4), finding(5, "read", 9)], 8);
+  const { storyboard, repairs } = repairStoryboard(sb, sb, [finding(1, "read", 5), finding(4, "drag", 4), finding(5, "read", 9)]);
   assert.deepEqual(repairs.map(r => r.scene), [1, 4]);
   assert.equal(storyboard.scenes[0]!.d, swap!.d + 0.5);
   assert.equal(storyboard.scenes[3]!.d, canon!.d - 0.5);
@@ -44,9 +44,9 @@ test("gauntlet repairs move one beat on the scene that fell short and keep every
 test("gauntlet repairs are bounded: growth stops at two beats over the first plan and a short scene is never cut under its reading floor", async () => {
   const sb = await editorialFilm();
   let now = sb;
-  for (let round = 0; round < 6; round++) now = repairStoryboard(now, sb, [finding(1, "read", 2)], 8).storyboard;
+  for (let round = 0; round < 6; round++) now = repairStoryboard(now, sb, [finding(1, "read", 2)]).storyboard;
   assert.equal(now.scenes[0]!.d, sb.scenes[0]!.d + MAX_GROWTH_STEPS * 0.5);
-  const floor = repairStoryboard(sb, sb, sb.scenes.map((_, i) => finding(i + 1, "drag", 1)), 8);
+  const floor = repairStoryboard(sb, sb, sb.scenes.map((_, i) => finding(i + 1, "drag", 1)));
   floor.storyboard.scenes.forEach(s => assert.ok(s.d >= 1));
   assert.ok(validateStoryboard(floor.storyboard));
 });

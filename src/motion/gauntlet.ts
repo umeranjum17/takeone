@@ -1,12 +1,12 @@
 // The motion gauntlet: render a motion film, have a fresh-context critic score each scene against a written
 // reference, repair what scored under the bar by bounded edits to storyboard.json, render again, and keep a
-// durable ledger of every round. The critic sees only stills and the scene facts, never the planner's
+// durable ledger of every round. The critic sees only scene facts, never the planner's
 // conversation; every repair is one beat-grid step on one scene and is checked by the storyboard validator.
 import { createHash } from "node:crypto";
 import { appendFileSync, copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { MemoryCache, type ImageInput, type Question } from "@byokit/decide";
-import { askChunk, seesImages, type ResolvedPlanner } from "../decide/planner.ts";
+import { askChunk, type ResolvedPlanner } from "../decide/planner.ts";
 import { runFfmpeg } from "../render/ffmpeg.ts";
 import { JudgeUnavailable, LEVELS, answerScore } from "../score/judge.ts";
 import { renderMotion } from "./motion.ts";
@@ -37,12 +37,11 @@ const step = (sb: Storyboard): number => (sb.tempo ? 60 / sb.tempo.bpm / (sb.tem
 const shownDevice = (s: Scene): boolean => (s.pattern === "hero-reveal" || s.pattern === "zoom-tour") && (s.device ?? "browser") !== "none";
 const settledAt = (s: Scene): number => s.at! + s.d * 0.7;
 
-function questionsFor(sb: Storyboard, vision: boolean): Record<string, Question> {
+function questionsFor(sb: Storyboard): Record<string, Question> {
   const out: Record<string, Question> = {};
   sb.scenes.forEach((s, i) => {
     const text = sceneTexts(s).join(" / ") || "(no words)";
-    const facts = `Scene ${i + 1} of ${sb.scenes.length}, ${s.pattern}, ${s.d.toFixed(2)} s long (its words need at least ${minSceneDuration(s).toFixed(2)} s). Words: ${text}.`
-      + (vision ? ` The still named scene-${i + 1} is this scene settled at ${settledAt(s).toFixed(2)} s.` : "");
+    const facts = `Scene ${i + 1} of ${sb.scenes.length}, ${s.pattern}, ${s.d.toFixed(2)} s long (its words need at least ${minSceneDuration(s).toFixed(2)} s). Words: ${text}.`;
     const criteria: Criterion[] = shownDevice(s) ? ["read", "drag", "size"] : ["read", "drag"];
     for (const c of criteria) {
       out[`s${i + 1}-${c}`] = { kind: "score", levels: LEVELS, floor: 0, instructions: `${REFERENCE[c]}\n${facts}` };
@@ -62,25 +61,23 @@ async function stills(film: string, sb: Storyboard, dir: string, round: number):
   return out;
 }
 
-/** Settled stills are always kept for the person reading the ledger; the critic gets them only on a route that reads images. */
-export async function critique(planner: ResolvedPlanner, sb: Storyboard, film: string, dir: string, round: number): Promise<{ findings: Finding[]; vision: boolean }> {
-  const vision = await seesImages(planner);
-  const all = await stills(film, sb, dir, round);
-  const images = vision ? all : undefined;
-  const questions = questionsFor(sb, vision);
+/** Settled stills are kept for the person reading the ledger; the critic receives scene facts only. */
+export async function critique(planner: ResolvedPlanner, sb: Storyboard, film: string, dir: string, round: number): Promise<{ findings: Finding[] }> {
+  await stills(film, sb, dir, round);
+  const questions = questionsFor(sb);
   const state = {
     task: "You are a fresh critic of one finished launch film. Score each scene against the written reference. Be strict: 10 is the reference bar, and a scene that merely works is a 7.",
     scale: "Each item is an integer from 0 (absent or broken) to 10 (at the reference bar).",
     film: { seconds: sb.scenes.reduce((t, s) => Math.max(t, s.at! + s.d), 0), scenes: sb.scenes.length },
   };
-  const outcome = await askChunk(state, questions, planner, new MemoryCache(), { timeoutMs: CRITIC_TIMEOUT_MS, keepAnswers: true, ...(images ? { images } : {}) });
+  const outcome = await askChunk(state, questions, planner, new MemoryCache(), { timeoutMs: CRITIC_TIMEOUT_MS, keepAnswers: true });
   if (!outcome.answers) throw new JudgeUnavailable(outcome.failure ?? "the critic returned no answers");
   const findings = Object.keys(questions).map((id) => {
     const [, n, criterion] = /^s(\d+)-(\w+)$/.exec(id)!;
     const scene = Number(n), s = sb.scenes[scene - 1]!, c = criterion as Criterion;
     return { id, scene, pattern: s.pattern, criterion: c, score: answerScore(id, outcome.answers![id]), note: REFERENCE[c] };
   });
-  return { findings, vision };
+  return { findings };
 }
 
 /** Film time `t` after scenes before it have grown or shrunk: a time inside a scene keeps its place in that scene. */
@@ -93,10 +90,10 @@ function remap(t: number, before: Scene[], shifts: number[]): number {
 /** Bounded repairs for the findings under the bar, each one beat-grid step on one scene (and the device frame
  *  dropped from a screen shown too small). `first` is the film's first plan: no scene grows past it by more than
  *  MAX_GROWTH_STEPS. A repair the validator refuses is skipped. Only a single-timeline film is repaired. */
-export function repairStoryboard(sb: Storyboard, first: Storyboard, findings: Finding[], bar: number): { storyboard: Storyboard; repairs: Repair[] } {
+export function repairStoryboard(sb: Storyboard, first: Storyboard, findings: Finding[]): { storyboard: Storyboard; repairs: Repair[] } {
   const repairs: Repair[] = [];
   if (sb.layout.kind !== "single") return { storyboard: sb, repairs };
-  const low = (n: number, c: Criterion) => findings.some((f) => f.scene === n && f.criterion === c && f.score < bar);
+  const low = (n: number, c: Criterion) => findings.some((f) => f.scene === n && f.criterion === c && f.score < DEFAULT_BAR);
   const scenes = sb.scenes.map((s) => ({ ...s }));
   const grid = step(sb);
   const delta = scenes.map(() => 0);
@@ -126,7 +123,6 @@ export interface GauntletOptions {
   dir: string;
   planner: ResolvedPlanner;
   maxRounds?: number;
-  bar?: number;
   log?: (line: string) => void;
 }
 
@@ -148,13 +144,15 @@ async function filmFor(dir: string, sb: Storyboard, raw: string): Promise<{ film
 
 export async function runGauntlet(o: GauntletOptions): Promise<GauntletResult> {
   const log = o.log ?? ((line: string) => console.log(line));
-  const bar = o.bar ?? DEFAULT_BAR, maxRounds = o.maxRounds ?? DEFAULT_GAUNTLET_ROUNDS;
+  const bar = DEFAULT_BAR, maxRounds = o.maxRounds ?? DEFAULT_GAUNTLET_ROUNDS;
   if (!Number.isInteger(maxRounds) || maxRounds < 1 || maxRounds > MAX_GAUNTLET_ROUNDS) throw new Error(`--max-rounds expects an integer 1-${MAX_GAUNTLET_ROUNDS}`);
   if (!o.planner.active) throw new JudgeUnavailable(`unavailable - ${o.planner.label} cannot serve: ${o.planner.refusal ?? "no sign-in"}. Sign in with \`claude\`, or save another route in judge.json`);
   const storyboardFile = join(o.dir, "storyboard.json"), ledger = join(o.dir, "gauntlet.jsonl"), keep = join(o.dir, "out", "gauntlet");
   mkdirSync(keep, { recursive: true });
-  const prior = existsSync(ledger) ? readFileSync(ledger, "utf8").split("\n").filter((l) => l.includes('"type":"final"')).length : 0;
-  const run = prior + 1;
+  const priorRuns = existsSync(ledger) ? readFileSync(ledger, "utf8").split("\n").filter(Boolean).map((line) => (JSON.parse(line) as { run: number }).run) : [];
+  const run = Math.max(0, ...priorRuns) + 1;
+  const runKeep = join(keep, `run-${run}`);
+  mkdirSync(runKeep, { recursive: true });
   const row = (r: object) => appendFileSync(ledger, JSON.stringify({ run, at: new Date().toISOString(), ...r }) + "\n");
   let raw = readFileSync(storyboardFile, "utf8");
   let sb = validateStoryboard(JSON.parse(raw));
@@ -164,14 +162,14 @@ export async function runGauntlet(o: GauntletOptions): Promise<GauntletResult> {
 
   for (let n = 1; n <= maxRounds; n++) {
     const { film, seconds } = await filmFor(o.dir, sb, raw);
-    const copy = join(keep, `round-${n}.mp4`);
+    const copy = join(runKeep, `round-${n}.mp4`);
     copyFileSync(film, copy);
-    copyFileSync(storyboardFile, join(keep, `round-${n}.storyboard.json`));
-    copyFileSync(join(o.dir, "render.json"), join(keep, `round-${n}.render.json`));
-    const { findings, vision } = await critique(o.planner, sb, film, keep, n);
+    copyFileSync(storyboardFile, join(runKeep, `round-${n}.storyboard.json`));
+    copyFileSync(join(o.dir, "render.json"), join(runKeep, `round-${n}.render.json`));
+    const { findings } = await critique(o.planner, sb, film, runKeep, n);
     const score = mean(findings);
     const failing = findings.filter((f) => f.score < bar);
-    rounds.push({ n, score, film: copy, storyboard: join(keep, `round-${n}.storyboard.json`), manifest: join(keep, `round-${n}.render.json`), findings });
+    rounds.push({ n, score, film: copy, storyboard: join(runKeep, `round-${n}.storyboard.json`), manifest: join(runKeep, `round-${n}.render.json`), findings });
     log(`gauntlet: round ${n} ${score.toFixed(1)}/10, ${failing.length} of ${findings.length} checks under ${bar}`);
     for (const f of failing) log(`gauntlet:   scene ${f.scene} ${f.pattern} ${f.criterion} ${f.score}/10`);
     const previous = rounds.at(-2);
@@ -181,12 +179,12 @@ export async function runGauntlet(o: GauntletOptions): Promise<GauntletResult> {
     else if (previous && score - previous.score < GAIN_EPSILON) stop = "no-gain";
     else if (n === maxRounds) stop = "max-rounds";
     else {
-      const r = repairStoryboard(sb, first, findings, bar);
+      const r = repairStoryboard(sb, first, findings);
       repairs = r.repairs;
       if (!repairs.length) stop = "no-repair"; else next = r.storyboard;
     }
-    row({ type: "round", round: n, film: `out/gauntlet/round-${n}.mp4`, filmSha256: sha(readFileSync(copy)), storyboardSha256: sha(raw), seconds: +seconds.toFixed(2),
-      judge: o.planner.label, sawStills: vision, calls: 1, score: +score.toFixed(2), findings, repairs });
+    row({ type: "round", round: n, film: `out/gauntlet/run-${run}/round-${n}.mp4`, filmSha256: sha(readFileSync(copy)), storyboardSha256: sha(raw), seconds: +seconds.toFixed(2),
+      judge: o.planner.label, sawStills: false, calls: 1, score: +score.toFixed(2), findings, repairs });
     if (!next) break;
     for (const r of repairs) log(`gauntlet: round ${n + 1} will change scene ${r.scene}: ${r.change}`);
     raw = JSON.stringify(next, null, 2) + "\n";
