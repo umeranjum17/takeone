@@ -30,7 +30,7 @@ import { addSound } from "./sound.ts";
 import { encodePng } from "../motion/png.ts";
 import { ensureProxy, previewDefaults, previewTiming, proxySize, scaleBand, scaleBeat, scaleEvent, scaleFrames, scaleMeta, type PreviewSpec } from "./preview.ts";
 import {
-  backgroundPixels, bandCamera, bandFrames, bandLayout, bandText, beatClicks, captionAss, captionLayouts, cardFilter, clickAss, insideScreen, measureAss, sourceViewport, stageFrames, stageGeometry, stageImageFilter,
+  backgroundPixels, bandCamera, bandFrames, bandLayout, bandText, beatClicks, captionAss, captionLayouts, cardFilter, clickAss, deviceFrame, insideScreen, measureAss, sourceViewport, stageFrames, stageGeometry, stageImageFilter,
   takeCaptions, type Band, type Caption, type CaptionInk,
 } from "./stage.ts";
 
@@ -182,7 +182,9 @@ export async function planCamera(dir: string, camera?: CameraDefaults, take?: Ta
   let meta = take ?? JSON.parse(await readFile(join(dir, "take.json"), "utf8")) as TakeMeta;
   let d: CameraDefaults = camera ?? resolveTheme(meta.theme);
   const phone = meta.device !== undefined && meta.height > meta.width;
-  if (phone) d = { ...d, corner_radius: 36, stage_margin: Math.max(0.16, d.stage_margin) };
+  const frame = deviceFrame(d.frame, phone);
+  if (frame === "phone") d = { ...d, corner_radius: 36, stage_margin: Math.max(0.16, d.stage_margin) };
+  else if (frame) d = { ...d, corner_radius: frame === "browser" ? 12 : 6, stage_margin: Math.max(0.14, d.stage_margin) };
   // A portrait phone's whole push-in is the handset's margin easing away, a few percent of the
   // solver's zoom range, so the default deadzone would swallow every tap shot.
   if (phone && d.out_h >= d.out_w) d = { ...d, deadzone_zoom: Math.min(d.deadzone_zoom, 1.02) };
@@ -363,7 +365,7 @@ export async function planCamera(dir: string, camera?: CameraDefaults, take?: Ta
   if (solve.lateWarning) console.warn(solve.lateWarning);
   const { frames } = solve;
   const held = solve.holds && { holds: solve.holds };
-  return { meta, d, phone, trimStart, trimEnd, squeezes, clock, outTime, duration, outBeats, outDecisions, captions,
+  return { meta, d, phone, frame, trimStart, trimEnd, squeezes, clock, outTime, duration, outBeats, outDecisions, captions,
     layout, solveLayout, sourceAt, held, frames, solveCached: Boolean(cached) };
 }
 
@@ -471,7 +473,7 @@ export async function renderTake(dir: string, camera?: CameraDefaults, preview?:
   const pixels = backgroundPixels(stage, d), backgroundFile = join(workDir, "background.png");
   if (pixels) await writeFile(backgroundFile, encodePng(pixels));
   const backgroundInput = d.bg_style === "image" ? resolveBackgroundImage(dir, d.background_image) : pixels ? backgroundFile : null;
-  await runFfmpeg(["-y", "-v", "error", ...(backgroundInput ? ["-i", backgroundInput] : []), "-filter_complex", stageImageFilter(band ? stage.baseW : meta.width, band ? stage.baseH : meta.height, stage, d, phone),
+  await runFfmpeg(["-y", "-v", "error", ...(backgroundInput ? ["-i", backgroundInput] : []), "-filter_complex", stageImageFilter(band ? stage.baseW : meta.width, band ? stage.baseH : meta.height, stage, d, plan.frame),
     // zlib level 1: the grained stage is high-entropy, and a 4K source stage took 7 s to deflate at
     // the default level (1.4 s at level 1); the PNG is lossless either way.
     "-map", "[stage]", "-frames:v", "1", "-update", "1", "-compression_level", "1", stageFile,

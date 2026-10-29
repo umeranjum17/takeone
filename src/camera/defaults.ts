@@ -81,6 +81,7 @@ export interface CameraDefaults {
   cursor_size: number; // drawn cursor scale; 1 is a 48 px arrow at 1080p, 0.5 the system cursor's own size
   cursor_hide_idle_s: number; // s of stillness before the drawn cursor fades out; 0 never hides it
   cursor_loop: number; // 1 glides the drawn cursor back to its first position by the last frame
+  frame: "auto" | "none" | "phone" | "browser" | "laptop"; // device chrome around the screen; auto = a phone take in its handset
   keycap_style: "linux" | "mac"; // modifier words or macOS glyphs
   caption_font: string;
   caption_size: number; // output px; the title is 1.4x this
@@ -167,6 +168,7 @@ export const DEFAULTS: CameraDefaults = {
   cursor_size: 1,
   cursor_hide_idle_s: 1.8,
   cursor_loop: 0,
+  frame: "auto",
   keycap_style: "linux",
   caption_font: "Inter Bold",
   caption_size: 38,
@@ -212,6 +214,11 @@ export function applyOverrides(overrides: Overrides, base: CameraDefaults = DEFA
     if (key === "narration" || key === "music") {
       if (typeof v !== "string" || /[\x00-\x1f]/.test(v) || v.length > 4096) throw new Error(`unknown or invalid --set ${k}=${v}`);
       out[key] = v;
+      continue;
+    }
+    if (key === "frame") {
+      if (!["auto", "none", "phone", "browser", "laptop"].includes(String(v))) throw new Error(`unknown or invalid --set ${k}=${v}`);
+      out.frame = v as CameraDefaults["frame"];
       continue;
     }
     if (key === "keycap_style") {
