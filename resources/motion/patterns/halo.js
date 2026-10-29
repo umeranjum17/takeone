@@ -48,10 +48,11 @@ const halo = (layer, W, H, cx, cy, size) => {
   layer.append(c);
   return c;
 };
-const piece = (src, w, hh, radius) => h(`<div style="position:absolute;width:${w}px;height:${hh}px;border-radius:${radius}px;overflow:hidden;box-shadow:0 0 0 1px #ffffff1c,0 ${hh * 0.12}px ${hh * 0.3}px #000a"><img src="${src}" style="width:100%;height:100%;display:block"></div>`);
+// A real UI piece as a designed object, not a raw crop: its own rounded plate (a circle for a square avatar), a
+// hairline rim with a lit top edge, and a layered shadow (a tight contact shadow, a long ambient one and, for the
+// near ones, a faint accent underglow) that deepens with `z` (0 far, 1 near) so overlaps read as depth.
+const piece = (src, w, hh, radius, z, u) => h(`<div style="position:absolute;width:${w}px;height:${hh}px;border-radius:${radius}px;background:#10141b;box-shadow:0 ${u * 0.002}px ${u * 0.006}px #000000c0,0 ${u * (0.01 + 0.05 * z)}px ${u * (0.025 + 0.1 * z)}px #000000d8,0 0 ${u * 0.1 * z}px rgb(${accentRgb().join(",")} / .16)"><img src="${src}" style="width:100%;height:100%;display:block;border-radius:inherit"><div style="position:absolute;inset:0;border-radius:inherit;box-shadow:inset 0 0 0 1px #ffffff1f,inset 0 1px 0 #ffffff38"></div></div>`);
 const markEl = (src, size) => h(`<div style="position:absolute;width:${size}px;height:${size}px;border-radius:${size * 0.23}px;overflow:hidden;box-shadow:0 0 0 1px #ffffff26,0 0 ${size * 0.5}px rgb(${accentRgb().join(",")} / .5)"><img src="${src}" style="width:100%;height:100%;display:block"></div>`);
-// A gentle drift that never settles: a pure function of the page clock.
-const drift = (el, base, amp, period, phase) => tick((ms) => { const y = Math.sin((ms / period) * Math.PI * 2 + phase) * amp; el.style.translate = `0 ${y.toFixed(3)}px`; });
 
 PATTERNS["halo-open"] = (layer0, s, ctx) => {
   const layer = h(`<div style="position:absolute;inset:0"></div>`); layer0.append(layer);
@@ -81,44 +82,70 @@ PATTERNS["halo-open"] = (layer0, s, ctx) => {
   K(text, [[0, { opacity: 0, transform: "translateY(-30%)" }], [800, { opacity: 0, transform: "translateY(-30%)" }, EXPO], [1200, { opacity: 1, transform: "translateY(-50%)" }]]);
 };
 
+// Sizes of a beat's pieces relative to each other, by how many there are: the middle one stands nearest and biggest, the
+// ends sit back and small, and every neighbour overlaps the next, so no two pieces share a scale and none sit apart.
+const SCALES = [[1.2], [1.35, 0.8], [0.85, 1.45, 0.7], [0.75, 1.4, 0.85, 0.65], [0.75, 1, 1.45, 0.9, 0.68], [0.75, 0.95, 1.4, 1.1, 0.85, 0.68]];
+const LIFT = [-0.04, 0.035, -0.02, 0.05, -0.035, 0.02]; // vertical stagger, in short sides
+const SATELLITES = [[1, 1, 1], [0, 0, 0.8], [1.04, 0.3, 0.65], [0.55, 1.03, 0.9]]; // chips on a card: corner x, corner y, scale
+
+// Lay the beat's pieces out: [{cx, cy, w, h, z, radius}], from the crops' sizes. `z` is depth, 0 far to 1 near.
+const arrange = (kind, sizes, W, H, u) => {
+  const n = sizes.length, S = SCALES[n - 1], aspect = sizes.map(([w, hh]) => w / hh), z = (s) => Math.min(1, Math.max(0, (s - 0.68) / 0.72));
+  const radiusOf = (w, hh, a, k = kind) => (k === "row" || k === "chips") && a > 0.85 && a < 1.18 ? Math.min(w, hh) / 2 : k === "chips" ? hh / 2 : k === "stack" ? Math.min(w, hh) * 0.3 : Math.min(w, hh) * 0.09;
+  if (kind === "card") {
+    const sat = n > 1, hero = Math.min(((sat ? 0.6 : 0.62) * W) / aspect[0], (sat ? 0.6 : 0.68) * H) * aspect[0], hw = hero, hh = hero / aspect[0];
+    const cx = sat ? W * 0.47 : W / 2, cy = H * 0.52, out = [{ cx, cy, w: hw, h: hh, z: 0.45, radius: radiusOf(hw, hh, aspect[0]) }];
+    for (let j = 1; j < n; j++) {
+      const [fx, fy, sc] = SATELLITES[(j - 1) % SATELLITES.length], h2 = hh * 0.26 * sc, w2 = h2 * aspect[j];
+      out.push({ cx: cx - hw / 2 + fx * hw, cy: cy - hh / 2 + fy * hh, w: w2, h: h2, z: 0.9 + 0.1 * (j % 2), radius: radiusOf(w2, h2, aspect[j], "chips") });
+    }
+    return out;
+  }
+  const base = kind === "stack" ? W * 0.62 : kind === "chips" ? u * 0.15 : u * 0.33, items = sizes.map((_, i) => {
+    const sc = S[i], w = kind === "stack" ? base * sc : base * sc * aspect[i], hh = w / aspect[i];
+    return { w, h: hh, z: z(sc), radius: radiusOf(w, hh, aspect[i]) };
+  });
+  if (kind === "stack") {
+    const step = items.map((p) => p.h * 0.88), total = step.reduce((m, x) => m + x, 0) + items.at(-1).h * 0.12;
+    let y = (H - total) / 2;
+    return items.map((p, i) => { const c = { ...p, cx: W / 2 + (i % 2 ? 1 : -1) * W * 0.05, cy: y + p.h / 2 }; y += step[i]; return c; });
+  }
+  const overlap = kind === "chips" ? 0.06 : 0.05, fit = Math.min(1, (W * 0.8) / (items.reduce((m, p) => m + p.w * (1 - overlap), 0) + items.at(-1).w * overlap));
+  let x = 0;
+  const placed = items.map((p, i) => { const w = p.w * fit, hh = p.h * fit, c = { ...p, w, h: hh, cx: x + w / 2, cy: H * 0.5 + LIFT[i % LIFT.length] * u * 1.4 }; x += w * (1 - overlap); return c; });
+  const span = x + placed.at(-1).w * overlap, shift = (W - span) / 2;
+  return placed.map((p) => ({ ...p, cx: p.cx + shift }));
+};
+
 PATTERNS["halo-float"] = (layer, s, ctx) => {
-  const { W, H } = ctx, u = Math.min(W, H), items = s.items ?? [], scr = items.map((id) => ctx.screen(id));
+  const { W, H } = ctx, u = Math.min(W, H), items = s.items ?? [], scr = items.map((id) => ctx.screen(id)), end = s.d * 1000;
   glowStage(layer, W, H, s.d);
   if (s.title) {
     const t = h(`<div data-safe style="position:absolute;left:${W * 0.07}px;top:${H * 0.09}px;font:${u * 0.05}px/1.1 var(--display);color:var(--text);letter-spacing:-.01em">${wordSpans(s.title, "glow-word")}</div>`);
     layer.append(t); $$(".glow-word", t).forEach((w, i) => riseIn(w, i * 70));
   }
-  // Sizes: a row shares 84% of the width, a card stands up to 56% of the height, a stack shares 70% of the height
-  // and half the width, chips are a tenth of the short side tall.
-  const gap = s.kind === "chips" ? u * 0.03 : u * 0.04;
-  const k = s.kind === "row" ? Math.min((W * 0.84 - gap * (items.length - 1)) / scr.reduce((n, c) => n + c.width, 0), (H * 0.34) / Math.max(...scr.map((c) => c.height)))
-    : s.kind === "card" ? Math.min((W * 0.56) / scr[0].width, (H * 0.6) / scr[0].height)
-    : s.kind === "stack" ? Math.min((W * 0.5) / Math.max(...scr.map((c) => c.width)), (H * 0.7 - gap * (items.length - 1)) / scr.reduce((n, c) => n + c.height, 0))
-    : Math.min((u * 0.1) / Math.max(...scr.map((c) => c.height)), (W * 0.84 - gap * (items.length - 1)) / scr.reduce((n, c) => n + c.width, 0));
-  const sizes = scr.map((c) => [c.width * k, c.height * k]);
-  const stack = s.kind === "stack", total = stack ? sizes.reduce((n, [, hh]) => n + hh, 0) + gap * (items.length - 1) : sizes.reduce((n, [w]) => n + w, 0) + gap * (items.length - 1);
-  let x = (W - total) / 2, yy = (H - total) / 2;
   const group = h(`<div style="position:absolute;inset:0"></div>`); layer.append(group);
-  const back = h(`<div style="position:absolute;inset:0"></div>`); layer.insertBefore(back, group);
-  K(group, [[0, { scale: "1" }], [s.d * 1000, { scale: "1.045" }]]);
-  K(back, [[0, { scale: "1.06", opacity: 0 }], [500, { scale: "1.05", opacity: 1 }], [s.d * 1000, { scale: "0.98", opacity: 1 }]]);
-  items.forEach((id, i) => {
-    const [w, hh] = sizes[i], radius = s.kind === "chips" ? hh / 2 : s.kind === "stack" ? 36 * k : 32 * k; // the product's own corner radii, in its 2x pixels
-    // Depth: pieces alternate a hair larger and a hair lower, the near ones throwing the longer shadow.
-    const near = i % 2 === 0, el = piece(scr[i].url, w, hh, radius);
-    const left = stack ? (W - w) / 2 + (near ? -1 : 1) * u * 0.03 : x, top = stack ? yy : s.kind === "card" ? H * 0.5 - hh / 2 : H * 0.5 - hh / 2 + (near ? 0 : u * 0.03);
-    el.style.left = `${left}px`; el.style.top = `${top}px`; if (near) el.style.zIndex = "2";
-    // Depth of field: a big, dim, blurred copy far behind, drifting the other way.
-    const ghost = piece(scr[i].url, w * 1.55, hh * 1.55, radius * 1.55);
-    ghost.style.left = `${left - w * 0.28 + (i % 2 ? 1 : -1) * W * 0.12}px`; ghost.style.top = `${top - hh * 0.3 - (i % 2 ? 1 : -1) * H * 0.1}px`; ghost.style.filter = "blur(18px)"; ghost.style.opacity = "0.16";
-    back.append(ghost); drift(ghost, 0, u * 0.01, 3600, i * 2.3 + 1);
-    group.append(el); if (stack) yy += hh + gap; else x += w + gap;
-    const at = 120 + i * 130, tilt = (a, y, k) => ({ opacity: a, transform: `perspective(${u * 1.6}px) rotateX(${y}deg) translateY(${k}px) scale(${near ? 1.03 : 1})` });
-    const from = { ...tilt(0, 22, u * 0.09), filter: "blur(12px)" }, rest = { ...tilt(1, 0, 0), filter: "blur(0px)" };
-    const end = s.d * 1000;
-    K(el, [[0, from], [at, from, EXPO], [at + 700, rest], [end - 160, rest, "ease-in"], [end, { ...tilt(0, -6, -u * 0.02), filter: "blur(0px)" }]]);
+  // One camera for the beat: it yaws a few degrees and pushes in, so every piece shares one vanishing point.
+  group.style.transform = `perspective(${u * 2.4}px)`;
+  K(group, [[0, { transform: `perspective(${u * 2.4}px) rotateY(-3deg) scale(1)` }], [end, { transform: `perspective(${u * 2.4}px) rotateY(3deg) scale(1.04)` }]]);
+  const spots = arrange(s.kind, scr.map((c) => [c.width, c.height]), W, H, u);
+  // Draw far to near so a near piece's shadow falls on the one behind it.
+  spots.map((p, i) => ({ ...p, i })).sort((a, b) => a.z - b.z).forEach(({ cx, cy, w, h: hh, z, radius, i }, order) => {
+    const el = piece(scr[i].url, w, hh, radius, z, u);
+    el.style.left = `${cx - w / 2}px`; el.style.top = `${cy - hh / 2}px`; el.style.zIndex = String(order + 1);
+    group.append(el);
+    // Entrance: a short tilt-up and rise, the near ones travelling further and arriving last.
+    const at = 100 + order * 120, rise = u * (0.05 + 0.06 * z);
+    const pose = (a, tilt, y, sc) => ({ opacity: a, transform: `perspective(${u * 1.6}px) rotateX(${tilt}deg) translateY(${y}px) scale(${sc})` });
+    const from = pose(0, 16, rise, 0.88), rest = pose(1, 0, 0, 1);
+    K(el, [[0, from], [at, from, EXPO], [at + 750, rest], [end - 160, rest, "ease-in"], [end, pose(0, -4, -u * 0.015, 0.98)]]);
     el.dataset.moves = "";
-    drift(el, 0, u * (near ? 0.009 : 0.012), 2600, i * 1.7);
+    // Parallax: the whole beat pans one way, the near pieces faster than the far, with a slow bob that never settles.
+    const pan = u * 0.05 * (0.3 + 1.4 * z), bob = u * 0.006 * (0.5 + z);
+    tick((ms) => {
+      const t = Math.min(1, Math.max(0, ms / end)), x = (0.5 - t) * 2 * pan, y = Math.sin((ms / 2800) * Math.PI * 2 + i * 1.7) * bob;
+      el.style.translate = `${x.toFixed(3)}px ${y.toFixed(3)}px`;
+    });
   });
 };
 

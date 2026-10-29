@@ -9,11 +9,12 @@ const regions = ["0,0,400,300:logo@S1", "100,100,600,300:stack:Ask@S1", "100,500
 
 test("halo recipe lays real screen pieces and a pitch into a valid local film, no planner", () => {
   const sb = validateStoryboard(planHalo({ inputs: [BOARD], regions, pitch: "Your crew. No chatbot. Asks first.", logo: "Tidewater" }, "halo-test"));
-  assert.deepEqual(sb.scenes.map(s => s.pattern), ["halo-open", "halo-float", "halo-float", "halo-float", "halo-lines", "halo-end"]);
-  assert.deepEqual(sb.scenes.map(s => s.kind ?? null), [null, "stack", "card", "chips", null, null]);
-  assert.deepEqual(sb.scenes[4]!.lines, ["No chatbot.", "Asks first."]);
+  assert.deepEqual(sb.scenes.map(s => s.pattern), ["halo-open", "halo-float", "halo-float", "halo-lines", "halo-end"]);
+  assert.deepEqual(sb.scenes.map(s => s.kind ?? null), [null, "stack", "card", null, null]);
+  assert.deepEqual(sb.scenes[3]!.lines, ["No chatbot.", "Asks first."]);
   assert.equal(sb.planner.by, "user");
   assert.equal(sb.scenes[1]!.items!.length, 2, "consecutive pieces of one kind are one beat");
+  assert.equal(sb.scenes[2]!.items!.length, 3, "chips straight after a card ride on its corners");
   for (const [i, s] of sb.scenes.entries()) if (i) assert.ok(s.at! >= sb.scenes[i - 1]!.at! + sb.scenes[i - 1]!.d - 1e-9, "beats do not overlap");
 });
 

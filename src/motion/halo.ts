@@ -1,6 +1,6 @@
 // The halo recipe: real product screens and a one-line pitch in, a ~9 s promo out. No planner and no
 // network: the caller names the real UI pieces (--region x,y,w,h:KIND@SCREEN, KIND = logo, row, stack, card or chips)
-// and TakeOne lays them on the glow grammar. The pitch is its sentences: the first is the pill's tagline, the
+// and TakeOne lays them on the glow grammar, each beat at varied scales with overlap, shadow and parallax. The pitch is its sentences: the first is the pill's tagline, the
 // rest are the kinetic lines.
 import { resolve } from "node:path";
 import { imageSize } from "./ingest.ts";
@@ -47,6 +47,8 @@ export function planHalo(a: GlowArgs, id: string): unknown {
     const last = scenes.at(-1);
     const items = [crop(`piece${++n}`, p)];
     if (last?.pattern === "halo-float" && last.kind === p.kind && !p.title) { last.items!.push(...items); continue; }
+    // Chips straight after a card ride on its corners, smaller and nearer, instead of a beat of their own.
+    if (last?.pattern === "halo-float" && last.kind === "card" && p.kind === "chips" && !p.title && last.items!.length < 5) { last.items!.push(...items); continue; }
     scenes.push({ pattern: "halo-float", d: 0, kind: p.kind, items, ...(p.title ? { title: p.title } : {}) });
   }
   for (const s of scenes) if (s.pattern === "halo-float") Object.assign(s, fit(s, 1 + 0.12 * s.items!.length));
