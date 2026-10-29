@@ -141,6 +141,10 @@ function scene(raw: unknown, path: string): Scene {
   s.d = num(raw["d"], `${path}.d`, 0.25, MAX_DURATION_S);
   if (raw["at"] !== undefined) s.at = num(raw["at"], `${path}.at`, 0, MAX_DURATION_S);
   for (const k of ["title", "subtitle", "cta", "url", "logo", "text", "kind", "state"] as const) if (raw[k] !== undefined) s[k] = str(raw[k], `${path}.${k}`, k === "text" ? 400 : 120);
+  if (raw["logo_image"] !== undefined) {
+    s.logo_image = str(raw["logo_image"], `${path}.logo_image`, 4096);
+    if (s.pattern !== "end-card" || !/\.(png|jpe?g|webp|svg)$/i.test(s.logo_image)) throw new StoryboardError(`${path}.logo_image`, "only an end-card takes a logo_image, a png, jpg, webp or svg file");
+  }
   for (const k of ["invert", "cut", "fill"] as const) if (raw[k] !== undefined && typeof raw[k] !== "boolean") throw new StoryboardError(`${path}.${k}`, "expected true or false");
   for (const k of ["label", "note"] as const) if (raw[k] !== undefined) s[k] = str(raw[k], `${path}.${k}`, k === "label" ? 60 : 120);
   for (const k of ["scale", "from"] as const) if (raw[k] !== undefined) s[k] = num(raw[k], `${path}.${k}`, 0.1, 1.5);

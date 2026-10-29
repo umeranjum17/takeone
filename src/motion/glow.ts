@@ -7,11 +7,12 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { screenLines } from "../decide/ocr.ts";
+import { readBrand, type Brand } from "./brand.ts";
 import { imageSize } from "./ingest.ts";
 import { minSceneDuration } from "./storyboard.ts";
 import type { Crop, Rect, Scene } from "./types.ts";
 
-export interface GlowArgs { inputs: string[]; title?: string; subtitle?: string; pitch?: string; press?: string; frame?: string; tree?: string; cta?: string; logo?: string; url?: string; audio?: string; workers?: number }
+export interface GlowArgs { inputs: string[]; title?: string; subtitle?: string; pitch?: string; press?: string; frame?: string; tree?: string; cta?: string; logo?: string; url?: string; audio?: string; workers?: number; brand?: string }
 
 /** The zoom beat's window: wide enough to read the control, never magnified past ~2x of the source, around the control. */
 export const ZOOM_W = 860;
@@ -43,8 +44,12 @@ export function treeRows(spec: string): string[] {
   return spec.split(",").map(t => t.trim()).filter(Boolean).map(t => (t.startsWith(">") ? "  " : "") + t.replace(/^>\s*/, ""));
 }
 
-/** The storyboard for one or two screens and the copy. Pure given the pressed control's box. */
-export function glowStoryboard(a: GlowArgs, id: string, sizes: { width: number; height: number }[], tap: Rect, frame?: Rect): unknown {
+/** The stage's own tokens: the patterns read these (the accent family is derived from `accent`), and a brand file overrides any of them. */
+export const GLOW_THEME = { background: "#030719", background_to: "#030719", bg_style: "solid", text: "#ffffff", accent: "#2f7bff", display_font: "Inter Bold",
+  card: "#0e111b", border_color: "#2b3144", line: "#3b4a78", muted: "#c9d6f5" };
+
+/** The storyboard for one or two screens and the copy. Pure given the pressed control's box (and the brand read from its file). */
+export function glowStoryboard(a: GlowArgs, id: string, sizes: { width: number; height: number }[], tap: Rect, frame?: Rect, brand?: Brand): unknown {
   const { width: W, height: H } = sizes[0]!;
   const zw = Math.min(ZOOM_W, W), zh = Math.min(Math.round(zw * 9 / 16), H);
   const rect = (c: number, len: number, max: number) => Math.round(Math.max(0, Math.min(c - len / 2, max - len)));
@@ -61,12 +66,12 @@ export function glowStoryboard(a: GlowArgs, id: string, sizes: { width: number; 
     ...(a.tree ? [fit({ pattern: "glow-tree", d: 0, tree: treeRows(a.tree) }, 0.8)] : []),
     fit({ pattern: "glow-screen", d: 0, screen: "win", tap, ...(sizes[1] ? { phone: "phone" } : {}) }, 0.6),
     fit({ pattern: "glow-screen", d: 0, screen: "press", tap, zoom: true }, 0.9),
-    fit({ pattern: "end-card", d: 0, logo: a.logo!, cta: a.cta ?? "Get started", ...(a.url ? { url: a.url } : {}), glow: true }, 2.3),
+    fit({ pattern: "end-card", d: 0, logo: a.logo ?? brand?.name ?? "", ...(brand?.logo ? { logo_image: brand.logo } : {}), cta: a.cta ?? "Get started", ...(a.url ? { url: a.url } : {}), glow: true }, 2.3),
   ];
   return {
     version: 1, id,
     output: { ...(a.workers !== undefined ? { workers: a.workers } : {}) },
-    theme: { name: "aurora", overrides: { background: "#030719", background_to: "#030719", bg_style: "solid", text: "#ffffff", accent: "#2f7bff", display_font: "Inter Bold" } },
+    theme: { name: "aurora", overrides: { ...GLOW_THEME, ...brand?.overrides } },
     source: { kind: "image", files: a.inputs.map(f => resolve(f)) },
     screens: Object.create(null), regions: [], crops,
     ...(a.audio ? { audio: { file: resolve(a.audio), volume: 0.6 } } : {}),
@@ -77,7 +82,8 @@ export function glowStoryboard(a: GlowArgs, id: string, sizes: { width: number; 
 
 export async function planGlow(a: GlowArgs, id: string): Promise<unknown> {
   if (a.inputs.length < 1 || a.inputs.length > 2 || a.inputs.some(f => !/\.(png|jpe?g|webp)$/i.test(f))) throw new Error("--recipe glow takes one or two screenshots (png, jpg or webp): the screen, then an optional phone screen");
-  const missing = (["title", "pitch", "press", "logo"] as const).filter(k => !a[k]?.trim());
-  if (missing.length) throw new Error(`--recipe glow needs ${missing.map(k => ({ title: "--title HEADLINE", pitch: "--pitch TYPED_PROMPT", press: "--press BUTTON_TEXT_OR_x,y,w,h", logo: "--logo WORDMARK" })[k]).join(", ")}`);
-  return glowStoryboard(a, id, a.inputs.map(f => imageSize(resolve(f))), await pressBox(resolve(a.inputs[0]!), a.press!), a.frame ? await pressBox("", a.frame) : undefined);
+  const brand = a.brand ? readBrand(a.brand) : undefined;
+  const missing = (["title", "pitch", "press", "logo"] as const).filter(k => !(k === "logo" ? a.logo ?? brand?.name : a[k])?.trim());
+  if (missing.length) throw new Error(`--recipe glow needs ${missing.map(k => ({ title: "--title HEADLINE", pitch: "--pitch TYPED_PROMPT", press: "--press BUTTON_TEXT_OR_x,y,w,h", logo: "--logo WORDMARK (or a brand file with a name)" })[k]).join(", ")}`);
+  return glowStoryboard(a, id, a.inputs.map(f => imageSize(resolve(f))), await pressBox(resolve(a.inputs[0]!), a.press!), a.frame ? await pressBox("", a.frame) : undefined, brand);
 }

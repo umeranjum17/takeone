@@ -40,7 +40,7 @@ export const MOTION_USAGE = `takeone motion <image.png|page.html|https://url|tak
   [--engine hyperframes|legacy] [--alpha] [--redaction-dry-run --out DIR] [--public-domain example.com]...
 takeone motion <screenshot.png> --recipe editorial|bento --pitch TEXT [--logo WORD] [--cta TEXT] [--url TEXT] [--audio FILE] [--out DIR]
 takeone motion film <video.mp4> [--intro BRIEF] [--callout "BRIEF@SECONDS"]... [--outro BRIEF] [--tech html|canvas|three] [--out DIR]
-takeone motion <screen.png> [phone.png] --recipe glow --title HEADLINE --pitch TYPED_PROMPT --press "BUTTON TEXT"|x,y,w,h --logo WORD [--frame x,y,w,h] [--subtitle KINETIC_WORDS] [--tree "Crew,>Chief,>Scout"] [--cta TEXT] [--url TEXT] [--audio FILE] [--out DIR]
+takeone motion <screen.png> [phone.png] --recipe glow --title HEADLINE --pitch TYPED_PROMPT --press "BUTTON TEXT"|x,y,w,h --logo WORD [--brand brand.json|DESIGN.md] [--frame x,y,w,h] [--subtitle KINETIC_WORDS] [--tree "Crew,>Chief,>Scout"] [--cta TEXT] [--url TEXT] [--audio FILE] [--out DIR]
 takeone motion <inputs...> --gauntlet [--max-rounds M]   after rendering, have a fresh critic score every scene against the reference and repair what falls short
 takeone gauntlet <motion-dir> [--max-rounds M]   the same critique, repair and ledger on a motion take already rendered
 takeone motion install-shell         download the pinned chrome-headless-shell (sha256 checked)
@@ -66,7 +66,9 @@ takeone motion install-hyperframes   install hyperframes@0.8.200 + chrome-headle
   any plan (portrait is 1080x1920); --recipe and --pattern are exclusive.
   --recipe glow plans a 5-9 s promo locally, no engine: a typed prompt, kinetic words, a headline over a gradient
   ribbon, a file tree, the real screen and a glowing click on the control that --press names (found by OCR), and
-  the end card, cut fast on a near-black navy stage with a blue glow.
+  the end card, cut fast on a near-black navy stage with a blue glow. --brand reads a brand.json or a DESIGN.md
+  (frontmatter colors, a Typography section) from disk and dresses the same promo in its colours, fonts (bundled
+  families only; any other is an error) and an optional logo image; nothing is fetched and no model is called.
 
   --recipe editorial plans an editorial launch film with the signed-in AI engine: a struck-word headline,
   the screen large on a phone with a tap, a stack of the screen's own UI lines, a four-tile canon, the
@@ -82,7 +84,7 @@ export interface MotionArgs {
   inputs: string[]; out?: string; patterns?: PatternName[]; theme?: string; title?: string;
   subtitle?: string; cta?: string; url?: string; logo?: string; device?: Device; regions: string[]; states: [string, string][];
   workers?: number; blur?: number; storyboard?: string; planOnly: boolean; noAi?: boolean; engine: MotionEngine;
-  recipe?: Recipe | "editorial" | "bento" | "glow"; press?: string; frame?: string; tree?: string; pitch?: string; audio?: string; alpha?: boolean; gauntlet?: boolean; maxRounds?: number; aspect?: Aspect;
+  recipe?: Recipe | "editorial" | "bento" | "glow"; press?: string; frame?: string; tree?: string; pitch?: string; brand?: string; audio?: string; alpha?: boolean; gauntlet?: boolean; maxRounds?: number; aspect?: Aspect;
   redactionDryRun?: boolean; publicDomains: string[];
 }
 
@@ -130,6 +132,7 @@ export function parseMotionArgs(argv: string[]): MotionArgs {
       if (!Object.hasOwn(ASPECTS, v)) throw new Error(`--aspect expects ${Object.keys(ASPECTS).join(", ")}, got ${v}`);
       a.aspect = v as Aspect;
     } else if (s === "--pitch") a.pitch = v;
+    else if (s === "--brand") a.brand = v;
     else if (s === "--press") a.press = v;
     else if (s === "--frame") a.frame = v;
     else if (s === "--tree") a.tree = v;
@@ -485,6 +488,7 @@ export async function runMotion(argv: string[], takesDir: string, o: PlanOptions
     const judge = await resolveJudge();
     if (!judge.active) throw new JudgeUnavailable(`unavailable - ${judge.label} cannot serve: ${judge.refusal ?? "no sign-in"}. Sign in with \`claude\`, or save another route in judge.json`);
   }
+  if (a.brand && (a.recipe !== "glow" || a.storyboard)) throw new Error("--brand dresses the planned glow promo: use it with --recipe glow (and without --storyboard)");
   let storyboard: unknown;
   let id: string;
   if (a.storyboard) {

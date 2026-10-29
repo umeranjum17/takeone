@@ -1,0 +1,19 @@
+{
+  "name": "Tidewater",
+  "tagline": "A fictional crew-planning app used for TakeOne demos.",
+  "colors": [
+    { "role": "background", "hex": "#04141a", "name": "Deep water", "usage": "stage" },
+    { "role": "surface", "hex": "#0b2530", "name": "Harbour", "usage": "cards" },
+    { "role": "foreground", "hex": "#f1faf7", "name": "Sea foam", "usage": "type" },
+    { "role": "muted", "hex": "#a8c8c6", "name": "Mist", "usage": "secondary type" },
+    { "role": "border", "hex": "#1d4651", "name": "Kelp", "usage": "hairlines" },
+    { "role": "accent", "hex": "#18c8a4", "name": "Tide", "usage": "lit controls and glow" },
+    { "role": "accent-secondary", "hex": "#ffb454", "name": "Buoy", "usage": "unused by the glow recipe" }
+  ],
+  "typography": {
+    "display": { "family": "Space Grotesk", "fallbacks": ["sans-serif"], "weights": [700] },
+    "body": { "family": "Manrope", "fallbacks": ["sans-serif"], "weights": [500] },
+    "mono": { "family": "JetBrains Mono", "fallbacks": ["monospace"], "weights": [400] }
+  },
+  "logo": { "primary": "tidewater-mark.svg", "alternates": [], "notes": "Drawn for this fixture." }
+}
