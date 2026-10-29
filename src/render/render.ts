@@ -213,7 +213,11 @@ export async function planCamera(dir: string, camera?: CameraDefaults, take?: Ta
   // with film.end_beat; a trim_end without it is the user's, and the edit would be ignored.
   const filmEdits = withUserFilm(meta.film, plan, { beats, ownTitle: meta.title !== undefined, ownEnd: meta.trim_end !== undefined && meta.film?.end_beat === undefined });
   meta = { ...meta, film: filmEdits };
-  if (filmEdits.by.ending === "user") meta.trim_end = Math.min(meta.duration ?? Infinity, beats.find((b) => b.id === filmEdits.end_beat)!.t1 + d.outro_s);
+  if (filmEdits.by.ending === "user") {
+    const endIndex = beats.findIndex((beat) => beat.id === filmEdits.end_beat);
+    meta.trim_end = purposefulEnd(beats.slice(0, endIndex + 1), meta.trim_start ?? 0,
+      meta.duration ?? Math.max(0, ...beats.map((beat) => beat.t1)), d);
+  }
 
   const trimStart = meta.trim_start ?? 0;
   const wide = d.out_w > d.out_h;
