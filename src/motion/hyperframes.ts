@@ -407,7 +407,7 @@ export async function renderHyperframes(dir: string, sb: Storyboard, o: Hyperfra
   };
   writeFileSync(join(dir, "render.json"), `${JSON.stringify(manifest, null, 2)}\n`);
   const f = gates.frozen, l = gates.loudness;
-  // Warn rather than fail: the local plan's zoom-tour on one screenshot is a real still hold today, and the film is otherwise good.
+  // Warn rather than fail: held shots drift on the page (runtime.js `drift`), so a run here is a scene that gained no motion, and the film is otherwise good.
   if (!f.passed) process.stderr.write(`takeone motion: warning: ${out} has frozen time outside the end card: longest ${f.longest.toFixed(1)} s (max 0.6), ${f.per_30s.toFixed(1)} s per 30 s (max 1.0) at ${f.runs.map(([x, y]) => `${x.toFixed(1)}-${y.toFixed(1)} s`).join(", ")}; give the held scene motion or shorten it\n`);
   if (l && !l.passed) throw new Error(`hyperframes engine: ${out} audio fails the loudness gate: ${l.failures.join("; ")}`);
   if (!o.alpha) await writeScenes(dir, sb, out);

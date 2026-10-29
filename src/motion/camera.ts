@@ -116,7 +116,11 @@ export function sceneCameras(sb: Storyboard, dir?: string): Record<string, (Came
         const t = f / sb.output.fps, p = heroTransform(t, scene.d, scene.push ?? .03);
         const left = (width - size.width) / 2 + (size.width + 2 * border) * ox * (1 - p.scale) + border * p.scale;
         const top = height * .34 + p.y + (size.height + bar + 2 * border) * oy * (1 - p.scale) + (bar + border) * p.scale;
-        return { t, x: (cropX * p.scale - left) / (fit * p.scale), y: (cropY * p.scale - top) / (fit * p.scale), w: width / (fit * p.scale), h: height / (fit * p.scale) };
+        const baseX = (cropX * p.scale - left) / (fit * p.scale);
+        const baseY = (cropY * p.scale - top) / (fit * p.scale);
+        const driftPhase = (t % 0.8) / 0.8;
+        const drift = driftPhase < 0.5 ? driftPhase * 4 - 1 : 3 - driftPhase * 4;
+        return { t, x: baseX, y: baseY + (t > .6 ? drift * height * .015 : 0), w: width / (fit * p.scale), h: height / (fit * p.scale) };
       });
       return;
     }
@@ -146,7 +150,9 @@ export function sceneCameras(sb: Storyboard, dir?: string): Record<string, (Came
         const u = Math.min(1, (t - segment.at) / segment.d), a = u * u * u * (u * (u * 6 - 15) + 10), { from, to } = segment;
         const w = from.w + (to.w - from.w) * a;
         view = { x: from.x + (to.x - from.x) * a, y: from.y + (to.y - from.y) * a, w, h: w * screen.height / screen.width };
-        if (t >= segment.at + segment.d) caption = segment.caption;
+        if (t >= segment.at + segment.d) {
+          caption = segment.caption;
+        }
       }
       const border = scene.device === "laptop" ? 12 : 2;
       const bar = (scene.device ?? "browser") === "browser" ? size.height * .075 : scene.device === "phone" ? size.height * .045 : 0;

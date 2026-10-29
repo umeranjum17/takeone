@@ -14,6 +14,7 @@ PATTERNS["zoom-tour"] = (layer,s,ctx) => {
     const p=paths?.[i]??{x:0,y:0,w:scr.width,h:scr.height},q=paths?.[i+1]??p;
     const x=p.x+(q.x-p.x)*a,y=p.y+(q.y-p.y)*a,w=p.w+(q.w-p.w)*a;
     img.style.transform=`scale(${cw/w}) translate(${-x}px,${-y}px)`;
+    const o=drift(ms,W); frame.style.transform=`translate(${o.x}px,${o.y}px)`;
     const txt=p.caption??"";
     caption.textContent=txt; caption.style.display=txt ? "block" : "none";
   });

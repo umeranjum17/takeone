@@ -201,7 +201,8 @@ test("launch-film close-ups and bento crops show whole words, fields and buttons
     const holds=(cameras:ReturnType<typeof sceneCameras>)=>sb.scenes.flatMap((scene,i)=>{
       if(scene.pattern!=="zoom-tour")return [];
       const {width}=sb.screens[scene.screen!]!;
-      const views=new Set(cameras[String(i)]!.filter((v,j,all)=>j&&v.w<width&&["x","y","w","h"].every(k=>v[k as "x"]===all[j-1]![k as "x"])).map(v=>JSON.stringify([v.x,v.y,v.w,v.h])));
+      const held=cameras[String(i)]!.filter((v,j,all)=>j&&v.w<width&&["x","w","h"].every(k=>v[k as "x"]===all[j-1]![k as "x"]));
+      const views=new Set(held.map(v=>JSON.stringify([v.x,v.y,v.w,v.h])));
       assert.ok(views.size,`tour ${i} settles on a close-up`);
       return [...views].map(h=>[i,scene.screen!,JSON.parse(h) as number[]] as const);
     });
