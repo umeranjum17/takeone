@@ -13,8 +13,8 @@ implementation.
 
 Reclassified against `main` at v0.5.0, from the 94-row inventory in the AI-first design
 (17 Oct 2026). That inventory's own total said 34 fixed rows; counting its rows marked F,
-F + M and F + user gives 44, and all 44 are below. Rows marked "M" or "M + T" there are
-not limits: the planner owns them, and the shipped ones need no entry here.
+F + M and F + user gives 44. Rows marked "M" or "M + T" there are not limits: the planner
+owns them, and the shipped ones need no entry here.
 
 ## Fixed because of a limit
 
@@ -59,10 +59,8 @@ not limits: the planner owns them, and the shipped ones need no entry here.
 | Cursor idle hide | `src/render/cursor.ts` · `IDLE_FADE` | physics | A resting pointer fades rather than sitting on text |
 | Text safe inset | `src/render/safe-area.ts` · `SAFE_INSET` | format | Broadcast title-safe area |
 | Motion blur | `src/camera/defaults.ts` · `motion_blur` | physics | A measured default ([motion blur](motion-blur.md)) |
-| Theme tokens | `src/themes.ts` · `midnight` | format | Design tokens: the planner picks a theme name, never a colour |
 | Output shape for phone footage | `src/cli.ts` · `--aspect` | format | The destination is the user's choice |
 | Size, frame rate and encode | `src/render/render.ts` · `crf` | format | Container and codec |
-| Phone frame look | `src/render/render.ts` · `corner_radius: 36` | format | The device frame |
 | Export transcodes | `src/cli.ts` · `GIF_MAX_BYTES` | format | GIF, WebM and ProRes limits |
 | Length cap and reading time | `src/motion/storyboard.ts` · `MAX_DURATION_S` | format | A film cap and a readability floor |
 | Perception thresholds and capture rates | `src/perceive/regions.ts` · `DIFF_THRESHOLD` | measurement | Pixel and input thresholds; capture stays with the recorder |
@@ -84,6 +82,8 @@ the planner does not own it yet. They are the only open items.
 | Title on screen from 0.35 s to 3.1 s | `src/render/stage.ts` · `Math.min(duration, 3.1)` | A fixed window; the planner picks only the title text, bounded by `TITLE_MAX_S` in `src/decide/film.ts` | Let the film call give the title's seconds, floored by reading time |
 | A keycap stays 2.2 s | `src/render/overlays.ts` · `t0 + 2.2` | A fixed hold; the planner chooses which shortcuts show, not for how long | Hold = reading time of the keys, floored, as captions already are |
 | Overlay emphasis when the planner abstains | `src/render/overlays.ts` · `shortcutKeys` | Every detected shortcut and click gets the same emphasis, a fixed presentation choice | Let the planner choose overlay emphasis for fallback beats |
+| Theme tokens | `src/themes.ts` · `midnight` | The planner chooses only a theme name; colours and typography remain fixed | Let the planner choose the theme tokens |
+| Phone frame look | `src/render/render.ts` · `corner_radius: 36` | The frame's corner radius is a fixed presentation choice | Let the planner choose the phone frame treatment |
 
 A click ring's size (`ripple_ms`, `ripple_r` in `src/camera/defaults.ts`) is presentation
 physics: which clicks ring is the planner's (`clicks`), the ring's size is not a choice.
