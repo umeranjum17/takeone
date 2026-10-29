@@ -48,6 +48,15 @@ test("glow --region cards add a deck beat of square real-screen crops after the 
   assert.throws(() => validateStoryboard({ ...(sb as object), scenes: [{ pattern: "glow-deck", d: 2, cards: [{ screen: "nope", caption: "A" }, { screen: "deck1", caption: "B" }] }] }), /not one of crops/);
 });
 
+test("glow deck captions must be covered by both display and caption fonts", async () => {
+  const size = imageSize(BOARD), tap = await pressBox(BOARD, "1,2,3,4");
+  const input = glowStoryboard({ inputs: [BOARD], title: "Meet the crew", pitch: "Plan the launch", logo: "Tidewater", regions: [
+    "316,120,520,520:¤", "868,120,520,520:Track every task.",
+  ] }, "glow-deck-font-test", [size], tap) as { theme: { overrides: Record<string, string> } };
+  input.theme.overrides.caption_font = "Instrument Serif";
+  assert.throws(() => validateStoryboard(input), /missing glyph in Instrument Serif for "¤"/);
+});
+
 test("glow deck shows exactly one headline and one index, the front card's, on every frame after its first", { timeout: 120_000 }, async () => {
   const size = imageSize(BOARD), tap = await pressBox(BOARD, "1,2,3,4");
   const captions = ["Plan the launch.", "Track every task.", "See what moved."];

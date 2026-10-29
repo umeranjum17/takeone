@@ -53,7 +53,7 @@ export function lintFonts(sb: Storyboard): void {
     const device = s.pattern === "fragment" ? s.kind === "browser-chrome" ? "browser" : s.kind === "phone-chrome" ? "phone" : "none" : s.pattern === "kinetic-type" ? s.device ?? "none" : ["hero-reveal", "zoom-tour", "spotlight", "feature-callouts", "before-after", "device-orbit"].includes(s.pattern) ? s.device ?? "browser" : "none";
     const captions = (s.cards ?? []).map(c => c.caption);
     const display = [s.title, s.logo, ...(s.swaps ?? []), ...(s.lines ?? []), ...((s.tiles ?? []).map(t => t.title)), ...captions];
-    const body = [s.subtitle, s.cta, s.text, s.credit, ...(s.tree ?? []), ...(!monoFragment ? feedRow ? fragmentTexts.slice(0, 2) : fragmentTexts : []), ...(s.stops ?? []).map(t => t.caption), ...(device === "browser" ? ["Design preview"] : [])];
+    const body = [s.subtitle, s.cta, s.text, s.credit, ...captions, ...(s.tree ?? []), ...(!monoFragment ? feedRow ? fragmentTexts.slice(0, 2) : fragmentTexts : []), ...(s.stops ?? []).map(t => t.caption), ...(device === "browser" ? ["Design preview"] : [])];
     // clip labels and statement notes are set uppercase in the mono face
     const mono = [s.url, ...[s.label, s.note, ...(s.cuts ?? []).map(c => c.label)].map(t => t?.toUpperCase()), ...(s.pattern === "welcome" ? [s.logo?.toUpperCase()] : []), ...(monoFragment ? fragmentTexts : []), ...(s.kind === "counter" ? ["0123456789"] : []), ...(s.cards ? ["0123456789 /"] : []), ...(feedRow ? ["Just now"] : []), ...(device === "phone" ? ["9:41"] : [])];
     const symbols = [...(s.kind === "toast" ? ["✓"] : []), ...(device === "browser" ? ["● ● ●"] : [])];
