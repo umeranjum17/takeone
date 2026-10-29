@@ -499,6 +499,7 @@ test("makeTake planOnly prices the plan with zero planner calls", { skip: needsF
     let calls = 0;
     const r = await makeTake(dir, {
       planOnly: true,
+      maxTokens: 10000,
       apiKey: "test-key",
       fetchImpl: (() => {
         calls++;
@@ -524,6 +525,7 @@ test("makeTake planOnly prices the plan with zero planner calls", { skip: needsF
   try {
     const v = await makeTake(silent, {
       planOnly: true,
+      maxTokens: 10000,
       apiKey: "test-key",
       log: () => {},
       warn: () => {},
@@ -541,6 +543,7 @@ test("makeTake planOnly prices the plan with zero planner calls", { skip: needsF
   try {
     const v = await makeTake(mid, {
       planOnly: true,
+      maxTokens: 10000,
       apiKey: "test-key",
       log: () => {},
       warn: () => {},

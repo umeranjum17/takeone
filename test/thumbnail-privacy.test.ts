@@ -2,10 +2,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { makeTake, type MakeResult } from "../src/make.ts";
+import { makeTake } from "../src/make.ts";
 import { DEFAULTS } from "../src/camera/defaults.ts";
 import { blurredStill } from "../src/decide/ocr.ts";
 import type { TakeMeta } from "../src/types.ts";
@@ -54,14 +54,30 @@ test("a text zone OCR read nothing in reaches the planner blurred, never sharp",
     // An Anthropic route that declares image support so the planner is sent keyframe thumbnails.
     writeFileSync(join(dir, "cfg", "takeone", "planner.json"), JSON.stringify({ backend: "anthropic", auth: "apiKey", model: "claude-opus-5-5", supportsImages: true }));
     const bodies: string[] = [];
-    const r: MakeResult = await makeTake(dir, {
+    await assert.rejects(makeTake(dir, {
       apiKey: "test-key-000", camera: FAST, configDir: join(dir, "cfg"), log: () => {}, warn: () => {},
-      fetchImpl: (async (_url, init) => { bodies.push(String(init?.body)); return new Response("no", { status: 500 }); }) as typeof fetch,
-    });
+      fetchImpl: (async (_url, init) => {
+        bodies.push(String(init?.body));
+        if (bodies.length > 1) return new Response("no", { status: 500 });
+        // Answer the film call so the image-bearing beat request is actually sent.
+        const schema = JSON.parse(bodies[0]!).tools[0].input_schema.properties as Record<string, {
+          required: string[]; properties: { probabilities: { properties: Record<string, unknown> } } }>;
+        const input = Object.fromEntries(Object.entries(schema).map(([name, property]) => {
+          const keys = Object.keys(property.properties.probabilities.properties);
+          const pick = keys.includes("false") ? "false" : keys[0]!;
+          return [name, { probabilities: Object.fromEntries(keys.map(key => [key, Number(key === pick)])), pick,
+            ...Object.fromEntries(property.required.filter(key => !["probabilities", "pick"].includes(key)).map(key => [key, "fixture"])) }];
+        }));
+        return new Response(JSON.stringify({ content: [{ type: "tool_use", name: "decisions", input }],
+          usage: { input_tokens: 1, output_tokens: 1 } }), { status: 200 });
+      }) as typeof fetch,
+    }), /has no usable model decision; no film was rendered/);
+    assert.ok(!existsSync(join(dir, "out", "t1.mp4")), "a failed beat request cannot render a fallback film");
     // Every JPEG the planner was sent, wherever the provider put it in the request.
     const thumbs = bodies.flatMap((b) => b.match(/\/9j\/[A-Za-z0-9+/=]+/g) ?? []).map((b64) => Buffer.from(b64, "base64"));
     assert.ok(thumbs.length > 0, "the planner request carried no thumbnail; the check below would prove nothing");
-    const zone = r.beats.flatMap((b) => b.zones).find((z) => z.kind === "act" && z.area_frac < 0.25)!;
+    const beats = JSON.parse(readFileSync(join(dir, "analysis", "beats.json"), "utf8")) as { zones: { type: string; bbox: [number, number, number, number] }[] }[];
+    const zone = beats.flatMap((b) => b.zones).find((z) => z.type === "act" && z.bbox[2] * z.bbox[3] / (W * H) < 0.25)!;
     assert.ok(zone, "no small action zone to inspect");
     const [zx, zy, zw, zh] = zone.bbox;
     // The zone's interior below its label, inside the patch: sharp in the source, so a leak shows as spread.
