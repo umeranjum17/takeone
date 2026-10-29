@@ -1350,7 +1350,7 @@ test("the film call sets the look and ending; a --set key stays pinned", async (
       const endings = Object.keys(filmRequest!.questions.ending.criteria);
       const last = endings.at(-1)!;
       const answers = {
-        theme: { choice: "paper", probabilities: { midnight: 0, paper: 1, aurora: 0, mono: 0, sand: 0, editorial: 0 }, confidence: 1 },
+        theme: { choice: "paper", probabilities: { midnight: 0, paper: 1, aurora: 0, mono: 0, neon: 0, brutalist: 0, sand: 0, terminal: 0, editorial: 0 }, confidence: 1 },
         pace: { probabilities: [0, 0, 0, 1], confidence: 1 },
         opening: { choice: "straight", probabilities: { establish: 0, short: 0, straight: 1 }, confidence: 1 },
         camera_style: { choice: "calm", probabilities: { calm: 1, lively: 0 }, confidence: 1 },
@@ -1624,7 +1624,7 @@ test("a long take's film is planned in chunks under the cap and joined into one 
         // The first call asks the film-wide questions; every call captions its own beats.
         input = {
           ...(questions.theme ? {
-            theme: { pick: "paper", probabilities: { midnight: 0, paper: 1, aurora: 0, mono: 0, sand: 0, editorial: 0 }, confidence: 1 },
+            theme: { pick: "paper", probabilities: { midnight: 0, paper: 1, aurora: 0, mono: 0, neon: 0, brutalist: 0, sand: 0, terminal: 0, editorial: 0 }, confidence: 1 },
             pace: { probabilities: [0, 1, 0, 0], confidence: 1 },
             opening: { pick: "establish", probabilities: { establish: 1, short: 0, straight: 0 }, confidence: 1 },
             camera_style: { pick: "calm", probabilities: { calm: 1, lively: 0 }, confidence: 1 },
