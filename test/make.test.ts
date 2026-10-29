@@ -2045,3 +2045,28 @@ test("zones never leak window titles without a planner; beats carry word-only de
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("takeone render honours a saved theme and portrait take, and refuses bad --theme / --set", { skip: needsFfmpeg, timeout: 120000 }, () => {
+  const dir = mkdtempSync(join(tmpdir(), "takeone-theme-config-"));
+  const cli = (...args: string[]) => spawnSync(process.execPath, ["bin/takeone.mjs", "render", dir, ...args],
+    { encoding: "utf8", timeout: 100_000 });
+  try {
+    mkdirSync(join(dir, "analysis"));
+    writeFileSync(join(dir, "take.json"), JSON.stringify({ id: "theme-cli", theme: "paper", stream: { w: 360, h: 640 }, width: 360, height: 640, trim_end: 0.5, title: "Umer builds" }));
+    writeFileSync(join(dir, "analysis/beats.json"), "[]");
+    writeFileSync(join(dir, "analysis/decisions.jsonl"), "");
+    execFileSync("ffmpeg", ["-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=s=360x640:r=30:d=0.5", "-c:v", "libvpx-vp9", "-threads", "2", join(dir, "screen.webm")]);
+    // Trust boundary: a bad theme or override is refused before any render starts.
+    for (const bad of [["--theme", "invalid"], ["--theme", "__proto__"], ["--set", "grain=101"], ["--set", "bg_style=url"], ["--set", "display_font=x,evil"], ["--set", "pace=0"]]) {
+      const refused = cli(...bad);
+      assert.notEqual(refused.status, 0, bad.join(" "));
+      assert.match(refused.stderr, /unknown theme|invalid --set/, bad.join(" "));
+    }
+    const done = cli("--preview");
+    assert.equal(done.status, 0, done.stderr);
+    const out = done.stdout.trim().split("\n").pop()!;
+    const [w, h] = execFileSync("ffprobe", ["-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height", "-of", "csv=p=0", out], { encoding: "utf8" }).trim().split(",").map(Number);
+    assert.ok(h! > w!, `a saved portrait take renders portrait, got ${w}x${h}`);
+    assert.match(readFileSync(join(dir, "preview", "render.log"), "utf8"), /fontselect: \(Instrument Serif/, "the saved paper theme's display face is the one rendered");
+  } finally {rmSync(dir, {recursive: true, force: true});}
+});

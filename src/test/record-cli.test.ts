@@ -137,6 +137,8 @@ test("record writes a complete take (pid file, events, take.json) and stops on S
   assert.equal(output.length, 2);
   assert.ok(output[1]!.includes(`${takeJson.id},${takeDir},`));
   assert.equal(takeJson.versions.engine, "desklink-host/fake");
+  const { version } = JSON.parse(await readFile(new URL("../../package.json", import.meta.url), "utf8")) as { version: string };
+  assert.equal(takeJson.versions.takeone, version, "a recorded take is stamped with the installed version");
   assert.equal(takeJson.geometry.source.width, 64);
   const { readTakeMeta } = await import(new URL("../../src/make.ts", import.meta.url).href);
   const plannerTake = readTakeMeta(takeDir);
