@@ -10,7 +10,7 @@ import { askChunk, type ResolvedPlanner } from "../decide/planner.ts";
 import { runFfmpeg } from "../render/ffmpeg.ts";
 import { JudgeUnavailable, LEVELS, answerScore } from "../score/judge.ts";
 import { renderMotion } from "./motion.ts";
-import { minSceneDuration, sceneTexts, validateStoryboard } from "./storyboard.ts";
+import { minSceneDuration, validateStoryboard } from "./storyboard.ts";
 import type { MotionEngine, Scene, Storyboard } from "./types.ts";
 
 export const DEFAULT_BAR = 8;
@@ -37,8 +37,7 @@ const settledAt = (s: Scene): number => s.at! + s.d * 0.7;
 function questionsFor(sb: Storyboard): Record<string, Question> {
   const out: Record<string, Question> = {};
   sb.scenes.forEach((s, i) => {
-    const text = sceneTexts(s).join(" / ") || "(no words)";
-    const facts = `Scene ${i + 1} of ${sb.scenes.length}, ${s.pattern}, ${s.d.toFixed(2)} s long (its words need at least ${minSceneDuration(s).toFixed(2)} s). Words: ${text}.`;
+    const facts = `Scene ${i + 1} of ${sb.scenes.length}, ${s.pattern}, ${s.d.toFixed(2)} s long, with a minimum reading duration of ${minSceneDuration(s).toFixed(2)} s.`;
     out[`s${i + 1}-read`] = { kind: "score", levels: LEVELS, floor: 0, instructions: `${REFERENCE.read}\n${facts}` };
   });
   return out;
