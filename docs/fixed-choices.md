@@ -46,9 +46,6 @@ rule; one design decision may correspond to multiple implementation rules here.
 | Calm-path acceleration and holds | `src/render/framing.ts` · `ZOOM_V`, `ZOOM_A`, `PAN_A`, `SETTLE`, `MIN_HOLD_S`, `MOVE_MAX_S` | physics | Acceleration, settling and hold floors keep camera motion followable |
 | Camera framing clearance and text thresholds | `src/render/framing.ts` · `INK_STEP`, `LANDMARK_INK`, `GUARD`, `GAP`, `SAMPLES`, `TEXT_SPAN`, `TEXT_INK` | physics | Sampled edges, landmark density and clearance protect visible text and subjects |
 | Candidate zones offered | `src/beats/zones.ts` · `MAX_ZONES` | cost | The generator shapes the choices; the cap bounds cost |
-| Zones read with OCR | `src/beats/zones.ts` · `OCR_MAX_AREA` | privacy | Only small zones are read, so little screen text leaves |
-| OCR word filter | `src/decide/ocr.ts` · `OCR_MIN_CONF` | privacy | A word cap, confidence floor and redaction |
-| Redaction of every word | `src/decide/redact.ts` · `redactWord` | privacy | Only plain short words leave the machine |
 | Text band layout | `src/render/stage.ts` · `bandRows` | format | Only a 16:9 source exported at 16:9 gets the band |
 | Keycap placement | `src/render/overlays.ts` · `clearance` | physics | One dock above the text band; skipped rather than covering the subject |
 | Blur is never removed | `src/camera/types.ts` · `blur` | privacy | The planner may suggest blur; a user's blur always wins |
@@ -72,14 +69,17 @@ rule; one design decision may correspond to multiple implementation rules here.
 | Synthesized click tick count | `src/render/sound.ts` · `MAX_TICKS` | cost | Bounds audio filter branches for dense click tracks |
 | Pinned render engines | `src/motion/hyperframes.ts` · `HYPERFRAMES_VERSION`, `HYPERFRAMES_SHELL_VERSION`, `HYPERFRAMES_SHELL_SHA256`; `src/motion/shell.ts` · `SHELL_VERSION`, `SHELL_ARCHIVE_SHA256`, `SHELL_SHA256` | measurement | Exact engine versions are checksum-verified and held to the deterministic-render gate |
 
-## Fixed, and a taste rule: not yet the planner's
+## Fixed open rules: not yet resolved
 
-These are not limits. Each is a rule a person would call a style choice, kept fixed because
-the planner does not own it yet. The list is grouped by source file and class. Any new fixed
-value must be classified here or in the limits table when it is introduced.
+These are fixed choices without an established limit. Taste rules are style choices kept
+fixed because the planner does not own them yet; open privacy rules describe behavior that
+does not establish a privacy boundary. The list is grouped by source file and class. Any new
+fixed value must be classified here or in the limits table when it is introduced.
 
 | Rule | Source file and symbol | Class | Why it is still fixed | What closes it |
 |---|---|---|---|
+| OCR zone area cap | `src/beats/zones.ts` · `OCR_MAX_AREA`; `src/make.ts` · `readScreenText` | open privacy | The cap limits which zones are OCR-read; it does not prevent their image pixels from appearing in planner thumbnails | Resolve whether OCR-missed text pixels may reach the planner |
+| OCR confidence filtering and text redaction | `src/decide/ocr.ts` · `OCR_MIN_CONF`, `OCR_WORD_CAP`, `ocrZone`, `keyframeThumb`; `src/decide/redact.ts` · `redactWord`; `src/make.ts` · `keyframeThumb` | open privacy | OCR-based blurring and text redaction are best-effort; thumbnails sent to the planner can still contain pixels of text OCR missed | Resolve whether OCR-missed text pixels may reach the planner |
 | Default and multi-screen screenshot/page/URL films: scene sequence, scene lengths, fallback copy (`See it in motion.`, `Try it today`), alternating color and recap composition | `src/motion/cli.ts` · `planStoryboard` | taste | This local path remains rule-based; the separate editorial and bento screenshot recipes already send redacted OCR text, not images, to the planner | Let the planner choose sequence, timing and fallback copy for this local path |
 | Take films: title and closing copy | `src/motion/cli.ts` · `planTake` | taste | The film call is not asked for a take's motion wrapper copy | Ask the film call for the wrapper copy |
 | Local CLI patterns and named recipes (`launch`, `feature`, `social`, `compare`): fixed sequences, scene durations, default copy and color alternation | `src/motion/cli.ts` · `RECIPES`, `planStoryboard`; `src/motion/types.ts` · `PATTERNS` | taste | The local planner chooses a fixed recipe and timing; missing title, CTA or logo uses fixed copy such as `TakeOne` | Let the planner choose the pattern sequence, timing and fallback copy |
