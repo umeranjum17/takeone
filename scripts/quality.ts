@@ -320,17 +320,17 @@ export function compare(video: string, golden: string, output: string, vmaf: boo
   // Compare corresponding decoded frames, independent of container timestamp rounding.
   const clock = 'settb=AVTB,setpts=N/FRAME_RATE/TB';
   const stats = join(output, 'ssim.log');
-  ffmpeg(['-i', video, '-i', golden, '-filter_complex', `[0:v]${clock}[a];[1:v]${clock}[b];[a][b]ssim=stats_file=${stats}`, '-f', 'null', '-']);
+  const log = join(output, 'vmaf.json');
+  // One decode feeds SSIM and, when libvmaf exists, VMAF: the two scores no longer run as two serial passes.
+  // Threaded libvmaf queues every decoded pair (about 6 MB each at 1080p): the 2370-frame scene peaked past 10 GB and was
+  // OOM-killed, so libvmaf stays single-threaded (0.45 GB).
+  const graph = vmaf
+    ? `[0:v]${clock},split[a][c];[1:v]${clock},split[b][d];[a][b]ssim=stats_file=${stats}[s];[c][d]libvmaf=log_fmt=json:log_path=${log}[v]`
+    : `[0:v]${clock}[a];[1:v]${clock}[b];[a][b]ssim=stats_file=${stats}[s]`;
+  ffmpeg(['-i', video, '-i', golden, '-filter_complex', graph, ...(vmaf ? ['-map', '[s]', '-f', 'null', '-', '-map', '[v]', '-f', 'null', '-'] : ['-map', '[s]', '-f', 'null', '-'])]);
   const scores = [...readFileSync(stats, 'utf8').matchAll(/n:(\d+).*All:([\d.]+)/g)].map(m => ({ frame: Number(m[1]), ssim: Number(m[2]) }));
   if (!scores.length) throw new Error('SSIM produced no scores');
-  let vmafScore: number | null = null;
-  if (vmaf) {
-    const log = join(output, 'vmaf.json');
-    // Threaded libvmaf queues every decoded pair (about 6 MB each at 1080p): the 2370-frame scene peaked past 10 GB and was
-    // OOM-killed. Single-threaded it holds 0.45 GB at about half the speed.
-    ffmpeg(['-i', video, '-i', golden, '-filter_complex', `[0:v]${clock}[a];[1:v]${clock}[b];[a][b]libvmaf=log_fmt=json:log_path=${log}`, '-f', 'null', '-']);
-    vmafScore = json<{ pooled_metrics: { vmaf: { mean: number } } }>(log).pooled_metrics.vmaf.mean;
-  }
+  const vmafScore = vmaf ? json<{ pooled_metrics: { vmaf: { mean: number } } }>(log).pooled_metrics.vmaf.mean : null;
   return { candidateFrames, goldenFrames, timelineMismatch: candidateFrames !== goldenFrames, minSSIM: Math.min(...scores.map(s => s.ssim)), meanSSIM: scores.reduce((sum, s) => sum + s.ssim, 0) / scores.length, framesBelow095: scores.filter(s => s.ssim < 0.95), vmaf: vmafScore, mode: vmaf ? 'SSIM + VMAF' : 'SSIM only: ffmpeg has no libvmaf' };
 }
 
