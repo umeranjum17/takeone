@@ -234,7 +234,7 @@ export function planStoryboard(a: MotionArgs, id: string): unknown {
   const wideRegions = a.regions.map((r, i) => parseRegion(r, i, screens[0]!, dsf));
   const regions = wideRegions.flatMap((r) => splitWide(r, dsf));
   if (a.recipe && a.patterns) throw new Error("--recipe and --pattern are exclusive; a recipe names its own patterns");
-  const recipe = a.recipe && a.recipe !== "editorial" && a.recipe !== "bento" ? a.recipe : undefined;
+  const recipe = a.recipe && a.recipe !== "editorial" && a.recipe !== "bento" && a.recipe !== "glow" ? a.recipe : undefined;
   const patterns: readonly PatternName[] = a.patterns ?? (recipe ? RECIPES[recipe] : ["hero-reveal", "zoom-tour", "end-card"]);
   const [outW, outH] = ASPECTS[a.aspect ?? (recipe === "social" ? "portrait" : "landscape")];
   const title = a.title ?? "See it in motion.";
