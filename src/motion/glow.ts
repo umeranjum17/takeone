@@ -56,8 +56,12 @@ export function deckCards(specs: string[], W: number, H: number): { rect: Rect; 
   return specs.map((spec) => {
     const m = /^\s*(\d+(?:\.\d+)?),(\d+(?:\.\d+)?),(\d+(?:\.\d+)?),(\d+(?:\.\d+)?):(.+)$/.exec(spec);
     if (!m || !m[5]!.trim()) throw new Error(`--recipe glow --region expects x,y,w,h:Caption (a deck card and its line), got ${spec}`);
-    const [x, y, w, h] = m.slice(1, 5).map(Number) as Rect, side = Math.min(Math.max(w, h), W, H);
-    return { rect: [Math.round(Math.max(0, Math.min(x + w / 2 - side / 2, W - side))), Math.round(Math.max(0, Math.min(y, H - side))), Math.round(side), Math.round(side)], caption: m[5]!.trim() };
+    const [x, y, w, h] = m.slice(1, 5).map(Number) as Rect;
+    if (w <= 0 || h <= 0 || x + w > W || y + h > H || Math.max(w, h) > Math.min(W, H)) {
+      throw new Error(`--recipe glow --region must have positive dimensions and fit inside the screen as a square card, got ${spec}`);
+    }
+    const side = Math.ceil(Math.max(w, h));
+    return { rect: [Math.floor(Math.max(0, Math.min(x + w / 2 - side / 2, W - side))), Math.floor(Math.max(0, Math.min(y, H - side))), side, side], caption: m[5]!.trim() };
   });
 }
 

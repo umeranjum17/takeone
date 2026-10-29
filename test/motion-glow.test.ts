@@ -35,7 +35,10 @@ test("glow --region cards add a deck beat of square real-screen crops after the 
     assert.equal(r[2], r[3]);
     assert.ok(r[0] <= x && r[1] <= y && r[0] + r[2] >= x + w && r[1] + r[3] >= y + h && r[0] + r[2] <= size.width && r[1] + r[3] <= size.height, `deck${i + 1} ${r}`);
   }
-  assert.deepEqual(deckCards(["2400,1300,400,400:Edge", "0,0,10,10:Corner"], size.width, size.height).map(c => c.rect), [[2160, 1040, 400, 400], [0, 0, 10, 10]]);
+  assert.deepEqual(deckCards([`${size.width - 400},${size.height - 400},400,400:Edge`, "0,0,10,10:Corner"], size.width, size.height).map(c => c.rect), [[size.width - 400, size.height - 400, 400, 400], [0, 0, 10, 10]]);
+  for (const invalid of ["9000,100,200,200:Outside", "0,0,0,10:Zero width", "0,0,10,0:Zero height", "0,0,4000,10:Too wide"]) {
+    assert.throws(() => deckCards([invalid, "1,2,3,4:Valid"], size.width, size.height), /positive dimensions and fit inside the screen/);
+  }
   assert.throws(() => deckCards(["1,2,3,4:Only one"], size.width, size.height), /2 to 5 --region cards/);
   assert.throws(() => deckCards(["1,2,3,4", "5,6,7,8:B"], size.width, size.height), /x,y,w,h:Caption/);
   assert.throws(() => validateStoryboard({ ...(sb as object), scenes: [{ pattern: "glow-deck", d: 2, cards: [{ screen: "nope", caption: "A" }, { screen: "deck1", caption: "B" }] }] }), /not one of crops/);
