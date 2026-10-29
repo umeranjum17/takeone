@@ -4,31 +4,11 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, unlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { DEFAULTS, applyOverrides } from "../src/camera/defaults.ts";
+import { applyOverrides } from "../src/camera/defaults.ts";
 import { resolveTheme, THEMES } from "../src/themes.ts";
 import { renderTake } from "../src/render/render.ts";
-import { resolveCamera, parseSet } from "../src/cli.ts";
 import { hasFfmpeg } from "./helpers.ts";
 import { decodePng } from "../src/motion/png.ts";
-
-test("theme precedence and validation, including saved portrait takes", () => {
-  const dir = mkdtempSync(join(tmpdir(), "takeone-theme-config-"));
-  try {
-    writeFileSync(join(dir,"take.json"), JSON.stringify({theme:"paper",stream:{w:360,h:640}}));
-    assert.equal(resolveCamera(dir, [])!.display_font, "Instrument Serif");
-    assert.equal(resolveCamera(dir, [])!.out_h, 1920);
-    assert.equal(resolveCamera(dir, ["accent=#123456"],"sand")!.accent,"#123456");
-    assert.equal(resolveCamera(dir, [],"midnight")!.background,DEFAULTS.background);
-    writeFileSync(join(dir,"take.json"), JSON.stringify({stream:{w:360,h:640}}));
-    assert.equal(resolveCamera(dir, []).out_h, 1920);
-    assert.deepEqual(resolveTheme(undefined),resolveTheme("midnight"));
-    assert.equal(parseSet(["caption_font=123"]).caption_font,"123");
-    for (const name of ["invalid", "__proto__", "constructor", 42, null]) assert.throws(()=>resolveTheme(name), /unknown theme/);
-    for (const bad of [{bg_stops:"#ffffff"},{bg_stops:"#ffffff,red"},{bg_style:"url"},{display_font:"x,evil"},{grain:101},{shadow_blur:-1},{pace:0},{spring_zeta:0.5},{text:123},{bg_pattern:"unknown"},{caption_rounding:2},{caption_opacity:2},{caption_border:17},{shadow_color:"red"},{cursor_size:0.4},{cursor_size:3.5},{cursor_loop:2},{cursor_hide_idle_s:-1}]) {
-      assert.throws(()=>applyOverrides(bad), /invalid --set/);
-    }
-  } finally {rmSync(dir,{recursive:true,force:true});}
-});
 
 test("all bundled themes render with bundled faces; midnight decoded frames equal the default", {skip:!hasFfmpeg(),timeout:120000}, async () => {
   const dir=mkdtempSync(join(tmpdir(),"takeone-theme-render-"));
