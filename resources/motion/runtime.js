@@ -38,6 +38,10 @@ window.WINDOW = (el, t0, t1) => {
 };
 
 window.smootherstep = (x) => (x <= 0 ? 0 : x >= 1 ? 1 : x * x * x * (x * (x * 6 - 15) + 10));
+// A held shot never sits still: the subject drifts round a small circle at a constant speed (about 1% of the frame
+// width in radius, one lap every 3 s). The circle starts at the origin, so a scene opens where it was laid out, and
+// the speed never drops to zero, so no stretch of a hold reads as a frozen frame.
+window.drift = (ms, W) => { const r = W * 0.007, a = ms / 3000 * 2 * Math.PI; return { x: r * Math.sin(a), y: r * (1 - Math.cos(a)) }; };
 window.SMOOTH = `linear(${Array.from({ length: 33 }, (_, i) => smootherstep(i / 32).toFixed(4)).join(",")})`;
 window.$ = (s, r = document) => r.querySelector(s);
 window.$$ = (s, r = document) => [...r.querySelectorAll(s)];

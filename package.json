@@ -26,7 +26,8 @@
     "prepare": "npm run build",
     "test": "npm run build && node --test test/*.test.ts dist/test/*.test.js",
     "typecheck": "tsc --project tsconfig.check.json",
-    "quality": "node scripts/quality.ts"
+    "quality": "node scripts/quality.ts",
+    "readme-assets": "node scripts/readme-assets.ts"
   },
   "dependencies": {
     "@byokit/accounts": "0.30.0",

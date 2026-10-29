@@ -184,6 +184,8 @@ export interface TakeMeta extends TakeEdits {
   /** "hyprland" | "none" */
   pointer: string;
   events?: string;
+  /** The face-cam clip `record --webcam` saved beside the screen video. */
+  webcam?: import("./camera/types.ts").WebcamClip;
   /** Capture was cursor-free; the renderer draws the vector cursor from the pointer track. */
   cursor_free?: boolean;
   /** ms since take start; absent for an untrimmed take */

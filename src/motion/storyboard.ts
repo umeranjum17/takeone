@@ -40,6 +40,10 @@ export function sceneTexts(s: Scene): string[] {
   if (s.pattern === "bento-reel") return [s.title, s.subtitle, s.label, `$${s.reel!.value.toLocaleString("en-US")}`, "LIVE", ...s.reel!.feed].filter((t): t is string => !!t);
   if (s.pattern === "clip") return clipLabels(s).slice(-1).map(l => l.label);
   if (s.pattern === "bento") return (s.tiles ?? []).map(t => t.title);
+  if (s.pattern === "halo-open") return s.title ? [s.title] : [];
+  if (s.pattern === "halo-float") return s.title ? [s.title] : [];
+  if (s.pattern === "halo-lines") return s.lines ?? [];
+  if (s.pattern === "halo-end") return [s.logo, s.credit].filter((t): t is string => !!t);
   if (s.pattern === "logo-sting") return [s.logo].filter((t): t is string => !!t);
   if (s.pattern === "before-after") return [s.title].filter((t): t is string => !!t);
   if (s.pattern === "end-card") return [s.logo, s.cta, s.url].filter((t): t is string => !!t);
@@ -74,6 +78,13 @@ function sceneRevealDuration(s: Scene): number {
     reveal = .67 + .5 * Math.max(0, (s.chips ?? []).length - 1);
   } else if (s.pattern === "bento") {
     reveal = .5 + .3 * Math.max(0, (s.tiles ?? []).length - 1);
+  } else if (s.pattern === "halo-open") { // the tagline types in once the pill has grown, done by 1.3 s
+    reveal = 1.2;
+  } else if (s.pattern === "halo-float") { // the title rises with the first piece; every piece lands within .8 s
+    reveal = .6;
+  } else if (s.pattern === "halo-end") { // the wordmark types on from .4 s
+    const glyphs = [...new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(s.logo!)].length;
+    reveal = .7 + .07 * (glyphs - 1);
   } else if (s.pattern === "logo-sting") { // letters settle by 0.9 s
     reveal = .9;
   } else if (s.pattern === "before-after") { // the delta line fades up once the wipe has settled
@@ -88,14 +99,21 @@ function sceneRevealDuration(s: Scene): number {
   return reveal;
 }
 
+/** halo-lines: each line owns an equal slot and is read inside it; judged against the scene end by pushing its reveal back by the slots after it. */
+function haloLineHolds(s: Scene): { text: string; reveal: number }[] {
+  const lines = s.lines ?? [], slot = s.d / Math.max(1, lines.length);
+  return lines.map(text => ({ text, reveal: slot * (lines.length - 1) + .4 + .06 * (text.split(/\s+/).length - 1) }));
+}
+
 /** Every text a scene shows with the time its reveal ends: each needs its reading floor after that. */
 function sceneHolds(s: Scene): { text: string; reveal: number }[] {
   // A word-swap reads as its title and the word it settles on; the struck words are beats, not copy.
   if (s.pattern === "bento-reel") { // headline words by 1.2 s; the counter settles by 60% of the reel; the feed adds a row a second from 0.6 s
     return [{ text: `${s.title} ${s.subtitle}`, reveal: 1.2 }, { text: `${s.label} $${s.reel!.value}`, reveal: .6 * s.d }, { text: s.reel!.feed.at(-1)!, reveal: .6 + s.reel!.feed.length - 1 }];
   }
+  if (s.pattern === "halo-end") return [{ text: s.logo!, reveal: sceneRevealDuration(s) }, ...(s.credit ? [{ text: s.credit, reveal: 1.5 }] : [])];
   const text = s.pattern === "word-swap" ? [s.title, s.swaps?.at(-1)].join(" ") : sceneTexts(s).join(" ");
-  let holds = s.pattern === "zoom-tour" ? [] : [{ text, reveal: sceneRevealDuration(s) }];
+  let holds = s.pattern === "zoom-tour" ? [] : s.pattern === "halo-lines" ? haloLineHolds(s) : [{ text, reveal: sceneRevealDuration(s) }];
   if (s.pattern === "spotlight" || s.pattern === "feature-callouts") {
     // Each stop is read on its own window; the last one, then the numbered summary, are what the scene's end must clear.
     const caps = (s.stops ?? []).map(x => x.caption ?? ""), { starts, end } = stopTimes(caps);
@@ -114,6 +132,8 @@ function sceneHolds(s: Scene): { text: string; reveal: number }[] {
 
 /** Shortest whole-frame duration that clears every reveal and reading hold of a scene played in full. */
 export function minSceneDuration(s: Scene, fps = 60): number {
+  // halo-lines: every line needs its own slot, so the scene is that many of the longest slot.
+  if (s.pattern === "halo-lines") return Math.ceil((s.lines ?? []).length * Math.max(0, ...(s.lines ?? []).map(t => .05 + .4 + .06 * (t.split(/\s+/).length - 1) + readingFloor(t))) * fps + 1) / fps;
   return Math.ceil(Math.max(0, ...sceneHolds(s).map(x => x.reveal + readingFloor(x.text))) * fps + 1) / fps;
 }
 
@@ -215,6 +235,28 @@ function scene(raw: unknown, path: string): Scene {
     }
     if (typeof s.title !== "string" || !s.title.trim() || !s.subtitle?.trim() || !s.label?.trim()) throw new StoryboardError(path, "bento-reel needs title, subtitle and label");
     s.reel = { value: Number(r["value"]), feed: feed.map((f, j) => str(f, `${path}.reel.feed[${j}]`, 32)), shots: shots.map(String) };
+  }
+  if (s.pattern === "halo-open" || s.pattern === "halo-end") {
+    if (!ID.test(String(raw["mark"]))) throw new StoryboardError(`${path}.mark`, `${s.pattern} needs the logo crop id as mark`);
+    s.mark = String(raw["mark"]);
+    if (s.pattern === "halo-end") { s.logo ??= "TakeOne"; if (raw["credit"] !== undefined) s.credit = str(raw["credit"], `${path}.credit`, 80); }
+    else if (!s.title?.trim()) throw new StoryboardError(`${path}.title`, "halo-open needs a tagline as title");
+  }
+  if (s.pattern === "halo-float") {
+    const items = raw["items"];
+    if (!Array.isArray(items) || items.length < 1 || items.length > 6 || items.some(c => !ID.test(String(c)))) throw new StoryboardError(`${path}.items`, "halo-float needs 1 to 6 crop ids");
+    s.items = items.map(String);
+    if (!["row", "stack", "card", "chips"].includes(String(s.kind))) throw new StoryboardError(`${path}.kind`, "halo-float kind is row, stack, card or chips");
+  }
+  if (s.pattern === "halo-lines") {
+    const lines = raw["lines"];
+    if (!Array.isArray(lines) || lines.length < 1 || lines.length > 3) throw new StoryboardError(`${path}.lines`, "halo-lines needs 1 to 3 lines");
+    s.lines = lines.map((l, j) => str(l, `${path}.lines[${j}]`, 60));
+    const items = raw["items"];
+    if (items !== undefined) {
+      if (!Array.isArray(items) || items.length > 4 || items.some(c => !ID.test(String(c)))) throw new StoryboardError(`${path}.items`, "halo-lines keeps up to 4 crop ids in view");
+      s.items = items.map(String);
+    }
   }
   if (s.pattern === "canon") {
     const o = raw["offsets"];
@@ -414,6 +456,7 @@ export function validateStoryboard(raw: unknown): Storyboard {
     for (const c of s.chips ?? []) if (Object.keys(screens).length && !Object.hasOwn(screens, c)) throw new StoryboardError(`scenes[${i}].chips`, `unknown screen ${c}`);
     for (const c of s.reel?.shots ?? []) if (Object.keys(screens).length && !Object.hasOwn(screens, c)) throw new StoryboardError(`scenes[${i}].reel`, `unknown screen ${c}`);
     if ((s.pattern === "phone-story" || s.pattern === "glow-screen") && !Object.hasOwn(crops, s.screen!)) throw new StoryboardError(`scenes[${i}].screen`, `${s.pattern} shows a crop: name one of crops`);
+    for (const c of [...(s.items ?? []), ...(s.mark ? [s.mark] : [])]) if (!Object.hasOwn(crops, c)) throw new StoryboardError(`scenes[${i}]`, `halo scenes show crops: ${c} is not one of crops`);
     if (s.lens !== undefined && !Object.hasOwn(crops, s.lens)) throw new StoryboardError(`scenes[${i}].lens`, "the lens shows a crop: name one of crops");
     if (s.at! < 0) throw new StoryboardError(`scenes[${i}].at`, "negative scene starts are not supported");
     if (s.pattern === "clip") { // every footage segment must play to its end: a short clip would freeze

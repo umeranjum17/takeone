@@ -15,6 +15,11 @@ export interface CameraDefaults {
   narration: string; // local audio file laid from the film start, loudness-normalised
   music: string; // local audio file bed, ducked under the narration
   music_volume: number; // 0..1 bed level before ducking
+  webcam: string; // "" the take's own webcam clip, "off" none, else a local video file laid from the first frame
+  webcam_shape: "circle" | "rounded"; // bubble outline
+  webcam_corner: "br" | "bl" | "tr" | "tl"; // bubble corner, bottom/top then right/left
+  webcam_size: number; // 0.08..0.5, bubble edge as a share of the output's short side at rest
+  webcam_shrink: number; // 0.25..1, bubble scale at deep zoom; 1 keeps its size
   grain: number;
   shadow_blur: number;
   shadow_y: number;
@@ -103,6 +108,11 @@ export const DEFAULTS: CameraDefaults = {
   narration: "",
   music: "",
   music_volume: 0.3,
+  webcam: "",
+  webcam_shape: "circle",
+  webcam_corner: "br",
+  webcam_size: 0.24,
+  webcam_shrink: 0.5,
   grain: 6,
   shadow_blur: 40,
   shadow_y: 18,
@@ -211,7 +221,12 @@ export function applyOverrides(overrides: Overrides, base: CameraDefaults = DEFA
       out.background_image = v;
       continue;
     }
-    if (key === "narration" || key === "music") {
+    if (key === "webcam_shape" || key === "webcam_corner") {
+      if (!(key === "webcam_shape" ? ["circle", "rounded"] : ["br", "bl", "tr", "tl"]).includes(String(v))) throw new Error(`unknown or invalid --set ${k}=${v}`);
+      (out as unknown as Record<string, unknown>)[key] = v;
+      continue;
+    }
+    if (key === "narration" || key === "music" || key === "webcam") {
       if (typeof v !== "string" || /[\x00-\x1f]/.test(v) || v.length > 4096) throw new Error(`unknown or invalid --set ${k}=${v}`);
       out[key] = v;
       continue;
@@ -248,7 +263,7 @@ export function applyOverrides(overrides: Overrides, base: CameraDefaults = DEFA
     if (COLOURS.includes(k) || ["caption_font", "display_font"].includes(k)) {
       throw new Error(`unknown or invalid --set ${k}=${v}`);
     }
-    const positive = ["out_w", "out_h", "fps", "max_upscale", "rate_window", "rate_max", "move_t_min", "move_t_max", "hop_zoom", "hop_zoom_div", "hop_t_scale", "follow_omega", "lowpass_omega", "l1_pad", "l2_pad", "l3_pad", "frame_max", "caption_size", "spring_omega", "spring_zeta", "pace"];
+    const positive = ["out_w", "out_h", "fps", "max_upscale", "rate_window", "rate_max", "move_t_min", "move_t_max", "hop_zoom", "hop_zoom_div", "hop_t_scale", "follow_omega", "lowpass_omega", "l1_pad", "l2_pad", "l3_pad", "frame_max", "caption_size", "webcam_size", "webcam_shrink", "spring_omega", "spring_zeta", "pace"];
     const integers = ["out_w", "out_h", "fps", "rate_max"];
     if (!(key in out) || typeof v !== "number" || !Number.isFinite(v)
       || (positive.includes(k) ? v <= 0 : v < 0)
@@ -265,6 +280,8 @@ export function applyOverrides(overrides: Overrides, base: CameraDefaults = DEFA
       || (k === "spring_zeta" && (v < 0.75 || v > 2))
       || (k === "pace" && (v < 0.25 || v > 4))
       || (k === "motion_blur" && v > 1)
+      || (k === "webcam_size" && (v < 0.08 || v > 0.5))
+      || (k === "webcam_shrink" && (v < 0.25 || v > 1))
       || (k === "cursor_size" && (v < 0.5 || v > 3))
       || (k === "cursor_loop" && v !== 0 && v !== 1)
       || (k === "follow_inner" && (v === 0 || v > 1))
