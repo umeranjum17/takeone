@@ -34,15 +34,11 @@ a 512×288 thumbnail (OpenAI: 85 + 170 per 512 px tile = 255; Anthropic:
 width × height / 750 ≈ 197); they are unverified until a live run reports
 billed usage. The planner budgets 255 tokens per thumbnail (`IMAGE_TOKENS`).
 
-**Thumbnail rule.** Only when the decider BYOKit builds from the stored
-config reads images (its own `supportsImages` capability), and in capture
-mode only with screen words opted in: one thumbnail at each asked beat's
-action and one at its result when the beat has a result zone, so at most 2 a
-beat and 16 a chunk. Each is a JPEG, 512 px on the long side, with every zone
-outlined and labelled. The whole frame is blurred past reading, so the image
-shows no word the notes would not carry. At the 30-beats-a-minute cap that is at most 60 thumbnails, about
-15,300 estimated tokens a minute; the 40,000-token preflight counts them and
-still refuses anything above it.
+**Thumbnail budget.** Image-capable planners receive at most two 512 px JPEG
+thumbnails per asked beat and 16 per chunk; the privacy treatment is described
+in the [planner guide](guide.md#ai-planner-key). At the 30-beats-a-minute cap
+that is at most 60 thumbnails, about 15,300 estimated tokens a minute; the
+40,000-token preflight counts them and still refuses anything above it.
 
 ## Per-provider cost (slice 1 reference)
 
