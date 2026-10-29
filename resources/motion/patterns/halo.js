@@ -57,6 +57,11 @@ const piece = (src, w, hh, radius, z, u) => {
   return h(`<div style="position:absolute;width:${w}px;height:${hh}px;${soft > 0.2 ? `filter:blur(${soft.toFixed(2)}px);` : ""}"><div style="position:absolute;left:${w * 0.07}px;right:${w * 0.07}px;top:${hh * 0.14 + lift}px;bottom:${-lift}px;border-radius:${radius}px;background:#000;opacity:${0.55 + 0.3 * z};filter:blur(${u * (0.012 + 0.03 * z)}px)"></div><div style="position:absolute;inset:0;border-radius:${radius}px;background:#10141b;box-shadow:0 ${u * 0.002}px ${u * 0.006}px #000000c0,0 ${u * (0.01 + 0.04 * z)}px ${u * (0.02 + 0.07 * z)}px #000000b0,0 0 ${u * 0.1 * z}px rgb(${accentRgb().join(",")} / .16)"><img src="${src}" style="width:100%;height:100%;display:block;border-radius:inherit"><div style="position:absolute;inset:0;border-radius:inherit;box-shadow:inset 0 0 0 1px #ffffff2e,inset 0 1px 0 #ffffff4d"></div></div></div>`);
 };
 const markEl = (src, size) => h(`<div style="position:absolute;width:${size}px;height:${size}px;border-radius:${size * 0.23}px;overflow:hidden;box-shadow:0 0 0 1px #ffffff26,0 0 ${size * 0.5}px rgb(${accentRgb().join(",")} / .5)"><img src="${src}" style="width:100%;height:100%;display:block"></div>`);
+const fitText = (el, maxWidth, size) => {
+  el.style.fontSize = `${size}px`;
+  const width = el.getBoundingClientRect().width;
+  if (width > maxWidth) el.style.fontSize = `${size * maxWidth / width}px`;
+};
 
 PATTERNS["halo-open"] = (layer0, s, ctx) => {
   const layer = h(`<div style="position:absolute;inset:0"></div>`); layer0.append(layer);
@@ -127,8 +132,8 @@ PATTERNS["halo-float"] = (layer, s, ctx) => {
   const { W, H } = ctx, u = Math.min(W, H), items = s.items ?? [], scr = items.map((id) => ctx.screen(id)), end = s.d * 1000;
   glowStage(layer, W, H, s.d);
   if (s.title) {
-    const t = h(`<div data-safe style="position:absolute;left:${W * 0.07}px;top:${H * 0.09}px;font:${u * 0.05}px/1.1 var(--display);color:var(--text);letter-spacing:-.01em">${wordSpans(s.title, "glow-word")}</div>`);
-    layer.append(t); $$(".glow-word", t).forEach((w, i) => riseIn(w, i * 70));
+    const t = h(`<div data-safe style="position:absolute;left:${W * 0.07}px;top:${H * 0.09}px;white-space:nowrap;font:${u * 0.05}px/1.1 var(--display);color:var(--text);letter-spacing:-.01em">${wordSpans(s.title, "glow-word")}</div>`);
+    layer.append(t); fitText(t, W * 0.86, u * 0.05); $$(".glow-word", t).forEach((w, i) => riseIn(w, i * 70));
   }
   const group = h(`<div style="position:absolute;inset:0"></div>`);
   // A soft backlight of the accent behind the beat: the shadows need something lighter than the stage to fall on.
@@ -176,9 +181,9 @@ PATTERNS["halo-lines"] = (layer, s, ctx) => {
     tick((ms) => { const t = Math.min(1, Math.max(0, ms / end)); el.style.translate = `${((0.5 - t) * 2 * pan).toFixed(3)}px ${(Math.sin((ms / 2800) * Math.PI * 2 + i * 1.7) * bob).toFixed(3)}px`; });
   });
   lines.forEach((text, k) => {
-    const last = k === lines.length - 1, size = Math.min(u * 0.075, (W * 0.84) / (0.52 * text.length));
+    const last = k === lines.length - 1, size = u * 0.075;
     const el = h(`<div data-safe style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);white-space:nowrap;text-align:center;font:${size}px/1.1 var(--display);letter-spacing:-.015em;color:var(--text)">${wordSpans(text, "glow-word")}</div>`);
-    layer.append(el);
+    layer.append(el); fitText(el, W * 0.84, size);
     const base = BASE; BASE = base + slot * k; $$(".glow-word", el).forEach((w, i) => riseIn(w, i * 70)); BASE = base;
     WINDOW(el, slot * k, last ? s.d * 1000 : slot * (k + 1));
     if (!last) { const sb = BASE; BASE = sb + slot * k; K(el, [[0, { opacity: 0.72 }], [slot - 200, { opacity: 0.72 }, "ease-in"], [slot - 1, { opacity: 0 }]]); BASE = sb; }
