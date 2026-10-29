@@ -451,8 +451,8 @@ export function validateStoryboard(raw: unknown): Storyboard {
     if (s.after && Object.keys(screens).length && !Object.hasOwn(screens, s.after)) throw new StoryboardError(`scenes[${i}].after`, "unknown screen");
     for (const c of s.chips ?? []) if (Object.keys(screens).length && !Object.hasOwn(screens, c)) throw new StoryboardError(`scenes[${i}].chips`, `unknown screen ${c}`);
     for (const c of s.reel?.shots ?? []) if (Object.keys(screens).length && !Object.hasOwn(screens, c)) throw new StoryboardError(`scenes[${i}].reel`, `unknown screen ${c}`);
-      if ((s.pattern === "phone-story" || s.pattern === "glow-screen") && !Object.hasOwn(crops, s.screen!)) throw new StoryboardError(`scenes[${i}].screen`, `${s.pattern} shows a crop: name one of crops`);
-      for (const c of [...(s.items ?? []), ...(s.mark ? [s.mark] : [])]) if (!Object.hasOwn(crops, c)) throw new StoryboardError(`scenes[${i}]`, `halo scenes show crops: ${c} is not one of crops`);
+    if ((s.pattern === "phone-story" || s.pattern === "glow-screen") && !Object.hasOwn(crops, s.screen!)) throw new StoryboardError(`scenes[${i}].screen`, `${s.pattern} shows a crop: name one of crops`);
+    for (const c of [...(s.items ?? []), ...(s.mark ? [s.mark] : [])]) if (!Object.hasOwn(crops, c)) throw new StoryboardError(`scenes[${i}]`, `halo scenes show crops: ${c} is not one of crops`);
     if (s.lens !== undefined && !Object.hasOwn(crops, s.lens)) throw new StoryboardError(`scenes[${i}].lens`, "the lens shows a crop: name one of crops");
     if (s.at! < 0) throw new StoryboardError(`scenes[${i}].at`, "negative scene starts are not supported");
     if (s.pattern === "clip") { // every footage segment must play to its end: a short clip would freeze
