@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { resolve } from "node:path";
 import { planHalo } from "../src/motion/halo.ts";
-import { validateStoryboard } from "../src/motion/storyboard.ts";
+import { readingFloor, validateStoryboard } from "../src/motion/storyboard.ts";
 
 const BOARD = resolve("resources/demo/tidewater-board.png");
 const regions = ["0,0,400,300:logo@S1", "100,100,600,300:stack:Ask@S1", "100,500,600,300:stack@S1", "800,100,500,400:card@S1", "100,900,300,100:chips@S1", "500,900,300,100:chips@S1"];
@@ -25,4 +25,11 @@ test("halo recipe stops on a missing logo, an off-screen piece and a pitch with 
   assert.throws(() => planHalo({ inputs: [BOARD], regions: [regions[0]!], pitch: "A. B." }, "x"), /needs at least one non-logo UI piece/);
   assert.throws(() => planHalo({ inputs: [BOARD], regions: ["0,0,400,300:logo@S1", "5000,0,400,300:card@S1"], pitch: "A. B." }, "x"), /lies outside S1/);
   assert.throws(() => planHalo({ inputs: [BOARD], regions }, "x"), /needs --pitch/);
+});
+
+test("halo end scene reserves reading time after its credit appears", () => {
+  const url = "Visit us today at example dot com";
+  const sb = planHalo({ inputs: [BOARD], regions, pitch: "Your crew. No chatbot. Asks first.", url }, "halo-credit") as { scenes: { pattern: string; d: number }[] };
+  const end = sb.scenes.find(s => s.pattern === "halo-end")!;
+  assert.ok(end.d >= 1.5 + readingFloor(url));
 });

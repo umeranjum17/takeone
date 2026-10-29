@@ -83,7 +83,8 @@ function sceneRevealDuration(s: Scene): number {
   } else if (s.pattern === "halo-float") { // the title rises with the first piece; every piece lands within .8 s
     reveal = .6;
   } else if (s.pattern === "halo-end") { // the wordmark types on from .4 s
-    reveal = .3 + .05 * ([...s.logo!].length - 1) + .25;
+    const glyphs = [...new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(s.logo!)].length;
+    reveal = .7 + .07 * (glyphs - 1);
   } else if (s.pattern === "logo-sting") { // letters settle by 0.9 s
     reveal = .9;
   } else if (s.pattern === "before-after") { // the delta line fades up once the wipe has settled
@@ -110,7 +111,8 @@ function sceneHolds(s: Scene): { text: string; reveal: number }[] {
   if (s.pattern === "bento-reel") { // headline words by 1.2 s; the counter settles by 60% of the reel; the feed adds a row a second from 0.6 s
     return [{ text: `${s.title} ${s.subtitle}`, reveal: 1.2 }, { text: `${s.label} $${s.reel!.value}`, reveal: .6 * s.d }, { text: s.reel!.feed.at(-1)!, reveal: .6 + s.reel!.feed.length - 1 }];
   }
-  const text = s.pattern === "word-swap" ? [s.title, s.swaps?.at(-1)].join(" ") : s.pattern === "halo-end" ? s.logo! : sceneTexts(s).join(" ");
+  if (s.pattern === "halo-end") return [{ text: s.logo!, reveal: sceneRevealDuration(s) }, ...(s.credit ? [{ text: s.credit, reveal: 1.5 }] : [])];
+  const text = s.pattern === "word-swap" ? [s.title, s.swaps?.at(-1)].join(" ") : sceneTexts(s).join(" ");
   let holds = s.pattern === "zoom-tour" ? [] : s.pattern === "halo-lines" ? haloLineHolds(s) : [{ text, reveal: sceneRevealDuration(s) }];
   if (s.pattern === "spotlight" || s.pattern === "feature-callouts") {
     // Each stop is read on its own window; the last one, then the numbered summary, are what the scene's end must clear.
