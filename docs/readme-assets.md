@@ -8,7 +8,7 @@ npm run build && npm run readme-assets       # or: node scripts/readme-assets.ts
 ```
 
 The default output is `tmp/readme-assets/`. It needs ffmpeg, ffprobe, the pinned headless shell and no desktop,
-account or network. Work takes about an hour on a loaded host; run it through your usual render limits.
+account or network. Work takes well over an hour on a loaded host; run it through your usual render limits.
 
 | # | Files | Built from |
 |---|---|---|
@@ -30,5 +30,6 @@ output directory). `--verify` re-hashes the output directory against `manifest.j
 `manifest.json` records the revision, tool versions, and for every file its sha256, size, recipe, ffprobe facts and
 gates: size <= 8 MB, <= 8 Mbit/s, exact dimensions, 60 fps with a matching frame count, H.264 High yuv420p,
 bt709 tagging and the duration range, plus a 25 MB total. `passed` is false, and the command exits 1, when any gate
-fails. Rows with a `note` carry a known deviation from the studio plan. Encodes are not promised to be byte-identical
-across hosts; compare a rebuild against a committed manifest by gates and by `--verify` on the same host.
+fails. Rows with a `note` carry a known deviation from the studio plan. Measured on one host over separate full builds: the board-scene assets (A1, A3, A4, A8, A9, A10) came out byte-identical; the
+motion films (A5-A7) are HyperFrames renders and are not bit-exact (see motion.md), so compare those by gates. A10 and A8 follow
+their sources, so `--verify` is only meaningful against a build from the same host and tool versions.
