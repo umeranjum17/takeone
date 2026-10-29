@@ -35,7 +35,7 @@ const glLit = (el, at) => K(el, [[0, { opacity: 0, transform: "scale(.96)" }], .
 
 // The stage: near-black navy, a blue glow centred at `at` (fractions of the frame), a fixed-seed noise dither over it.
 // Returns the glow group so a beat can move the glow (the rect is oversized so it never shows an edge).
-window.glowBg = (layer, W, H, at = [0.8, 0.9]) => {
+window.glowBg = (layer, W, H, at = [0.8, 0.9], d = 0) => {
   const id = `gl${layer.dataset.scene ?? 0}`;
   const svg = h(`<svg width="${W}" height="${H}" style="position:absolute;left:0;top:0"><defs>
     <radialGradient id="${id}a" gradientUnits="userSpaceOnUse" cx="${W * at[0]}" cy="${H * at[1]}" r="${W * 0.72}"><stop offset="0" stop-color="${glC("#1f6bff")}" stop-opacity=".95"/><stop offset=".28" stop-color="${glC("#0d3fc4")}" stop-opacity=".6"/><stop offset=".62" stop-color="${glC("#071a6b")}" stop-opacity=".24"/><stop offset="1" stop-color="${GL_BG}" stop-opacity="0"/></radialGradient>
@@ -43,7 +43,9 @@ window.glowBg = (layer, W, H, at = [0.8, 0.9]) => {
     <rect width="${W}" height="${H}" fill="${GL_BG}"/><g><rect x="${-W / 2}" y="${-H / 2}" width="${W * 2}" height="${H * 2}" fill="url(#${id}a)"/></g>
     <rect width="${W}" height="${H}" filter="url(#${id}n)" opacity=".5"/></svg>`);
   layer.append(svg);
-  return svg.querySelector("g");
+  const g = svg.querySelector("g");
+  if (d) K(g, [[0, { transform: "translate(0,0)" }], [d, { transform: "translate(24px,-16px)" }]]);
+  return g;
 };
 
 PATTERNS["glow-prompt"] = (layer, s, ctx) => {
@@ -66,7 +68,7 @@ PATTERNS["glow-prompt"] = (layer, s, ctx) => {
 PATTERNS["glow-words"] = (layer, s, ctx) => {
   const { W, H } = ctx, words = (s.title ?? "").split(/\s+/).filter(Boolean), step = (s.d * 1000) / words.length;
   const size = Math.min(H * 0.34, (W * 0.8) / (0.62 * Math.max(...words.map((w) => w.length))));
-  const g = glowBg(layer, W, H, [0.5, 0.5]);
+  const g = glowBg(layer, W, H, [0.5, 0.5], s.d * 1000);
   const spots = [[-0.28, 0.2], [0.3, -0.18], [-0.1, 0.32], [0.26, 0.12]].map(([x, y]) => `translate(${W * x}px,${H * y}px)`);
   K(g, [[0, { transform: spots[0] }], ...words.slice(1).flatMap((_, i) => SW((i + 1) * step, { transform: spots[i % 4] }, { transform: spots[(i + 1) % 4] }))]);
   words.forEach((w, i) => {
@@ -178,7 +180,7 @@ PATTERNS["glow-deck"] = (layer, s, ctx) => {
 PATTERNS["glow-screen"] = (layer, s, ctx) => {
   const { W, H } = ctx, u = Math.min(W, H), d = s.d * 1000, scr = ctx.screen(s.screen), crop = STORYBOARD.storyboard.crops?.[s.screen];
   if (!crop) throw new Error(`glow-screen: ${s.screen} is not a crop`);
-  glowBg(layer, W, H, s.zoom ? [0.5, 1.05] : [0.12, 0.15]);
+  glowBg(layer, W, H, s.zoom ? [0.5, 1.05] : [0.12, 0.15], d);
   const phone = !s.zoom && s.phone ? ctx.screen(s.phone) : null, k = Math.min((W * (s.zoom ? 0.86 : 0.64)) / scr.width, (H * (s.zoom ? 0.8 : 0.72)) / scr.height);
   const w = scr.width * k, hh = scr.height * k, left = (W - w) / 2 - (phone ? W * 0.09 : 0), top = (H - hh) / 2;
   const win = h(`<div data-safe="window" style="position:absolute;left:${left}px;top:${top}px;width:${w}px;height:${hh}px;border-radius:${u * 0.018}px;overflow:hidden;box-shadow:0 0 0 ${Math.max(1, u * 0.002)}px #ffffff2e,0 ${u * 0.03}px ${u * 0.1}px #000c,0 0 ${u * 0.14}px ${glC("#1f6bff66")}"><img src="${scr.url}" style="width:100%;height:100%;display:block"></div>`);
