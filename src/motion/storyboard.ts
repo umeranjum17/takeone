@@ -81,8 +81,9 @@ function sceneRevealDuration(s: Scene): number {
     reveal = .5 + .3 * Math.max(0, (s.tiles ?? []).length - 1);
   } else if (s.pattern === "halo-open") { // the tagline types in once the pill has grown, done by 1.3 s
     reveal = 1.2;
-  } else if (s.pattern === "halo-float") { // the title rises with the first piece; every piece lands within .8 s
-    reveal = .6;
+  } else if (s.pattern === "halo-float") { // the title rises a word every 70 ms, read like any headline; the pieces' landing is the beat's own floor (halo.ts)
+    const words = (s.title ?? "").trim().split(/\s+/).filter(Boolean).length;
+    reveal = words ? .4 + .06 * (words - 1) : 0;
   } else if (s.pattern === "halo-end") { // the wordmark types on from .4 s
     const glyphs = [...new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(s.logo!)].length;
     reveal = .7 + .07 * (glyphs - 1);
@@ -100,10 +101,15 @@ function sceneRevealDuration(s: Scene): number {
   return reveal;
 }
 
-/** halo-lines: each line owns an equal slot and is read inside it; judged against the scene end by pushing its reveal back by the slots after it. */
-function haloLineHolds(s: Scene): { text: string; reveal: number }[] {
-  const lines = s.lines ?? [], slot = s.d / Math.max(1, lines.length);
-  return lines.map(text => ({ text, reveal: slot * (lines.length - 1) + .4 + .06 * (text.split(/\s+/).length - 1) }));
+/** halo-lines timing (halo.js): one lockup. The lead-in lines rise in a word at a time, one every .45 s; the last line types on
+ * a grapheme every 50 ms from .45 s after the last lead-in starts. Every line stays up to the scene end, so the reads overlap. */
+export const HALO_LEAD_STEP = .45, HALO_TYPE_LAG = .45, HALO_TYPE_STEP = .05;
+export function haloLineHolds(s: Scene): { text: string; reveal: number }[] {
+  const lines = s.lines ?? [], leads = lines.slice(0, -1), last = lines.at(-1);
+  const typeAt = leads.length ? HALO_LEAD_STEP * (leads.length - 1) + HALO_TYPE_LAG : 0;
+  const glyphs = (t: string) => [...new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(t)].length;
+  return [...leads.map((text, k) => ({ text, reveal: HALO_LEAD_STEP * k + .4 + .06 * (text.split(/\s+/).length - 1) })),
+    ...(last ? [{ text: last, reveal: typeAt + HALO_TYPE_STEP * glyphs(last) }] : [])];
 }
 
 /** Every text a scene shows with the time its reveal ends: each needs its reading floor after that. */
@@ -138,8 +144,6 @@ function sceneHolds(s: Scene): { text: string; reveal: number }[] {
 
 /** Shortest whole-frame duration that clears every reveal and reading hold of a scene played in full. */
 export function minSceneDuration(s: Scene, fps = 60): number {
-  // halo-lines: every line needs its own slot, so the scene is that many of the longest slot.
-  if (s.pattern === "halo-lines") return Math.ceil((s.lines ?? []).length * Math.max(0, ...(s.lines ?? []).map(t => .05 + .4 + .06 * (t.split(/\s+/).length - 1) + readingFloor(t))) * fps + 1) / fps;
   return Math.ceil(Math.max(0, ...sceneHolds(s).map(x => x.reveal + readingFloor(x.text))) * fps + 1) / fps;
 }
 
@@ -268,7 +272,11 @@ function scene(raw: unknown, path: string): Scene {
   if (s.pattern === "halo-lines") {
     const lines = raw["lines"];
     if (!Array.isArray(lines) || lines.length < 1 || lines.length > 3) throw new StoryboardError(`${path}.lines`, "halo-lines needs 1 to 3 lines");
-    s.lines = lines.map((l, j) => str(l, `${path}.lines[${j}]`, 60));
+    s.lines = lines.map((l, j) => {
+      const text = str(l, `${path}.lines[${j}]`, 60);
+      if (!text.trim()) throw new StoryboardError(`${path}.lines[${j}]`, "expected non-empty text");
+      return text;
+    });
     const items = raw["items"];
     if (items !== undefined) {
       if (!Array.isArray(items) || items.length > 4 || items.some(c => !ID.test(String(c)))) throw new StoryboardError(`${path}.items`, "halo-lines keeps up to 4 crop ids in view");
