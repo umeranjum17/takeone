@@ -58,8 +58,12 @@ export const KNOBS: Knob[] = [
   {
     id: "ending",
     ask: "How the film ends.",
-    options: { wide: "return to the whole page for the last second", close: "stay on the last shot to the end", longer: "hold the ending longer" },
-    apply: (c, choice) => moved(c, choice === "wide" ? { outro_s: Math.max(1.2, c.outro_s) } : choice === "close" ? { outro_s: 0 } : { outro_s: clip(c.outro_s + 0.8, 0.8, 3) }),
+    options: {
+      wide: "return to the whole page for the last second", close: "stay on the last shot to the end",
+      shorter: "end sooner after the last action", longer: "hold the ending longer",
+    },
+    apply: (c, choice) => moved(c, choice === "wide" ? { outro_s: Math.max(1.2, c.outro_s) } : choice === "close" ? { outro_s: 0 }
+      : choice === "shorter" ? { outro_s: c.outro_s > 0 ? clip(c.outro_s - 0.6, 0.6, 3) : 0 } : { outro_s: clip(c.outro_s + 0.8, 0.8, 3) }),
   },
   {
     id: "cursor",
@@ -97,13 +101,18 @@ export const KNOBS: Knob[] = [
 
 export const POLISH_POLICY = "Polish this picked cut, not a new direction. Keep its theme and camera motion. Change only what the owner's "
   + "feedback or the judge's gaps call for; owner feedback is cumulative and takes priority over the judge's gaps, and an earlier request is never undone. "
-  + "Answer keep for every knob that needs no change.";
+  + "The cut is judged against the target: every rubric item under it is a gap, however the judge words it. While the cut is below the target, "
+  + "move the knobs that address its lowest items; answer keep for every knob that no feedback or gap calls for.";
 
 export interface BuilderContext {
   direction: { name: string; theme: string };
   camera: CameraDefaults;
   feedback: Feedback[];
   gaps: string[];
+  /** The seed's judged score and rubric items, against the target. */
+  score: number | null;
+  items: { label: string; score: number; note: string }[];
+  target: number;
   history: { round: number; score: number | null; accepted: boolean; changes: string[] }[];
   ruleChanges: string[];
 }
@@ -119,6 +128,8 @@ export function builderRequest(ctx: BuilderContext): { state: Record<string, unk
       stage_margin: c.stage_margin, caption_size: c.caption_size, motion_blur: c.motion_blur,
     },
     owner_feedback: ctx.feedback.length ? ctx.feedback.map((f) => f.text) : ["(none)"],
+    score: ctx.score === null ? "(not judged)" : `${ctx.score}/10 against a target of ${ctx.target}/10`,
+    items_below_target: ctx.items.filter((i) => i.score < ctx.target).map((i) => `${i.label}: ${i.score}/10 - ${i.note}`),
     judge_gaps: ctx.gaps.length ? ctx.gaps : ["(initial assessment)"],
     measured_changes_already_made_this_round: ctx.ruleChanges,
     earlier_rounds: ctx.history,
@@ -128,7 +139,7 @@ export function builderRequest(ctx: BuilderContext): { state: Record<string, unk
     questions[knob.id] = {
       kind: "choice",
       options: { keep: "no change", ...knob.options },
-      instructions: `${knob.ask} Pick keep unless the feedback or a gap calls for this change.`,
+      instructions: `${knob.ask} Pick keep unless the feedback, a gap or an item under the target calls for this change.`,
       personReason: true,
     };
   }

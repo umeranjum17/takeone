@@ -12,7 +12,7 @@ import { mapDirections, presetDirections, directionsRequest, directionSet } from
 import { pickDirection, runDirections, type DirectionsFile } from "../src/directions/run.ts";
 import { runPolish, type Candidate, type Critique, type Feedback, type PolishHooks } from "../src/polish/loop.ts";
 import { latestRun, pickRound, polishFeedback, runPolishCommand } from "../src/polish/run.ts";
-import { KNOBS, mapBuilder } from "../src/polish/builder.ts";
+import { builderRequest, KNOBS, mapBuilder } from "../src/polish/builder.ts";
 import { judgeRound, JudgeUnavailable } from "../src/score/judge.ts";
 import { resolvePlanner, type ResolvedPlanner } from "../src/decide/planner.ts";
 import { cutPage } from "../src/board/page.ts";
@@ -158,6 +158,26 @@ test("the builder maps its answers to bounded camera keys and keeps a knob it ca
   assert.equal(out.change.cursor_size, undefined);
   assert.match(out.changes[0]!, /^pacing: longer holds between moves \(pace .* -> pace 1.4.*\) - the owner asked for longer holds$/);
   assert.equal(KNOBS.some((k) => k.id === "theme" || k.id === "camera_path"), false, "the picked look is never a knob");
+});
+
+test("the builder sees the score against the target and every item under it, and can end the film sooner", () => {
+  // The real proof run stopped at 8.4 when the builder, shown only the judge's prose, kept every knob.
+  const { state, questions } = builderRequest({
+    direction: { name: "Midnight", theme: "midnight" }, camera: DEFAULTS, feedback: [], gaps: ["Purposeful pacing (7/10): the closing shot holds about 3 seconds"],
+    history: [], ruleChanges: [], target: 9, score: 8.4,
+    items: [
+      { label: "Real page size in frame", score: 9, note: "page covers at least 97% of the frame" },
+      { label: "Purposeful pacing", score: 7, note: "41.1s across 10 beats; longest actionless span 3.3s" },
+    ],
+  });
+  assert.equal(state.score, "8.4/10 against a target of 9/10");
+  assert.deepEqual(state.items_below_target, ["Purposeful pacing: 7/10 - 41.1s across 10 beats; longest actionless span 3.3s"]);
+  assert.match(String(state.task), /below the target, move the knobs that address its lowest items/);
+  const ending = questions.ending!;
+  assert.ok(ending.kind === "choice" && Object.hasOwn(ending.options, "shorter"));
+  assert.deepEqual(mapBuilder({ ending: choice("shorter") }, { ...DEFAULTS, outro_s: 1.6 }).change, { outro_s: 1 });
+  assert.deepEqual(mapBuilder({ ending: choice("shorter") }, { ...DEFAULTS, outro_s: 0.6 }).change, {}, "already at its shortest");
+  assert.deepEqual(mapBuilder({ ending: choice("shorter") }, { ...DEFAULTS, outro_s: 0 }).change, {}, "no outro to shorten");
 });
 
 function facts(): MeasuredFacts {

@@ -274,7 +274,10 @@ export async function runPolishCommand(o: PolishOptions): Promise<PolishResult> 
     }
     if (builder) {
       const history = polishState.rounds.map((r) => ({ round: r.round, score: r.score, accepted: r.accepted, changes: r.changes }));
-      const { state, questions } = builderRequest({ direction: { name: picked.name, theme: picked.theme }, camera, feedback, gaps, history, ruleChanges });
+      const { state, questions } = builderRequest({
+        direction: { name: picked.name, theme: picked.theme }, camera, feedback, gaps, history, ruleChanges,
+        score: seeded.card.score, items: seeded.card.items.map(({ label, score, note }) => ({ label, score, note })), target: polishState.target,
+      });
       const outcome = await askChunk({ ...state, round }, questions, builder, builderCache, { keepAnswers: true, ...(o.fetchImpl ? { fetchImpl: o.fetchImpl } : {}) });
       if (outcome.decisionSource === "api") builderCalls++;
       if (!outcome.answers) o.warn(`polish: the builder gave no answers (${outcome.failure ?? "no reason"}); measured changes only`);
