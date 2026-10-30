@@ -3,7 +3,9 @@
 // An optional title sits in a pill under the frame.
 PATTERNS["scroll-through"] = (layer, s, ctx) => {
   const { W, H } = ctx, u = Math.min(W, H), gap = u * 0.05, scr = ctx.screen(s.screen), reserve = s.title ? u * 0.1 + gap : 0;
-  const requestedW = W * 0.88, requestedH = Math.min(H * 0.7, H * 0.8 - reserve);
+  let requestedW = W * 0.88;
+  const requestedH = Math.min(H * 0.7, H * 0.8 - reserve);
+  if (scr.width > scr.height && requestedW / requestedH >= scr.width / scr.height) requestedW = requestedH * scr.width / scr.height * 0.9;
   const st = deviceFrame(scr, s.device ?? "browser", requestedW, requestedH), { frame, viewport, img } = st;
   layer.append(frame);
   const vw = viewport.offsetWidth, vh = viewport.offsetHeight, fh = frame.offsetHeight;
