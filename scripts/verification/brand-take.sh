@@ -16,7 +16,7 @@ trap 'rm -rf -- "$work"' EXIT
 mkdir -p "$out"
 run() { ${TAKEONE_RENDER_WRAP:-} "$@"; }
 export TAKEONE_DIR="$work/takes" TAKEONE_STATE_DIR="$work/state"
-at=3.0
+at=1.5
 still() { run ffmpeg -nostdin -y -v error -threads 2 -filter_threads 2 -filter_complex_threads 2 -ss "$at" -i "$1" -frames:v 1 "$2"; }
 # The 1x1 stage pixel at 6,6 as "r g b" decimals (the stage corner is brand background plus grain).
 pixel() { run ffmpeg -nostdin -v error -i "$1" -vf crop=1:1:6:6 -f rawvideo -pix_fmt rgb24 - 2>/dev/null | od -An -tu1 | tr -s ' ' | sed 's/^ //;s/ $//'; }
