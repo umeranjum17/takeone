@@ -7,7 +7,7 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync, existsSync, chmodSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
-import { makeTake, PreflightRefusal, TakeInputError, type MakeOptions, type MakeResult } from "../src/make.ts";
+import { makeTake, PlannerStopped, PreflightRefusal, TakeInputError, type MakeOptions, type MakeResult } from "../src/make.ts";
 import { PlannerUnavailable, askChunk, loadPlannerConfig, resolvePlanner } from "../src/decide/planner.ts";
 import { ConfigError, type Answer } from "@byokit/decide";
 import type { Keystore } from "@byokit/secrets";
@@ -18,7 +18,7 @@ import { measureCaptions, renderTake } from "../src/render/render.ts";
 import { bandLayout, bandText, captionLayouts, takeCaptions } from "../src/render/stage.ts";
 import { mapFilm, planFilm } from "../src/decide/film.ts";
 import type { Beat, Decision, TakeMeta } from "../src/types.ts";
-import { STREAM, hasFfmpeg, buildLongTake, beatViews, chunkAnswers, filmAnswers, recordedEngineEnv, shippedCli, captureStderr } from "./helpers.ts";
+import { STREAM, hasFfmpeg, buildLongTake, beatViews, chunkAnswers, filmAnswers, recordedEngineEnv, shippedCli, captureStderr, firstOptionAnswers } from "./helpers.ts";
 import { DEFAULTS } from "../src/camera/defaults.ts";
 import { THEMES } from "../src/themes.ts";
 
@@ -43,6 +43,17 @@ const FAST = { ...DEFAULTS, preset: "veryfast", out_w: 320, out_h: 180, ripple_m
 function fastTake(dir: string, opts: MakeOptions = {}): Promise<MakeResult> {
   // No test may discover credentials from the real home; Jev tests pass fake keys explicitly.
   return makeTake(dir, { apiKey: null, camera: FAST, configDir: join(dir, "test-config"), log: () => {}, warn: () => {}, ...opts });
+}
+
+/** The run a planner failure stopped: the error carries what the run had spent and decided by then. */
+async function stoppedBy(run: Promise<MakeResult>): Promise<PlannerStopped> {
+  try {
+    await run;
+  } catch (e) {
+    if (e instanceof PlannerStopped) return e;
+    throw e;
+  }
+  throw new Error("the run was expected to stop on a planner failure");
 }
 
 function buildTake(dir: string): string {
@@ -566,9 +577,11 @@ test("a planner request that fails says why: the reply shape, not just a failed 
       usage: { input_tokens: 10, output_tokens: 1024 },
     }), { status: 200, headers: { "content-type": "application/json" } })) as typeof fetch;
     const warns: string[] = [];
-    const r = await fastTake(dir, { apiKey: KEY, fetchImpl, log: () => {}, warn: (s) => warns.push(s) });
+    // The run stops on the reply; what it spent and could not decide is on the error, and the reason is its message.
+    const stopped = await stoppedBy(fastTake(dir, { apiKey: KEY, fetchImpl, log: () => {}, warn: (s) => warns.push(s) }));
+    const r = stopped.partial;
     assert.ok(r.planner.failed > 0);
-    const why = warns.filter((w) => w.startsWith("planner: a ") && w.includes("failed:")).join("\n");
+    const why = stopped.message;
     assert.ok(why.includes("stop_reason max_tokens"), why || warns.join("\n"));
     assert.ok(why.includes("content [thinking]"), why);
     assert.ok(!why.includes("private model text") && !why.includes(KEY), "no model text or key in the reason");
@@ -1438,12 +1451,13 @@ test("a user-set trim end is kept and the film ending does not replace it", asyn
   }
 });
 
-/** Anthropic answers: the film's forced `decisions` tool input. Beat calls get no
- * answers, so the rules keep them. Text fields only come back on this wire shape. */
+/** Anthropic answers: the film's forced `decisions` tool input. A beat call is answered with
+ * the first option of every question (the first zone, level 1, yes), so the take plans.
+ * Text fields only come back on this wire shape. */
 function anthropicFilmFetch(film: (timeline: string[]) => Record<string, unknown>): typeof fetch {
   return (async (_url, init) => {
-    const { state } = JSON.parse(JSON.parse(String(init?.body)).messages[0].content[0].text) as { state: { timeline?: string[] } };
-    const input = state.timeline === undefined ? {} : film(state.timeline);
+    const { state, questions } = JSON.parse(JSON.parse(String(init?.body)).messages[0].content[0].text) as { state: { timeline?: string[] }; questions: Record<string, { kind: string; options?: object; levels?: string[] }> };
+    const input = state.timeline === undefined ? firstOptionAnswers(questions) : film(state.timeline);
     return new Response(JSON.stringify({ content: [{ type: "tool_use", name: "decisions", input }], usage: { input_tokens: 500, output_tokens: 80 } }), { status: 200 });
   }) as typeof fetch;
 }
@@ -1602,8 +1616,9 @@ test("a long take's film is planned in chunks under the cap and joined into one 
         quietParts.push({ state: state as { timeline: string[] }, questions });
         const ends = questions.ending ? Object.keys((questions.ending as { criteria: Record<string, string> }).criteria) : [];
         answers = {
-          ...(questions.theme ? filmAnswers() : {}),
-          ...(questions.ending ? { ending: { pick: ends[0], probabilities: Object.fromEntries(ends.map((id) => [id, id === ends[0] ? 1 : 0])), confidence: 1 } } : {}),
+          // Every film question this call asks, answered; no call is left empty.
+          ...Object.fromEntries(Object.entries(filmAnswers()).filter(([name]) => name in questions)),
+          ...(questions.ending ? { ending: { choice: ends[0], probabilities: Object.fromEntries(ends.map((id) => [id, id === ends[0] ? 1 : 0])), confidence: 1 } } : {}),
         };
       }
       return new Response(JSON.stringify({ answers, usage: { input_tokens: 800 } }), { status: 200 });
@@ -1631,7 +1646,7 @@ test("a long take's film is planned in chunks under the cap and joined into one 
       const { state, questions } = JSON.parse(JSON.parse(String(init?.body)).messages[0].content[0].text) as { state: { timeline?: string[] }; questions: Record<string, unknown> };
       let input: Record<string, unknown>;
       if (state.timeline === undefined) {
-        input = chunkAnswers(String(init?.body), firstZoneAnswers) as Record<string, unknown>;
+        input = firstOptionAnswers(questions as Parameters<typeof firstOptionAnswers>[0]);
       } else {
         parts.push({ state, questions } as (typeof parts)[number]);
         const first = state.timeline[0]!.split(",")[0]!;
@@ -1748,7 +1763,7 @@ test("live API shape: Android tap hints stay planner decisions", async () => {
     writeFileSync(takePath, JSON.stringify({ ...JSON.parse(readFileSync(takePath, "utf8")), device: "android" }));
     const tapStates: { beat: { hint?: string }; zones: Record<string, { shows: string }> }[] = [];
     const fake = (async (_url: string | URL | Request, init?: RequestInit) => {
-      const beats = JSON.parse(String(init?.body)).state.beats as Record<string, { device_hint?: string; zones: Record<string, { shows: string }> }>;
+      const beats = (JSON.parse(String(init?.body)).state.beats ?? {}) as Record<string, { device_hint?: string; zones: Record<string, { shows: string }> }>;
       for (const b of Object.values(beats)) if (b.device_hint) tapStates.push({ beat: { hint: b.device_hint }, zones: b.zones });
       const answer = {
         model: "jev-1.13.0",
@@ -1785,7 +1800,7 @@ test("live API shape: Android tap hints stay planner decisions", async () => {
   }
 });
 
-test("sparse object-keyed score probabilities fall back to the heuristic", { skip: needsFfmpeg }, async () => {
+test("sparse object-keyed score probabilities stop the run instead of falling back to the heuristic", { skip: needsFfmpeg }, async () => {
   const dir = newTake();
   try {
     const fake = (async (_url: string | URL | Request, init?: RequestInit) => {
@@ -1804,9 +1819,13 @@ test("sparse object-keyed score probabilities fall back to the heuristic", { ski
       };
       return new Response(JSON.stringify(answer), { status: 200 });
     }) as typeof fetch;
-    const r = await fastTake(dir, { apiKey: KEY, fetchImpl: fake, log: () => {}, warn: () => {} });
+    // The sparse answer is unusable, and the run stops on it instead of deciding the beat by rules.
+    const stopped = await stoppedBy(fastTake(dir, { apiKey: KEY, fetchImpl: fake, log: () => {}, warn: () => {} }));
+    assert.match(stopped.message, /could not use the planner's answer for beat b1/);
+    const r = stopped.partial;
     assert.ok(r.decisions.every((d) => d.decided_by === "heuristic"));
     assert.ok(r.planner.failed >= 1);
+    assert.ok(!existsSync(join(dir, "analysis", "decisions.jsonl")) && !existsSync(join(dir, "out")));
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -1863,10 +1882,11 @@ test("preflight reserves re-asks and current shots distinguish viewport position
     const logs: string[] = [];
     await fastTake(dir, { apiKey: KEY, film: false, maxTokens: 100000, log: (s) => logs.push(s), warn: () => {}, fetchImpl: (async (_url, init) => {
       bodies.push(String(init?.body));
-      return new Response("boom", { status: 500 });
+      // The first ask of the first chunk fails; its re-ask and the second chunk are answered.
+      return bodies.length === 1 ? new Response("boom", { status: 500 }) : firstZoneReply(String(init?.body));
     }) as typeof fetch });
     const planned = Number(logs.find((s) => s.startsWith("preflight:"))!.match(/(\d+) planned tokens/)![1]);
-    // Two chunks fail: the first is asked once more, the second keeps the rules.
+    // The first chunk fails once and is asked once more; the second chunk is asked after it.
     assert.equal(bodies.length, 3);
     assert.equal(bodies[1], bodies[0], "the re-ask repeats the first chunk");
     const tokens = (body: string) => Math.ceil(body.length / 3.5);
@@ -1909,7 +1929,7 @@ test("the next chunk starts from the shot the previous chunk decided", async () 
   }
 });
 
-test("every planner failure mode falls back to the heuristic and counts as failed", async () => {
+test("every planner failure mode stops the run instead of falling back to the heuristic", async () => {
   const modes: Array<{ name: string; tokens: number; impl: (body: string) => Response }> = [
     { name: "500", tokens: 0, impl: () => new Response("boom", { status: 500 }) },
     { name: "malformed", tokens: 0, impl: () => new Response("not json", { status: 200 }) },
@@ -1932,19 +1952,30 @@ test("every planner failure mode falls back to the heuristic and counts as faile
     const dir = newTake();
     let calls = 0;
     try {
-      const r = await fastTake(dir, { apiKey: KEY, fetchImpl: (async (_url, init) => { calls++; return m.impl(String(init?.body)); }) as typeof fetch, log: () => {}, warn: () => {} });
+      const r = (await stoppedBy(fastTake(dir, { apiKey: KEY, fetchImpl: (async (_url, init) => { calls++; return m.impl(String(init?.body)); }) as typeof fetch, log: () => {}, warn: () => {} }))).partial;
       assert.equal(r.decisions.filter((d) => d.decided_by === "ai").length, 0, m.name);
       assert.equal(r.planner.failed, r.beats.filter((b) => b.zones.length >= 2).length, m.name);
       assert.equal(r.planner.input_tokens, calls * m.tokens, m.name);
-      assert.equal(JSON.parse(readFileSync(join(dir, "take.json"), "utf8")).planner.mode, "fallback", m.name);
-      // nothing ever waits on or fails because of Jev: the run still succeeded
+      // the stop is the whole outcome: nothing decided by rules in the planner's place, nothing rendered
       assert.ok(r.beats.length >= 2);
+      assert.ok(!existsSync(join(dir, "analysis", "decisions.jsonl")) && !existsSync(join(dir, "out")), m.name);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
   }
+  // The contrast: a planner that answers plans the take, and the take records it.
+  const dir = newTake();
+  try {
+    await fastTake(dir, { apiKey: KEY, fetchImpl: (async (_url, init) => firstZoneReply(String(init?.body))) as typeof fetch, log: () => {}, warn: () => {} });
+    assert.equal(JSON.parse(readFileSync(join(dir, "take.json"), "utf8")).planner.mode, "ai");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
+// The name is the old one. A beat's request is trimmed under the cap, so this 6,000-character shortcut was never
+// oversize; it kept the rules only because every planner call failed. It now proves the failing planner
+// leaves that beat undecided and stops the run, with the beat reported as failed.
 test("oversize beat request falls back without aborting other beats", { skip: needsFfmpeg }, async () => {
   const dir = newTake();
   try {
@@ -1954,15 +1985,37 @@ test("oversize beat request falls back without aborting other beats", { skip: ne
     events.find((e) => e.k === "win").rect = [0, 0, 280, 150];
     writeFileSync(path, events.map((e) => JSON.stringify(e)).join("\n") + "\n");
     let calls = 0;
-    const r = await fastTake(dir, { apiKey: KEY, maxTokens: 100000, log: () => {}, warn: () => {}, fetchImpl: (async () => {
+    const r = (await stoppedBy(fastTake(dir, { apiKey: KEY, maxTokens: 100000, log: () => {}, warn: () => {}, fetchImpl: (async () => {
       calls++;
       return new Response("boom", { status: 500 });
-    }) as typeof fetch });
+    }) as typeof fetch }))).partial;
     const shortcut = r.beats.find((b) => b.actions.some((a) => a.k === "shortcut"))!;
     assert.ok(shortcut);
     assert.equal(r.decisions.find((d) => d.beat === shortcut.id)?.decided_by, "heuristic");
     assert.ok(calls > 0);
     assert.ok(r.planner.failed >= 1);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("an over-long shortcut's request is trimmed under the cap and still asked", { skip: needsFfmpeg }, async () => {
+  const dir = newTake();
+  try {
+    const path = join(dir, "events.jsonl");
+    const events = readFileSync(path, "utf8").trim().split("\n").map((line) => JSON.parse(line));
+    events.find((e) => e.t === 4200).combo = "Ctrl+" + "X".repeat(6000);
+    events.find((e) => e.k === "win").rect = [0, 0, 280, 150];
+    writeFileSync(path, events.map((e) => JSON.stringify(e)).join("\n") + "\n");
+    const bodies: string[] = [];
+    const r = await fastTake(dir, { apiKey: KEY, maxTokens: 100000, log: () => {}, warn: () => {}, fetchImpl: (async (_url, init) => {
+      bodies.push(String(init?.body));
+      return firstZoneReply(String(init?.body));
+    }) as typeof fetch });
+    const shortcut = r.beats.find((b) => b.actions.some((a) => a.k === "shortcut"))!;
+    assert.equal(r.decisions.find((d) => d.beat === shortcut.id)?.decided_by, "ai");
+    assert.ok(bodies.every((body) => Math.ceil(body.length / 3.5) <= 4000), "every request stays under the 4,000-token cap");
+    assert.equal(r.planner.failed, 0);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -1976,10 +2029,11 @@ test("malformed planner answers are not cached across runs", async () => {
       calls++;
       return new Response(JSON.stringify(calls <= 10 ? { answers: { focus_start: { choice: "bad" } } } : plannerAnswers()), { status: 200 });
     }) as typeof fetch;
-    const first = await fastTake(dir, { apiKey: KEY, fetchImpl: fake, log: () => {}, warn: () => {} });
+    const first = (await stoppedBy(fastTake(dir, { apiKey: KEY, fetchImpl: fake, log: () => {}, warn: () => {} }))).partial;
     assert.ok(first.decisions.every((d) => d.decided_by === "heuristic"));
     const before = calls;
-    await fastTake(dir, { apiKey: KEY, fetchImpl: fake, log: () => {}, warn: () => {} });
+    // The malformed answers were not cached: the next run asks again (and stops on them again).
+    await stoppedBy(fastTake(dir, { apiKey: KEY, fetchImpl: fake, log: () => {}, warn: () => {} }));
     assert.ok(calls > before);
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -2025,7 +2079,7 @@ test("screen words are read by default with a planner and titles are redacted", 
     events[0].cls = "PrivateCustomerName";
     events[0].title = "12345abcdefghijklmnop";
     writeFileSync(path, events.map((e) => JSON.stringify(e)).join("\n") + "\n");
-    const boom = (async () => new Response("boom", { status: 500 })) as typeof fetch;
+    const boom = (async (_url: string | URL | Request, init?: RequestInit) => firstZoneReply(String(init?.body))) as typeof fetch;
     const normal = await fastTake(dir, { noAi: true, log: () => {}, warn: () => {} });
     assert.ok(!JSON.stringify(normal.beats.flatMap((b) => b.zones.map((z) => z.desc))).includes("PrivateCustomerName"));
     // AI on, no flags: screen words are read (window label appended, redacted)
