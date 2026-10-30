@@ -36,15 +36,22 @@ const SURFACE = {
       K(card, [[300 + i * 160, { opacity: 0, transform: `translateY(${H * .2}px)` }, EXPO], [1000 + i * 160, { opacity: 1, transform: to }]]);
     });
   },
+  // Layout rule every surface follows: the product group is centred on the frame's own midline by its real extent (rows x height),
+  // never hung from a fixed slot, and the figures in one group share a size, so a short row and a long one balance.
   stats: (layer, s, { W, H }) => {
-    const tw = W * .19, th = H * .27, gap = H * .03, rows = s.tree;
-    rows.forEach((t, i) => {
-      const m = /^(\D*?)(\d[\d,]*)\s+(.*)$/.exec(t) ?? [, "", "0", t], value = Number(m[2].replace(/,/g, "")), last = i === rows.length - 1;
-      const tile = h(`<div style="position:absolute;left:${W * .7 - tw - gap / 2 + (i % 2) * (tw + gap)}px;top:${H / 2 - th - gap / 2 + Math.floor(i / 2) * (th + gap)}px;width:${tw}px;height:${th}px;box-sizing:border-box;padding:${H * .03}px;border-radius:${H * .022}px;border:${last ? 3 : 1}px solid ${last ? "var(--accent)" : "var(--line)"};background:var(--card);color:var(--ink);display:flex;flex-direction:column;justify-content:space-between;${last ? `box-shadow:0 0 ${H * .06}px ${mix("var(--accent)", 35, "transparent")}` : ""}">
-        <div style="font:${H * .11}px/1 var(--display);letter-spacing:-.03em"></div><div style="font:${H * .026}px var(--body);color:${mix("var(--ink)", 70, "var(--card)")}">${esc(m[3])}</div></div>`);
+    const tw = W * .19, th = H * .27, gap = H * .03, rows = s.tree, top0 = H / 2 - (Math.ceil(rows.length / 2) * th + (Math.ceil(rows.length / 2) - 1) * gap) / 2;
+    const parsed = rows.map((t) => {
+      const m = /^(\D*?)(\d[\d,]*)(\+?)\s+(.*)$/.exec(t) ?? [, "", "0", "", t], value = Number(m[2].replace(/,/g, ""));
+      return { pre: m[1], value, post: m[3], label: m[4], em: [...m[1] + value.toLocaleString("en-US") + m[3]].reduce((n, c) => n + (/\d/.test(c) ? .68 : c === "+" ? .6 : .34), 0) };
+    });
+    const fit = Math.min(1, ...parsed.map((p) => (tw - H * .06) / (p.em * H * .11))); // the longest figure sets the size, so none runs under the next tile
+    parsed.forEach((p, i) => {
+      const last = i === rows.length - 1;
+      const tile = h(`<div style="position:absolute;left:${W * .7 - tw - gap / 2 + (i % 2) * (tw + gap)}px;top:${top0 + Math.floor(i / 2) * (th + gap)}px;width:${tw}px;height:${th}px;box-sizing:border-box;padding:${H * .03}px;border-radius:${H * .022}px;border:${last ? 3 : 1}px solid ${last ? "var(--accent)" : "var(--line)"};background:var(--card);color:var(--ink);display:flex;flex-direction:column;justify-content:space-between;${last ? `box-shadow:0 0 ${H * .06}px ${mix("var(--accent)", 35, "transparent")}` : ""}">
+        <div style="font:${H * .11 * fit}px/1 var(--display);letter-spacing:-.03em;white-space:nowrap"></div><div style="font:${H * .026}px var(--body);color:${mix("var(--ink)", 70, "var(--card)")}">${esc(p.label)}</div></div>`);
       layer.append(tile); rise(tile, 300 + i * 220, `translateY(${H * .04}px)`);
       const num = tile.firstElementChild, t0 = 400 + i * 220;
-      tick((ms) => { num.textContent = m[1] + Math.round(value * smootherstep((ms - t0) / 1300)).toLocaleString("en-US"); });
+      tick((ms) => { num.textContent = p.pre + Math.round(p.value * smootherstep((ms - t0) / 1300)).toLocaleString("en-US") + p.post; });
     });
   },
 };
