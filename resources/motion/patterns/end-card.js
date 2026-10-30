@@ -7,7 +7,8 @@ PATTERNS["end-card"] = (layer,s,ctx) => {
   const word=kernedLetters(s.logo);
   word.style.font=`400 ${Math.min(W*.16,H*.2)}px/1.1 var(--display)`;
   word.style.color="var(--text)"; // explicit: inherited body color would not follow a per-scene invert
-  const mark=s.logo_image?h(`<img src="${STORYBOARD.logos[s.logo_image]}" style="height:${H*.14}px;max-width:${W*.3}px;object-fit:contain;display:block">`):null;
+  // The mark keeps a margin of its own (padding inside the box), so a logo whose paths touch its edges is never cut and never fills the box.
+  const mark=s.logo_image?h(`<img src="${STORYBOARD.logos[s.logo_image]}" style="height:${H*.14}px;max-width:${W*.3}px;padding:${H*.012}px;box-sizing:border-box;object-fit:contain;display:block">`):null;
   if(mark) group.append(mark);
   group.append(word);
   const cta=h(`<div style="background:var(--text);color:var(--bg);border-radius:999px;padding:18px 38px;font:${u*.056}px var(--body)">${esc(s.cta??"")}</div>`);
