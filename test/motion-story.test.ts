@@ -66,7 +66,7 @@ test("story stacks the headline above the product on a portrait or square frame,
         for (const { head, product, wide, orphan, covered } of boxes) {
           assert.deepEqual([wide, orphan, covered], [[], [], []], `${w}x${h}: text wider than its box, a headline whose last line is a short word or under 40% of its widest, or a card title covered`);
           const [top, bottom] = [Math.min(...product.map((p) => p[1]!)) - head[3]!, h * .93 - Math.max(...product.map((p) => p[3]!))];
-          assert.ok(Math.abs(top - bottom) <= h * .06, `${w}x${h}: the product sits ${top.toFixed(0)} px under the headline and ${bottom.toFixed(0)} px above the bottom margin`);
+          assert.ok(Math.abs(top - bottom) <= h * .04, `${w}x${h}: the product sits ${top.toFixed(0)} px under the headline and ${bottom.toFixed(0)} px above the bottom margin`);
           for (const p of product) {
             assert.ok(head[3]! < p[1]!, `${w}x${h}: the headline ends at ${head[3]!.toFixed(0)} px, above the product at ${p[1]!.toFixed(0)} px`);
             assert.ok(p[0]! >= 0 && p[2]! <= w && p[3]! <= h, `${w}x${h}: the product stays in the frame`);

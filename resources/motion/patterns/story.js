@@ -3,7 +3,7 @@
 // through `invert`. Entrances are K keys, the drift and the counters are ticks: every frame is a pure function of the clock.
 // Layout: a landscape frame sets copy left and product right. A portrait or square frame (W <= H) stacks them instead. One rule places
 // every block: the headline is balanced and fitted to the top 27% (10% side margins, room for the push-in between beats); the product
-// gets the region `R` that is left, from just under the headline's measured bottom to the 93% line; each surface fills R and is
+// gets the region `R` that is left between the headline's measured bottom and the 93% line, less a 4% breath at each end; each surface fills R and is
 // centred in it, so the space above and below it is the same and no beat hangs from a hand-set offset.
 (() => {
 const EXPO = "cubic-bezier(.16,1,.3,1)", mix = (a, p, b) => `color-mix(in srgb, ${a} ${p}%, ${b})`, accentInk = mix("var(--accent)", 62, "var(--text)");
@@ -80,8 +80,8 @@ PATTERNS.story = (layer, s, ctx) => {
   let R = { x: 0, y: 0, w: W, h: H };
   if (stack) {
     for (size = U * .1; ; size *= .95) { head.style.fontSize = `${size}px`; if (box.offsetHeight <= H * .27 || size < U * .04) break; }
-    const y = H * .07 + box.offsetHeight + H * .05;
-    R = { x: W * .07, y, w: W * .86, h: H * .93 - y };
+    const y = H * .07 + box.offsetHeight + H * .04;
+    R = { x: W * .07, y, w: W * .86, h: H * .89 - y }; // a 4% breath under the headline and the same above the 93% line
   }
   $$(".story-word", head).forEach((w, i) => riseIn(w, i * 70));
   K(box, [[0, { transform: "scale(1)" }], [s.d * 1000, { transform: "scale(1.03)" }]]);
