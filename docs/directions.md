@@ -47,9 +47,10 @@ The loop follows first-draft's polish:
   and judged. Refinements are rounds 1 to `--max-rounds` (default and most: 5).
 - A refinement starts from the **seed**, the latest accepted round. The score loop's measured changes run first (each
   checked before a render is spent on it), then one builder call (the planner route) picks changes from a fixed set of
-  knobs: pacing, zoom closeness, move speed, opening hold, ending, cursor size, click emphasis, page size, caption size
-  and motion blur, each with "keep". It never touches the theme or the camera motion. It reads the owner's feedback
-  (cumulative, with priority, never undone) and the judge's gaps.
+  knobs: pacing, zoom closeness, move speed, opening hold, ending (including ending sooner), cursor size, click
+  emphasis, page size, caption size and motion blur, each with "keep". It never touches the theme or the camera motion.
+  It reads the owner's feedback (cumulative, with priority, never undone), the judge's gaps, and the seed's score against
+  the 9/10 target with every rubric item under it.
 - **The judge** answers the rubric and every piece of owner feedback (met or not, with a reason) in one call. Items
   under 9 come back with a reason; those are the next round's gaps.
 - **A round is rejected** when it misses any feedback or leaves the picked look; the next round builds on the last
@@ -90,6 +91,8 @@ With `--board <decisions.json>` (or `TAKEONE_BOARD`), every option and every rou
 - A note the owner leaves on a card (when picking, or on a round's card, including the last card of the previous polish
   run) becomes polish feedback. A note over 2,000 characters keeps its first 2,000.
 - Without `--board`, a re-run of `directions` and every `polish` post to the board the directions went to.
+- A card goes up under the first key the board does not hold yet, so a take captured again under the same name never
+  collides with an archived card.
 - The board serves a file beside a page up to 5 MB, so each cut goes up as an H.264 board copy that steps down in size
   (1280 px first) until it fits, with a poster still. The page was designed with first-draft.
 - `TAKEONE_SIGN_OFF` names the sign-off CLI (default `sign-off-axi`).
@@ -117,4 +120,18 @@ and the cost per minute of video falls as takes get longer. Measured on a real 4
 
 ## Measured
 
-MEASURED_PLACEHOLDER
+A real Tidewater board take (`scripts/headless-scene.mjs`: 4K, 43 s, 2,585 frames), captured fresh and driven end to
+end in one sealed done-done run on a shared, heavily loaded machine:
+
+| Step | Result | Model calls | Renders | Wall time |
+| --- | --- | --- | --- | --- |
+| directions (3) | A Midnight/quick/follow 6.2, B Sand/calm/hold 5.8, C Aurora/brisk/close 5.8; A recommended; A re-rendered with 2,469/2,469 frames identical | 1 planner, 3 judge | 4 | 49 min |
+| pick on the board | A, with the note "Keep the cursor easy to follow through every click." | 0 | 0 | - |
+| polish round 0 | 6.2; the note not met (no cursor drawn) | 1 judge | 1 | |
+| polish round 1 | 8.4, accepted; the note met; drew the cursor, enlarged the page, ended the film sooner (outro 1.6 s to 1.0 s) | 1 judge, 1 builder | 1 | 20 min for both rounds |
+
+The run stopped after round 1: one refinement was the scope allowed for this proof, so it ships 8.4/10, **below the
+9/10 target**, and does not show the plateau or round-cap stops on a real take (the tests cover them). Seven model calls
+for a 43 s take; each judge call carries three frames' measured facts whatever the length. Board copies were 0.6-1.2 MB
+at 1280 px. An earlier run on a capture of the same scene, before the builder saw the score and the items under target, stopped at
+8.4 with `no_change_left` after the builder kept every knob.
