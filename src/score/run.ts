@@ -45,13 +45,13 @@ function builderLabel(meta: TakeMeta, noAi: boolean | undefined): string {
   return [planner.backend, planner.model].filter(Boolean).join(" ") || "configured planner";
 }
 
-async function determinismRound(dir: string, film: string, camera: CameraDefaults, log: (line: string) => void) {
+async function determinismRound(dir: string, film: string, camera: CameraDefaults, log: (line: string) => void, fonts: string[] = []) {
   const outDir = join(dir, "out");
   const first = join(outDir, "score", `${basename(film, ".mp4")}-first.mp4`);
   mkdirSync(join(outDir, "score"), { recursive: true });
   copyFileSync(film, first);
   clearOverlays(dir);
-  const again = await renderTake(dir, camera);
+  const again = await renderTake(dir, camera, undefined, fonts);
   const det = compareFrames(frameHashes(first), frameHashes(again.out));
   log(`score: determinism ${det.identical}/${det.frames} decoded frames identical on a second render (tolerance ${(det.tolerance * 100).toFixed(1)}%)`);
   return det;
@@ -87,10 +87,10 @@ export async function makeWithScore(o: ScoreRunOptions): Promise<ScoreRunResult>
         if (!made.out) throw new Error("make produced no film");
         camera = o.resolveFilmCamera(o.dir, o.make.set ?? [], o.make.theme);
         builder = builderLabel(readMeta(o.dir), o.make.noAi);
-        det = await determinismRound(o.dir, made.out, camera, o.log);
+        det = await determinismRound(o.dir, made.out, camera, o.log, o.make.fonts);
       } else {
         clearOverlays(o.dir);
-        const rendered = await renderTake(o.dir, camera);
+        const rendered = await renderTake(o.dir, camera, undefined, o.make.fonts);
         made = { ...made!, out: rendered.out, seconds: rendered.seconds };
       }
       const film = made!.out!;

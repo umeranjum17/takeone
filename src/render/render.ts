@@ -1,8 +1,8 @@
 import { execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
-import { availableParallelism } from "node:os";
+import { availableParallelism, tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { resolveTheme } from "../themes.ts";
 import { basename, dirname, join, resolve } from "node:path";
@@ -179,7 +179,7 @@ function writeSolve(dir: string, key: string, solve: Solve): void {
 
 /** Solve a take's camera path from its durable inputs without rendering: the frames the film would show, on the
  * output clock, and everything the render draws around them. `take` replaces take.json (a trial of unsaved edits). */
-export async function planCamera(dir: string, camera?: CameraDefaults, take?: TakeMeta) {
+export async function planCamera(dir: string, camera?: CameraDefaults, take?: TakeMeta, fontsDir: string = FONTS_DIR) {
   let meta = take ?? JSON.parse(await readFile(join(dir, "take.json"), "utf8")) as TakeMeta;
   let d: CameraDefaults = camera ?? resolveTheme(meta.theme);
   const phone = meta.device !== undefined && meta.height > meta.width;
@@ -249,9 +249,9 @@ export async function planCamera(dir: string, camera?: CameraDefaults, take?: Ta
   // belongs to the render space, so a preview lays its own card out at preview scale.
   const layout = async (m: TakeMeta, dd: CameraDefaults, bandOverride?: Band | null) => {
     let text = banded ? bandText(captions, [], dd) : dd;
-    let ink = await measureCaptions(dir, captions, text);
+    let ink = await measureCaptions(dir, captions, text, fontsDir);
     const fitted = banded ? bandText(captions, ink, text) : text;
-    if (fitted !== text) ink = await measureCaptions(dir, captions, fitted);
+    if (fitted !== text) ink = await measureCaptions(dir, captions, fitted, fontsDir);
     const band = bandOverride ?? (banded ? bandLayout(m.width, m.height, fitted, captions, ink) : null);
     return { text: fitted, captionInk: ink, band, stage: band?.stage ?? stageGeometry(m.width, m.height, dd) };
   };
@@ -372,9 +372,16 @@ export async function planCamera(dir: string, camera?: CameraDefaults, take?: Ta
 
 /** Read the take's durable inputs, write its camera path and render the silent MP4.
  * A preview renders the same camera path from a smaller source, at a smaller export. */
-export async function renderTake(dir: string, camera?: CameraDefaults, preview?: PreviewSpec): Promise<{ out: string; seconds: number }> {
+export async function renderTake(dir: string, camera?: CameraDefaults, preview?: PreviewSpec, brandFonts: string[] = []): Promise<{ out: string; seconds: number }> {
+  const staged = brandFonts.length ? stagedFonts(brandFonts) : undefined;
+  try { return await renderFilm(dir, camera, preview, staged?.dir ?? FONTS_DIR); }
+  finally { staged?.cleanup(); }
+}
+
+/** The render proper, with the one font directory its overlays read (libass takes a single one). */
+async function renderFilm(dir: string, camera: CameraDefaults | undefined, preview: PreviewSpec | undefined, fontsDir: string): Promise<{ out: string; seconds: number }> {
   const started = performance.now();
-  const plan = await planCamera(dir, camera);
+  const plan = await planCamera(dir, camera, undefined, fontsDir);
   const { phone, trimStart, trimEnd, squeezes, clock, outTime, duration, outDecisions, captions, layout, solveLayout, sourceAt, held } = plan;
   let { meta, d, outBeats, frames } = plan;
   if (held) await writeFile(join(dir, "camera-holds.json"), JSON.stringify(held.holds, null, 2));
@@ -454,7 +461,7 @@ export async function renderTake(dir: string, camera?: CameraDefaults, preview?:
     });
     if (hasDialogue(drawn)) {
       await writeFile(cursorFile, drawn);
-      cursorOverlay = `,ass=${filterPath(cursorFile)}:fontsdir=${filterPath(FONTS_DIR)}`;
+      cursorOverlay = `,ass=${filterPath(cursorFile)}:fontsdir=${filterPath(fontsDir)}`;
     } else if (pointerSamples(events, startMs).length === 0) {
       console.warn("No usable pointer samples in this cursor-free take; rendering without a drawn cursor.");
     }
@@ -505,7 +512,7 @@ export async function renderTake(dir: string, camera?: CameraDefaults, preview?:
   const spotlightFile = join(workDir, "spotlight.ass");
   const spotlight = spotlightAss(spotlights, meta.width, meta.height, view, { frames: cameraFrames, stage: band ? { ...stage, screenX: 0, screenY: 0 } : stage, shutter });
   await writeFile(spotlightFile, spotlight);
-  const keysOverlay = hasDialogue(keys) ? `,ass=${filterPath(keysFile)}:fontsdir=${filterPath(FONTS_DIR)}` : "";
+  const keysOverlay = hasDialogue(keys) ? `,ass=${filterPath(keysFile)}:fontsdir=${filterPath(fontsDir)}` : "";
 
   const fade = Math.min(d.fade_s, duration / 4);
   // Fade dither frames: [0, ditherIn) fade in, [ditherOut, end) fade out.
@@ -515,8 +522,8 @@ export async function renderTake(dir: string, camera?: CameraDefaults, preview?:
   // An .ass with no Dialogue lines renders nothing, so skip its overlay:
   // stock ffmpeg builds without libass (e.g. Homebrew) have no ass filter.
   const pixelFormat = d.quality === "master" ? "yuv444p" : "yuv420p";
-  const clicksOverlay = hasDialogue(clicksAss) ? `,ass=${filterPath(clicksFile)}:fontsdir=${filterPath(FONTS_DIR)}` : "";
-  const captionsOverlay = hasDialogue(captionsAss) ? `,ass=${filterPath(captionsFile)}:fontsdir=${filterPath(FONTS_DIR)}` : "";
+  const clicksOverlay = hasDialogue(clicksAss) ? `,ass=${filterPath(clicksFile)}:fontsdir=${filterPath(fontsDir)}` : "";
+  const captionsOverlay = hasDialogue(captionsAss) ? `,ass=${filterPath(captionsFile)}:fontsdir=${filterPath(fontsDir)}` : "";
   const graph = (start: number) => {
     const camera = motionBlurGraph(cameraFrames, shutter, cameraW, cameraH, view, start);
     // A segment skips composing the frames before its own; the camera's resampler
@@ -686,7 +693,7 @@ function filterPath(path: string): string {
 }
 
 /** Libass ink bounds: captions use complete single lines; titles use wrapping. */
-export async function measureCaptions(dir: string, captions: Caption[], d: CameraDefaults): Promise<CaptionInk[]> {
+export async function measureCaptions(dir: string, captions: Caption[], d: CameraDefaults, fontsDir: string = FONTS_DIR): Promise<CaptionInk[]> {
   if (captions.length === 0) return [];
   const file = join(dir, "measure.ass");
   const widths = captions.map(() => ({ w: 0, h: 0 }));
@@ -702,7 +709,7 @@ export async function measureCaptions(dir: string, captions: Caption[], d: Camer
     } : d;
     await writeFile(file, measureAss(indices.map(i => captions[i]!), measurement, scale * 100));
     const log = await runFfmpeg(["-hide_banner", "-f", "lavfi", "-i", `color=black:s=${measurement.out_w}x${measurement.out_h}:r=1:d=${indices.length}`,
-      "-vf", `ass=${filterPath(file)}:fontsdir=${filterPath(FONTS_DIR)},format=gray,cropdetect=limit=0:round=2:reset=1:skip=0`, "-f", "null", "-"]);
+      "-vf", `ass=${filterPath(file)}:fontsdir=${filterPath(fontsDir)},format=gray,cropdetect=limit=0:round=2:reset=1:skip=0`, "-f", "null", "-"]);
     for (const match of log.matchAll(/x1:(-?\d+) x2:(-?\d+) y1:(-?\d+) y2:(-?\d+).*? t:(\d+(?:\.\d+)?)/g)) {
       const index = indices[Math.round(Number(match[5]))];
       if (index !== undefined) widths[index] = { w: Math.max(0, Number(match[2]) - Number(match[1]) + 1 + (scale < 1 ? 2 : 0)) / scale,
@@ -714,6 +721,14 @@ export async function measureCaptions(dir: string, captions: Caption[], d: Camer
 
 /** Bundled static OFL fonts; same directory in source and compiled builds. */
 export const FONTS_DIR = fileURLToPath(new URL("../../resources/fonts/", import.meta.url));
+
+/** A font directory for one render: the bundled faces plus the brand's own files, since libass reads one directory. */
+function stagedFonts(files: string[]): { dir: string; cleanup: () => void } {
+  const dir = mkdtempSync(join(tmpdir(), "takeone-fonts-"));
+  for (const file of readdirSync(FONTS_DIR)) if (/\.(ttf|otf)$/i.test(file)) copyFileSync(join(FONTS_DIR, file), join(dir, file));
+  for (const file of files) copyFileSync(file, join(dir, `brand-${basename(file)}`));
+  return { dir, cleanup: () => rmSync(dir, { recursive: true, force: true }) };
+}
 
 function resolveBackgroundImage(dir: string, path: string): string {
   if (!path) throw new Error("bg_style=image requires background_image");
