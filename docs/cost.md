@@ -40,13 +40,14 @@ in the [planner guide](guide.md#ai-planner-key). At the 30-beats-a-minute cap
 that is at most 60 thumbnails, about 15,300 estimated tokens a minute; the
 40,000-token preflight counts them and still refuses anything above it.
 
-## Directions
+## Directions and polish
 
-`takeone directions` adds a fixed number of calls per take, whatever its length: 1 planner call and 1 judge call per
-direction (at most 4 for a three-way pick). That ceiling does not count planning the take: a take not planned yet is
+`takeone directions` and `takeone polish` add a fixed number of calls per take, whatever its length: 1 planner call
+and 1 judge call per direction, then 1 judge call per polish round and 1 builder call per refinement (at most 15 for a
+three-way pick and a full five-round polish). That ceiling does not count planning the take: a take not planned yet is
 planned once first (the `make` film and beat calls above), and bringing that under one per-take ceiling is separate
 follow-up work. The judge sees three sampled frames' measured facts, never every frame.
-Table: [directions.md](directions.md#cost).
+Table and a measured real run: [directions.md](directions.md#cost).
 
 ## Per-provider cost (slice 1 reference)
 

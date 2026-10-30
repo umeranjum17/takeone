@@ -11,7 +11,7 @@ const CHANGED_CELLS = 16; // a region with at least this many changed cells show
 /** A spotlight lights its region while the rest dims. The zone a beat's action brings up (a menu, a list) looks as it did
  * before the beat until it opens and again after it closes, and lighting that unchanged patch beside a dimmed action is a
  * defect. This keeps the first stretch of [from, to) where the footage in `rect` differs from its first frame (at least
- * half a second), or null when it never does. */
+ * half a second, from its first changed frame to its last), or null when it never does. */
 export async function litWindow(webm: string, rect: BBox, from: number, to: number): Promise<{ t: number; d: number } | null> {
   const [x, y, w, h] = rect.map(Math.round);
   const { stdout } = await run("ffmpeg", ["-nostdin", "-v", "error", "-ss", String(from), "-t", String(to - from), "-i", webm,
@@ -26,6 +26,17 @@ export async function litWindow(webm: string, rect: BBox, from: number, to: numb
       end = i;
     } else if (start >= 0) break;
   }
-  const d = (end - start + 1) * STEP_S;
+  const d = (end - start) * STEP_S; // ends at the last frame that changed: the region may close any time after it
   return start < 0 || d < 0.5 ? null : { t: from + start * STEP_S, d: Math.min(4, d) };
+}
+
+/** The film's planned spotlights measured as above, for a take planned before they were: each is scanned for a few seconds from
+ * its planned start, the measured ones (`lit`) are kept as they are, and one that never changes is dropped. */
+export async function litSpotlights<T extends { t: number; d: number; rect: BBox; lit?: true }>(webm: string, list: T[]): Promise<T[]> {
+  const kept = await Promise.all(list.map(async (s) => {
+    if (s.lit) return s;
+    const w = await litWindow(webm, s.rect, s.t, s.t + s.d + 8);
+    return w ? { ...s, ...w, lit: true as const } : null;
+  }));
+  return kept.filter((s): s is NonNullable<typeof s> => s !== null);
 }

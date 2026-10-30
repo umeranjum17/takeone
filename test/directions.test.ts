@@ -1,7 +1,5 @@
-// The direction model, the directions and pick cards on the sign-off board, the cut page, the judge-refine polish loop and
-// its builder, and the judge's feedback and gaps options. Every model answer here is a recorded reply served by a fake
-// fetch: the Jev wire for the planner, the Anthropic Messages wire for the judge. The sign-off board is a fake binary that
-// records its arguments.
+// Directions (A/B/C cuts of one take), the pick, and the judge-refine polish loop. Every model answer here is a
+// recorded Jev-wire reply served by a fake fetch; the sign-off board is a fake binary that records its arguments.
 
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -13,11 +11,12 @@ import type { Answer } from "@byokit/decide";
 import { mapDirections, directionsRequest, directionSet } from "../src/directions/directions.ts";
 import { pickDirection, runDirections, type DirectionsFile } from "../src/directions/run.ts";
 import { runPolish, type Candidate, type Critique, type Feedback, type PolishHooks } from "../src/polish/loop.ts";
+import { latestRun, pickRound, polishFeedback, runPolishCommand } from "../src/polish/run.ts";
 import { builderRequest, KNOBS, mapBuilder } from "../src/polish/builder.ts";
 import { judgeRound, JudgeUnavailable } from "../src/score/judge.ts";
 import { resolvePlanner, type ResolvedPlanner } from "../src/decide/planner.ts";
 import { cutPage } from "../src/board/page.ts";
-import { litWindow } from "../src/perceive/lit.ts";
+import { litSpotlights, litWindow } from "../src/perceive/lit.ts";
 import { cardNotes, freeKey } from "../src/board/board.ts";
 import { resolveCamera } from "../src/cli.ts";
 import { DEFAULTS } from "../src/camera/defaults.ts";
@@ -71,6 +70,19 @@ test("directions refuses --no-ai: every option is judged", () => {
     assert.match(result.stderr, /--no-ai is not offered: directions needs the planner and the independent judge/);
     assert.doesNotMatch(result.stdout + result.stderr, /--no-ai\]/, "the usage no longer lists --no-ai");
     assert.ok(!existsSync(join(dir, "directions")), "nothing was planned or rendered");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("polish refuses --no-ai: every round is built and judged", () => {
+  const dir = mkdtempSync(join(tmpdir(), "takeone-no-ai-"));
+  try {
+    writeFileSync(join(dir, "take.json"), "{}\n");
+    const result = spawnSync(process.execPath, ["--experimental-strip-types", "src/cli.ts", "polish", dir, "--no-ai"], { encoding: "utf8" });
+    assert.equal(result.status, 2, "polish --no-ai is a usage error");
+    assert.match(result.stderr, /--no-ai is not offered: polish needs the planner and the independent judge/);
+    assert.ok(!existsSync(join(dir, "polish")), "nothing was planned or rendered");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -326,7 +338,7 @@ function fakeSignOff(root: string): { board: string; calls: () => string[][] } {
   return { board, calls: () => existsSync(log) ? readFileSync(log, "utf8").split("\n").filter(Boolean).map((l) => l.split("\0").filter(Boolean)) : [] };
 }
 
-test("directions render real cuts, post one board pick, and pick reads the owner's answer from the board", { skip: needsFfmpeg, timeout: 600_000 }, async () => {
+test("directions render real cuts, post one board pick, and polish refines the picked cut with recorded answers", { skip: needsFfmpeg, timeout: 600_000 }, async () => {
   const root = mkdtempSync(join(tmpdir(), "takeone-directions-"));
   const was = process.env.TAKEONE_SIGN_OFF;
   try {
@@ -355,7 +367,7 @@ test("directions render real cuts, post one board pick, and pick reads the owner
     const post = sign.calls().find((c) => c[0] === "post")!;
     assert.deepEqual(post.slice(0, 6), ["post", sign.board, "--type", "design", "--key", "takeone-t1-directions-1"]);
 
-    // The owner picks B on the board with a note; pick reads the answer, saves B on the take and copies its cut to out/.
+    // The owner picks B on the board with a note; pick reads it, and polish takes the note as feedback.
     writeFileSync(join(root, "answers.json"), JSON.stringify({ "takeone-t1-directions-1": { answer: "b", note: "hold the result a bit longer" } }));
     const picked = pickDirection(dir, undefined, quiet.log);
     assert.equal(picked.picked.id, "b");
@@ -363,6 +375,55 @@ test("directions render real cuts, post one board pick, and pick reads the owner
     assert.equal(picked.note, "hold the result a bit longer");
     assert.equal(JSON.parse(readFileSync(join(dir, "take.json"), "utf8")).direction.theme, file.directions[1]!.theme);
     assert.ok(readFileSync(join(dir, "out", "t1.mp4")).equals(readFileSync(join(dir, file.directions[1]!.film))), "out/ is the picked cut");
+
+    const result = await runPolishCommand({
+      dir, maxRounds: 2, feedback: [], set: FAST, board: sign.board, judge, builder: planner,
+      configDir: join(root, "cfg"), fetchImpl: recorded({ score: 8, yes: 1, choices: { opening: "longer", ending: "longer" } }),
+      resolveCamera: camera, ...quiet,
+    });
+    const { state } = result;
+    assert.equal(state.rounds[0]!.feedback[0]!.text, "hold the result a bit longer");
+    assert.equal(state.rounds[0]!.feedback[0]!.source, "board");
+    assert.ok(state.rounds[1]!.changes.some((c) => c.startsWith("opening:")), state.rounds[1]!.changes.join("; "));
+    assert.ok(state.rounds[1]!.set.some((p) => p.startsWith("establish_s=")));
+    assert.equal(state.rounds[0]!.critique!.directionKept, true);
+    assert.ok(["no_improvement_two_rounds", "round_cap"].includes(state.stop_reason!), String(state.stop_reason));
+    assert.ok(existsSync(join(result.runDir, "round-1.mp4")));
+    assert.equal(latestRun(dir), result.runDir);
+    assert.throws(() => polishFeedback(dir, "too late"), /stopped/);
+    const meta = JSON.parse(readFileSync(join(dir, "take.json"), "utf8"));
+    assert.equal(meta.direction.polished.round, state.final!.round);
+    const posts = sign.calls().filter((c) => c[0] === "post").map((c) => c[c.indexOf("--key") + 1]);
+    assert.deepEqual(posts.slice(1), ["takeone-t1-polish-1-r1", "takeone-t1-polish-1-r2"].slice(0, state.rounds.length - 1));
+    if (state.rounds.length > 2) assert.ok(sign.calls().some((c) => c[0] === "dismiss" && c[1] === "takeone-t1-polish-1-r1"));
+
+    // The owner answers R0 on the last round card: pick with no letter ships that round instead of the loop's choice.
+    const lastCard = posts.at(-1)!;
+    writeFileSync(join(root, "answers.json"), JSON.stringify({ "takeone-t1-directions-1": { answer: "b" }, [lastCard]: { answer: "r0" } }));
+    assert.deepEqual(pickRound(dir, undefined, quiet.log), { round: 0, from: "board" });
+    assert.equal(JSON.parse(readFileSync(join(dir, "take.json"), "utf8")).direction.polished.round, 0);
+    assert.ok(readFileSync(join(dir, "out", "t1.mp4")).equals(readFileSync(join(result.runDir, "round-0.mp4"))), "out/ is round 0's film");
+    assert.throws(() => pickRound(dir, 9, quiet.log), /no judged round 9/);
+
+    // A second run with no --board uses the board the directions went to, and when the judge fails on refinement 1 it
+    // still ships round 0, the best accepted round, instead of the unjudged render left in out/.
+    writeFileSync(join(root, "answers.json"), "{}");
+    const judgeDown = recorded({ score: 7, yes: 1, choices: { cursor: "larger" } });
+    const failing = (async (url: unknown, init?: { body?: unknown }) => /refinement 1 of/.test(String(init?.body)) && /"tools"/.test(String(init?.body))
+      ? new Response("overloaded", { status: 529 }) : judgeDown(url as string, init as RequestInit)) as typeof fetch;
+    await assert.rejects(runPolishCommand({
+      dir, maxRounds: 2, feedback: ["keep the cursor easy to follow"], set: [], judge, builder: planner,
+      configDir: join(root, "cfg"), fetchImpl: failing, resolveCamera: camera, ...quiet,
+    }), JudgeUnavailable);
+    const second = latestRun(dir)!;
+    const run2 = JSON.parse(readFileSync(join(second, "run.json"), "utf8"));
+    assert.equal(run2.status, "failed");
+    assert.equal(run2.final.round, 0);
+    assert.equal(run2.board.file, sign.board);
+    assert.ok(readFileSync(join(dir, "out", "t1.mp4")).equals(readFileSync(join(second, "round-0.mp4"))), "the failed run ships its round 0, not the unjudged round 1");
+    assert.equal(JSON.parse(readFileSync(join(dir, "take.json"), "utf8")).direction.polished.run, second.split("/").at(-1));
+    assert.ok(existsSync(join(second, "round-1.mp4")), "round 1 was rendered before the judge failed");
+    assert.throws(() => polishFeedback(dir, "x"), /stopped/);
   } finally {
     if (was === undefined) delete process.env.TAKEONE_SIGN_OFF;
     else process.env.TAKEONE_SIGN_OFF = was;
@@ -411,6 +472,12 @@ test("a spotlight window starts when its region has content and is dropped when 
     const lit = await litWindow(webm, [0, 0, 320, 180], 0, 4);
     assert.ok(lit && Math.abs(lit.t - 2) <= 0.25 && lit.d >= 1.5, JSON.stringify(lit));
     assert.equal(await litWindow(webm, [0, 0, 320, 180], 0, 1.8), null, "a region that stays flat is never lit");
+    // A take planned before the measure kept its planned window: render measures it and keeps a measured one as it is.
+    const rect: [number, number, number, number] = [0, 0, 320, 180];
+    const kept = await litSpotlights(webm, [{ t: 0, d: 2, rect }, { t: 2.5, d: 1, rect, lit: true }]);
+    assert.equal(kept.length, 2);
+    assert.ok(Math.abs(kept[0]!.t - 2) <= 0.25 && kept[0]!.lit === true, "the planned window moved to when the region changes");
+    assert.deepEqual(kept[1], { t: 2.5, d: 1, rect, lit: true }, "a measured window is left as it is");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

@@ -194,8 +194,8 @@ async function directionsFor(o: DirectionsOptions, board: string | undefined, pr
     if (previous) replaceCard(previous.file, previous.key, o.log);
     const key = await postCard({
       board, key: `takeone-${file.take}-directions-${runs ? Number(runs[1]) + 1 : 1}`, filer: `takeone-${file.take}`, recommend: recommended,
-      title: `Which cut of ${file.take} should be picked?`,
-      tradeoff: `Each option is a full render of the same take. Scores are from an independent judge (${judge.label}) on 3 sampled frames per cut. Picking one saves it on the take.`,
+      title: `Which cut of ${file.take} should be polished?`,
+      tradeoff: `Each option is a full render of the same take. Scores are from an independent judge (${judge.label}) on 3 sampled frames per cut. Picking one starts the polish rounds.`,
       options: judged.map((d) => ({
         value: d.id, label: `${letter(d.id)} ${d.score.toFixed(1)} ${d.name}`.slice(0, 120), film: join(o.dir, d.film), posterAt: 1,
         page: {

@@ -573,7 +573,7 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
       const lit = (await Promise.all(planned.map(async (s) => {
         const span = Object.values(spans).find((b) => b.t === s.t);
         const w = await litWindow(webm, s.rect, s.t, s.t + (span?.len ?? s.d) + 1);
-        return w ? { ...s, ...w } : null;
+        return w ? { ...s, ...w, lit: true as const } : null;
       }))).filter((s): s is NonNullable<typeof s> => s !== null);
       if (lit.length < planned.length) warn(`film: ${planned.length - lit.length} spotlight(s) dropped, the region is blank while its beat runs`);
       if (planned.length > 0) filmDecision = { ...filmDecision, ...(lit.length > 0 ? { spotlight: lit } : { spotlight: undefined }) };

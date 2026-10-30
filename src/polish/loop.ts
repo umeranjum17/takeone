@@ -15,7 +15,7 @@ export interface Feedback {
   id: string;
   at: string;
   text: string;
-  /** Where it came from: typed by the owner, or a note left on the sign-off board. */
+  /** Where it came from: typed with --feedback or polish-feedback, or a note left on the sign-off board. */
   source: "cli" | "board";
 }
 

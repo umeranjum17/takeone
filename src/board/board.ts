@@ -1,4 +1,4 @@
-// Demo options on the sign-off board. Every option is a design card option whose mock is a small
+// Demo options and polish rounds on the sign-off board. Every option is a design card option whose mock is a small
 // page that plays the cut in place (phone and desktop) beside its judge score; the board opens it full screen. The
 // board serves the files beside a mock up to 5 MB each, so each cut goes up as a board copy that fits.
 

@@ -27,6 +27,8 @@ import { JudgeUnavailable } from "./score/judge.ts";
 import { makeWithScore } from "./score/run.ts";
 import { DEFAULT_MAX_ROUNDS, DEFAULT_TARGET_SCORE } from "./score/loop.ts";
 import { pickDirection, runDirections } from "./directions/run.ts";
+import { pickRound, polishFeedback, runPolishCommand } from "./polish/run.ts";
+import { DEFAULT_POLISH_ROUNDS, MAX_POLISH_ROUNDS } from "./polish/loop.ts";
 
 export function takesDir(): string {
   return process.env["TAKEONE_DIR"] ?? join(homedir(), "Videos", "takeone");
@@ -226,7 +228,8 @@ takeone --version|-v    print the installed version
   make plans beats and camera decisions with your AI engine (sign in with claude, codex login or opencode auth login, or store a key with key set), then renders an MP4.
   render creates a camera path and MP4 from a planned take.
   directions renders 2-3 distinct cuts (look, pacing, camera motion) of one plan and has an independent judge score each;
-  pick saves one on the take. --board posts the cuts to a sign-off board.
+  pick saves one on the take; polish refines that cut round by round until the judge scores it 9/10, at most
+  ${MAX_POLISH_ROUNDS} refinements, stopping after two rounds without a better score. --board posts them to a sign-off board.
   key set --backend <name> stores that provider's key and records the planner choice.
 
   --brand         dress the film in a brand file's colours and typeface; a font file it carries rides the render
@@ -406,9 +409,9 @@ export async function main(argv: string[]): Promise<number> {
       return 1;
     }
   }
-  if (cmd === "directions" || cmd === "pick") return runDirectionCommand(cmd, rest);
+  if (cmd === "directions" || cmd === "pick" || cmd === "polish" || cmd === "polish-feedback") return runDirectionCommand(cmd, rest);
   if (cmd !== "make") {
-    console.error(`takeone: unknown command "${cmd}". Use "make", "render", "directions", "pick", "zoom", "look", "motion", "brand", "gauntlet", "record", "stop", "doctor" or "list".`);
+    console.error(`takeone: unknown command "${cmd}". Use "make", "render", "directions", "pick", "polish", "polish-feedback", "zoom", "look", "motion", "brand", "gauntlet", "record", "stop", "doctor" or "list".`);
     return 2;
   }
   const a = parseArgs(rest);
@@ -481,9 +484,11 @@ export async function main(argv: string[]): Promise<number> {
 }
 
 export const DIRECTIONS_USAGE = `takeone directions <take> [--count 2|3] [--goal "<sentence>"] [--style "<word>"] [--replan] [--set key=value] [--board <decisions.json>]
-takeone pick <take> [a|b|c]`;
+takeone pick <take> [a|b|c|r<round>]
+takeone polish <take> [--max-rounds 1-${MAX_POLISH_ROUNDS}] [--feedback "<note>"]... [--set key=value] [--board <decisions.json>]
+takeone polish-feedback <take> "<note>"`;
 
-/** `directions` and `pick`: distinct cuts of one take, and the owner's pick of one. */
+/** `directions`, `pick`, `polish` and `polish-feedback`: distinct cuts of one take, the owner's pick, and judge-refine rounds on it. */
 async function runDirectionCommand(cmd: string, rest: string[]): Promise<number> {
   const [id, ...args] = rest;
   if (!id || id.startsWith("--")) {
@@ -499,15 +504,27 @@ async function runDirectionCommand(cmd: string, rest: string[]): Promise<number>
   const warn = (line: string) => console.error(line);
   const camera = (takeDir: string, pairs: string[], theme?: string) => resolveCamera(takeDir, pairs, theme, true);
   try {
-    if (cmd === "pick") {
-      if (args.length > 1) throw new UsageError("pick takes the take and at most one direction letter (a, b or c)");
-      pickDirection(dir, args[0]?.toLowerCase(), log);
+    if (cmd === "polish-feedback") {
+      if (args.length !== 1) throw new UsageError("polish-feedback takes the take and one quoted note");
+      const entry = polishFeedback(dir, args[0]!);
+      console.log(`polish-feedback: saved; the next round reads it (${entry.id})`);
       return 0;
     }
-    const o = { count: 3, replan: false, set: [] as string[], goal: undefined as string | undefined, style: undefined as string | undefined, board: undefined as string | undefined };
+    if (cmd === "pick") {
+      if (args.length > 1) throw new UsageError("pick takes the take and at most one direction letter or polish round (r0, r1, ...)");
+      const choice = args[0]?.toLowerCase();
+      // r<N> ships that round of the latest polish run; with nothing named, an answered polish card wins over the directions card.
+      if (choice !== undefined && /^r\d+$/.test(choice)) pickRound(dir, Number(choice.slice(1)), log);
+      else if (choice !== undefined || !pickRound(dir, undefined, log)) {
+        const picked = pickDirection(dir, choice, log);
+        if (picked.note) log(`pick: the owner's note "${picked.note}" becomes feedback for the first polish round`);
+      }
+      return 0;
+    }
+    const o = { count: 3, maxRounds: DEFAULT_POLISH_ROUNDS, replan: false, set: [] as string[], feedback: [] as string[], goal: undefined as string | undefined, style: undefined as string | undefined, board: undefined as string | undefined };
     for (let i = 0; i < args.length; i++) {
       const flag = args[i]!;
-      // Every option is judged and every cut is built and judged, so there is no planner-free mode here.
+      // Every option is judged and every round is built and judged, so there is no planner-free mode here.
       if (flag === "--no-ai") throw new UsageError(`--no-ai is not offered: ${cmd} needs the planner and the independent judge`);
       if (flag === "--replan" && cmd === "directions") { o.replan = true; continue; }
       const value = args[++i];
@@ -519,11 +536,20 @@ async function runDirectionCommand(cmd: string, rest: string[]): Promise<number>
         if (value.length > GOAL_STYLE_MAX_CHARS) throw new UsageError(`${flag} must be at most ${GOAL_STYLE_MAX_CHARS} characters`);
         o[flag === "--goal" ? "goal" : "style"] = value;
       }
+      else if (flag === "--max-rounds" && cmd === "polish") o.maxRounds = Number(value);
+      else if (flag === "--feedback" && cmd === "polish") o.feedback.push(value);
       else throw new UsageError(`unknown option ${flag}`);
     }
-    if (!(Number.isInteger(o.count) && o.count >= 2 && o.count <= 3)) throw new UsageError("--count must be 2 or 3");
-    await runDirections({ dir, count: o.count, replan: o.replan, set: o.set, log, warn, resolveCamera: camera,
-      ...(o.goal === undefined ? {} : { goal: o.goal }), ...(o.style === undefined ? {} : { style: o.style }), ...(o.board === undefined ? {} : { board: o.board }) });
+    if (cmd === "directions" && !(Number.isInteger(o.count) && o.count >= 2 && o.count <= 3)) throw new UsageError("--count must be 2 or 3");
+    if (cmd === "polish" && !(Number.isInteger(o.maxRounds) && o.maxRounds >= 1 && o.maxRounds <= MAX_POLISH_ROUNDS)) throw new UsageError(`--max-rounds must be an integer from 1 to ${MAX_POLISH_ROUNDS}`);
+    if (cmd === "polish") for (const text of o.feedback) if (!text.trim() || text.trim().length > 2000) throw new UsageError("--feedback must be 1-2000 characters");
+    if (cmd === "directions") {
+      await runDirections({ dir, count: o.count, replan: o.replan, set: o.set, log, warn, resolveCamera: camera,
+        ...(o.goal === undefined ? {} : { goal: o.goal }), ...(o.style === undefined ? {} : { style: o.style }), ...(o.board === undefined ? {} : { board: o.board }) });
+      return 0;
+    }
+    await runPolishCommand({ dir, maxRounds: o.maxRounds, feedback: o.feedback, set: o.set, log, warn, resolveCamera: camera,
+      ...(o.board === undefined ? {} : { board: o.board }) });
     return 0;
   } catch (e) {
     if (e instanceof UsageError) {
