@@ -103,6 +103,15 @@ test("a stage gradient is dithered in every channel, so a hue ramp never bands",
   } finally {rmSync(dir,{recursive:true,force:true});}
 });
 
+test("a theme with its own background paints it, not midnight's stage stops", () => {
+  assert.equal(resolveTheme("midnight").bg_stops, applyOverrides({}).bg_stops, "midnight keeps the default stage");
+  assert.equal(resolveTheme("aurora").bg_stops, "#0a0f1f,#24124a,#0e5a6b,#5b2a86");
+  for (const name of Object.keys(THEMES).filter((n) => n !== "midnight" && n !== "aurora")) {
+    assert.equal(resolveTheme(name).bg_stops, "", `${name} uses its background and background_to`);
+  }
+  assert.equal(resolveTheme("sand", { bg_stops: "#111111,#222222" }).bg_stops, "#111111,#222222", "--set still wins");
+});
+
 test("caption ink meets 4.5:1 contrast after compositing on any grey screen", () => {
   const rgb=(colour:string)=>[1,3,5].map(i=>parseInt(colour.slice(i,i+2),16)/255);
   const luminance=(channels:number[])=>channels.map(v=>v<=0.04045?v/12.92:((v+0.055)/1.055)**2.4)
