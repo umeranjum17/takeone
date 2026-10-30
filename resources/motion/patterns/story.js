@@ -10,7 +10,7 @@ const SURFACE = {
   chips: (layer, s, { W, H, U, R, stack }) => (s.tree ?? []).forEach((t, i, all) => {
     const [x, y] = [[.05, .12], [.52, .07], [.74, .17], [.03, .72], [.3, .87], [.58, .82], [.76, .68], [.28, .2]][i];
     // stacked: one chip per row of R, each at its own x, sized from its text so it stays inside the margin
-    const fs = stack ? U * .034 : H * .024, pad = stack ? U * .026 : H * .014, padX = stack ? U * .047 : H * .026, w = Math.min(R.w, [...t].length * fs * .62 + 2 * padX);
+    const f = stack ? Math.min(1, R.h / all.length * .78 / (U * .0988)) : 1, fs = stack ? U * .034 * f : H * .024, pad = stack ? U * .026 * f : H * .014, padX = stack ? U * .047 * f : H * .026, w = Math.min(R.w, [...t].length * fs * .62 + 2 * padX);
     const at = stack ? `left:${R.x + [.05, .62, .2, .7, .1, .5, .3, .66][i] * (R.w - w)}px;top:${R.y + (i + .5) * R.h / all.length - (fs * 1.2 + 2 * pad) / 2}px` : `left:${x * 100}%;top:${y * 100}%`;
     const chip = h(`<div style="position:absolute;${at};padding:${pad}px ${padX}px;border-radius:999px;border:1px solid var(--line);background:var(--card);color:var(--ink);font:${fs}px var(--body);white-space:nowrap">${esc(t)}</div>`);
     layer.append(chip); rise(chip, 300 + i * 140, `translateY(${U * .03}px)`);

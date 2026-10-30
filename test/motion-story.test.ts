@@ -55,6 +55,8 @@ test("story stacks the headline above the product on a portrait or square frame,
           const [copy,stage]=[...l.children].filter((c)=>c.tagName==="DIV"),box=(e)=>{const r=e.getBoundingClientRect();return [r.left,r.top,r.right,r.bottom];};
           return {head:box(copy.lastElementChild),product:[...stage.children].map(box)};}))()`);
         assert.equal(boxes.length, 4);
+        const chips = boxes[0]!.product;
+        for (const [i, a] of chips.entries()) for (const c of chips.slice(i + 1)) assert.ok(a[2]! <= c[0]! || c[2]! <= a[0]! || a[3]! <= c[1]! || c[3]! <= a[1]!, `${w}x${h}: two chips meet`);
         for (const { head, product } of boxes) {
           for (const p of product) {
             assert.ok(head[3]! < p[1]!, `${w}x${h}: the headline ends at ${head[3]!.toFixed(0)} px, above the product at ${p[1]!.toFixed(0)} px`);
