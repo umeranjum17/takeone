@@ -66,9 +66,11 @@ export function parseSet(pairs: string[]): Overrides {
  * Throws on malformed pairs. Portrait takes default to portrait output. `make` passes
  * withFilm false: it applies its own film decision after this. */
 export function resolveCamera(dir: string, pairs: string[], theme?: string, withFilm = true): CameraDefaults {
+  // Typed pairs are checked before the take is read, so a malformed one is refused as such.
+  const typed = parseSet(pairs);
   const meta = JSON.parse(readFileSync(join(dir, "take.json"), "utf8")) as { theme?: unknown; film?: FilmDecision; direction?: PickedDirection };
   // A picked direction is the person's own choice: its pairs sit under the typed ones and its theme under a typed --theme.
-  const raw = { ...parseSet(meta.direction?.set ?? []), ...parseSet(pairs) };
+  const raw = { ...parseSet(meta.direction?.set ?? []), ...typed };
   const selected = theme ?? meta.direction?.theme ?? meta.theme;
   if (!("out_w" in raw) && !("out_h" in raw) && isPortraitTake(dir)) {
     raw.out_w = 1080;
