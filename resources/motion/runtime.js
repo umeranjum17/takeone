@@ -21,20 +21,17 @@ window.K = (el, keys) => {
 };
 // Hard switch: value a before ms, b from ms.
 window.SW = (ms, a, b) => [[Math.max(0, ms - 0.5), a], [ms, b]];
-// Visible only in [t0, t1) ms (scene-local).
+// Visible only in [t0, t1) ms (scene-local), as a pure function of the page clock.
+// A window used to be a keyframe pair on `visibility`. A discrete flip that completes on a frame time samples as the
+// value before it, and every scene's first frame is its cut, so that frame drew no text and the film flickered its
+// words in. A tick has no keyframes to interpolate, and the switch closes WINDOW_EDGE ms before its own time so a
+// frame landing on the cut (or a hair off it after rounding) is unambiguously inside the window.
+window.WINDOW_EDGE = 2;
 window.WINDOW = (el, t0, t1) => {
-  const on = { visibility: "visible" }, off = { visibility: "hidden" };
-  const base = BASE, start = base + t0, end = base + t1;
-  const keys = end <= 0 ? [[0, off], [1, off]] : [
-    ...(start > 0 ? [[0, off], ...SW(start, off, on)] : [[0, on]]),
-    ...SW(end, on, off),
-  ];
-  // Visibility belongs to the page clock. A fill:both animation delayed to a future scene would
-  // otherwise show its first (visible) key before the delay and cover the current scene.
-  BASE = 0;
-  const animation = K(el, keys);
-  BASE = base;
-  return animation;
+  const start = BASE + t0 - WINDOW_EDGE, end = BASE + t1 - WINDOW_EDGE;
+  const apply = (ms) => { el.style.visibility = ms >= start && ms < end ? "visible" : "hidden"; };
+  TICKS.push(apply);
+  apply(0);
 };
 
 window.smootherstep = (x) => (x <= 0 ? 0 : x >= 1 ? 1 : x * x * x * (x * (x * 6 - 15) + 10));

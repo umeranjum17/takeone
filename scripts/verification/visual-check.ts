@@ -317,10 +317,11 @@ function check(s: Sample) {
     facts.geometry_aspect_error = geo;
     if (Math.abs(geo) > LIMIT.stretch) flag("stretch", geo, LIMIT.stretch, content, "sidecar map scales x and y differently");
     const inner = { x: content.x + content.w * 0.03, y: content.y + content.h * 0.03, w: content.w * 0.94, h: content.h * 0.94 };
-    if (s.hold) {
+    if (s.hold || existsSync(join(take, "storyboard.json"))) {
       const r = register(O, S!, v, inner);
       ob = r.ob; facts.ncc = r.ncc; facts.ncc_sidecar = r.sidecar;
-      if (r.ncc < LIMIT.match) { matched = false; flag("mismatch", r.ncc, LIMIT.match, content, "film does not show the take's screen where its sidecars place it"); }
+      if (!s.hold) { if (r.ncc >= LIMIT.match) m = r.m; }
+      else if (r.ncc < LIMIT.match) { matched = false; flag("mismatch", r.ncc, LIMIT.match, content, "film does not show the take's screen where its sidecars place it"); }
       else {
         m = r.m;
         const err = (m.ax / m.ay) - 1;
@@ -377,12 +378,12 @@ function check(s: Sample) {
     }
     const mean = s / n, sd = Math.sqrt(Math.max(0, ss / n - mean * mean)), emean = es / en, esd = Math.sqrt(Math.max(0, ess / en - emean * emean));
     const known = en >= n * 0.9, same = known ? esd <= LIMIT.flatSd * 2 && Math.abs(mean - emean) <= LIMIT.same : Math.abs(mean - stageLuma) <= LIMIT.same;
-    return sd <= LIMIT.flatSd && !same;
+    return { blank: sd <= LIMIT.flatSd && !same, mean };
   };
   const strips: Record<string, number> = {};
   const scan = (label: string, vertical: boolean, from: number, dir: number, a: number, b: number, depth: number) => {
     let n = 0;
-    while (n < depth && line(vertical, from + dir * n, a, b)) n++;
+    while (n < depth && line(vertical, from + dir * n, a, b).blank) n++;
     strips[label] = n;
     if (n >= LIMIT.strip * unit) {
       const lo = dir > 0 ? from : from - n + 1;
@@ -397,7 +398,13 @@ function check(s: Sample) {
   const scanOut = (label: string, vertical: boolean, from: number, dir: number, a: number, b: number) => {
     let m = 0;
     const max = dir > 0 ? (vertical ? ow - 1 - from : oh - 1 - from) : from;
-    while (m < max && line(vertical, from + dir * m, a, b)) m++;
+    let first = NaN;
+    while (m < max) {
+      const x = line(vertical, from + dir * m, a, b);
+      if (!x.blank || (m && Math.abs(x.mean - first) > LIMIT.flatSd)) break;
+      if (!m) first = x.mean;
+      m++;
+    }
     strips[label] = m;
     const end = from + dir * m, bounded = dir > 0 ? end < (vertical ? ow - 1 : oh - 1) : end > 0;
     if (m >= LIMIT.strip * unit && bounded) {
