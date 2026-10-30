@@ -1,3 +1,4 @@
+import { CallBudget } from "../src/decide/budget.ts";
 import assert from "node:assert/strict";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -33,7 +34,7 @@ test("a fully abstained planner beat reports failed and keeps its billed tokens"
   const questions = { focus: { kind: "choice", options: { a: "Zone A" } } } as const;
   const fetchImpl = (async () =>
     new Response(JSON.stringify({ answers: { focus: { choice: "zz", probabilities: { zz: 1 }, confidence: 0 } }, usage: { input_tokens: 15800, output_tokens: 40 } }), { status: 200 })) as typeof fetch;
-  const r = await askChunk({ secret: "x" }, questions, planner as never, new Map() as never, { fetchImpl, timeoutMs: 2000 });
+  const r = await askChunk({ secret: "x" }, questions, planner as never, new Map() as never, { fetchImpl, timeoutMs: 2000, budget: new CallBudget(), workflow: "test" });
   assert.equal(r.decisionSource, "failed");
   assert.equal(r.inputTokens, 15800);
   assert.equal(r.outputTokens, 40);

@@ -5,6 +5,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, writeFileSync, copyFileSync } from "node:fs";
 import { basename, join, resolve } from "node:path";
 import { MemoryCache, type Answer } from "@byokit/decide";
+import { CallBudget } from "../decide/budget.ts";
 import { askChunk } from "../decide/planner.ts";
 import { signedInPlanner } from "./editorial.ts";
 import { referenceCuts } from "./reference.ts";
@@ -84,7 +85,7 @@ export function filmStoryboard(a: FilmArgs, id: string, probe: { width: number; 
 }
 
 /** The pages for a film's segments, written under dir/segments/: a given page is copied, a brief is written by the engine. */
-async function writePages(dir: string, a: FilmArgs, board: Storyboard, log: (line: string) => void): Promise<void> {
+async function writePages(dir: string, a: FilmArgs, board: Storyboard, budget: CallBudget, log: (line: string) => void): Promise<void> {
   mkdirSync(join(dir, "segments"), { recursive: true });
   const named = [["intro", a.pieces.find(p => p.kind === "intro")], ["outro", a.pieces.find(p => p.kind === "outro")],
     ...a.pieces.filter(p => p.kind === "callout").sort((x, y) => x.at! - y.at!).map((p, i) => [`callout${i + 1}`, p] as const)] as const;
@@ -98,7 +99,7 @@ async function writePages(dir: string, a: FilmArgs, board: Storyboard, log: (lin
     // A page that breaks the renderer's contract is asked again once, with what it broke; a second miss stops and says why.
     for (let retry: Record<string, unknown> | undefined, attempt = 0; ; attempt++) {
       const state = { brief: piece.source, kind: piece.kind, frame: { width: board.output.out_w, height: board.output.out_h }, ...(retry ? { retry } : {}) };
-      const outcome = await askChunk(state, { page: { kind: "yesno", question: ask(piece.kind, a.tech, board.output.out_w, board.output.out_h), answerFields: ["html"] } }, planner, new MemoryCache(), { timeoutMs: 300_000, keepAnswers: true });
+      const outcome = await askChunk(state, { page: { kind: "yesno", question: ask(piece.kind, a.tech, board.output.out_w, board.output.out_h), answerFields: ["html"] } }, planner, new MemoryCache(), { timeoutMs: 300_000, keepAnswers: true, budget, workflow: "motion film" });
       const answer: Answer | undefined = outcome.answers?.["page"];
       const html = (answer as unknown as { html?: unknown } | undefined)?.html;
       if (!answer || answer.abstained || answer.answer !== true || typeof html !== "string") throw new Error(`the ${key} segment got no page from the planner (${outcome.failure ?? answer?.reason ?? "no answer"}); rerun to ask again`);
@@ -161,9 +162,10 @@ export async function runFilm(argv: string[], takesDir: string, log: (line: stri
   const dir = newTakeDir(a.out, takesDir);
   if (a.reference) a.beats = await referenceCuts(a.reference, join(dir, "reference"), log);
   const board = validateStoryboard(filmStoryboard(a, basename(a.video).replace(/\.[^.]+$/, "").replace(/[^A-Za-z0-9_-]/g, "-").slice(0, 64) || "film", { width, height, duration }));
-  await writePages(dir, a, board, log);
+  const budget = new CallBudget(dir);
+  await writePages(dir, a, board, budget, log);
   writeFileSync(join(dir, "storyboard.json"), JSON.stringify(board, null, 2) + "\n");
-  writeFileSync(join(dir, "take.json"), JSON.stringify({ id: basename(dir), theme: board.theme.name, motion: { pattern: board.scenes.map(s => s.pattern).join("+"), storyboard: "storyboard.json" } }, null, 2) + "\n");
+  writeFileSync(join(dir, "take.json"), JSON.stringify({ id: basename(dir), theme: board.theme.name, motion: { pattern: board.scenes.map(s => s.pattern).join("+"), storyboard: "storyboard.json" }, calls: budget.summary() }, null, 2) + "\n");
   const { out, manifest } = await renderMotion(dir, { engine: a.engine, workers: a.workers });
   log(`motion: ${manifest.frames} frames ${manifest.width}x${manifest.height}@${manifest.fps} on ${manifest.workers} workers in ${manifest.render_s} s`);
   console.log(out);

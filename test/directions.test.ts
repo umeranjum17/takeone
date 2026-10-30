@@ -1,6 +1,7 @@
 // Directions (A/B/C cuts of one take), the pick, and the judge-refine polish loop. Every model answer here is a
 // recorded Jev-wire reply served by a fake fetch; the sign-off board is a fake binary that records its arguments.
 
+import { CallBudget, CallBudgetExceeded } from "../src/decide/budget.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
@@ -280,7 +281,7 @@ test("the judge checks each piece of owner feedback in the same call and names t
   try {
     const { judge } = await jevRoutes(dir);
     const cache = { get: async () => undefined, set: async () => undefined };
-    const card = await judgeRound(judge, facts(), { cache, fetchImpl: recorded({ score: 8, yes: 0.9 }) }, {
+    const card = await judgeRound(judge, facts(), { cache, budget: new CallBudget(), fetchImpl: recorded({ score: 8, yes: 0.9 }) }, {
       gaps: true, feedback: [{ id: "x", text: "make the click easier to see" }],
     });
     assert.equal(card.score, 8);
@@ -288,7 +289,7 @@ test("the judge checks each piece of owner feedback in the same call and names t
     assert.equal(card.gaps.length, card.items.length, "every item under 9 is a gap");
     assert.match(card.gaps[0]!, /^Real page size in frame \(8\/10\): recorded reason for page$/);
     assert.equal(card.feedback[0]!.reason, "recorded reason for feedback_1");
-    await assert.rejects(judgeRound(judge, facts(), { cache, fetchImpl: recorded({ score: 9, yes: 0.5 }) }, {
+    await assert.rejects(judgeRound(judge, facts(), { cache, budget: new CallBudget(), fetchImpl: recorded({ score: 9, yes: 0.5 }) }, {
       feedback: [{ id: "x", text: "a split answer is not a yes" }],
     }), JudgeUnavailable);
   } finally {
@@ -427,6 +428,75 @@ test("directions render real cuts, post one board pick, and polish refines the p
   } finally {
     if (was === undefined) delete process.env.TAKEONE_SIGN_OFF;
     else process.env.TAKEONE_SIGN_OFF = was;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("a take that runs past its model-call cap stops there, naming the workflow and the count, and take.json keeps the count", { skip: needsFfmpeg, timeout: 600_000 }, async () => {
+  const root = mkdtempSync(join(tmpdir(), "takeone-budget-"));
+  try {
+    const dir = buildTake(mkdtempSync(join(root, "take-")));
+    const { planner, judge } = await jevRoutes(root);
+    const answers = recorded({ score: 8 });
+    // The first request is rate-limited and retried: a retry is a request, so it is a unit of the budget like any other.
+    let sent = 0;
+    const fetchImpl = (async (url: unknown, init?: unknown) => {
+      sent++;
+      return sent === 1 ? new Response("{}", { status: 429, headers: { "retry-after": "0" } }) : answers(url as string, init as RequestInit);
+    }) as typeof fetch;
+    const cap = 4;
+    const budget = new CallBudget(dir, cap);
+    // The take is planned first (its film and beat calls), then directions asks once and the judge scores each cut.
+    await assert.rejects(runDirections({
+      dir, count: 3, replan: false, set: FAST, planner, judge, configDir: join(root, "cfg"), budget, fetchImpl,
+      resolveCamera: (d, pairs, theme) => resolveCamera(d, pairs, theme, true), log: () => {}, warn: () => {},
+    }), (e: unknown) => {
+      assert.ok(e instanceof CallBudgetExceeded);
+      assert.match(e.message, new RegExp(`^the directions planner workflow hit the cap of ${cap} model calls per take after ${cap} calls`));
+      return true;
+    });
+    assert.equal(sent, cap, "the request past the cap was never sent");
+    assert.equal(budget.used, cap);
+    const calls = JSON.parse(readFileSync(join(dir, "take.json"), "utf8")).calls as { cap: number; used: number; by_workflow: Record<string, number> };
+    assert.deepEqual([calls.cap, calls.used], [cap, cap]);
+    assert.deepEqual(calls.by_workflow, { "film planner": 2, "beat planner": 2 }, "the retried film request and the chunk re-ask count; the directions ask was refused");
+    assert.ok(!existsSync(join(dir, "directions", "directions.json")), "the run stopped before it wrote directions");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("the budget does not reset between phases of one take: make, directions and the judge draw down one count across commands", { skip: needsFfmpeg, timeout: 600_000 }, async () => {
+  const root = mkdtempSync(join(tmpdir(), "takeone-budget-phases-"));
+  try {
+    const dir = buildTake(mkdtempSync(join(root, "take-")));
+    const { planner, judge } = await jevRoutes(root);
+    const answers = recorded({ score: 8 });
+    let sent = 0;
+    const fetchImpl = (async (url: unknown, init?: unknown) => { sent++; return answers(url as string, init as RequestInit); }) as typeof fetch;
+    const spent = () => (JSON.parse(readFileSync(join(dir, "take.json"), "utf8")) as { calls: { used: number; by_workflow: Record<string, number> } }).calls;
+    // One command plans the take (make), asks for the directions and judges each cut: three phases, one count.
+    await runDirections({
+      dir, count: 2, replan: false, set: FAST, planner, judge, configDir: join(root, "cfg"), fetchImpl,
+      resolveCamera: (d, pairs, theme) => resolveCamera(d, pairs, theme, true), log: () => {}, warn: () => {},
+    });
+    const first = spent();
+    assert.equal(first.used, sent, "every request that was sent is in the count, and nothing else");
+    assert.deepEqual(Object.keys(first.by_workflow).sort(), ["beat planner", "directions planner", "film planner", "judge"]);
+
+    // A later command opens the same take's budget: it carries on from the count, with a cap one call above it.
+    const cap = first.used + 1;
+    const later = new CallBudget(dir, cap);
+    assert.equal(later.used, first.used, "the budget is the take's, not the command's");
+    const cache = { get: async () => undefined, set: async () => undefined };
+    await judgeRound(judge, facts(), { cache, budget: later, fetchImpl }, {});
+    assert.equal(spent().used, cap);
+    assert.equal(spent().by_workflow.judge, first.by_workflow.judge! + 1);
+    // A budget that reset between phases would still have room here; this one has none.
+    await assert.rejects(judgeRound(judge, facts(), { cache, budget: later, fetchImpl }, {}),
+      (e: unknown) => e instanceof CallBudgetExceeded && e.message.startsWith(`the judge workflow hit the cap of ${cap} model calls per take after ${cap} calls`));
+    assert.equal(sent, cap, "the refused request was never sent");
+  } finally {
     rmSync(root, { recursive: true, force: true });
   }
 });

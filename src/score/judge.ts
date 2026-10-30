@@ -1,5 +1,6 @@
 import type { Answer, DecideCache, ImageInput, Question } from "@byokit/decide";
 import { blurredStill } from "../decide/ocr.ts";
+import type { CallBudget } from "../decide/budget.ts";
 import { askChunk, seesImages, type ResolvedPlanner } from "../decide/planner.ts";
 import { RUBRIC, scoreCard, type MeasuredFacts, type RubricId, type ScoreCard } from "./rubric.ts";
 
@@ -139,6 +140,7 @@ export function answerScore(id: string, answer: Answer | undefined): number {
 
 export interface JudgeOptions {
   cache: DecideCache;
+  budget: CallBudget;
   fetchImpl?: typeof fetch;
   log?: (line: string) => void;
 }
@@ -187,6 +189,8 @@ export async function judgeRound(
   const outcome = await askChunk(state, questions(facts, extras), planner, o.cache, {
     timeoutMs: JUDGE_TIMEOUT_MS,
     keepAnswers: true,
+    budget: o.budget,
+    workflow: "judge",
     ...(images ? { images } : {}),
     ...(o.fetchImpl ? { fetchImpl: o.fetchImpl } : {}),
   });
