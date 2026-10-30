@@ -1,0 +1,4 @@
+chips: Plan the watch / the way you'd say it. | Who has the 0400 watch?; Swap Ines and Kofi; Galley duty, Tuesday; Nobody on back-to-back; Night watch, six hands; Fuel log, Friday
+phone[Crew chat]: Ask it plainly. / Get the crew plan. | Who can take the 0400 without breaking their rest?; Ines, Kofi and Ravi are rested for 0400 to 0800.; Ines is first on the board.
+cards[The papers]: The papers / write themselves. | Watch bill; Duty roster; Supply list; Fuel log
+stats[One board]: Less juggling. / More rest. | 9 crew; 4 watches; 12 swaps; 0 clashes
