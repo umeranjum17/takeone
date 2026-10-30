@@ -8,9 +8,10 @@
 set -euo pipefail
 out="${1:?evidence folder}"
 rehearsal="${2:-}"
-# Both films take the same size and preset, so the pair stays comparable.
-small=()
-[ -z "$rehearsal" ] || small=(--set out_w=864 --set out_h=486 --set preset=ultrafast)
+# Both films take the same size and preset, so the pair stays comparable. The larger caption size keeps
+# the title big enough to read its face in a still.
+small=(--set caption_size=56)
+[ -z "$rehearsal" ] || small+=(--set out_w=864 --set out_h=486 --set preset=ultrafast)
 work=$(mktemp -d)
 trap 'rm -rf -- "$work"' EXIT
 mkdir -p "$out"
