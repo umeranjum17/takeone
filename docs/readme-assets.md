@@ -12,7 +12,7 @@ account or network. Work takes well over an hour on a loaded host; run it throug
 
 | # | Files | Built from |
 |---|---|---|
-| A1 | `hero.mp4`, `hero-poster.jpg` | headless board scene at 3840x2160, `make --no-ai --set fps=60` |
+| A1 | `hero.mp4`, `hero-poster.jpg` | headless board scene at 3840x2160, `make --set fps=60` (recorded engine) |
 | A2 | `synth-demo.mp4` | `scripts/synth-take.ts` |
 | A3 | `portrait.mp4` | board scene `--aspect=portrait` |
 | A4 | `square.mp4` | board scene `--aspect=square`, `paper` |

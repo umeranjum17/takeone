@@ -3,7 +3,7 @@
 The repo's maintained verification map; a proof that drives one entry point is incomplete when this lists others.
 
 - [Render a synthetic take to a framed demo MP4 offline](render-a-synthetic-take-to-a-framed-demo.md): Run the README quick start from a git checkout: install dependencies, then generate the demo take (`scripts/synth-take.ts`)
-- [Plan and render a recorded take](plan-and-render-a-recorded-take.md): `takeone make <id> --no-ai` on the realistic board scene: perception, beats, camera and render, judged from whole frames of the film (`src/make.ts`, `src/perceive/`, `src/beats/`, `src/camera/`)
+- [Plan and render a recorded take](plan-and-render-a-recorded-take.md): `takeone make <id>` (recorded engine) on the realistic board scene: perception, beats, camera and render, judged from whole frames of the film (`src/make.ts`, `src/perceive/`, `src/beats/`, `src/camera/`)
 - [Plan a take with the AI planner](plan-a-take-with-the-ai-planner.md): `takeone make <id>` with a key, a picked account or a signed-in CLI; the free preflight refusal, and a billed run only with approval (`src/decide/`)
 - [Change the look and shape of a film on rerender](change-the-look-and-shape-on-rerender.md): `takeone render <take> --theme`, `--set`, `--aspect`, `--resolution`, `--format`, and `take.json` cuts, speed and zooms (`src/themes.ts`, `src/render/edits.ts`)
 - [Add keycaps, spotlights and blur to a take](add-keycaps-spotlights-and-blur.md): shortcut keycaps from recorded combos, `take.json` spotlight, blur and toast windows (`src/render/overlays.ts`)

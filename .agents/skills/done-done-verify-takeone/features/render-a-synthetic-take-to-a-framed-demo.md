@@ -11,7 +11,7 @@ Run the README quick start from a git checkout: install dependencies, then gener
 Harness: Shell (bash), with ffmpeg and ffprobe to decode frames; a browser tool is needed only for the scene.html feature.
 
 1. Launch the app as SKILL.md says and wait until it is ready.
-2. Node scripts/synth-take.ts tmp/verify-synth-demo, then node bin/takeone.mjs make tmp/verify-synth-demo --no-ai.
+2. Node scripts/synth-take.ts tmp/verify-synth-demo, then scripts/verification/recorded-engine.sh "${TAKEONE_DIR:-tmp}/engine" node bin/takeone.mjs make tmp/verify-synth-demo.
 3. Capture: save the output and exit status to $DONE_DONE_EVIDENCE_ROOT/render-a-synthetic-take-to-a-framed-demo.txt, as SKILL.md's Evidence section says.
 4. Stop what you started.
 

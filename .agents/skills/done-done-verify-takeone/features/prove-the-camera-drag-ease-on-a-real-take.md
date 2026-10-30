@@ -21,7 +21,7 @@ Harness: Shell (bash), ffmpeg/ffprobe, `fm-mem-gate.sh` for every render. A synt
 
 A viewer sees the dragged object and the cursor on every frame of the drag the film shows, when the take's `trim_start`, `trim_end` or `cuts` cross the gesture, on a wide export and on a portrait crop of it (the crop is where a lost drag shows: it is about a third of the screen wide).
 
-1. Capture the headless board (`node scripts/headless-scene.mjs <dir>`, through the gate) and `make` it with `--no-ai`. Its one drag runs 16.650-18.583 s.
+1. Capture the headless board (`node scripts/headless-scene.mjs <dir>`, through the gate) and `make` it against the recorded engine. Its one drag runs 16.650-18.583 s.
 2. Copy the take once per edit, without `text-boxes.json` (render refuses a portrait crop of a take carrying it on its safe-area gate; a recorded desktop take has none), and set `trim_end` in every copy: trim 12-24; trim starting mid-drag (17.4-24); trim ending mid-drag (12-17.6); cuts over the press (16.4-17.4), inside the drag (17.2-17.9), over the release (18-19.5) and over the create click and the press (13-17.4, with trim 12-24 and with trim 0-24).
 3. Render each with `node bin/takeone.mjs render <copy>` and again with `--set out_w=1080 --set out_h=1920` (`--preview` writes the same `camera.json`).
 4. Run `node scripts/drag-audit.ts <copy> --boxes <capture>/text-boxes.json [--set out_w=1080 --set out_h=1920]` on each. It reads the drag from `events.jsonl` (never the edited beats, so a dropped drag still counts) and the card from the capture's own text boxes, and must report 0 cursor and 0 card frames out of view, on a nonzero count of frames. Report the counts per copy and shape.

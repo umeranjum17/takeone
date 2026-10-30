@@ -30,7 +30,6 @@ export function takesDir(): string {
 
 interface Args {
   id?: string;
-  noAi: boolean;
   goal?: string;
   style?: string;
   noScreenText: boolean;
@@ -138,11 +137,10 @@ export function renderDimensions(aspect?: string, resolution?: string, source: "
 const GOAL_STYLE_MAX_CHARS = 500;
 
 function parseArgs(argv: string[]): Args {
-  const a: Args = { noAi: false, noScreenText: false, replan: false, set: [], scoreRequested: false };
+  const a: Args = { noScreenText: false, replan: false, set: [], scoreRequested: false };
   for (let i = 0; i < argv.length; i++) {
     const s = argv[i]!;
-    if (s === "--no-ai") a.noAi = true;
-    else if (s === "--theme") {
+    if (s === "--theme") {
       const value = argv[++i];
       if (!value || value.startsWith("--")) throw Error("--theme needs a theme name");
       a.theme = value;
@@ -191,7 +189,7 @@ function parseArgs(argv: string[]): Args {
 
 function usage(code: number): never {
   const themes = Object.keys(THEMES).join("|");
-  console.error(`takeone make <id> [--no-ai] [--goal "<sentence>"] [--style "<word>"] [--no-screen-text] [--replan] [--max-tokens N] [--theme ${themes}] [--set key=value] [--target-score N] [--max-rounds M]
+  console.error(`takeone make <id> [--goal "<sentence>"] [--style "<word>"] [--no-screen-text] [--replan] [--max-tokens N] [--theme ${themes}] [--set key=value] [--target-score N] [--max-rounds M]
 takeone render <take-dir> [--theme ${themes}] [--set key=value] [--frame auto|browser|laptop|phone|none] [--aspect landscape|portrait|square|4:5] [--resolution 4k] [--format mp4|gif|webm|prores4444] [--preview]
 takeone render <motion-dir> [--aspect landscape|portrait|square|4:5] [--stills <seconds,...>]
 ${MOTION_USAGE}
@@ -200,11 +198,10 @@ takeone key set [--backend <name>] [--model <model>] [--via typesafe|openrouter]
 takeone [list|record|stop|doctor]
 takeone --version|-v    print the installed version
 
-  make plans beats and camera decisions, then renders an MP4.
+  make plans beats and camera decisions with your AI engine (sign in with claude, codex login or opencode auth login, or store a key with key set), then renders an MP4.
   render creates a camera path and MP4 from a planned take.
   key set --backend <name> stores that provider's key and records the planner choice.
 
-  --no-ai         decide every beat with the local heuristic; zero network calls
   --goal          what the demo is for; sharpens key moments (--about is an alias)
   --style         style hint for the film, e.g. calm, brisk
   --no-screen-text  do not send redacted screen words (sent by default with a planner)

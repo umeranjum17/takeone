@@ -10,7 +10,7 @@ Render a cursor-free take with `--set cursor_size=1.5`, `--set cursor_hide_idle_
 
 Harness: Shell (bash), ffmpeg/ffprobe, `fm-mem-gate.sh` for every capture, render and audit. A synthetic clip is never the proof: use the realistic demo scene take.
 
-1. `node scripts/install-headless-shell.mjs`, then `node scripts/headless-scene.mjs <scratch>/scene --cursor=hidden` (about ten minutes) and `TAKEONE_DIR=<scratch>/takes TAKEONE_STATE_DIR=<scratch>/state node bin/takeone.mjs make <scratch>/scene --no-ai --set fps=60`.
+1. `node scripts/install-headless-shell.mjs`, then `node scripts/headless-scene.mjs <scratch>/scene --cursor=hidden` (about ten minutes) and `TAKEONE_DIR=<scratch>/takes TAKEONE_STATE_DIR=<scratch>/state scripts/verification/recorded-engine.sh "${TAKEONE_DIR:-tmp}/engine" node bin/takeone.mjs make <scratch>/scene --set fps=60`.
 2. Copy the planned take twice; in both copies set `take.json` `cursor_free` to false. Render the original and the first copy with `render <take> --set fps=60` plus the cursor settings under test, and the second copy with the same settings plus `--set ripple_ms=0`.
 3. `node scripts/cursor-audit.ts <cursor-take> <plain-copy> <no-ripple-copy>` (about a minute). It differences the decoded films' luma, so every number is read from the encoded MP4 (on the demo take at 1080p60, 2370 frames):
    - `repeated_frames` and `unshown_lines` must be 0: every frame shows its own arrow (they were 636 and 635 before the overlay lines were centred on their frames).

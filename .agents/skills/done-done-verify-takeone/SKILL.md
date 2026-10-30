@@ -9,12 +9,12 @@ Written by `done-done init` through claude from this repo's own files (surface: 
 
 ## Launch
 
-node scripts/synth-take.ts "$PWD/tmp/verify-synth-demo" && npm run build && TAKEONE_DIR="$PWD/tmp/verify-takes" TAKEONE_STATE_DIR="$PWD/tmp/verify-state" node bin/takeone.mjs make "$PWD/tmp/verify-synth-demo" --no-ai
+node scripts/synth-take.ts "$PWD/tmp/verify-synth-demo" && npm run build && TAKEONE_DIR="$PWD/tmp/verify-takes" TAKEONE_STATE_DIR="$PWD/tmp/verify-state" scripts/verification/recorded-engine.sh "${TAKEONE_DIR:-tmp}/engine" node bin/takeone.mjs make "$PWD/tmp/verify-synth-demo"
 
-Safe: The offline-render journey in .done-done.yaml runs scripts/synth-take.ts and then bin/takeone.mjs make with --no-ai, so planning is local-only with no account, key or paid service. TAKEONE_DIR and TAKEONE_STATE_DIR point takes and planner state into the run's own tmp folder, so the owner's state is never touched. The build step runs after the synthetic take is generated, and the journey's own ordering is otherwise kept (from `scripts/synth-take.ts`).
+Safe: The offline-render journey in .done-done.yaml runs scripts/synth-take.ts and then bin/takeone.mjs make through scripts/verification/recorded-engine.sh, so planning is recorded with no account, key or paid service. TAKEONE_DIR and TAKEONE_STATE_DIR point takes and planner state into the run's own tmp folder, so the owner's state is never touched. The build step runs after the synthetic take is generated, and the journey's own ordering is otherwise kept (from `scripts/synth-take.ts`).
 
 Ready: The make command exits 0 (it prints the plan and beat summary, not the output path); tmp/verify-synth-demo/out/synth-demo.mp4 exists and ffprobe reports a readable video stream. Tear down what you started; never kill by process name.
-Isolation: Each run writes only under its own tmp/verify-* directories, with TAKEONE_DIR and TAKEONE_STATE_DIR set so takeone never reads or writes the owner's takes or planner state; --no-ai keeps planning local. Use a fresh tmp directory per run and never point these variables at a real account or the owner's own state.
+Isolation: Each run writes only under its own tmp/verify-* directories, with TAKEONE_DIR and TAKEONE_STATE_DIR set so takeone never reads or writes the owner's takes or planner state; the recorded engine keeps planning offline. Use a fresh tmp directory per run and never point these variables at a real account or the owner's own state.
 When the repo's .done-done.yaml has an instance block, done-done already runs the app at $DONE_DONE_BASE_URL (its own port and HOME): BASE is then that URL, never a hard-coded port.
 
 ## Drive
@@ -22,7 +22,7 @@ When the repo's .done-done.yaml has an instance block, done-done already runs th
 Harness: Shell (bash), with ffmpeg and ffprobe to decode frames; a browser tool is needed only for the scene.html feature. Drive through the repo's real handles that each feature file names:
 
 - [Render a synthetic take to a framed demo MP4 offline](features/render-a-synthetic-take-to-a-framed-demo.md): Run the README quick start from a git checkout: install dependencies, then generate the demo take (`scripts/synth-take.ts`)
-- [Plan and render a recorded take](features/plan-and-render-a-recorded-take.md): `takeone make <id> --no-ai` on the realistic board scene: perception, beats, camera and render, judged from whole frames of the film, with push-ins on clicks, scrolls and dense pages (`src/make.ts`, `src/perceive/`, `src/beats/`, `src/camera/`)
+- [Plan and render a recorded take](features/plan-and-render-a-recorded-take.md): `takeone make <id>` (recorded engine) on the realistic board scene: perception, beats, camera and render, judged from whole frames of the film, with push-ins on clicks, scrolls and dense pages (`src/make.ts`, `src/perceive/`, `src/beats/`, `src/camera/`)
 - [Score the film and let it improve in rounds](features/score-the-film-and-improve-it-in-rounds.md): run `takeone make --target-score` on a real take, read `out/score.json`, and see the weaker items fixed in a later round (`src/score/`, `src/cli.ts`)
 - [Plan a take with the AI planner](features/plan-a-take-with-the-ai-planner.md): `takeone make <id>` with a key, a picked account or a signed-in CLI; the free preflight refusal, and a billed run only with approval (`src/decide/`)
 - [Change the look and shape of a film on rerender](features/change-the-look-and-shape-on-rerender.md): `takeone render <take> --theme`, `--set`, `--aspect`, `--resolution`, `--format`, and `take.json` cuts, speed and zooms (`src/themes.ts`, `src/render/edits.ts`)
