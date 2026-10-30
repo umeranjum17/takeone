@@ -39,7 +39,10 @@ export function themeDefaults(name: unknown = "midnight"): CameraDefaults {
   if (typeof name !== "string" || !Object.hasOwn(THEMES, name)) {
     throw new Error(`unknown theme ${String(name)}; choose ${Object.keys(THEMES).join(", ")}`);
   }
-  return applyOverrides(THEMES[name as ThemeName], DEFAULTS);
+  const theme: Overrides = THEMES[name as ThemeName];
+  // DEFAULTS' bg_stops are midnight's stage; a theme with its own background and no stops of its own paints that
+  // background, not midnight's.
+  return applyOverrides("background" in theme && !("bg_stops" in theme) ? { bg_stops: "", ...theme } : theme, DEFAULTS);
 }
 
 /** Precedence: theme tokens < explicit --set overrides. */

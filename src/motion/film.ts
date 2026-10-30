@@ -7,6 +7,7 @@ import { basename, join, resolve } from "node:path";
 import { MemoryCache, type Answer } from "@byokit/decide";
 import { askChunk } from "../decide/planner.ts";
 import { signedInPlanner } from "./editorial.ts";
+import { referenceCuts } from "./reference.ts";
 import { renderMotion } from "./motion.ts";
 import { ingestSegments } from "./segment.ts";
 import { validateStoryboard } from "./storyboard.ts";
@@ -15,13 +16,14 @@ import type { MotionEngine, Scene, Segment, Storyboard } from "./types.ts";
 export type Tech = "html" | "canvas" | "three";
 export type Kind = "intro" | "callout" | "outro";
 export interface Piece { kind: Kind; /** A page to use as it is, or a brief for the model to write one from. */ source: string; at?: number }
-export interface FilmArgs { video: string; pieces: Piece[]; tech: Tech; out?: string; workers?: number; engine: MotionEngine }
+export interface FilmArgs { video: string; pieces: Piece[]; tech: Tech; out?: string; workers?: number; engine: MotionEngine; /** A reference film to cut the footage on: a video to measure, or a facts.json from --measure. */ reference?: string; /** Its measured beats, filled in by runFilm. */ beats?: number[] }
 
 export const FILM_USAGE = `takeone motion film <video.mp4> [--intro BRIEF|page.html] [--callout "BRIEF@SECONDS"|page.html@SECONDS]... [--outro BRIEF|page.html]
-  [--tech html|canvas|three] [--out DIR] [--workers N]
+  [--tech html|canvas|three] [--reference <video|facts.json>] [--out DIR] [--workers N]
   writes model-made motion segments around the real recording: the signed-in AI engine writes each segment from its
   brief as one offline page, TakeOne renders it, and the film plays it full-frame before, inside or after the footage.
-  A .html path in place of a brief is used as written. Only the briefs are sent to the engine, never the video.`;
+  A .html path in place of a brief is used as written. Only the briefs are sent to the engine, never the video.
+  --reference cuts the footage on another film's measured beats instead of exactly where the callout asked.`;
 
 const SEGMENT_S = 3;
 const KINDS: Record<Kind, string> = {
@@ -55,7 +57,13 @@ export function filmStoryboard(a: FilmArgs, id: string, probe: { width: number; 
   const fps = 60, snap = (s: number) => Math.round(s * fps) / fps, end = Math.floor(probe.duration * fps) / fps;
   const [out_w, out_h] = filmSize(probe.width, probe.height);
   const callouts = a.pieces.filter(p => p.kind === "callout").sort((x, y) => x.at! - y.at!);
-  const cuts = callouts.map(p => snap(p.at!));
+  const cuts: number[] = [];
+  for (const p of callouts) {
+    // A measured reference beat moves the cut, when one still falls inside the same limits the cut has to meet.
+    const low = Math.max(1, (cuts.at(-1) ?? 0) + 1), asked = snap(p.at!);
+    const beat = (a.beats ?? []).filter(b => b >= low && b <= end - 1).sort((x, y) => Math.abs(x - asked) - Math.abs(y - asked))[0];
+    cuts.push(snap(beat ?? asked));
+  }
   cuts.forEach((t, i) => { if (t < 1 || t > end - 1 || t - (cuts[i - 1] ?? 0) < 1) throw new Error(`--callout at ${t} s must fall at least 1 s into the ${end.toFixed(2)} s footage and 1 s after the previous cut`); });
   const segments: Record<string, Segment> = {}, clips: Record<string, unknown> = {}, scenes: Scene[] = [];
   const segment = (key: string) => { segments[key] = { file: `segments/${key}.html`, d: SEGMENT_S }; scenes.push({ pattern: "segment", d: SEGMENT_S, segment: key, cut: true }); };
@@ -132,6 +140,7 @@ export function parseFilmArgs(argv: string[]): FilmArgs {
       if (!["html", "canvas", "three"].includes(v)) throw new Error(`--tech expects html, canvas or three, got ${v}`);
       a.tech = v as Tech;
     } else if (s === "--out") a.out = v;
+    else if (s === "--reference") a.reference = v;
     else if (s === "--workers") a.workers = Number(v);
     else throw new Error(`unknown option ${s}`);
   }
@@ -150,6 +159,7 @@ export async function runFilm(argv: string[], takesDir: string, log: (line: stri
     .trim().split(/[,\n]/).map(Number) as [number, number, number];
   if (!(width > 0 && height > 0 && duration > 0)) throw new Error(`${a.video}: ffprobe found no video stream`);
   const dir = newTakeDir(a.out, takesDir);
+  if (a.reference) a.beats = await referenceCuts(a.reference, join(dir, "reference"), log);
   const board = validateStoryboard(filmStoryboard(a, basename(a.video).replace(/\.[^.]+$/, "").replace(/[^A-Za-z0-9_-]/g, "-").slice(0, 64) || "film", { width, height, duration }));
   await writePages(dir, a, board, log);
   writeFileSync(join(dir, "storyboard.json"), JSON.stringify(board, null, 2) + "\n");

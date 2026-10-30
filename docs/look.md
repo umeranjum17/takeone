@@ -79,8 +79,17 @@ The committed theme preview assets are historical real-take stills at 1080p60: o
 records the source take, generator, proof status per theme and output hashes.
 That historical qualification covered midnight, paper, aurora, mono, sand and editorial on the real take: worst fade CAMBI 0.279 (mono) and worst
 whole-take CAMBI 0.043, measured on every frame of both fade windows.
-`neon`, `brutalist` and `terminal` (cut in #71, restored here) are not in that grid or its CAMBI figures; they were rendered on the real board take and checked by eye at settled and fade frames only.
-Regenerate with `node scripts/theme-proof.ts tmp/theme-proof`.
+`neon`, `brutalist` and `terminal` (cut in #71, restored here) are not in that grid, and had only been viewed by eye at settled and fade frames. They are measured here, the same way (`libvmaf`'s `cambi` on every frame of both fade windows), on the scene fixture captured from `scripts/e2e/scene.html` and rendered through the real renderer at 1080p60 with the default 0.4 s fades:
+
+| theme | fade-in max | fade-out max | fade max |
+| --- | --- | --- | --- |
+| neon | 0.003 | 0.069 | 0.069 |
+| brutalist | 0.002 | 0.000 | 0.002 |
+| terminal | 0.006 | 0.052 | 0.052 |
+
+That fixture basis does not line up with the saved real take the figures above came from: the same themes land on either side of their old numbers (aurora 0.058 here against 0.100, mono 0.034 against 0.279, midnight 0.142 against 0.099), so the bar is relative: no theme may read worse than the worst of the six kept themes measured in the same run. On it the kept six read midnight 0.142, aurora 0.058, mono 0.034, and paper, sand and editorial 0.001 or less, and the worst kept reading is mono's 1.209 — one frame, at 0.383 s, where the fade dither switches off over a pure black stage (`render.ts` already forces a keyframe there); its other fade-in frames read 0.003 or less. `terminal` (0.052), `neon` (0.069) and `brutalist` (0.002) all sit inside the kept set's own range — below midnight (0.142), the kept worst once mono's switch frame is set aside, and beside aurora (0.058) — so no theme's fade values needed changing. `terminal`'s high frame is the fade-out window's first one, where the fade has not started and its grid pattern reads as the contour; on the faintest fade frames, the last out, the three read neon 0.069, terminal 0.037 and brutalist 0.000.
+Regenerate with `node scripts/theme-proof.ts tmp/theme-proof` (`--themes neon,terminal` measures a subset);
+every theme also writes `metrics.json` fade CAMBI figures, a `-fade.png` still from three quarters through its fade in and a `-worst.png` still from its worst fade frame.
 For a real 1080p60 take, use `node scripts/theme-proof.ts tmp/theme-real --take path/to/take`;
 each theme shows its title above a caption frame. The synthetic fixture is a fictional
 Tidewater launch board with Umer as its demo person, with no desktop capture.

@@ -34,7 +34,7 @@ export function readingFloor(text: string): number {
 
 /** Scene reading copy; the glyph gate also checks emitted literals in their actual font roles. */
 export function sceneTexts(s: Scene): string[] {
-  if (s.pattern === "hero-reveal" || s.pattern === "kinetic-type" || s.pattern === "statement" || s.pattern === "glow-hero") return [s.title, s.subtitle].filter((t): t is string => !!t);
+  if (s.pattern === "hero-reveal" || s.pattern === "kinetic-type" || s.pattern === "statement" || s.pattern === "glow-hero" || s.pattern === "story") return [s.title, s.subtitle].filter((t): t is string => !!t);
   if (s.pattern === "word-swap") return [s.title ?? "", ...(s.swaps ?? [])].filter(Boolean);
   if (s.pattern === "phone-story" || s.pattern === "chip-stack") return [s.title, s.text].filter((t): t is string => !!t);
   if (s.pattern === "bento-reel") return [s.title, s.subtitle, s.label, `$${s.reel!.value.toLocaleString("en-US")}`, "LIVE", ...s.reel!.feed].filter((t): t is string => !!t);
@@ -71,6 +71,8 @@ function sceneRevealDuration(s: Scene): number {
   if (s.pattern === "hero-reveal" || s.pattern === "kinetic-type" || s.pattern === "statement" || s.pattern === "glow-hero") {
     const words = (s.title ?? "").trim().split(/\s+/).filter(Boolean).length;
     reveal = Math.max(words ? .4 + .06 * (words - 1) : 0, s.subtitle ? .6 : 0);
+  } else if (s.pattern === "story") { // the headline rises a word every 70 ms; the surface settles beside it (storySettle)
+    reveal = .4 + .06 * (sceneTexts(s).join(" ").split(/\s+/).filter(Boolean).length - 1);
   } else if (s.pattern === "word-swap") { // swaps land every 0.9 s from 0.6 s; the last settles in 0.38 s
     reveal = .98 + .9 * Math.max(0, (s.swaps ?? []).length - 1);
   } else if (s.pattern === "phone-story") { // the toast springs in at 2.9 s
@@ -101,6 +103,12 @@ function sceneRevealDuration(s: Scene): number {
   }
   if (s.pattern === "fragment" && s.kind === "counter") reveal = 1.5;
   return reveal;
+}
+
+/** story surface timing (story.js), in seconds from the cut: chips land one per 140 ms, the chat types 35 ms a character then answers a line per 450 ms, cards step 160 ms, stat counters run 1.3 s. */
+export function storySettle(s: Scene): number {
+  const n = s.tree?.length ?? 0;
+  return s.kind === "chips" ? 1.1 + .14 * (n - 1) : s.kind === "phone" ? 1.9 + .035 * (s.tree?.[0]?.length ?? 0) + .45 * (n - 2) : s.kind === "cards" ? 1 + .16 * (n - 1) : 1.7 + .22 * (n - 1);
 }
 
 /** halo-lines timing (halo.js): one lockup. The lead-in lines rise in a word at a time, one every .45 s; the last line types on
@@ -284,6 +292,13 @@ function scene(raw: unknown, path: string): Scene {
       if (!Array.isArray(items) || items.length > 4 || items.some(c => !ID.test(String(c)))) throw new StoryboardError(`${path}.items`, "halo-lines keeps up to 4 crop ids in view");
       s.items = items.map(String);
     }
+  }
+  if (s.pattern === "story") {
+    const [lo, hi] = ({ chips: [3, 8], phone: [2, 5], cards: [2, 5], stats: [2, 4] } as Record<string, number[]>)[String(s.kind)] ?? [];
+    if (lo === undefined) throw new StoryboardError(`${path}.kind`, "story kind is chips, phone, cards or stats");
+    const tree = raw["tree"];
+    if (!s.title?.trim() || !Array.isArray(tree) || tree.length < lo! || tree.length > hi!) throw new StoryboardError(path, `story ${s.kind} needs a title and ${lo} to ${hi} tree rows`);
+    s.tree = tree.map((t, j) => str(t, `${path}.tree[${j}]`, 80));
   }
   if (s.pattern === "canon") {
     const o = raw["offsets"];
