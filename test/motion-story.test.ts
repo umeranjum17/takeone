@@ -1,6 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { resolve } from "node:path";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+import { writePage } from "../src/motion/motion.ts";
+import { withPage } from "../src/motion/render.ts";
 import { planStory, storyBeats } from "../src/motion/story.ts";
 import { storySettle, validateStoryboard } from "../src/motion/storyboard.ts";
 
@@ -38,4 +42,27 @@ test("story recipe names what a bad brief is missing", () => {
   assert.throws(() => storyBeats("poster: A / B | one", "T"), /must read/);
   assert.throws(() => planStory({ pitch: "chips: A / B | one; two", logo: "T" }, "x"), /2 to 5 beats/);
   assert.throws(() => validateStoryboard(planStory({ pitch: "chips: A / B | one; two\ncards: C / D | e; f", logo: "T" }, "x")), /chips needs a title and 3 to 8 tree rows/);
+});
+
+test("story stacks the headline above the product on a portrait or square frame, with no two boxes meeting", { timeout: 120_000 }, async () => {
+  for (const [w, h] of [[1080, 1920], [1080, 1080]] as const) {
+    const sb = validateStoryboard(planStory({ pitch: BRIEF, logo: "Tidewater", brand: BRAND }, `story-stack-${w}x${h}`, [w, h]));
+    const dir = mkdtempSync(join(tmpdir(), "takeone-story-stack-"));
+    try {
+      await withPage(writePage(dir, sb).html, w, h, async (b) => {
+        const boxes = await b.evaluate<{ head: number[]; product: number[][] }[]>(`(()=>[...document.querySelectorAll('[data-pattern="story"]')].map((l)=>{
+          window.__apply(Number(l.dataset.start)*1000+Number(l.dataset.duration)*1000-50);
+          const [copy,stage]=[...l.children].filter((c)=>c.tagName==="DIV"),box=(e)=>{const r=e.getBoundingClientRect();return [r.left,r.top,r.right,r.bottom];};
+          return {head:box(copy.lastElementChild),product:[...stage.children].map(box)};}))()`);
+        assert.equal(boxes.length, 4);
+        for (const { head, product } of boxes) {
+          for (const p of product) {
+            assert.ok(head[3]! < p[1]!, `${w}x${h}: the headline ends at ${head[3]!.toFixed(0)} px, above the product at ${p[1]!.toFixed(0)} px`);
+            assert.ok(p[0]! >= 0 && p[2]! <= w && p[3]! <= h, `${w}x${h}: the product stays in the frame`);
+          }
+          assert.ok(head[0]! >= w * .05 && head[2]! <= w * .95, `${w}x${h}: the headline stays inside the 5% inset`);
+        }
+      });
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  }
 });
