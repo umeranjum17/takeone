@@ -87,6 +87,8 @@ export interface MakeOptions {
   film?: boolean;
   /** stop after the preflight: no planner calls, no render; returns planned tokens */
   planOnly?: boolean;
+  /** false plans the take and writes take.json without rendering a film (`takeone directions` renders its own cuts). */
+  render?: boolean;
   log?: (line: string) => void;
   warn?: (line: string) => void;
 }
@@ -600,8 +602,9 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
     if (overReserve) warn(`planner: ${overReserve} beats keep the rules; their rebuilt chunk no longer fit the preflight reserve`);
   }
   // The film: the planner's choices, then the user's plan.json edits over them.
-  const pinned = (opts.set ?? []).map((pair) => pair.split("=")[0]!);
-  const themeFree = take.theme === undefined;
+  // A picked direction's pairs are pinned like the user's own: the film call never replaces the look the person picked.
+  const pinned = [...(take.direction?.set ?? []), ...(opts.set ?? [])].map((pair) => pair.split("=")[0]!);
+  const themeFree = take.theme === undefined && take.direction === undefined;
   const endFree = take.trim?.end === undefined;
   const priorPlan = readPlan(dir);
   const edited = withUserFilm(filmDecision ? appliedFilm(filmDecision, { pinned, themeFree, endFree }) : undefined, priorPlan,
@@ -677,6 +680,7 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
     meta.trim_end = Math.min(seconds(videoEndMs), end.t1 + camera.outro_s);
   }
   writeFileSync(join(dir, "take.json"), JSON.stringify(meta, null, 1) + "\n");
+  if (opts.render === false) return { take, beats, decisions, planner: plannerStats, planned, out: null, seconds: 0 };
   const { out, seconds: renderSeconds } = await renderTake(dir, camera);
 
   if (planner) {

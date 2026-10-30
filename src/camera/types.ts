@@ -109,6 +109,8 @@ export interface TakeMeta extends TakeEdits {
   captions?: { t: number; d?: number; text: string; hold?: boolean }[];
   /** The film call's choices (make writes them); a take's own title, captions and spotlight win over them. */
   film?: import("../decide/film.ts").FilmDecision;
+  /** The picked direction (`takeone pick`): its theme and `--set` pairs win over the film's look. */
+  direction?: import("../directions/directions.ts").PickedDirection;
   /** Source-pixel regions; requested arrival at t0, automatic framing resumes at t1. */
   zooms?: ManualZoom[];
 }
