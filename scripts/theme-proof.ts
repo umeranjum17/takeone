@@ -43,10 +43,10 @@ const fadeCambi=(mp4:string,seconds:number,fade:number,fps:number,tag:string)=>{
  const worst=[fadeIn,fadeOut].reduce((a,b)=>b.max>a.max?b:a);
  return {fade_cambi_max:worst.max,fade_in_max:fadeIn.max,fade_out_max:fadeOut.max,worst_s:+worst.at.toFixed(3)};
 };
-/** Two stills: the middle of the fade in, where the film is half blended, and the worst fade frame
- * the measurement found, so the number and the frame a viewer would see can both be checked by eye. */
+/** Two stills: three quarters through the fade in, dim enough to be unmistakably a fade and still
+ * readable enough to name the theme, and the worst fade frame, so the number can be checked too. */
 const fadeStill=(mp4:string,fade:number,facts:{worst_s:number},name:string)=>{
- ff("-ss",(fade/2).toFixed(3),"-i",mp4,"-frames:v","1","-update","1",join(dest,`${name}-fade.png`));
+ ff("-ss",(fade*0.75).toFixed(3),"-i",mp4,"-frames:v","1","-update","1",join(dest,`${name}-fade.png`));
  ff("-ss",facts.worst_s.toFixed(3),"-i",mp4,"-frames:v","1","-update","1",join(dest,`${name}-worst.png`));
 };
 const names=values.themes===undefined ? Object.keys(THEMES) : values.themes.split(",").map(n=>n.trim()).filter(Boolean);
