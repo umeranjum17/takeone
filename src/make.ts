@@ -87,6 +87,8 @@ export interface MakeOptions {
   theme?: string;
   /** The raw `--set key=value` pairs; a key set here is never replaced by the film call. */
   set?: string[];
+  /** The brand's own font files; the render adds them to its font directory. */
+  fonts?: string[];
   /** false skips the film call; the chunk requests are unchanged. */
   film?: boolean;
   /** stop after the preflight: no planner calls, no render; returns planned tokens */
@@ -696,7 +698,7 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
   }
   writeFileSync(join(dir, "take.json"), JSON.stringify(meta, null, 1) + "\n");
   if (opts.render === false) return { take, beats, decisions, planner: plannerStats, planned, out: null, seconds: 0 };
-  const { out, seconds: renderSeconds } = await renderTake(dir, camera);
+  const { out, seconds: renderSeconds } = await renderTake(dir, camera, undefined, opts.fonts);
 
   if (planner) {
     log(`plan: ${byAi} choices by AI, ${byRule} by rules. ` +
