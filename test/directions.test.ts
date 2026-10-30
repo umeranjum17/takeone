@@ -1,20 +1,30 @@
-// The direction model, the judge-refine polish loop and its builder, and the judge's feedback and gaps options. Every
-// model answer here is a recorded reply served by a fake fetch: the Jev wire for the planner, the Anthropic Messages wire
-// for the judge.
+// The direction model, the directions and pick cards on the sign-off board, the cut page, the judge-refine polish loop and
+// its builder, and the judge's feedback and gaps options. Every model answer here is a recorded reply served by a fake
+// fetch: the Jev wire for the planner, the Anthropic Messages wire for the judge. The sign-off board is a fake binary that
+// records its arguments.
 
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { execFileSync, spawnSync } from "node:child_process";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Answer } from "@byokit/decide";
 import { mapDirections, directionsRequest, directionSet } from "../src/directions/directions.ts";
+import { pickDirection, runDirections, type DirectionsFile } from "../src/directions/run.ts";
 import { runPolish, type Candidate, type Critique, type Feedback, type PolishHooks } from "../src/polish/loop.ts";
 import { builderRequest, KNOBS, mapBuilder } from "../src/polish/builder.ts";
 import { judgeRound, JudgeUnavailable } from "../src/score/judge.ts";
 import { resolvePlanner, type ResolvedPlanner } from "../src/decide/planner.ts";
+import { cutPage } from "../src/board/page.ts";
+import { cardNotes, freeKey } from "../src/board/board.ts";
+import { resolveCamera } from "../src/cli.ts";
 import { DEFAULTS } from "../src/camera/defaults.ts";
 import type { MeasuredFacts } from "../src/score/rubric.ts";
+import { hasFfmpeg } from "./helpers.ts";
+
+const needsFfmpeg = hasFfmpeg() ? undefined : "requires system ffmpeg and ffprobe on PATH";
+const FAST = ["preset=veryfast", "out_w=320", "out_h=180", "fade_s=0"];
 
 const choice = (answer: string, extra: Partial<Answer> = {}): Answer => ({ answer, probabilities: { [answer]: 1 }, confidence: 1, abstained: false, ...extra } as unknown as Answer);
 
@@ -49,6 +59,20 @@ test("a planner that abstains on everything gets the fixed table, distinct on th
   const req = directionsRequest({ seconds: 20, device: "desktop browser", timeline: Array.from({ length: 50 }, (_, i) => `b${i}`) }, 2);
   assert.deepEqual(Object.keys(req.questions), ["theme_a", "pace_a", "motion_a", "theme_b", "pace_b", "motion_b"]);
   assert.equal((req.state.timeline as string[]).length, 41, "a long timeline is cut to its first and last 20 beats");
+});
+
+test("directions refuses --no-ai: every option is judged", () => {
+  const dir = mkdtempSync(join(tmpdir(), "takeone-no-ai-"));
+  try {
+    writeFileSync(join(dir, "take.json"), "{}\n");
+    const result = spawnSync(process.execPath, ["--experimental-strip-types", "src/cli.ts", "directions", dir, "--no-ai"], { encoding: "utf8" });
+    assert.equal(result.status, 2, "directions --no-ai is a usage error");
+    assert.match(result.stderr, /--no-ai is not offered: directions needs the planner and the independent judge/);
+    assert.doesNotMatch(result.stdout + result.stderr, /--no-ai\]/, "the usage no longer lists --no-ai");
+    assert.ok(!existsSync(join(dir, "directions")), "nothing was planned or rendered");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 /** A scripted judge: one score per round, every feedback item kept unless a round is listed as missing it. */
@@ -172,6 +196,21 @@ test("the builder sees the score against the target and every item under it, and
   assert.deepEqual(mapBuilder({ ending: choice("shorter") }, { ...DEFAULTS, outro_s: 0 }).change, {}, "no outro to shorten");
 });
 
+test("a card goes up under a key the board does not hold yet", () => {
+  // The real proof board refused a re-captured take's first card: the archived card of the earlier take held its key.
+  const root = mkdtempSync(join(tmpdir(), "takeone-board-key-"));
+  try {
+    const board = join(root, "decisions.json");
+    writeFileSync(board, JSON.stringify({ schema: 2, items: [{ key: "takeone-t-directions-1" }, { key: "takeone-t-directions-1-2" }] }));
+    assert.equal(freeKey(board, "takeone-t-directions-2"), "takeone-t-directions-2");
+    assert.equal(freeKey(board, "takeone-t-directions-1"), "takeone-t-directions-1-3");
+    writeFileSync(board, "{}");
+    assert.equal(freeKey(board, "takeone-t-polish-1-r1"), "takeone-t-polish-1-r1");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 function facts(): MeasuredFacts {
   return {
     film: "f.mp4", duration: 12, frameCount: 360, pageShare: 0.98, stageMargin: 0, pointerSamples: 40, cursorFree: true,
@@ -236,5 +275,91 @@ test("the judge checks each piece of owner feedback in the same call and names t
     }), JudgeUnavailable);
   } finally {
     rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("the cut page plays the video in place and escapes every field", () => {
+  const html = cutPage({
+    badge: "B", badgeLabel: "Option B", title: "Paper <calm>", score: 8.7, target: 9, pill: "Recommended cut", status: ["Round 1 of 5"],
+    items: [{ label: "Pacing", score: 8, note: "a & b" }], feedback: [{ text: "x", kept: false, reason: "not yet" }], changes: ["pace 1 -> 1.4"],
+    cost: "1 judge call", video: "b.mp4", poster: "b.jpg",
+  });
+  assert.match(html, /<video class="video" controls playsinline preload="metadata" src="b.mp4" poster="b.jpg"/);
+  assert.match(html, /Paper &lt;calm&gt;/);
+  assert.match(html, /a &amp; b/);
+  assert.match(html, /is-unmet/);
+  assert.doesNotMatch(html, /https?:\/\//, "the page loads nothing from the network");
+  assert.deepEqual(cardNotes({ answer: "a", note: " slower please ", rounds: [{ note: "" }, { note: "bigger cursor" }] }), ["slower please", "bigger cursor"]);
+});
+
+/** A 10 s synthetic take with two clicks and a scroll, as make.test.ts builds it. */
+function buildTake(dir: string): string {
+  execFileSync("ffmpeg", ["-nostdin", "-f", "lavfi", "-i", "color=c=gray:s=320x180:d=10:r=30", "-c:v", "mpeg4", "-q:v", "2", "-f", "matroska", "-frames:v", "300", "-y", join(dir, "screen.webm")], { stdio: "ignore" });
+  writeFileSync(join(dir, "frames.tsv"), Array.from({ length: 300 }, (_, i) => `${i * 3000}\t${i * 33333333}`).join("\n") + "\n");
+  const events = [
+    { t: 100, k: "win", cls: "chromium", title: "Quarterly report", rect: [0, 0, 320, 180] },
+    { t: 400, k: "ptr", x: 200, y: 90 }, { t: 500, k: "btn", b: "left", down: true }, { t: 560, k: "btn", b: "left", down: false },
+    { t: 2200, k: "wheel", dx: 0, dy: 1 }, { t: 2400, k: "wheel", dx: 0, dy: 1 },
+    { t: 6400, k: "ptr", x: 80, y: 60 }, { t: 6500, k: "btn", b: "left", down: true }, { t: 6560, k: "btn", b: "left", down: false },
+  ];
+  writeFileSync(join(dir, "events.jsonl"), events.map((e) => JSON.stringify(e)).join("\n") + "\n");
+  writeFileSync(join(dir, "take.json"), JSON.stringify({ id: "t1", stream: { w: 320, h: 180 }, scale: 1, offset_ms: 0, pointer: "hyprland" }));
+  return dir;
+}
+
+/** A fake sign-off CLI: records every call and answers `answers` from answers.json beside it. */
+function fakeSignOff(root: string): { board: string; calls: () => string[][] } {
+  const bin = join(root, "sign-off");
+  const log = join(root, "sign-off.log");
+  writeFileSync(bin, `#!/bin/sh\nprintf '%s\\0' "$@" >> '${log}'; printf '\\n' >> '${log}'\nif [ "$1" = answers ]; then cat '${join(root, "answers.json")}' 2>/dev/null || echo '{}'; fi\n`);
+  chmodSync(bin, 0o755);
+  mkdirSync(join(root, ".sign-off"), { recursive: true });
+  const board = join(root, ".sign-off", "decisions.json");
+  writeFileSync(board, "{}");
+  process.env.TAKEONE_SIGN_OFF = bin;
+  return { board, calls: () => existsSync(log) ? readFileSync(log, "utf8").split("\n").filter(Boolean).map((l) => l.split("\0").filter(Boolean)) : [] };
+}
+
+test("directions render real cuts, post one board pick, and pick reads the owner's answer from the board", { skip: needsFfmpeg, timeout: 600_000 }, async () => {
+  const root = mkdtempSync(join(tmpdir(), "takeone-directions-"));
+  const was = process.env.TAKEONE_SIGN_OFF;
+  try {
+    const dir = buildTake(mkdtempSync(join(root, "take-")));
+    const sign = fakeSignOff(root);
+    const { planner, judge } = await jevRoutes(root);
+    const warnings: string[] = [];
+    const quiet = { log: () => {}, warn: (l: string) => { warnings.push(l); } };
+    const camera = (d: string, pairs: string[], theme?: string) => resolveCamera(d, pairs, theme, true);
+    const file: DirectionsFile = await runDirections({
+      dir, count: 2, replan: false, set: FAST, board: sign.board, planner, judge, configDir: join(root, "cfg"),
+      fetchImpl: recorded({ score: 8 }), resolveCamera: camera, ...quiet,
+    });
+    assert.equal(file.directions.length, 2);
+    assert.deepEqual(file.directions.map((d) => d.by.theme), ["ai", "ai"], warnings.join("\n"));
+    assert.notEqual(file.directions[0]!.theme, file.directions[1]!.theme);
+    for (const d of file.directions) {
+      assert.ok(existsSync(join(dir, d.film)), `${d.id} is a real rendered cut`);
+      assert.ok(d.score !== null && d.score <= 8, "the judge's 8s, under the measured caps");
+      assert.equal(d.items.length, 5, "no baseline item: every direction is judged on its own");
+      assert.ok(existsSync(join(root, ".sign-off", "mocks", file.board!.key, `${d.id}.mp4`)));
+      assert.match(readFileSync(join(root, ".sign-off", "mocks", file.board!.key, `${d.id}.html`), "utf8"), new RegExp(`src="${d.id}.mp4"`));
+    }
+    assert.equal(file.calls.judge, 2);
+    assert.ok(file.determinism.frames > 0 && file.determinism.identical === file.determinism.frames);
+    const post = sign.calls().find((c) => c[0] === "post")!;
+    assert.deepEqual(post.slice(0, 6), ["post", sign.board, "--type", "design", "--key", "takeone-t1-directions-1"]);
+
+    // The owner picks B on the board with a note; pick reads the answer, saves B on the take and copies its cut to out/.
+    writeFileSync(join(root, "answers.json"), JSON.stringify({ "takeone-t1-directions-1": { answer: "b", note: "hold the result a bit longer" } }));
+    const picked = pickDirection(dir, undefined, quiet.log);
+    assert.equal(picked.picked.id, "b");
+    assert.equal(picked.from, "board");
+    assert.equal(picked.note, "hold the result a bit longer");
+    assert.equal(JSON.parse(readFileSync(join(dir, "take.json"), "utf8")).direction.theme, file.directions[1]!.theme);
+    assert.ok(readFileSync(join(dir, "out", "t1.mp4")).equals(readFileSync(join(dir, file.directions[1]!.film))), "out/ is the picked cut");
+  } finally {
+    if (was === undefined) delete process.env.TAKEONE_SIGN_OFF;
+    else process.env.TAKEONE_SIGN_OFF = was;
+    rmSync(root, { recursive: true, force: true });
   }
 });

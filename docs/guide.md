@@ -275,6 +275,19 @@ takeone make <id> --target-score 9 --max-rounds 4
 
 The loop extracts single frames, measures them, asks the configured judge for a score against a written rubric, fixes the weakest build inputs and re-renders. It stops at the target, when a round gains nothing, or at `--max-rounds`. The result is `out/score.json` with every round's score and item breakdown, the frame paths, and an explicit below-target list when the bar is not reached. See [the score loop](score-loop.md) and its [call and render cost](score-loop.md#cost-and-time).
 
+### 6. Directions and pick
+
+Render two or three distinct cuts of one take and pick one:
+
+```sh
+takeone directions <id> --count 3 --board .sign-off/decisions.json
+takeone pick <id> b
+```
+
+Each direction is a theme, a pacing and a camera motion over the same plan; each is a real render the judge scores once.
+With `--board` every option is a playable card on the sign-off board, and `takeone pick <id>` with no letter reads the
+owner's answer there. See [directions and pick](directions.md).
+
 ## Motion design from screens
 
 Use `takeone motion` to create a film from images, HTML, a URL or an existing take directory without recording:

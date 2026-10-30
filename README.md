@@ -111,6 +111,7 @@ Isolated installs (CI, throwaway test HOMEs) can set `TAKEONE_NO_KEYRING=1` so t
 - [Overlays](docs/overlays.md): spotlight and blur regions, shortcut keycaps
 - [Motion films](docs/motion.md): films from screenshots, HTML, a URL or an existing take
 - [Score loop](docs/score-loop.md): render, judge, improve and the call cap
+- [Directions and pick](docs/directions.md): A/B/C cuts of one take, the owner's pick and the sign-off board
 - [Cost](docs/cost.md): measured planner cost per minute and its hard caps
 - [Demo scene](docs/headless-scene.md): reproduce the board demo shown above (needs a [git checkout](#from-source): its scripts are not in the npm package)
 

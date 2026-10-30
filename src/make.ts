@@ -87,7 +87,7 @@ export interface MakeOptions {
   film?: boolean;
   /** stop after the preflight: no planner calls, no render; returns planned tokens */
   planOnly?: boolean;
-  /** false plans the take and writes take.json without rendering a film (the caller renders its own cuts). */
+  /** false plans the take and writes take.json without rendering a film (`takeone directions` renders its own cuts). */
   render?: boolean;
   log?: (line: string) => void;
   warn?: (line: string) => void;
