@@ -28,9 +28,9 @@ const SURFACE = {
   cards: (layer, s, { W, H }) => {
     const rows = s.tree, cw = H * .3, ch = cw * 1.3;
     rows.forEach((t, i) => {
-      const f = i - (rows.length - 1) / 2, to = `translate(${f * cw * .5}px,${Math.abs(f) * H * .02}px) rotate(${f * 7}deg)`;
+      const f = i - (rows.length - 1) / 2, to = `translate(${f * cw * .56}px,${Math.abs(f) * H * .02}px) rotate(${f * 7}deg)`;
       const card = h(`<div style="position:absolute;left:${W * .7 - cw / 2}px;top:${H / 2 - ch / 2}px;width:${cw}px;height:${ch}px;box-sizing:border-box;padding:${H * .026}px;border-radius:${H * .014}px;background:var(--text);color:var(--bg);box-shadow:0 ${H * .02}px ${H * .05}px rgba(0,0,0,.3);display:flex;flex-direction:column;gap:${H * .018}px">
-        <div style="font:${H * .027}px/1.1 var(--display)">${esc(t)}</div>${[100, 86, 92, 58].map((w) => `<i style="height:${H * .011}px;width:${w}%;border-radius:9px;background:${mix("var(--bg)", 16, "transparent")}"></i>`).join("")}
+        <div style="font:${H * .024}px/1.1 var(--display)">${esc(t)}</div>${[100, 86, 92, 58].map((w) => `<i style="height:${H * .011}px;width:${w}%;border-radius:9px;background:${mix("var(--bg)", 16, "transparent")}"></i>`).join("")}
         <i style="margin-top:auto;height:${H * .045}px;border-radius:${H * .01}px;background:var(--accent)"></i></div>`);
       layer.append(card);
       K(card, [[300 + i * 160, { opacity: 0, transform: `translateY(${H * .2}px)` }, EXPO], [1000 + i * 160, { opacity: 1, transform: to }]]);
