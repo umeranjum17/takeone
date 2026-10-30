@@ -1,8 +1,8 @@
 // Directions: two or three distinct cuts of one take before any polishing. A
 // direction is a look (theme), a pacing and a camera motion, rendered from the
 // same plan with `--set` pairs; it never re-plans the take's beats. One planner
-// call proposes the directions; the rules below keep them distinct, and
-// `--no-ai` picks them from a fixed table.
+// call proposes the directions; the rules below keep them distinct, and a
+// field the planner abstained on takes the fixed table's value.
 
 import type { Answer, Question } from "@byokit/decide";
 import { PACE_LEVELS, PACE_VALUES, THEME_NOTES } from "../decide/film.ts";
@@ -42,7 +42,7 @@ export interface Direction {
   motion: MotionStyle;
   /** Why the planner chose it, when it said; the rule that made it otherwise. */
   why: string;
-  /** Per field: the planner's own choice, or a rule (no-ai, an abstention, or a duplicate made distinct). */
+  /** Per field: the planner's own choice, or a rule (an abstention, or a duplicate made distinct). */
   by: { theme: "ai" | "rule"; pace: "ai" | "rule"; motion: "ai" | "rule" };
   /** The `--set` pairs this direction renders with, on top of its theme. */
   set: string[];
@@ -79,17 +79,12 @@ function direction(id: DirectionId, theme: ThemeName, pace: PaceLevel, motion: M
   return { id, name: directionName(theme, pace, motion), theme, pace, motion, why, by, set: directionSet(pace, motion) };
 }
 
-/** The `--no-ai` table: a dark, a light and a bold direction that differ on every axis. */
+/** The fixed table for fields the planner abstained on: a dark, a light and a bold direction that differ on every axis. */
 const PRESETS: [ThemeName, PaceLevel, MotionStyle][] = [
   ["midnight", "quick", "follow"],
   ["paper", "calm", "hold"],
   ["aurora", "brisk", "close"],
 ];
-
-export function presetDirections(count: number): Direction[] {
-  return PRESETS.slice(0, count).map(([theme, pace, motion], i) =>
-    direction(DIRECTION_IDS[i]!, theme, pace, motion, "fixed table (no planner)", { theme: "rule", pace: "rule", motion: "rule" }));
-}
 
 export interface DirectionsCtx {
   seconds: number;

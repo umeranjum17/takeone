@@ -21,8 +21,9 @@ takeone polish-feedback <take> "make the click easier to see"   # while a polish
   framing, or pushes in closer and quicker). Each is a theme plus a handful of `--set` pairs.
 - One planner call proposes the directions. Rules keep them distinct: no two share a theme, and no two share both
   pacing and motion. A repeat takes the next most probable theme the planner gave, and a field the planner abstained on
-  takes the fixed table's value; `directions.json` marks every field as the planner's (`ai`) or a rule's (`rule`).
-  `--no-ai` uses the fixed table (midnight/quick/follow, paper/calm/hold, aurora/brisk/close) and judges nothing.
+  takes the fixed table's value (midnight/quick/follow, paper/calm/hold, aurora/brisk/close); `directions.json` marks
+  every field as the planner's (`ai`) or a rule's (`rule`).
+- There is no `--no-ai` mode: every option is judged, and `directions` and `polish` refuse the flag.
 - Each direction is a real render: `directions/<a|b|c>.mp4`. The first is rendered twice to measure determinism.
 - The judge scores each cut once (the [score loop's rubric](score-loop.md#the-rubric), without the baseline item) and
   the highest score is recommended. The report is `directions/directions.json`.
@@ -99,7 +100,7 @@ With `--board <decisions.json>` (or `TAKEONE_BOARD`), every option and every rou
 
 ## Cost
 
-Per take, whatever its length:
+Per take, whatever its length, for the directions and polish steps themselves:
 
 | Step | Model calls | Renders |
 | --- | --- | --- |
@@ -114,9 +115,12 @@ click, the final shot) and measures the film locally with ffmpeg; on an image-ca
 go to the judge blurred past reading. The default route (Claude CLI) is text-only and judges the measured facts from the
 same three frames. So a judge call's size does not grow with the film's length: the frames are three whatever the
 length, and only the planner's timeline (capped at 40 lines in the directions call) grows with the number of beats.
-Model calls per take are therefore bounded at 1 + 3 + 6 + 5 = 15 for a three-way pick and a full five-round polish,
-and the cost per minute of video falls as takes get longer. Measured on a real 43 s take: see
-[the proof run](#measured).
+The directions and polish calls per take are therefore bounded at 1 + 3 + 6 + 5 = 15 for a three-way pick and a full
+five-round polish, and their cost per minute of video falls as takes get longer. That ceiling does not count planning
+the take: on a take not planned yet (or with `--replan`), `directions` first runs `make`'s planning once (the film call
+and the beat calls, which grow with the take and are chunked, see [cost](cost.md)); a take already made adds none.
+Bringing that planning under one per-take ceiling is separate follow-up work, not part of this command yet.
+Measured on a real 43 s take: see [the proof run](#measured).
 
 ## Measured
 

@@ -30,7 +30,6 @@ export interface PolishOptions {
   dir: string;
   maxRounds: number;
   feedback: string[];
-  noAi: boolean;
   set: string[];
   board?: string;
   configDir?: string;
@@ -172,12 +171,9 @@ export async function runPolishCommand(o: PolishOptions): Promise<PolishResult> 
 
   const judge = o.judge ?? await resolveJudge(cfg);
   if (!judge.active) throw new JudgeUnavailable(`unavailable - ${judge.label} cannot serve: ${judge.refusal ?? "no sign-in"}. Sign in with \`claude\`, or save another route in judge.json`);
-  let builder: ResolvedPlanner | null = null;
-  if (!o.noAi) {
-    builder = o.builder ?? await resolvePlanner(cfg);
-    if (!builder.active) throw new PlannerUnavailable(builder.label, builder.refusal ?? "is not signed in", { credentialMissing: !builder.accountPresent });
-    if (sameModel(builder, judge)) throw new JudgeUnavailable(`the judge (${judge.label}) is the builder's own model; save a different model in judge.json so the judge stays independent`);
-  }
+  const builder = o.builder ?? await resolvePlanner(cfg);
+  if (!builder.active) throw new PlannerUnavailable(builder.label, builder.refusal ?? "is not signed in", { credentialMissing: !builder.accountPresent });
+  if (sameModel(builder, judge)) throw new JudgeUnavailable(`the judge (${judge.label}) is the builder's own model; save a different model in judge.json so the judge stays independent`);
 
   const root = join(o.dir, "polish");
   mkdirSync(root, { recursive: true });
@@ -272,19 +268,17 @@ export async function runPolishCommand(o: PolishOptions): Promise<PolishResult> 
       camera.idle_keep = seeded.camera.idle_keep;
       changes = changes.filter((c) => !c.startsWith("squeeze idle footage"));
     }
-    if (builder) {
-      const history = polishState.rounds.map((r) => ({ round: r.round, score: r.score, accepted: r.accepted, changes: r.changes }));
-      const { state, questions } = builderRequest({
-        direction: { name: picked.name, theme: picked.theme }, camera, feedback, gaps, history, ruleChanges,
-        score: seeded.card.score, items: seeded.card.items.map(({ label, score, note }) => ({ label, score, note })), target: polishState.target,
-      });
-      const outcome = await askChunk({ ...state, round }, questions, builder, builderCache, { keepAnswers: true, ...(o.fetchImpl ? { fetchImpl: o.fetchImpl } : {}) });
-      if (outcome.decisionSource === "api") builderCalls++;
-      if (!outcome.answers) o.warn(`polish: the builder gave no answers (${outcome.failure ?? "no reason"}); measured changes only`);
-      const mapped = mapBuilder(outcome.answers ?? {}, camera);
-      Object.assign(camera, mapped.change);
-      changes = [...changes, ...mapped.changes];
-    }
+    const history = polishState.rounds.map((r) => ({ round: r.round, score: r.score, accepted: r.accepted, changes: r.changes }));
+    const { state, questions } = builderRequest({
+      direction: { name: picked.name, theme: picked.theme }, camera, feedback, gaps, history, ruleChanges,
+      score: seeded.card.score, items: seeded.card.items.map(({ label, score, note }) => ({ label, score, note })), target: polishState.target,
+    });
+    const outcome = await askChunk({ ...state, round }, questions, builder, builderCache, { keepAnswers: true, ...(o.fetchImpl ? { fetchImpl: o.fetchImpl } : {}) });
+    if (outcome.decisionSource === "api") builderCalls++;
+    if (!outcome.answers) o.warn(`polish: the builder gave no answers (${outcome.failure ?? "no reason"}); measured changes only`);
+    const mapped = mapBuilder(outcome.answers ?? {}, camera);
+    Object.assign(camera, mapped.change);
+    changes = [...changes, ...mapped.changes];
     const pairs = CAMERA_KEYS.filter((key) => camera[key] !== seeded.camera[key]).map((key) => `${key}=${camera[key]}`);
     const metaPatch = pickMeta(meta);
     if (pairs.length === 0 && JSON.stringify(metaPatch) === JSON.stringify(seed!.meta)) {
@@ -327,7 +321,7 @@ export async function runPolishCommand(o: PolishOptions): Promise<PolishResult> 
   const save = (s: PolishState) => {
     polishState = s;
     json(join(runDir, "run.json.tmp"), {
-      ...s, take, picked, judge: judge.label, builder: builder?.label ?? "measured rules only (--no-ai)",
+      ...s, take, picked, judge: judge.label, builder: builder.label,
       determinism: det, calls: { judge: judgeCalls, builder: builderCalls, renders },
       ...(board ? { board: { file: board, ...(lastKey ? { card: lastKey } : {}) } } : {}),
     });

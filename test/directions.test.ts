@@ -3,12 +3,12 @@
 
 import test from "node:test";
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Answer } from "@byokit/decide";
-import { mapDirections, presetDirections, directionsRequest, directionSet } from "../src/directions/directions.ts";
+import { mapDirections, directionsRequest, directionSet } from "../src/directions/directions.ts";
 import { pickDirection, runDirections, type DirectionsFile } from "../src/directions/run.ts";
 import { runPolish, type Candidate, type Critique, type Feedback, type PolishHooks } from "../src/polish/loop.ts";
 import { latestRun, pickRound, polishFeedback, runPolishCommand } from "../src/polish/run.ts";
@@ -51,12 +51,29 @@ test("directions stay distinct: a repeated theme takes the next most probable on
   assert.ok(c!.set.includes("camera_path=solver") && c!.set.includes("l1_pad=1.9"));
 });
 
-test("--no-ai directions differ on theme, pacing and motion; the request asks three questions per option", () => {
-  const d = presetDirections(3);
+test("a planner that abstains on everything gets the fixed table, distinct on theme, pacing and motion; the request asks three questions per option", () => {
+  const d = mapDirections({}, 3);
   assert.deepEqual(d.map((x) => [x.theme, x.pace, x.motion]), [["midnight", "quick", "follow"], ["paper", "calm", "hold"], ["aurora", "brisk", "close"]]);
+  assert.ok(d.every((x) => x.by.theme === "rule" && x.by.pace === "rule" && x.by.motion === "rule"));
   const req = directionsRequest({ seconds: 20, device: "desktop browser", timeline: Array.from({ length: 50 }, (_, i) => `b${i}`) }, 2);
   assert.deepEqual(Object.keys(req.questions), ["theme_a", "pace_a", "motion_a", "theme_b", "pace_b", "motion_b"]);
   assert.equal((req.state.timeline as string[]).length, 41, "a long timeline is cut to its first and last 20 beats");
+});
+
+test("directions and polish refuse --no-ai: every option is judged and every round is built and judged", () => {
+  const dir = mkdtempSync(join(tmpdir(), "takeone-no-ai-"));
+  try {
+    writeFileSync(join(dir, "take.json"), "{}\n");
+    for (const cmd of ["directions", "polish"]) {
+      const result = spawnSync(process.execPath, ["--experimental-strip-types", "src/cli.ts", cmd, dir, "--no-ai"], { encoding: "utf8" });
+      assert.equal(result.status, 2, `${cmd} --no-ai is a usage error`);
+      assert.match(result.stderr, new RegExp(`--no-ai is not offered: ${cmd} needs the planner and the independent judge`));
+      assert.doesNotMatch(result.stdout + result.stderr, /--no-ai\]/, "the usage no longer lists --no-ai");
+    }
+    assert.ok(!existsSync(join(dir, "directions")) && !existsSync(join(dir, "polish")), "nothing was planned or rendered");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 /** A scripted judge: one score per round, every feedback item kept unless a round is listed as missing it. */
@@ -315,7 +332,7 @@ test("directions render real cuts, post one board pick, and polish refines the p
     const quiet = { log: () => {}, warn: (l: string) => { warnings.push(l); } };
     const camera = (d: string, pairs: string[], theme?: string) => resolveCamera(d, pairs, theme, true);
     const file: DirectionsFile = await runDirections({
-      dir, count: 2, noAi: false, replan: false, set: FAST, board: sign.board, planner, judge, configDir: join(root, "cfg"),
+      dir, count: 2, replan: false, set: FAST, board: sign.board, planner, judge, configDir: join(root, "cfg"),
       fetchImpl: recorded({ score: 8 }), resolveCamera: camera, ...quiet,
     });
     assert.equal(file.directions.length, 2);
@@ -341,7 +358,7 @@ test("directions render real cuts, post one board pick, and polish refines the p
     assert.equal(JSON.parse(readFileSync(join(dir, "take.json"), "utf8")).direction.theme, file.directions[1]!.theme);
 
     const result = await runPolishCommand({
-      dir, maxRounds: 2, feedback: [], noAi: false, set: FAST, board: sign.board, judge, builder: planner,
+      dir, maxRounds: 2, feedback: [], set: FAST, board: sign.board, judge, builder: planner,
       configDir: join(root, "cfg"), fetchImpl: recorded({ score: 8, yes: 1, choices: { opening: "longer", ending: "longer" } }),
       resolveCamera: camera, ...quiet,
     });
@@ -376,7 +393,7 @@ test("directions render real cuts, post one board pick, and polish refines the p
     const failing = (async (url: unknown, init?: { body?: unknown }) => /refinement 1 of/.test(String(init?.body)) && /"tools"/.test(String(init?.body))
       ? new Response("overloaded", { status: 529 }) : judgeDown(url as string, init as RequestInit)) as typeof fetch;
     await assert.rejects(runPolishCommand({
-      dir, maxRounds: 2, feedback: ["keep the cursor easy to follow"], noAi: false, set: [], judge, builder: planner,
+      dir, maxRounds: 2, feedback: ["keep the cursor easy to follow"], set: [], judge, builder: planner,
       configDir: join(root, "cfg"), fetchImpl: failing, resolveCamera: camera, ...quiet,
     }), JudgeUnavailable);
     const second = latestRun(dir)!;

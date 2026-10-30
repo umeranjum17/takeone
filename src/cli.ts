@@ -442,9 +442,9 @@ export async function main(argv: string[]): Promise<number> {
   }
 }
 
-export const DIRECTIONS_USAGE = `takeone directions <take> [--count 2|3] [--goal "<sentence>"] [--style "<word>"] [--no-ai] [--replan] [--set key=value] [--board <decisions.json>]
+export const DIRECTIONS_USAGE = `takeone directions <take> [--count 2|3] [--goal "<sentence>"] [--style "<word>"] [--replan] [--set key=value] [--board <decisions.json>]
 takeone pick <take> [a|b|c|r<round>]
-takeone polish <take> [--max-rounds 1-${MAX_POLISH_ROUNDS}] [--feedback "<note>"]... [--no-ai] [--set key=value] [--board <decisions.json>]
+takeone polish <take> [--max-rounds 1-${MAX_POLISH_ROUNDS}] [--feedback "<note>"]... [--set key=value] [--board <decisions.json>]
 takeone polish-feedback <take> "<note>"`;
 
 /** `directions`, `pick`, `polish` and `polish-feedback`: distinct cuts of one take, the owner's pick, and judge-refine rounds on it. */
@@ -480,10 +480,11 @@ async function runDirectionCommand(cmd: string, rest: string[]): Promise<number>
       }
       return 0;
     }
-    const o = { count: 3, maxRounds: DEFAULT_POLISH_ROUNDS, noAi: false, replan: false, set: [] as string[], feedback: [] as string[], goal: undefined as string | undefined, style: undefined as string | undefined, board: undefined as string | undefined };
+    const o = { count: 3, maxRounds: DEFAULT_POLISH_ROUNDS, replan: false, set: [] as string[], feedback: [] as string[], goal: undefined as string | undefined, style: undefined as string | undefined, board: undefined as string | undefined };
     for (let i = 0; i < args.length; i++) {
       const flag = args[i]!;
-      if (flag === "--no-ai") { o.noAi = true; continue; }
+      // Every option is judged and every round is built and judged, so there is no planner-free mode here.
+      if (flag === "--no-ai") throw new UsageError(`--no-ai is not offered: ${cmd} needs the planner and the independent judge`);
       if (flag === "--replan" && cmd === "directions") { o.replan = true; continue; }
       const value = args[++i];
       if (value === undefined || value.startsWith("--")) throw new UsageError(`${flag} needs a value`);
@@ -502,11 +503,11 @@ async function runDirectionCommand(cmd: string, rest: string[]): Promise<number>
     if (cmd === "polish" && !(Number.isInteger(o.maxRounds) && o.maxRounds >= 1 && o.maxRounds <= MAX_POLISH_ROUNDS)) throw new UsageError(`--max-rounds must be an integer from 1 to ${MAX_POLISH_ROUNDS}`);
     if (cmd === "polish") for (const text of o.feedback) if (!text.trim() || text.trim().length > 2000) throw new UsageError("--feedback must be 1-2000 characters");
     if (cmd === "directions") {
-      await runDirections({ dir, count: o.count, noAi: o.noAi, replan: o.replan, set: o.set, log, warn, resolveCamera: camera,
+      await runDirections({ dir, count: o.count, replan: o.replan, set: o.set, log, warn, resolveCamera: camera,
         ...(o.goal === undefined ? {} : { goal: o.goal }), ...(o.style === undefined ? {} : { style: o.style }), ...(o.board === undefined ? {} : { board: o.board }) });
       return 0;
     }
-    await runPolishCommand({ dir, maxRounds: o.maxRounds, feedback: o.feedback, noAi: o.noAi, set: o.set, log, warn, resolveCamera: camera,
+    await runPolishCommand({ dir, maxRounds: o.maxRounds, feedback: o.feedback, set: o.set, log, warn, resolveCamera: camera,
       ...(o.board === undefined ? {} : { board: o.board }) });
     return 0;
   } catch (e) {
