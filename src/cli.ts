@@ -197,7 +197,7 @@ function parseArgs(argv: string[]): Args {
 function usage(code: number): never {
   const themes = Object.keys(THEMES).join("|");
   console.error(`takeone make <id> [--no-ai] [--goal "<sentence>"] [--style "<word>"] [--no-screen-text] [--replan] [--max-tokens N] [--theme ${themes}] [--set key=value] [--target-score N] [--max-rounds M]
-takeone render <take-dir> [--theme ${themes}] [--set key=value] [--aspect landscape|portrait|square|4:5] [--resolution 4k] [--format mp4|gif|webm|prores4444] [--preview]
+takeone render <take-dir> [--theme ${themes}] [--set key=value] [--frame auto|browser|laptop|phone|none] [--aspect landscape|portrait|square|4:5] [--resolution 4k] [--format mp4|gif|webm|prores4444] [--preview]
 takeone render <motion-dir> [--aspect landscape|portrait|square|4:5] [--stills <seconds,...>]
 ${DIRECTIONS_USAGE}
 ${MOTION_USAGE}
@@ -333,13 +333,14 @@ export async function main(argv: string[]): Promise<number> {
       for (let i = 0; i < args.length; i++) {
         const option = args[i];
         if (option === "--preview") { preview = true; continue; }
-        if (!["--set", "--theme", "--aspect", "--resolution", "--format"].includes(option!)) {
+        if (!["--set", "--theme", "--frame", "--aspect", "--resolution", "--format"].includes(option!)) {
           throw Error(`unknown option ${option}`);
         }
         const value = args[++i];
         if (value === undefined || value.startsWith("--")) throw Error(`${option} needs a value`);
         if (option === "--set") pairs.push(value);
         else if (option === "--theme") theme = value;
+        else if (option === "--frame") pairs.push(`frame=${value}`);
         else if (option === "--aspect") aspect = value;
         else if (option === "--resolution") resolution = value;
         else if (option === "--format") format = value;

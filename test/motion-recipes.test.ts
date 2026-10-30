@@ -40,8 +40,9 @@ test("every recipe plans its approved patterns in landscape and portrait, and so
     }
     const social = plan(dir, "social-default", [BOARD, ...REGIONS, "--recipe", "social"]).sb!;
     assert.deepEqual([social.output.out_w, social.output.out_h], [1080, 1920]);
-    const each = plan(dir, "each", [BOARD, BOARD, ...REGIONS, "--pattern", "logo-sting,spotlight,feature-callouts,before-after,device-orbit"]).sb!;
-    assert.equal(each.scenes.length, 5);
+    const each = plan(dir, "each", [BOARD, BOARD, ...REGIONS, "--pattern", "logo-sting,spotlight,feature-callouts,before-after,device-orbit,scroll-through"]).sb!;
+    assert.equal(each.scenes.length, 6);
+    assert.equal(each.scenes.at(-1)!.pattern, "scroll-through");
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 

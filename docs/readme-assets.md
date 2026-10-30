@@ -18,7 +18,7 @@ account or network. Work takes well over an hour on a loaded host; run it throug
 | A4 | `square.mp4` | board scene `--aspect=square`, `paper` |
 | A5 | `motion-hero.mp4` | `takeone motion --recipe launch --theme aurora` on the Tidewater screenshot |
 | A6 | `motion-callouts.mp4` | `--recipe feature --theme paper`, three labelled regions |
-| A7 | `motion-scroll.mp4` | portrait zoom tour in `mono`; **a substitute** until the scroll-through pattern ships |
+| A7 | `motion-scroll.mp4` | portrait `scroll-through` in `mono` |
 | A8 | `before-after.mp4` | A1's raw capture (paced as the render paced it) beside A1's render |
 | A9 | `themes.png` | `scripts/theme-proof.ts` fixture grid, every theme |
 | A10 | `stills/*.webp`, `*.jpg` | four fixed fractions of A1 and of A2, 1600x900 |
