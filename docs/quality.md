@@ -1,7 +1,7 @@
 # Output quality gates
 
 `npm run quality` builds the two existing synthetic takes and one real-UI take,
-plans them locally (`noAi: true`), renders at 60 fps, and rerenders to test byte
+plans them with the recorded planner (scripts/verification/recorded-planner.ts), renders at 60 fps, and rerenders to test byte
 determinism. The real-UI take is the headless capture of the staged board scene
 (`scripts/headless-scene.mjs --cursor=hidden`, so the render draws the cursor),
 and a pass never rests on synthetic takes alone.
