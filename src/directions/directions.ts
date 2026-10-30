@@ -1,4 +1,4 @@
-// Directions: two or three distinct cuts of one take. A
+// Directions: two or three distinct cuts of one take before any polishing. A
 // direction is a look (theme), a pacing and a camera motion, rendered from the
 // same plan with `--set` pairs; it never re-plans the take's beats. One planner
 // call proposes the directions; the rules below keep them distinct, and a
@@ -22,7 +22,7 @@ export const MOTIONS = {
 export type MotionStyle = keyof typeof MOTIONS;
 
 /** Pacing per level: the hold multiplier the film call uses, how fast idle footage plays and the opening hold. */
-/** Idle footage plays at most this many times faster in a direction. On the 43 s 4K proof take the
+/** Idle footage plays at most this many times faster in a direction or a polish round. On the 43 s 4K proof take the
  * camera solve took 192-220 s at 4x and 5x and ran past an hour at 6x (its text guard decodes far more source windows). */
 export const IDLE_SPEED_MAX = 5;
 

@@ -1,10 +1,10 @@
-// The page a sign-off design card opens for one demo option: the cut plays in place, with its judge
+// The page a sign-off design card opens for one demo option or polish round: the cut plays in place, with its judge
 // score, rubric, the owner's feedback and what changed. Made with first-draft (`first-draft-axi make`, then `refine`
 // from the independent critic's gaps); the sample text became the fields below. Light and dark, phone and desktop, no
 // network: the board serves the video and poster from beside the page.
 
 export interface CutPageData {
-  /** "A", "B" or "C". */
+  /** "A", "B", "C" or "R3". */
   badge: string;
   badgeLabel: string;
   title: string;
