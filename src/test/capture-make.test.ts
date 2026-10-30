@@ -147,7 +147,7 @@ function ffmpegToolsPath(home: string): string {
 }
 
 /** What the signed-in Claude stand-in below costs a planned take, from capture make's own report. */
-const PLANNER_STATS = { planned_tokens: 3982, input_tokens: 2, usd: 0, failed: false };
+const PLANNER_STATS = { planned_tokens: 5360, input_tokens: 2, usd: 0, failed: false };
 
 /** A home whose only AI is the signed-in Claude stand-in below, with the ffmpeg tools on PATH:
  * what `--planner-account` resolves in these tests. */
@@ -535,6 +535,7 @@ test("makeTake planOnly prices the plan with zero planner calls", { skip: needsF
     const r = await makeTake(dir, {
       planOnly: true,
       apiKey: "test-key",
+      maxTokens: 100000,
       fetchImpl: (() => {
         calls++;
         throw new Error("plan-only must make no planner calls");
@@ -560,6 +561,7 @@ test("makeTake planOnly prices the plan with zero planner calls", { skip: needsF
     const v = await makeTake(silent, {
       planOnly: true,
       apiKey: "test-key",
+      maxTokens: 100000,
       log: () => {},
       warn: () => {},
     });
@@ -577,6 +579,7 @@ test("makeTake planOnly prices the plan with zero planner calls", { skip: needsF
     const v = await makeTake(mid, {
       planOnly: true,
       apiKey: "test-key",
+      maxTokens: 100000,
       log: () => {},
       warn: () => {},
     });

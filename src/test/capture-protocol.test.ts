@@ -166,7 +166,7 @@ test("capture make --planner-account output conforms to recorder-protocol-1.json
     writeFileSync(join(dir, "take.json"), JSON.stringify({
       id: "t1", stream: { w: 320, h: 180 }, scale: 1, offset_ms: 0, pointer: "hyprland",
     }));
-    const r = run(["capture", "make", dir, "--planner-account",
+    const r = run(["capture", "make", dir, "--planner-account", "--max-tokens", "100000",
       "--set", "preset=veryfast", "--set", "out_w=320", "--set", "out_h=180",
       "--set", "ripple_ms=0", "--set", "fade_s=0"], recordedEngineHome(home));
     assert.equal(r.status, 0, r.stderr);

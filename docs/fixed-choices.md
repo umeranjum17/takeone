@@ -19,11 +19,11 @@ rule; one design decision may correspond to multiple implementation rules here.
 
 | Choice | Where | Limit | Why it cannot be taste |
 |---|---|---|---|
-| Whether a planner runs at all (`--offline`, no sign-in) | `src/make.ts` · `PlannerUnavailable` | cost | No engine means no call and no spend; the film is recorded as a fallback, never passed off as planned |
+| Whether a planner runs at all | `src/make.ts` · `PlannerUnavailable` | cost | It always runs: with no engine the run stops (exit 3) before any spend, and there is no offline mode |
 | Run-level token ceiling | `src/make.ts` · `DEFAULT_TOKENS_PER_MIN` | cost | A hard spend bound per take minute |
 | Planner request size and batching | `src/decide/request.ts` · `CHUNK_TOKEN_CAP` | cost | Bounds one call; the chunk size is `CHUNK_BEATS` |
 | Actions described per beat | `src/decide/request.ts` · `ACTIONS_PER_BEAT` | cost | Prompt size |
-| Beats the planner is asked about | `src/make.ts` · `byAi` | cost | A beat with one candidate zone has nothing to choose |
+| Beats the planner is asked about | `src/make.ts` · `asked` | cost | Every beat, one-zone beats too; no beat is decided by rules in a planned run |
 | Failed or refused call | `src/decide/planner.ts` · `PlannerUnavailable` | cost | A provider limit stops and asks; it never silently degrades |
 | Transport retry | `src/decide/planner.ts` · `retryBaseMs` | cost | One bounded retry on a rate limit |
 | Price list behind the cost shown | `src/decide/prices.ts` · `PROVIDER_PRICES` | cost | A provider's published price, not a choice |
