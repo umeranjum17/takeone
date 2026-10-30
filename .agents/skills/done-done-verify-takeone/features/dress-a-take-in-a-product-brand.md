@@ -11,9 +11,9 @@ A project lead has a take of their app and a brand file (`brand.json` or a `DESI
 Harness: Shell (bash), a headless board capture, ffmpeg/ffprobe, `fm-mem-gate.sh` + the shared render slot for every capture, render and ffmpeg.
 
 1. `bash scripts/verification/brand-take.sh <evidence-dir>` drives the whole proof (through the gate via `TAKEONE_RENDER_WRAP`, or as `done-done run brand-take`). It captures the staged board scene with one title and one caption, renders it with `takeone make --no-ai`, then renders the same take again with `--brand`, and decodes the same still from each film.
-2. Look at the two stills side by side: the branded one carries the brand's stage colour, its accent and its serif title; the plain one is the midnight stage in Inter Bold. Nothing overlaps, no word is cut, and the title and caption sit in the band below the card.
+2. Look at the two stills side by side: the branded one sits on the brand's cream stage with a dark serif title and the band's caption in Manrope; the plain one is the midnight stage in Inter Bold. Nothing overlaps, no word is cut, and the title and caption sit in the band below the card.
 3. Read `captions.ass` beside the take (the ASS the render wrote): `grep -o '\\fn[A-Za-z0-9 ]*' captions.ass` names every face the renderer set its text in — `Fraunces SemiBold` and `Manrope Medium` for this brand file, `Inter Bold` without it. That is the face actually applied, not the face requested.
-4. The stage pixel at 6,6 of each still proves the palette: `06 0a 12`-ish without the brand, the brand background with it.
+4. The stage pixel at 6,6 of each still proves the palette: the midnight stage (`6 10 18`) without the brand, the brand background (`244 242 238`, the cream) with it. A light background is legitimate for a take; the glow recipe refuses one.
 5. The refusal: a brand file naming a family TakeOne neither bundles nor carries (`"BrandSans"`) exits non-zero with `brand typography.display: "BrandSans" is not a font TakeOne bundles (no fallback is used); bundled families: ...` and writes no film. That is the expected result, not a failure of the drive.
 6. Rerender the branded film with an explicit `--set background=#rrggbb` to see that a render-typed pair still wins over the brand file.
 

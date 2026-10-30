@@ -33,11 +33,12 @@ run node bin/takeone.mjs make "$work/scene" --no-ai "${small[@]}"
 cp "$(film "$work/scene")" "$work/plain.mp4"
 printf 'without --brand: %s\n' "$(faces "$work/scene/captions.ass")" > "$out/takeone-brand-take-faces.txt"
 
-# The brand file: the sample Tidewater palette, with the display face carried as a font file.
+# The brand file: a light cream stage with the board's own ink and teal, and the display face carried as
+# a font file. A take takes any background lightness (the glow recipe refuses a light one).
 node -e 'const fs = require("fs"), path = require("path");
   fs.writeFileSync(process.argv[1], JSON.stringify({
     name: "Tidewater",
-    colors: { background: "#04141a", surface: "#0b2530", foreground: "#f1faf7", border: "#1d4651", accent: "#18c8a4" },
+    colors: { background: "#f4f2ee", surface: "#ffffff", foreground: "#1d1f23", border: "#dcd7cb", accent: "#0f766e" },
     typography: { display: { family: "Fraunces SemiBold", file: path.resolve("resources/fonts/Fraunces-SemiBold.ttf") }, body: "Manrope" },
   }, null, 1));' "$work/brand.json"
 run node bin/takeone.mjs render "$work/scene" --brand "$work/brand.json" "${small[@]}"
@@ -53,13 +54,13 @@ still "$work/plain.mp4" "$out/takeone-brand-take-before.png"
 still "$work/branded.mp4" "$out/takeone-brand-take-after.png"
 before=$(pixel "$out/takeone-brand-take-before.png")
 after=$(pixel "$out/takeone-brand-take-after.png")
-printf 'still at %ss, the 1x1 stage pixel at 6,6 as r g b: without --brand %s, with --brand %s (the brand background #04141a is 4 20 26)\n' \
+printf 'still at %ss, the 1x1 stage pixel at 6,6 as r g b: without --brand %s, with --brand %s (the brand background #f4f2ee is 244 242 238)\n' \
   "$at" "$before" "$after" > "$out/takeone-brand-take-pixels.txt"
 cat "$out/takeone-brand-take-pixels.txt"
 test "$before" != "$after"
 node -e 'const [r, g, b] = process.argv[1].split(" ").map(Number);
-  if (Math.abs(r - 4) > 10 || Math.abs(g - 20) > 10 || Math.abs(b - 26) > 10) {
-    console.error(`the branded stage pixel is ${r} ${g} ${b}, not the brand background #04141a`); process.exit(1); }' "$after"
+  if (Math.abs(r - 244) > 12 || Math.abs(g - 242) > 12 || Math.abs(b - 238) > 12) {
+    console.error(`the branded stage pixel is ${r} ${g} ${b}, not the brand background #f4f2ee`); process.exit(1); }' "$after"
 
 # A typeface TakeOne does not bundle and the brand does not carry: an explicit error naming it.
 node -e 'require("fs").writeFileSync(process.argv[1], JSON.stringify({ typography: { display: "BrandSans" } }))' "$work/unknown-font-brand.json"
