@@ -43,9 +43,12 @@ const fadeCambi=(mp4:string,seconds:number,fade:number,fps:number,tag:string)=>{
  const worst=[fadeIn,fadeOut].reduce((a,b)=>b.max>a.max?b:a);
  return {fade_cambi_max:worst.max,fade_in_max:fadeIn.max,fade_out_max:fadeOut.max,worst_s:+worst.at.toFixed(3)};
 };
-/** The still a viewer would see mid-transition: the worst fade frame this render actually has. */
-const fadeStill=(mp4:string,at:number,name:string)=>
- ff("-ss",Math.max(0,at).toFixed(3),"-i",mp4,"-frames:v","1","-update","1",join(dest,`${name}-fade.png`));
+/** Two stills: the middle of the fade in, where the film is half blended, and the worst fade frame
+ * the measurement found, so the number and the frame a viewer would see can both be checked by eye. */
+const fadeStill=(mp4:string,fade:number,facts:{worst_s:number},name:string)=>{
+ ff("-ss",(fade/2).toFixed(3),"-i",mp4,"-frames:v","1","-update","1",join(dest,`${name}-fade.png`));
+ ff("-ss",facts.worst_s.toFixed(3),"-i",mp4,"-frames:v","1","-update","1",join(dest,`${name}-worst.png`));
+};
 const names=values.themes===undefined ? Object.keys(THEMES) : values.themes.split(",").map(n=>n.trim()).filter(Boolean);
 for(const name of names) if(!Object.hasOwn(THEMES,name)) throw new Error(`unknown theme ${name}; choose ${Object.keys(THEMES).join(", ")}`);
 const font=join(FONTS_DIR,"Geist.ttf");
@@ -60,7 +63,7 @@ const fixture={
 const provenance=(source:string,realTake:boolean)=>{
 const hash=(file:string)=>createHash("sha256").update(readFileSync(file)).digest("hex");
 const fontManifest=JSON.parse(readFileSync(join(FONTS_DIR,"manifest.json"),"utf8")) as {file:string}[];
-const artifacts=realTake ? ["takeone-themes-grid.png","metrics.json",...names.flatMap(name=>[`${name}.png`,`${name}.mp4`,`${name}-fade.png`])] : ["takeone-themes-grid.png","takeone-themes-cycle.mp4","takeone-themes-before.png","takeone-themes-after.png","takeone-themes-after.mp4","takeone-themes-side-by-side.mp4","metrics.json"];
+const artifacts=realTake ? ["takeone-themes-grid.png","metrics.json",...names.flatMap(name=>[`${name}.png`,`${name}.mp4`,`${name}-fade.png`,`${name}-worst.png`])] : ["takeone-themes-grid.png","takeone-themes-cycle.mp4","takeone-themes-before.png","takeone-themes-after.png","takeone-themes-after.mp4","takeone-themes-side-by-side.mp4","metrics.json"];
 writeFileSync(join(dest,"provenance.json"),JSON.stringify({generator:"scripts/theme-proof.ts",generator_sha256:hash(fileURLToPath(import.meta.url)),source:relative(fileURLToPath(new URL("../",import.meta.url)),source),source_sha256:hash(source),theme_sha256:hash(fileURLToPath(new URL("../src/themes.ts",import.meta.url))),renderer_sha256:hash(fileURLToPath(new URL("../src/render/render.ts",import.meta.url))),ffmpeg:execFileSync("ffmpeg",["-version"],{encoding:"utf8"}).split("\n")[0],settings:realTake ? {mode:"take",title_frame_s:1.6,caption_frame:"midpoint"} : {mode:"fixture",...fixture,baseline:values.baseline ? {file:values.baseline,sha256:hash(resolve(values.baseline))} : "current midnight",cycle_seconds:names.length*fixture.themes.duration_s},fonts:Object.fromEntries(fontManifest.map(font=>[font.file,hash(join(FONTS_DIR,font.file))])),themes:names,grid:{columns,rows:Math.ceil(names.length/columns),width:columns*gridCell.width,height:Math.ceil(names.length/columns)*(gridCell.height+gridCell.label)},artifacts:Object.fromEntries(artifacts.map(name=>[name,hash(join(dest,name))]))},null,2)+"\n");
 };
 /** Each cell stacks a title frame over a caption frame; the label is the theme, never on the video. */
@@ -87,7 +90,7 @@ if(values.take!==undefined){
   ff("-i",join(dest,`${name}-title.png`),"-i",join(dest,`${name}-caption.png`),"-filter_complex","[0:v][1:v]vstack","-frames:v","1","-update","1",join(dest,`${name}.png`));
   const fade=Math.min(d.fade_s,result.seconds/4);
   const fadeFacts=fadeCambi(result.out,result.seconds,fade,d.fps,name);
-  fadeStill(result.out,fadeFacts.worst_s,name);
+  fadeStill(result.out,fade,fadeFacts,name);
   takeFacts[name]=fadeFacts;
   console.log(`rendered ${name}`);
  }
@@ -128,7 +131,7 @@ for(const name of names){
  const contrast=(luminances[1]!+0.05)/(luminances[0]!+0.05);assert.ok(contrast>=4.5,`${name}: contrast ${contrast}`);
  const fade=Math.min(d.fade_s,result.seconds/4);
  const fadeFacts=fadeCambi(result.out,result.seconds,fade,d.fps,name);
- fadeStill(result.out,fadeFacts.worst_s,name);
+ fadeStill(result.out,fade,fadeFacts,name);
  facts[name]={seconds:result.seconds,contrast,...fadeFacts,fonts:[...readFileSync(join(take,"render.log"),"utf8").matchAll(/fontselect:[^\n]+/g)].map(m=>m[0])};
  console.log(`rendered ${name}`);
 }
