@@ -4,9 +4,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, closeSync, existsSync, mkdirSync, openSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import type { Answer } from "@byokit/decide";
 import { mapDirections, directionsRequest, directionSet } from "../src/directions/directions.ts";
 import { pickDirection, runDirections, type DirectionsFile } from "../src/directions/run.ts";
@@ -16,6 +16,7 @@ import { builderRequest, KNOBS, mapBuilder } from "../src/polish/builder.ts";
 import { judgeRound, JudgeUnavailable } from "../src/score/judge.ts";
 import { resolvePlanner, type ResolvedPlanner } from "../src/decide/planner.ts";
 import { cutPage } from "../src/board/page.ts";
+import { litWindow } from "../src/perceive/lit.ts";
 import { cardNotes, freeKey } from "../src/board/board.ts";
 import { resolveCamera } from "../src/cli.ts";
 import { DEFAULTS } from "../src/camera/defaults.ts";
@@ -409,5 +410,51 @@ test("directions render real cuts, post one board pick, and polish refines the p
     if (was === undefined) delete process.env.TAKEONE_SIGN_OFF;
     else process.env.TAKEONE_SIGN_OFF = was;
     rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("directions stops with the AI-engine message when no engine can serve, through the shipped CLI in an isolated home", { skip: needsFfmpeg, timeout: 120_000 }, () => {
+  const root = mkdtempSync(join(tmpdir(), "takeone-directions-noengine-"));
+  try {
+    const dir = buildTake(mkdtempSync(join(root, "take-")));
+    // No HOME with a sign-in, no engine on PATH, no OS keyring, an empty sealed store: nothing can answer, on any machine.
+    const env: NodeJS.ProcessEnv = { ...process.env };
+    for (const name of ["TYPESAFE_API_KEY", "TAKEONE_NO_KEYRING", "TAKEONE_SECRETS_PASSPHRASE_FD", "TAKEONE_TEST_NO_KEYRING",
+      "TAKEONE_TEST_KEYRING_FAILURE", "TAKEONE_TEST_KEYRING_KEY"]) delete env[name];
+    Object.assign(env, {
+      HOME: root, XDG_CONFIG_HOME: join(root, ".config"), PATH: "", TAKEONE_NO_KEYRING: "1", TAKEONE_SECRETS_PASSPHRASE_FD: "3",
+      TAKEONE_DIR: join(root, "takes"), TAKEONE_STATE_DIR: join(root, "state"),
+    });
+    const passphrase = join(root, "passphrase");
+    writeFileSync(passphrase, "test-passphrase");
+    const fd = openSync(passphrase, "r"); // array index 3 becomes the child's fd 3
+    let r;
+    try {
+      r = spawnSync(process.execPath, [resolve("bin/takeone.mjs"), "directions", dir, "--count", "2"],
+        { encoding: "utf8", env, timeout: 100_000, stdio: ["ignore", "pipe", "pipe", fd] });
+    } finally {
+      closeSync(fd);
+    }
+    assert.equal(r.status, 3, r.stderr);
+    assert.match(r.stderr, /needs an AI engine/);
+    assert.equal(existsSync(join(dir, "analysis", "beats.json")), false, "nothing was planned or rendered");
+    assert.equal(existsSync(join(dir, "directions")), false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("a spotlight window starts when its region has content and is dropped when it never does", { skip: needsFfmpeg, timeout: 60_000 }, async () => {
+  const dir = mkdtempSync(join(tmpdir(), "takeone-lit-"));
+  try {
+    const webm = join(dir, "s.webm");
+    // 2 s of a flat white region (a menu not yet open), then 2 s of content: the window starts where the region first differs.
+    execFileSync("ffmpeg", ["-nostdin", "-y", "-filter_complex", "color=c=white:s=320x180:d=2:r=30[a];testsrc2=s=320x180:d=2:r=30[b];[a][b]concat[v]",
+      "-map", "[v]", "-c:v", "libvpx", "-b:v", "1M", webm], { stdio: "ignore" });
+    const lit = await litWindow(webm, [0, 0, 320, 180], 0, 4);
+    assert.ok(lit && Math.abs(lit.t - 2) <= 0.25 && lit.d >= 1.5, JSON.stringify(lit));
+    assert.equal(await litWindow(webm, [0, 0, 320, 180], 0, 1.8), null, "a region that stays flat is never lit");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
   }
 });

@@ -129,7 +129,7 @@ async function directionsFor(o: DirectionsOptions, board: string | undefined, pr
   if (o.replan || !existsSync(join(o.dir, "analysis", "beats.json"))) {
     o.log("directions: planning the take once (beats, camera decisions, captions); every direction renders this one plan");
     await makeTake(o.dir, {
-      replan: o.replan, set: o.set, render: false, log: o.log, warn: o.warn,
+      replan: o.replan, set: o.set, render: false, log: o.log, warn: o.warn, resolvedPlanner: planner,
       camera: o.resolveCamera(o.dir, o.set),
       ...(o.goal === undefined ? {} : { goal: o.goal }),
       ...(o.style === undefined ? {} : { style: o.style }),

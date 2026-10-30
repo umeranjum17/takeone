@@ -83,7 +83,7 @@ test("glow deck measures wide captions and preserves sizes that already fit", { 
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
-test("glow deck shows exactly one headline and one index, the front card's, on every frame after its first", { timeout: 120_000 }, async () => {
+test("glow deck shows exactly one headline and one index, the front card's, on its first frame and every frame after", { timeout: 120_000 }, async () => {
   const size = imageSize(BOARD), tap = await pressBox(BOARD, "1,2,3,4");
   const captions = ["Plan the launch.", "Track every task.", "See what moved."];
   const regions = ["316,120,520,520", "868,120,520,520", "1984,128,544,600"].map((r, i) => `${r}:${captions[i]}`);
@@ -95,10 +95,30 @@ test("glow deck shows exactly one headline and one index, the front card's, on e
     await withPage(writePage(dir, sb).html, 1920, 1080, async (b) => {
       const [start, d] = await b.evaluate<[number, number]>(`(()=>{const l=document.querySelector('[data-pattern="glow-deck"]');return [Number(l.dataset.start),Number(l.dataset.duration)];})()`);
       const isIndex = (t: string) => /^\d\d \/ \d\d$/.test(t);
-      // The deck's first frame is a cut, which every scene's text skips; from the next frame to its last, one card is named.
+      // Windows are frame-clock ticks, never keyframed `visibility`: a discrete flip that completes on a frame time
+      // samples as the value before it, and every scene's first frame is its cut, so that frame was drawn with the
+      // scene's text layer still hidden and the film flickered its words in.
+      const animated = await b.evaluate<string[]>(`document.getAnimations().flatMap(a=>a.effect?.getKeyframes?.()??[]).flatMap(k=>Object.keys(k)).filter(p=>p==="visibility")`);
+      assert.deepEqual(animated, [], "a window may not animate visibility");
+      // Every scene draws itself on its first frame and nothing a frame earlier: the switch closes a hair before
+      // the cut, not on it, and not a frame early either. A scene with no [data-safe] box (the end card) only owes
+      // the frame its layer.
+      const scenes = await b.evaluate<{ start: number; boxes: number }[]>(`[...document.querySelectorAll('.layer')].map(l=>({start:Number(l.dataset.start),boxes:l.querySelectorAll('[data-safe]').length}))`);
+      for (const [i, s] of scenes.entries()) {
+        const at = await b.evaluate<{ cut: string; before: string; after: string }>(`(()=>{const l=document.querySelector('.layer[data-scene="${i}"]');
+          const shot=()=>getComputedStyle(l).visibility+([...l.querySelectorAll('[data-safe]')].some(e=>getComputedStyle(e).visibility==="visible")?'+text':'-text');
+          window.__apply(${s.start} * 1000); const cut=shot();
+          window.__apply(${s.start} * 1000 - 1000 / 60); const before=shot();
+          window.__apply(${s.start} * 1000 + 1000 / 60); const after=shot();
+          return {cut, before, after};})()`);
+        const shown = s.boxes ? "visible+text" : "visible-text";
+        for (const [frame, want] of [["cut", shown], ["before", "hidden-text"], ["after", shown]] as const)
+          assert.equal(at[frame], want, `scene ${i + 1} at its ${frame}: ${at[frame]}`);
+      }
+      // The deck's own frames, from its first (a cut) to its last: one card is named.
       const samples = await b.evaluate<{ local: number; shown: string[]; front: number }[]>(`(()=>{
         const layer=document.querySelector('[data-pattern="glow-deck"]'),cards=[...layer.querySelectorAll('[data-safe^="card "]')],out=[];
-        for(let f=1;f<Math.round(${d}*60);f++){
+        for(let f=0;f<Math.round(${d}*60);f++){
           const local=f*1000/60;window.__apply(${start}*1000+local);
           const shown=[...layer.querySelectorAll(':scope > div[data-safe=""]')].filter(e=>getComputedStyle(e).visibility==="visible").map(e=>e.textContent);
           const front=cards.map((e,i)=>[i,Number(getComputedStyle(e).zIndex)]).sort((a,b)=>b[1]-a[1])[0][0];
