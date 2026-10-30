@@ -104,6 +104,13 @@ export function beatTimings(floors: number[], beats: number[], fps = 60): number
   return out;
 }
 
+/** Measured beats that fall inside the film but have no cut on them: a scene's reading floor ran past that beat. */
+export function missedBeats(durations: number[], beats: number[], fps = 60): number[] {
+  const cuts = durations.slice(0, -1).map((_, i) => durations.slice(0, i + 1).reduce((x, y) => x + y, 0));
+  const end = durations.reduce((x, y) => x + y, 0);
+  return beats.filter((b) => b < end - 1e-6 && !cuts.some((c) => Math.abs(c - b) <= 1 / fps));
+}
+
 /** A facts.json written by an earlier `--measure`: its beat list, so a plan reuses one measurement. */
 export function readCuts(file: string): number[] {
   const cuts = (JSON.parse(readFileSync(file, "utf8")) as { cuts?: unknown }).cuts;

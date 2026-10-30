@@ -9,7 +9,8 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { planHalo } from "../src/motion/halo.ts";
 import { filmStoryboard } from "../src/motion/film.ts";
-import { measureReference } from "../src/motion/reference.ts";
+import { planStory } from "../src/motion/story.ts";
+import { measureReference, missedBeats } from "../src/motion/reference.ts";
 import { minSceneDuration, validateStoryboard } from "../src/motion/storyboard.ts";
 import { hasFfmpeg } from "./helpers.ts";
 
@@ -68,4 +69,18 @@ test("measured beats retime a halo plan and a film's cuts, never under a reading
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test("a story in a brand follows a reference's beats, and a beat its reading floor outran is reported", () => {
+  const brief = "chips: Plan the watch / in one board | Crew; Night shift; Safety\nphone: Ask / anything | Who has the 22:00 watch?; Ana, until 06:00\nstats: Your crew, / on one clock | 9 crew; 3 watches";
+  const args = { pitch: brief, logo: "TIDEWATER", brand: resolve("resources/demo/tidewater-brand.json") };
+  const sb = (beats?: number[]) => validateStoryboard(planStory({ ...args, beats }, "reference-story"));
+  const timed = sb([3.37, 6.22, 9.03]);
+  assert.equal(timed.theme.overrides?.accent, "#18c8a4", "the brand file still dresses the retimed film");
+  assert.ok(timed.scenes.some((s, i) => i < 2 && s.d !== sb().scenes[i]!.d), "the measured beats moved the plan");
+  const missed = missedBeats(timed.scenes.map((s) => s.d), [3.37, 6.22, 9.03]);
+  assert.ok(missed.length < 3 && missed.every((b) => [3.37, 6.22, 9.03].includes(b)));
+  // A scene that ran 5.66 s cannot end at 6.22 s: that beat has no cut, and the next one does.
+  assert.deepEqual(missedBeats([3.37, 5.66, 3.35], [3.37, 6.22, 9.03]), [6.22]);
+  assert.deepEqual(missedBeats([3.37, 2.85, 2], [3.37, 6.22, 9.03, 20]), [], "a beat past the film's end is not missed");
 });

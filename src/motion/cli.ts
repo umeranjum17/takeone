@@ -11,7 +11,7 @@ import { motionTokens } from "./theme.ts";
 import { installHyperframes } from "./hyperframes.ts";
 import { installShell } from "./shell.ts";
 import { planStory } from "./story.ts";
-import { measureReference, referenceCuts } from "./reference.ts";
+import { measureReference, missedBeats, referenceCuts } from "./reference.ts";
 import { MAX_DURATION_S, minSceneDuration, readingFloor, validateStoryboard } from "./storyboard.ts";
 import { planBento } from "./bento.ts";
 import { planEditorial } from "./editorial.ts";
@@ -566,6 +566,8 @@ export async function runMotion(argv: string[], takesDir: string, o: PlanOptions
     else storyboard = await planMotion(a, id, o);
   }
   const sb = validateStoryboard(storyboard); // refuse bad plans before touching the disk
+  const missed = beats ? missedBeats(sb.scenes.map(s => s.d), beats) : [];
+  if (missed.length) log(`motion: no cut on the reference's beat${missed.length > 1 ? "s" : ""} at ${missed.map(t => `${t.toFixed(2)} s`).join(", ")}: a scene's reading floor runs past ${missed.length > 1 ? "them" : "it"}; shorten that scene's copy to follow the rhythm`);
   const dir = takeDirPath();
   writeFileSync(join(dir, "storyboard.json"), JSON.stringify(sb, null, 2) + "\n");
   writeFileSync(join(dir, "take.json"), JSON.stringify({ id: basename(dir), theme: sb.theme.name,
