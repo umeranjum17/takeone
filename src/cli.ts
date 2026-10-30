@@ -18,6 +18,7 @@ import { isMotionTake, MOTION_USAGE, runGauntletCommand, runMotion } from "./mot
 import { runBrand } from "./motion/brand-link.ts";
 import { renderMotion } from "./motion/motion.ts";
 import { applyOverrides, type CameraDefaults, type Overrides } from "./camera/defaults.ts";
+import { readBrand, type Brand } from "./motion/brand.ts";
 import { filmOverrides, type FilmDecision } from "./decide/film.ts";
 import type { PickedDirection } from "./directions/directions.ts";
 import { REFINE_USAGE, lookArgs, runLook, runZoom } from "./refine.ts";
@@ -43,6 +44,9 @@ interface Args {
   replan: boolean;
   maxTokens?: number;
   set: string[];
+  /** The brand file's own font files, added to the render's font directory. */
+  fonts?: string[];
+  brand?: string;
   camera?: CameraDefaults;
   theme?: string;
   targetScore?: number;
@@ -67,12 +71,13 @@ export function parseSet(pairs: string[]): Overrides {
 /** Resolve a take look from its saved theme, the film `make` decided, CLI selection and `--set` pairs.
  * Throws on malformed pairs. Portrait takes default to portrait output. `make` passes
  * withFilm false: it applies its own film decision after this. */
-export function resolveCamera(dir: string, pairs: string[], theme?: string, withFilm = true): CameraDefaults {
+export function resolveCamera(dir: string, pairs: string[], theme?: string, withFilm = true, brand: Overrides = {}): CameraDefaults {
   // Typed pairs are checked before the take is read, so a malformed one is refused as such.
   const typed = parseSet(pairs);
   const meta = JSON.parse(readFileSync(join(dir, "take.json"), "utf8")) as { theme?: unknown; film?: FilmDecision; direction?: PickedDirection };
   // A picked direction is the person's own choice: its pairs sit under the typed ones and its theme under a typed --theme.
-  const raw = { ...parseSet(meta.direction?.set ?? []), ...typed };
+  // A brand file dresses the film under both; a --set pair typed for this render still wins.
+  const raw = { ...brand, ...parseSet(meta.direction?.set ?? []), ...typed } as Overrides;
   const selected = theme ?? meta.direction?.theme ?? meta.theme;
   if (!("out_w" in raw) && !("out_h" in raw) && isPortraitTake(dir)) {
     raw.out_w = 1080;
@@ -167,6 +172,11 @@ function parseArgs(argv: string[]): Args {
       if (value.length > GOAL_STYLE_MAX_CHARS) throw Error(`--style must be at most ${GOAL_STYLE_MAX_CHARS} characters`);
       a.style = value;
     }
+    else if (s === "--brand") {
+      const value = argv[++i];
+      if (!value || value.startsWith("--")) throw Error("--brand needs a brand.json or DESIGN.md");
+      a.brand = value;
+    }
     else if (s === "--no-screen-text") a.noScreenText = true;
     else if (s === "--replan") a.replan = true;
     else if (s === "--max-tokens") a.maxTokens = Number(argv[++i]);
@@ -204,8 +214,8 @@ function usage(code: number): never {
 
 function usageText(): string {
   const themes = Object.keys(THEMES).join("|");
-  return (`takeone make <id> [--goal "<sentence>"] [--style "<word>"] [--no-screen-text] [--replan] [--max-tokens N] [--theme ${themes}] [--set key=value] [--target-score N] [--max-rounds M]
-takeone render <take-dir> [--theme ${themes}] [--set key=value] [--frame auto|browser|laptop|phone|none] [--aspect landscape|portrait|square|4:5] [--resolution 4k] [--format mp4|gif|webm|prores4444] [--preview]
+  return (`takeone make <id> [--goal "<sentence>"] [--style "<word>"] [--no-screen-text] [--replan] [--max-tokens N] [--theme ${themes}] [--brand brand.json|DESIGN.md] [--set key=value] [--target-score N] [--max-rounds M]
+takeone render <take-dir> [--theme ${themes}] [--brand brand.json|DESIGN.md] [--set key=value] [--frame auto|browser|laptop|phone|none] [--aspect landscape|portrait|square|4:5] [--resolution 4k] [--format mp4|gif|webm|prores4444] [--preview]
 takeone render <motion-dir> [--aspect landscape|portrait|square|4:5] [--stills <seconds,...>]
 ${DIRECTIONS_USAGE}
 ${MOTION_USAGE}
@@ -222,6 +232,7 @@ takeone --version|-v    print the installed version
   ${MAX_POLISH_ROUNDS} refinements, stopping after two rounds without a better score. --board posts them to a sign-off board.
   key set --backend <name> stores that provider's key and records the planner choice.
 
+  --brand         dress the film in a brand file's colours and typeface; a font file it carries rides the render
   --goal          what the demo is for; sharpens key moments (--about is an alias)
   --style         style hint for the film, e.g. calm, brisk
   --no-screen-text  do not send redacted screen words (sent by default with a planner)
@@ -346,16 +357,18 @@ export async function main(argv: string[]): Promise<number> {
       let resolution: string | undefined;
       let format = "mp4";
       let preview = false;
+      let brandFile: string | undefined;
       for (let i = 0; i < args.length; i++) {
         const option = args[i];
         if (option === "--preview") { preview = true; continue; }
-        if (!["--set", "--theme", "--frame", "--aspect", "--resolution", "--format"].includes(option!)) {
+        if (!["--set", "--theme", "--brand", "--frame", "--aspect", "--resolution", "--format"].includes(option!)) {
           throw Error(`unknown option ${option}`);
         }
         const value = args[++i];
         if (value === undefined || value.startsWith("--")) throw Error(`${option} needs a value`);
         if (option === "--set") pairs.push(value);
         else if (option === "--theme") theme = value;
+        else if (option === "--brand") brandFile = value;
         else if (option === "--frame") pairs.push(`frame=${value}`);
         else if (option === "--aspect") aspect = value;
         else if (option === "--resolution") resolution = value;
@@ -365,11 +378,12 @@ export async function main(argv: string[]): Promise<number> {
       if (!["mp4", "gif", "webm", "prores4444"].includes(format)) {
         throw Error(`unknown format ${format}; use mp4, gif, webm or prores4444`);
       }
-      const camera = resolveCamera(dir, pairs, theme);
+      const brand = brandFile ? readBrand(brandFile, "take") : undefined;
+      const camera = resolveCamera(dir, pairs, theme, true, brand?.overrides);
       const full = applyOverrides(dimensions, camera);
       // A preview is the same film, framed the same way, at a fraction of the render cost.
       const spec = preview ? { ...previewSize(full.out_w, full.out_h), fps: 30 } : undefined;
-      const rendered = (await renderTake(dir, full, spec)).out;
+      const rendered = (await renderTake(dir, full, spec, brand?.fonts)).out;
       if (format === "mp4") console.log(rendered);
       else {
         const suffix = format === "prores4444" ? "mov" : format;
@@ -427,8 +441,16 @@ export async function main(argv: string[]): Promise<number> {
     console.error(`takeone make: no take at ${dir} (take.json missing)`);
     return 2;
   }
+  let brand: Brand | undefined;
   try {
-    a.camera = resolveCamera(dir, a.set, a.theme, false);
+    brand = a.brand === undefined ? undefined : readBrand(a.brand, "take");
+  } catch (e) {
+    console.error(`takeone make: ${e instanceof Error ? e.message : e}`);
+    return 2;
+  }
+  a.fonts = brand?.fonts;
+  try {
+    a.camera = resolveCamera(dir, a.set, a.theme, false, brand?.overrides);
   } catch (e) {
     console.error(`takeone make: ${e instanceof Error ? e.message : e}`);
     return 2;
@@ -442,7 +464,7 @@ export async function main(argv: string[]): Promise<number> {
         maxRounds: a.maxRounds ?? DEFAULT_MAX_ROUNDS,
         log: (line) => console.log(line),
         warn: (line) => console.error(line),
-        resolveFilmCamera: (takeDir, pairs, theme) => resolveCamera(takeDir, pairs, theme, true),
+        resolveFilmCamera: (takeDir, pairs, theme) => resolveCamera(takeDir, pairs, theme, true, brand?.overrides),
       });
       return scored.judgeUnavailable ? 3 : 0;
     }

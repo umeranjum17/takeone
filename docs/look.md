@@ -37,6 +37,28 @@ Colours (`background`, `background_to`, `accent`, `text`, `card`) take
 `--set key=#RRGGBB`. `caption_font` and `display_font` take letters, digits and
 spaces, for example `--set "display_font=Inter Bold"`.
 
+**A brand file dresses the film.** `make --brand brand.json|DESIGN.md` and
+`render --brand ...` read a product's palette and typeface from disk (no
+network, no model call) and apply them to the take: `background` becomes the
+stage and its gradient, `surface` the card, `foreground` the type, plus
+`border` and `accent`. A display or body family must be one TakeOne bundles, or
+a font *file* the brand carries:
+
+```json
+{ "colors": { "background": "#04141a", "surface": "#0b2530", "foreground": "#f1faf7", "accent": "#18c8a4" },
+  "typography": { "display": { "family": "Clash Display", "file": "fonts/ClashDisplay-Semibold.ttf" } } }
+```
+
+The file is added to the render's own font directory (measurement and the
+final libass pass both read it), so the film is the same on a machine where
+that font is not installed. The family the brand names must be the one inside
+the file, and a family that is neither bundled nor carried is an error naming
+the font, never a silent fallback to another face. `--set` pairs typed for the
+render still win over the file, and every colour role is checked for contrast
+against the background. The same file dresses the glow recipe
+([motion](motion.md)), where a light background is also refused; a take takes
+any background lightness. `resources/demo/tidewater-brand.json` is a sample.
+
 Additional look tokens: `bg_style=linear|solid|radial|mesh|image`,
 `bg_stops=#RRGGBB,#RRGGBB,...` (2–8 colours), `grain=0..100`,
 `shadow_blur`, `shadow_x`, `shadow_y`, `shadow_color`, `border`, `border_color`, `glow=0..1`,

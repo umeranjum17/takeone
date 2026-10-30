@@ -92,7 +92,7 @@ Isolated installs (CI, throwaway test HOMEs) can set `TAKEONE_NO_KEYRING=1` so t
 - **Adds a webcam bubble.** Desktop takes can include a corner camera overlay that shrinks during a push-in ([recording and layout](docs/webcam.md)).
 - **Plans the camera after you record.** From your clicks, typing and what changed on screen.
 - **Keeps the action readable.** Click rings, a drawn vector cursor and keycaps for shortcuts like `Ctrl+S`.
-- **Looks finished out of the box.** A rounded screen card on a stage, in nine themes from dark `midnight` to cream `paper`.
+- **Looks finished out of the box.** A rounded screen card on a stage, in nine themes from dark `midnight` to cream `paper`, or in your own brand: `--brand` reads your palette and typeface (a bundled family or a font file) from a brand file ([look](docs/look.md)).
 - **Titles and captions.** In every shape, phone takes too, they sit in a band below the screen, never over your app ([how](docs/look.md)).
 - **Paces itself.** Idle stretches play faster, typing can too, and spotlight and blur boxes follow the content.
 - **AI planning.** A normal `takeone make` needs a signed-in AI engine: it [discovers an existing account](docs/guide.md#discovery-order) or uses a configured key, and stops before analysis if none is available. Sign in with `claude` or `codex login`; no token needs to be pasted into TakeOne. Planner cost is in [docs/cost.md](docs/cost.md).
