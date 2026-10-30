@@ -13,7 +13,7 @@ applyPlan, withUserFilm), `src/make.ts` (film merge, writePlan call), `src/rende
 ## Driving it
 
 Harness: Shell, ffmpeg/ffprobe, every render through `fm-mem-gate.sh` + `render-slot.sh`. Use the real board
-scene take (`node scripts/headless-scene.mjs <dir>`), `make --no-ai`, run `npm run build` first (bin runs dist/).
+scene take (`node scripts/headless-scene.mjs <dir>`), `make` against the recorded engine, run `npm run build` first (bin runs dist/).
 
 1. Edit `tightness` on a click or type beat (not a travel, scroll or cut beat) and `film.opening`; `render`.
    Assert `camera.json` differs from the baseline from the opening onward and at the edited beat.

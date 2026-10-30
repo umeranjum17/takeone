@@ -29,7 +29,8 @@ pixels and entirely inside the source. Invalid regions fail the render with the
 field and index. Region times follow the same trim and speed map as the footage.
 Spotlights have rounded corners and feathered edges, inset from the source frame.
 Their surroundings have a cool 38% dim and slight blur; the subject stays sharp.
-Overlapping spotlights keep the union of their holes bright. Blur processes
+Overlapping spotlights keep the union of their holes bright. A spotlight the film plans (`make`) is kept only while its
+region differs from how it looked when its beat began, so it lights what the action brought up, never an empty patch. Blur processes
 only its selected source patch before camera transforms; it does not obscure the
 rest of the frame. Choose a generous rectangle to cover the entire sensitive area.
 Blur is a visual effect, not a guarantee of irreversible redaction.

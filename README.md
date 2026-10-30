@@ -78,10 +78,10 @@ git clone https://github.com/umeranjum17/takeone
 cd takeone && npm install
 node scripts/synth-take.ts tmp/demo
 node bin/takeone.mjs make \
-  "$PWD/tmp/demo" --no-ai
+  "$PWD/tmp/demo"
 ```
 
-Your video is at `tmp/demo/out/synth-demo.mp4`. The demo recording is generated, so you need no screen recorder or API key, and planning runs offline.
+Your video is at `tmp/demo/out/synth-demo.mp4`. The demo recording is generated, so you need no screen recorder. Planning needs a signed-in AI engine (see AI planning below).
 To record your own screen, a phone or the iOS Simulator, follow the [guide](docs/guide.md#quickstart).
 
 Isolated installs (CI, throwaway test HOMEs) can set `TAKEONE_NO_KEYRING=1` so takeone never reads the OS keyring and cannot see the host's stored key even when `XDG_RUNTIME_DIR` or `DBUS_SESSION_BUS_ADDRESS` are inherited; keys then come only from a `TAKEONE_SECRETS_PASSPHRASE_FD` sealed file.
@@ -95,7 +95,7 @@ Isolated installs (CI, throwaway test HOMEs) can set `TAKEONE_NO_KEYRING=1` so t
 - **Looks finished out of the box.** A rounded screen card on a stage, in nine themes from dark `midnight` to cream `paper`, or in your own brand: `--brand` reads your palette and typeface (a bundled family or a font file) from a brand file ([look](docs/look.md)).
 - **Titles and captions.** In every shape, phone takes too, they sit in a band below the screen, never over your app ([how](docs/look.md)).
 - **Paces itself.** Idle stretches play faster, typing can too, and spotlight and blur boxes follow the content.
-- **AI planning.** A normal `takeone make` needs a signed-in AI engine: it [discovers an existing account](docs/guide.md#discovery-order) or uses a configured key, and stops before analysis if none is available. Sign in with `claude` or `codex login`; no token needs to be pasted into TakeOne. The legacy explicit `--no-ai` mode is still present pending removal. Planner cost is in [docs/cost.md](docs/cost.md).
+- **AI planning.** A normal `takeone make` needs a signed-in AI engine: it [discovers an existing account](docs/guide.md#discovery-order) or uses a configured key, and stops before analysis if none is available. Sign in with `claude` or `codex login`; no token needs to be pasted into TakeOne. Planner cost is in [docs/cost.md](docs/cost.md).
 - **Exports what you need.** MP4 by default, plus GIF, WebM and ProRes 4444, in landscape, portrait, square or 4:5. Motion films can also export ProRes 4444 with a real alpha channel (`--alpha`).
 - **Scores its own film.** `takeone make --target-score 9` renders, judges against a written rubric, fixes the weakest items and renders again, with the per-round score in `out/score.json`.
 - **Motion films from screens.** `takeone motion` turns screenshots, HTML, a URL or a take you already made into a short film.
@@ -111,6 +111,7 @@ Isolated installs (CI, throwaway test HOMEs) can set `TAKEONE_NO_KEYRING=1` so t
 - [Overlays](docs/overlays.md): spotlight and blur regions, shortcut keycaps
 - [Motion films](docs/motion.md): films from screenshots, HTML, a URL or an existing take
 - [Score loop](docs/score-loop.md): render, judge, improve and the call cap
+- [Directions and pick](docs/directions.md): A/B/C cuts of one take, the owner's pick and the sign-off board
 - [Cost](docs/cost.md): measured planner cost per minute and its hard caps
 - [Demo scene](docs/headless-scene.md): reproduce the board demo shown above (needs a [git checkout](#from-source): its scripts are not in the npm package)
 

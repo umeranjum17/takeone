@@ -18,7 +18,7 @@ import { edgeSpeed, still, SWEEP_EDGE_SPEED } from "../src/camera/sweep.ts";
 import { contains, settledFrames } from "../scripts/check-framing.ts";
 import { auditTake } from "../scripts/cut-audit.ts";
 import { cameraMetrics } from "../scripts/quality.ts";
-import { hasFfmpeg } from "./helpers.ts";
+import { hasFfmpeg, recordedEngineEnv } from "./helpers.ts";
 
 // Only tests pass a fast preset and tiny output: shipped output stays
 // 1920x1080 slow (see DEFAULTS). Small frames keep CI software encodes fast;
@@ -107,7 +107,7 @@ test("render without trim_end uses the latest beat end", { timeout: 600_000, ski
       ["bin/takeone.mjs", command, dir,
         ...["preset=veryfast", "out_w=320", "out_h=180", "ripple_ms=0", "fade_s=0", "max_upscale=1.5"]
           .flatMap(value => ["--set", value]), ...args],
-      { encoding: "utf8", env: { ...process.env, TAKEONE_DIR: dir, TAKEONE_STATE_DIR: join(dir, "state") } });
+      { encoding: "utf8", env: recordedEngineEnv(dir) });
     cli("render");
     const output = join(dir, "out/duration.mp4");
     const frames = JSON.parse(await readFile(join(dir, "camera.json"), "utf8"));
@@ -145,7 +145,7 @@ test("render without trim_end uses the latest beat end", { timeout: 600_000, ski
       await writeFile(join(dir, "events.jsonl"), [...history,
         ...(released ? [{ k: "btn", t: 8500, b: "left", down: false }] : [])]
         .map(event => JSON.stringify(event)).join("\n") + "\n");
-      cli("make", "--no-ai");
+      cli("make");
       const saved: Beat[] = JSON.parse(await readFile(join(dir, "analysis/beats.json"), "utf8"));
       const actions = saved.flatMap(b => b.actions as Action[]);
       const drags = actions.filter(a => a.k === "drag");
@@ -259,8 +259,8 @@ test("render without trim_end uses the latest beat end", { timeout: 600_000, ski
       ["bin/takeone.mjs", command, dir, ...["out_w=960", "out_h=540", "fps=10",
         "preset=ultrafast", "motion_blur=0", "idle_speed=1", "ripple_ms=0"]
         .flatMap(v => ["--set", v]), ...args],
-      { env: { ...process.env, TAKEONE_DIR: dir, TAKEONE_STATE_DIR: join(dir, "state") } });
-    drive4K("make", "--no-ai");
+      { env: recordedEngineEnv(dir) });
+    drive4K("make");
     const camera4K = async () => JSON.parse(await readFile(join(dir, "camera.json"), "utf8")) as
       { t: number; x: number; y: number; w: number; h: number }[];
     const auto = await camera4K();
@@ -425,7 +425,7 @@ test("render without trim_end uses the latest beat end", { timeout: 600_000, ski
       { k: "btn", t: 500, b: "left", down: true }, { k: "btn", t: 2300, b: "left", down: false },
     ].sort((a, b) => a.t - b.t).map(e => JSON.stringify(e)).join("\n") + "\n");
     await writeFile(join(dir, "take.json"), JSON.stringify({ ...fourK, trim: { start: 0, end: 8000 } }));
-    drive4K("make", "--no-ai", "--set", "out_w=540", "--set", "out_h=960", "--set", "outro_s=0");
+    drive4K("make", "--set", "out_w=540", "--set", "out_h=960", "--set", "outro_s=0");
     const dropped = (await camera4K()).map(f => ({ ...sourceViewport(f, 3840, 2160, tallStage, tall), t: f.t }));
     const at = (t: number) => dropped[Math.round(t * 10)]!;
     assert.ok(dropped.at(-1)!.t >= 7.8, "the render holds the settled drop to the take end");

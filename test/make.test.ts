@@ -18,7 +18,7 @@ import { measureCaptions, renderTake } from "../src/render/render.ts";
 import { bandLayout, bandText, captionLayouts, takeCaptions } from "../src/render/stage.ts";
 import { mapFilm, planFilm } from "../src/decide/film.ts";
 import type { Beat, Decision, TakeMeta } from "../src/types.ts";
-import { STREAM, hasFfmpeg, buildLongTake, beatViews, chunkAnswers, filmAnswers } from "./helpers.ts";
+import { STREAM, hasFfmpeg, buildLongTake, beatViews, chunkAnswers, filmAnswers, recordedEngineEnv, shippedCli, captureStderr } from "./helpers.ts";
 import { DEFAULTS } from "../src/camera/defaults.ts";
 import { THEMES } from "../src/themes.ts";
 
@@ -117,13 +117,23 @@ function newLongTake(): string {
   return buildLongTake(mkdtempSync(join(tmpdir(), "takeone-take-")));
 }
 
-test("make --no-ai renders the agreed beat/decision files into a tiny test MP4", async () => {
+test("make renders the agreed beat/decision files into a tiny test MP4, planned by the engine", async () => {
   const dir = newTake();
   try {
     // --set is test-only plumbing: full-size slow output stays the default.
-    assert.equal(await main(["make", dir, "--no-ai", "--theme", "paper",
+    // The offline flag is gone: the CLI refuses it, naming the option, and plans nothing.
+    const refused = await captureStderr(async () => {
+      assert.equal(await main(["make", dir, "--no-ai", "--theme", "paper",
+        "--set", "preset=veryfast", "--set", "out_w=320", "--set", "out_h=180",
+        "--set", "ripple_ms=0", "--set", "fade_s=0"]), 2);
+    });
+    assert.match(refused, /unknown option: --no-ai/);
+    assert.ok(!existsSync(join(dir, "analysis")) && !existsSync(join(dir, "out")));
+    const made = shippedCli(["make", dir, "--theme", "paper",
       "--set", "preset=veryfast", "--set", "out_w=320", "--set", "out_h=180",
-      "--set", "ripple_ms=0", "--set", "fade_s=0"]), 0);
+      "--set", "ripple_ms=0", "--set", "fade_s=0"], dir);
+    assert.equal(made.status, 0, made.stderr);
+    assert.equal(JSON.parse(readFileSync(join(dir, "take.json"), "utf8")).planner.mode, "ai");
     assert.equal(JSON.parse(readFileSync(join(dir, "take.json"), "utf8")).theme, "paper");
     const output = join(dir, "out", "t1.mp4");
     assert.ok(existsSync(output));
@@ -157,7 +167,12 @@ test("render --preview frames the film like the full render, at preview speed", 
     const wander = Array.from({ length: 40 }, (_, i) => ({ t: 700 + i * 200, k: "ptr", x: 200 - i * 4, y: 90 - i }));
     const events = [...readFileSync(eventsPath, "utf8").trim().split("\n").map((line) => JSON.parse(line)), ...wander].sort((a, b) => a.t - b.t);
     writeFileSync(eventsPath, events.map((e) => JSON.stringify(e)).join("\n") + "\n");
-    assert.equal(await main(["make", dir, "--no-ai", ...look]), 0);
+    const refused = await captureStderr(async () => {
+      assert.equal(await main(["make", dir, "--no-ai", ...look]), 2);
+    });
+    assert.match(refused, /unknown option: --no-ai/);
+    const made = shippedCli(["make", dir, ...look], dir);
+    assert.equal(made.status, 0, made.stderr);
     const fullPath = join(dir, "camera.json");
     const fullCamera = readFileSync(fullPath, "utf8");
     // The preview writes its own file and leaves the full render's export alone.
@@ -893,10 +908,9 @@ function buildKindsTake(dir: string): string {
 test("a user edit follows its beat across a re-cut, is dropped when the cut removes it, and is refused when it names another beat", { skip: needsFfmpeg }, async () => {
   const dir = buildKindsTake(mkdtempSync(join(tmpdir(), "takeone-recut-")));
   const fast = ["out_w=160", "out_h=90", "preset=veryfast", "ripple_ms=0", "fade_s=0"];
-  // --no-ai: this journey must never ask a model, and the plan edits are the point.
-  const cli = (command: string, ...flags: string[]) => spawnSync(process.execPath,
-    ["bin/takeone.mjs", command, dir, ...flags, ...fast.flatMap((value) => ["--set", value])],
-    { encoding: "utf8", env: { ...process.env, TAKEONE_DIR: dir, TAKEONE_STATE_DIR: join(dir, "state") } });
+  // The shipped CLI against the recorded engine: the plan edits are the point, not the model's choices.
+  const cli = (command: string, ...flags: string[]) => shippedCli(
+    [command, dir, ...flags, ...fast.flatMap((value) => ["--set", value])], dir);
   const planFile = join(dir, "analysis", "plan.json");
   const takeFile = join(dir, "take.json");
   const baseline = (): Plan => JSON.parse(readFileSync(planFile, "utf8")) as Plan;
@@ -906,10 +920,12 @@ test("a user edit follows its beat across a re-cut, is dropped when the cut remo
     if (trim) meta.trim = trim;
     else delete meta.trim;
     writeFileSync(takeFile, JSON.stringify(meta));
-    return cli("make", "--no-ai");
+    return cli("make", "--max-tokens", "40000");
   };
   try {
-    assert.equal(cli("make", "--no-ai").status, 0);
+    assert.equal(cli("make", "--no-ai").status, 2);
+    assert.match(cli("make", "--no-ai").stderr, /unknown option: --no-ai/);
+    assert.equal(cli("make", "--max-tokens", "40000").status, 0);
     // The user takes the shot off the typing beat by hand, as they would in the file.
     const before = baseline();
     const edited = before.beats.find((beat) => beat.id === "b4")!;
@@ -966,10 +982,8 @@ test("a user edit follows its beat across a re-cut, is dropped when the cut remo
 test("plan edits the render cannot honour stop the CLI with a clear error", { skip: needsFfmpeg }, async () => {
   const dir = buildKindsTake(mkdtempSync(join(tmpdir(), "takeone-kinds-")));
   const fast = ["out_w=160", "out_h=90", "preset=veryfast", "ripple_ms=0", "fade_s=0", "idle_speed=1"];
-  // --no-ai: this journey must never ask a model, and the fallback rules are the point.
-  const cli = (command: string) => spawnSync(process.execPath,
-    ["bin/takeone.mjs", command, dir, "--no-ai", ...fast.flatMap((value) => ["--set", value])],
-    { encoding: "utf8", env: { ...process.env, TAKEONE_DIR: dir, TAKEONE_STATE_DIR: join(dir, "state") } });
+  // The shipped CLI against the recorded engine: the refusals are the point, not the model's choices.
+  const cli = (command: string) => shippedCli([command, dir, ...fast.flatMap((value) => ["--set", value])], dir);
   const planFile = join(dir, "analysis", "plan.json");
   const baseline = (): Plan => JSON.parse(readFileSync(planFile, "utf8")) as Plan;
   const writePlanFile = (plan: Plan) => writeFileSync(planFile, JSON.stringify(plan));
@@ -1015,14 +1029,15 @@ test("plan edits the render cannot honour stop the CLI with a clear error", { sk
     const kept = baseline();
     assert.equal(kept.beats.find((beat) => beat.id === "b1")?.shot?.by, "user");
 
-    // The Android tap fallback builds its own beats: no user edit reaches it.
+    // The Android tap fallback builds its own beats: no user edit reaches it. make plans afresh and
+    // would record the engine's own mode over the one set here, so render reads the take as it is.
     const meta = JSON.parse(readFileSync(join(dir, "take.json"), "utf8"));
     writeFileSync(join(dir, "take.json"), JSON.stringify({ ...meta, device: "android", planner: { ...meta.planner, mode: "fallback" } }));
     const android = JSON.parse(clean) as Plan;
     android.beats.find((beat) => beat.id === "b1")!.shot = { value: false, by: "user" };
     writePlanFile(android);
-    const refused = cli("make");
-    assert.equal(refused.status, 2, refused.stderr);
+    const refused = cli("render");
+    assert.equal(refused.status, 1, refused.stderr);
     assert.match(refused.stderr, /beat b1 \(click\): shot cannot be honoured - this Android take renders the rule-only tap fallback/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -1032,9 +1047,8 @@ test("plan edits the render cannot honour stop the CLI with a clear error", { sk
 test("the whole plan is editable: focus, tightness and the film's look are kept and honoured, and unsupported edits are refused", { skip: needsFfmpeg }, async () => {
   const dir = buildKindsTake(mkdtempSync(join(tmpdir(), "takeone-wholeplan-")));
   const fast = ["out_w=160", "out_h=90", "preset=veryfast", "ripple_ms=0", "fade_s=0", "idle_speed=1"];
-  const cli = (command: string, extra: string[] = []) => spawnSync(process.execPath,
-    ["bin/takeone.mjs", command, dir, ...(command === "make" ? ["--no-ai"] : []), ...fast.flatMap((value) => ["--set", value]), ...extra],
-    { encoding: "utf8", env: { ...process.env, TAKEONE_DIR: dir, TAKEONE_STATE_DIR: join(dir, "state") } });
+  const cli = (command: string, extra: string[] = []) => shippedCli(
+    [command, dir, ...fast.flatMap((value) => ["--set", value]), ...extra], dir);
   const planFile = join(dir, "analysis", "plan.json");
   const read = (): Plan & { film: Record<string, { value?: unknown; by: string }> } => JSON.parse(readFileSync(planFile, "utf8"));
   try {
@@ -1995,7 +2009,7 @@ test("preflight refuses above --max-tokens before any call", { skip: needsFfmpeg
     }) as typeof fetch;
     await assert.rejects(
       fastTake(dir, { apiKey: KEY, fetchImpl: fake, maxTokens: 10, log: () => {}, warn: () => {} }),
-      (e: unknown) => e instanceof PreflightRefusal && /--no-ai/.test(e.message),
+      (e: unknown) => e instanceof PreflightRefusal && /raise the cap with --max-tokens/.test(e.message) && !/--no-ai/.test(e.message),
     );
     assert.equal(calls, 0);
   } finally {

@@ -347,14 +347,26 @@ test("doctor, make and capture never read the planner key from the environment",
     assert.equal(storeDown.status, 3, storeDown.stderr);
     assert.match(storeDown.stderr, /takeone needs an AI engine/);
     assert.ok(!existsSync(join(dir, "analysis")) && !existsSync(join(dir, "out")));
-    // Until its removal, the explicit legacy mode remains separately covered.
-    const local = run(["make", dir, "--no-ai", ...FAST_SET], { env });
+    // The offline flag is gone from the shipped CLI, whatever the account state: it is an unknown
+    // option, refused before the take is read, and nothing is planned or rendered.
+    const removed = [env, { ...env, TAKEONE_TEST_KEYRING_FAILURE: "1" }].map((state) => run(["make", dir, "--no-ai", ...FAST_SET], { env: state }));
+    for (const r of removed) {
+      assert.equal(r.status, 2, r.stderr);
+      assert.match(r.stderr, /unknown option: --no-ai/);
+      assert.ok(!existsSync(join(dir, "analysis")) && !existsSync(join(dir, "out")));
+    }
+    // What replaces it is an engine on this computer: a signed-in Claude CLI serves the run, with the
+    // secret store down as well, and the take records that the engine planned it.
+    const engine = join(home, "engine");
+    signedInClaudeCli(engine);
+    const engineEnv = { ...env, PATH: `${engine}${delimiter}${env.PATH}` };
+    const local = run(["make", dir, ...FAST_SET], { env: engineEnv });
     assert.equal(local.status, 0, local.stderr);
-    assert.equal(JSON.parse(readFileSync(join(dir, "take.json"), "utf8")).planner.mode, "fallback");
-    const localStoreDown = run(["make", dir, "--no-ai", ...FAST_SET], { env: { ...env, TAKEONE_TEST_KEYRING_FAILURE: "1" } });
+    assert.equal(JSON.parse(readFileSync(join(dir, "take.json"), "utf8")).planner.mode, "ai");
+    const localStoreDown = run(["make", dir, ...FAST_SET], { env: { ...engineEnv, TAKEONE_TEST_KEYRING_FAILURE: "1" } });
     assert.equal(localStoreDown.status, 0, localStoreDown.stderr);
-    assert.equal(JSON.parse(readFileSync(join(dir, "take.json"), "utf8")).planner.mode, "fallback");
-    for (const r of [doctor, hello, made, storeDown, local, localStoreDown]) assert.ok(!r.stdout.includes("bogus-env-key") && !r.stderr.includes("bogus-env-key"));
+    assert.equal(JSON.parse(readFileSync(join(dir, "take.json"), "utf8")).planner.mode, "ai");
+    for (const r of [doctor, hello, made, storeDown, local, localStoreDown, ...removed]) assert.ok(!r.stdout.includes("bogus-env-key") && !r.stderr.includes("bogus-env-key"));
     // A bogus env key must behave exactly like no key: zero planned tokens and
     // no preflight refusal even under --max-tokens 1.
     const r = run(["capture", "make", dir, "--plan-only", "--max-tokens", "1"], { env });

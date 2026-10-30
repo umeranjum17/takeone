@@ -19,11 +19,13 @@ import { renderMotion } from "./motion/motion.ts";
 import { applyOverrides, type CameraDefaults, type Overrides } from "./camera/defaults.ts";
 import { readBrand, type Brand } from "./motion/brand.ts";
 import { filmOverrides, type FilmDecision } from "./decide/film.ts";
+import type { PickedDirection } from "./directions/directions.ts";
 import { REFINE_USAGE, lookArgs, runLook, runZoom } from "./refine.ts";
 import { packageVersion } from "./version.ts";
 import { JudgeUnavailable } from "./score/judge.ts";
 import { makeWithScore } from "./score/run.ts";
 import { DEFAULT_MAX_ROUNDS, DEFAULT_TARGET_SCORE } from "./score/loop.ts";
+import { pickDirection, runDirections } from "./directions/run.ts";
 
 export function takesDir(): string {
   return process.env["TAKEONE_DIR"] ?? join(homedir(), "Videos", "takeone");
@@ -31,7 +33,8 @@ export function takesDir(): string {
 
 interface Args {
   id?: string;
-  noAi: boolean;
+  /** The first option make does not know; main refuses it with the usage text. */
+  unknown?: string;
   goal?: string;
   style?: string;
   noScreenText: boolean;
@@ -66,10 +69,13 @@ export function parseSet(pairs: string[]): Overrides {
  * Throws on malformed pairs. Portrait takes default to portrait output. `make` passes
  * withFilm false: it applies its own film decision after this. */
 export function resolveCamera(dir: string, pairs: string[], theme?: string, withFilm = true, brand: Overrides = {}): CameraDefaults {
-  // A brand file dresses the film first; a --set pair typed for this render still wins.
-  const raw = { ...brand, ...parseSet(pairs) } as Overrides;
-  const meta = JSON.parse(readFileSync(join(dir, "take.json"), "utf8")) as { theme?: unknown; film?: FilmDecision };
-  const selected = theme ?? meta.theme;
+  // Typed pairs are checked before the take is read, so a malformed one is refused as such.
+  const typed = parseSet(pairs);
+  const meta = JSON.parse(readFileSync(join(dir, "take.json"), "utf8")) as { theme?: unknown; film?: FilmDecision; direction?: PickedDirection };
+  // A picked direction is the person's own choice: its pairs sit under the typed ones and its theme under a typed --theme.
+  // A brand file dresses the film under both; a --set pair typed for this render still wins.
+  const raw = { ...brand, ...parseSet(meta.direction?.set ?? []), ...typed } as Overrides;
+  const selected = theme ?? meta.direction?.theme ?? meta.theme;
   if (!("out_w" in raw) && !("out_h" in raw) && isPortraitTake(dir)) {
     raw.out_w = 1080;
     raw.out_h = 1920;
@@ -143,11 +149,10 @@ export function renderDimensions(aspect?: string, resolution?: string, source: "
 const GOAL_STYLE_MAX_CHARS = 500;
 
 function parseArgs(argv: string[]): Args {
-  const a: Args = { noAi: false, noScreenText: false, replan: false, set: [], scoreRequested: false };
+  const a: Args = { noScreenText: false, replan: false, set: [], scoreRequested: false };
   for (let i = 0; i < argv.length; i++) {
     const s = argv[i]!;
-    if (s === "--no-ai") a.noAi = true;
-    else if (s === "--theme") {
+    if (s === "--theme") {
       const value = argv[++i];
       if (!value || value.startsWith("--")) throw Error("--theme needs a theme name");
       a.theme = value;
@@ -192,30 +197,37 @@ function parseArgs(argv: string[]): Args {
     else if (!s.startsWith("--") && a.id === undefined) a.id = s;
     else if (s === "--help" || s === "-h") usage(0);
     else {
-      console.error(`unknown option: ${s}`);
-      usage(2);
+      a.unknown = s;
+      break;
     }
   }
   return a;
 }
 
 function usage(code: number): never {
+  console.error(usageText());
+  process.exit(code);
+}
+
+function usageText(): string {
   const themes = Object.keys(THEMES).join("|");
-  console.error(`takeone make <id> [--no-ai] [--goal "<sentence>"] [--style "<word>"] [--no-screen-text] [--replan] [--max-tokens N] [--theme ${themes}] [--brand brand.json|DESIGN.md] [--set key=value] [--target-score N] [--max-rounds M]
+  return (`takeone make <id> [--goal "<sentence>"] [--style "<word>"] [--no-screen-text] [--replan] [--max-tokens N] [--theme ${themes}] [--brand brand.json|DESIGN.md] [--set key=value] [--target-score N] [--max-rounds M]
 takeone render <take-dir> [--theme ${themes}] [--brand brand.json|DESIGN.md] [--set key=value] [--frame auto|browser|laptop|phone|none] [--aspect landscape|portrait|square|4:5] [--resolution 4k] [--format mp4|gif|webm|prores4444] [--preview]
 takeone render <motion-dir> [--aspect landscape|portrait|square|4:5] [--stills <seconds,...>]
+${DIRECTIONS_USAGE}
 ${MOTION_USAGE}
 ${REFINE_USAGE}
 takeone key set [--backend <name>] [--model <model>] [--via typesafe|openrouter] < stdin
 takeone [list|record|stop|doctor]
 takeone --version|-v    print the installed version
 
-  make plans beats and camera decisions, then renders an MP4.
+  make plans beats and camera decisions with your AI engine (sign in with claude, codex login or opencode auth login, or store a key with key set), then renders an MP4.
   render creates a camera path and MP4 from a planned take.
+  directions renders 2-3 distinct cuts (look, pacing, camera motion) of one plan and has an independent judge score each;
+  pick saves one on the take. --board posts the cuts to a sign-off board.
   key set --backend <name> stores that provider's key and records the planner choice.
 
   --brand         dress the film in a brand file's colours and typeface; a font file it carries rides the render
-  --no-ai         decide every beat with the local heuristic; zero network calls
   --goal          what the demo is for; sharpens key moments (--about is an alias)
   --style         style hint for the film, e.g. calm, brisk
   --no-screen-text  do not send redacted screen words (sent by default with a planner)
@@ -223,7 +235,6 @@ takeone --version|-v    print the installed version
   --max-tokens    refuse above this many planned input tokens (default 40k x take minutes)
   --target-score  score the film against a 10-point rubric and re-render until it reaches N (default 9)
   --max-rounds    hard cap on score rounds (default 4): one judge call per round, plus one determinism re-render`);
-  process.exit(code);
 }
 
 export async function main(argv: string[]): Promise<number> {
@@ -385,11 +396,17 @@ export async function main(argv: string[]): Promise<number> {
       return 1;
     }
   }
+  if (cmd === "directions" || cmd === "pick") return runDirectionCommand(cmd, rest);
   if (cmd !== "make") {
-    console.error(`takeone: unknown command "${cmd}". Use "make", "render", "zoom", "look", "motion", "gauntlet", "record", "stop", "doctor" or "list".`);
+    console.error(`takeone: unknown command "${cmd}". Use "make", "render", "directions", "pick", "zoom", "look", "motion", "gauntlet", "record", "stop", "doctor" or "list".`);
     return 2;
   }
   const a = parseArgs(rest);
+  if (a.unknown !== undefined) {
+    console.error(`unknown option: ${a.unknown}`);
+    console.error(usageText());
+    return 2;
+  }
   if (a.maxTokens !== undefined && (!Number.isSafeInteger(a.maxTokens) || a.maxTokens <= 0)) {
     console.error("takeone make: --max-tokens must be a positive integer");
     return 2;
@@ -452,6 +469,67 @@ export async function main(argv: string[]): Promise<number> {
     throw e;
   }
 }
+
+export const DIRECTIONS_USAGE = `takeone directions <take> [--count 2|3] [--goal "<sentence>"] [--style "<word>"] [--replan] [--set key=value] [--board <decisions.json>]
+takeone pick <take> [a|b|c]`;
+
+/** `directions` and `pick`: distinct cuts of one take, and the owner's pick of one. */
+async function runDirectionCommand(cmd: string, rest: string[]): Promise<number> {
+  const [id, ...args] = rest;
+  if (!id || id.startsWith("--")) {
+    console.error(`usage:\n${DIRECTIONS_USAGE}`);
+    return 2;
+  }
+  const dir = /^\//.test(id) ? id : join(takesDir(), id);
+  if (!existsSync(join(dir, "take.json"))) {
+    console.error(`takeone ${cmd}: no take at ${dir} (take.json missing)`);
+    return 2;
+  }
+  const log = (line: string) => console.log(line);
+  const warn = (line: string) => console.error(line);
+  const camera = (takeDir: string, pairs: string[], theme?: string) => resolveCamera(takeDir, pairs, theme, true);
+  try {
+    if (cmd === "pick") {
+      if (args.length > 1) throw new UsageError("pick takes the take and at most one direction letter (a, b or c)");
+      pickDirection(dir, args[0]?.toLowerCase(), log);
+      return 0;
+    }
+    const o = { count: 3, replan: false, set: [] as string[], goal: undefined as string | undefined, style: undefined as string | undefined, board: undefined as string | undefined };
+    for (let i = 0; i < args.length; i++) {
+      const flag = args[i]!;
+      // Every option is judged and every cut is built and judged, so there is no planner-free mode here.
+      if (flag === "--no-ai") throw new UsageError(`--no-ai is not offered: ${cmd} needs the planner and the independent judge`);
+      if (flag === "--replan" && cmd === "directions") { o.replan = true; continue; }
+      const value = args[++i];
+      if (value === undefined || value.startsWith("--")) throw new UsageError(`${flag} needs a value`);
+      if (flag === "--set") { parseSet([value]); o.set.push(value); }
+      else if (flag === "--board") o.board = value;
+      else if (flag === "--count" && cmd === "directions") o.count = Number(value);
+      else if ((flag === "--goal" || flag === "--style") && cmd === "directions") {
+        if (value.length > GOAL_STYLE_MAX_CHARS) throw new UsageError(`${flag} must be at most ${GOAL_STYLE_MAX_CHARS} characters`);
+        o[flag === "--goal" ? "goal" : "style"] = value;
+      }
+      else throw new UsageError(`unknown option ${flag}`);
+    }
+    if (!(Number.isInteger(o.count) && o.count >= 2 && o.count <= 3)) throw new UsageError("--count must be 2 or 3");
+    await runDirections({ dir, count: o.count, replan: o.replan, set: o.set, log, warn, resolveCamera: camera,
+      ...(o.goal === undefined ? {} : { goal: o.goal }), ...(o.style === undefined ? {} : { style: o.style }), ...(o.board === undefined ? {} : { board: o.board }) });
+    return 0;
+  } catch (e) {
+    if (e instanceof UsageError) {
+      console.error(`takeone ${cmd}: ${e.message}\nusage:\n${DIRECTIONS_USAGE}`);
+      return 2;
+    }
+    if (e instanceof PlannerUnavailable || e instanceof JudgeUnavailable) {
+      console.error(e instanceof PlannerUnavailable && e.credentialMissing ? e.message : `takeone ${cmd}: ${e.message}`);
+      return 3;
+    }
+    console.error(`takeone ${cmd}: ${e instanceof Error ? e.message : e}`);
+    return 1;
+  }
+}
+
+class UsageError extends Error {}
 
 /** `takeone key set`: store one backend's key from stdin and record the
  * provider choice. Keys go through BYOKit secrets; the choice is a stored
