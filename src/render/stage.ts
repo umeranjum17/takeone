@@ -197,6 +197,9 @@ export function cornerSize(st: Stage, d: CameraDefaults): number {
  */
 export type DeviceFrame = "phone" | "browser" | "laptop" | null;
 
+/** Height of the browser title bar in stage px, a whole number so the shadow and the bar share an edge. */
+export const browserBar = (st: Stage) => Math.round(40 / st.restScale);
+
 /** The chrome a render draws: the take's own `frame` token, where `auto` is a phone take in its handset. */
 export function deviceFrame(token: CameraDefaults["frame"], phone: boolean): DeviceFrame {
   return token === "auto" ? (phone ? "phone" : null) : token === "none" ? null : token;
@@ -208,13 +211,15 @@ export function stageImageFilter(width: number, height: number, st: Stage, d: Ca
   const blur = (d.shadow_blur / st.restScale).toFixed(1);
 
   const shadowX = Math.round(d.shadow_x / st.restScale);
+  const bar = frame === "browser" ? browserBar(st) : 0;
   // Antialiased rounded-rectangle alpha from its signed distance.
   const card = `geq=lum='255*clip(${radius}+0.5-hypot(max(abs(X+0.5-W/2)-(W/2-${radius}),0),max(abs(Y+0.5-H/2)-(H/2-${radius}),0)),0,1)'`;
   // Fixed-seed luma noise is static. Pin its input to 8-bit YUV so pixel
   // format negotiation cannot turn subtle dither into high-depth colour noise.
   return [
-    `color=black:s=${width}x${height}:d=1,format=gray,${card},split[m1][m2]`,
-    `[m1]pad=${st.w}:${st.h}:${st.screenX + shadowX}:${st.screenY + shadowY}:black${d.shadow_blur > 0 ? `,gblur=sigma=${blur}` : ""},lutyuv=y=val*${d.shadow}[sa]`,
+    `color=black:s=${width}x${height}:d=1,format=gray,${card}[m2]`,
+    // A browser window casts its shadow from the title bar too, so the shadow starts above the bar.
+    `color=black:s=${width}x${height + bar}:d=1,format=gray,${card},pad=${st.w}:${st.h}:${st.screenX + shadowX}:${st.screenY - bar + shadowY}:black${d.shadow_blur > 0 ? `,gblur=sigma=${blur}` : ""},lutyuv=y=val*${d.shadow}[sa]`,
     `color=${d.shadow_color}:s=${st.w}x${st.h}:d=1,format=rgba[sb]`,
     `[sb][sa]alphamerge[shadow]`,
     `${backgroundFilter(st, d)},format=yuv444p${backgroundPattern(d)}${d.grain > 0 ? `,noise=c0s=${d.grain}:c0f=u:c0_seed=7` : ""}[bg]`,
@@ -279,7 +284,7 @@ function windowFrameFilter(frame: "browser" | "laptop", width: number, height: n
   const u = 1 / st.restScale; // one output px, in stage px
   const x = st.screenX, y = st.screenY;
   if (frame === "browser") {
-    const bar = 40 * u;
+    const bar = browserBar(st);
     const lights = [["0xff5f57", 20], ["0xfebc2e", 40], ["0x28c840", 60]] as const;
     const pillW = width * .5;
     return [
