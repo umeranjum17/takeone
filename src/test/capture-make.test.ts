@@ -146,6 +146,18 @@ function ffmpegToolsPath(home: string): string {
   return dir;
 }
 
+/** What the signed-in Claude stand-in below costs a planned take, from capture make's own report. */
+const PLANNER_STATS = { planned_tokens: 3982, input_tokens: 2, usd: 0, failed: false };
+
+/** A home whose only AI is the signed-in Claude stand-in below, with the ffmpeg tools on PATH:
+ * what `--planner-account` resolves in these tests. */
+function accountEnv(home: string): NodeJS.ProcessEnv {
+  const tools = ffmpegToolsPath(home);
+  const engine = join(home, "engine");
+  signedInClaudeCli(engine);
+  return { HOME: home, XDG_CONFIG_HOME: join(home, ".config"), PATH: `${engine}${delimiter}${tools}` };
+}
+
 /** A stand-in for the person's installed Claude CLI, signed in through a
  * claude.ai subscription: `auth status` reports the sign-in, `-p` answers the
  * decided schema and appends one line to `calls` so a test can prove the
@@ -205,6 +217,8 @@ test("doctor and make use a signed-in installed Claude CLI without a planner key
   }
 });
 
+// This used to prove capture stayed on local rules; it now proves capture never plans on its own:
+// without a host key or --planner-account it stops, and the account is used only when the flag allows it.
 test("capture make without a planner key stays local even when an account is signed in", { skip: needsFfmpeg }, async () => {
   const { home, cleanup } = withHome();
   const dir = mkdtempSync(join(tmpdir(), "takeone-cap-account-off-"));
@@ -214,15 +228,25 @@ test("capture make without a planner key stays local even when an account is sig
   const take = buildTake();
   try {
     const env = { HOME: home, XDG_CONFIG_HOME: join(home, ".config"), PATH: `${binDir}:${ffmpegToolsPath(home)}` };
-    const r = run(["capture", "make", take, ...FAST_SET], { env });
+    const stopped = run(["capture", "make", take, ...FAST_SET], { env });
+    assert.equal(stopped.status, 1, stopped.stderr);
+    const stop = JSON.parse(stopped.stdout);
+    // Capture's host-owned credential contract: no host key and no flag, no account and no local rules.
+    assert.equal(stop.error.code, "planner-unavailable");
+    assert.match(stop.error.message, /needs an AI engine/);
+    assert.match(stop.error.hint, /--planner-key-fd 3.*--planner-account/);
+    assert.equal(stop.planner, undefined);
+    assert.ok(!existsSync(join(take, "out")) && !existsSync(join(take, "analysis")), "nothing planned or rendered on the stop");
+    assert.ok(!existsSync(calls), "the signed-in account was never asked");
+    // With the flag the same take plans through that account.
+    const r = run(["capture", "make", take, "--planner-account", ...FAST_SET], { env });
     assert.equal(r.status, 0, r.stderr);
     const out = JSON.parse(r.stdout);
-    // Capture's host-owned credential contract: no host key, no account.
-    assert.deepEqual(out.planner, { planned_tokens: 0, input_tokens: 0, usd: 0, failed: false });
-    assert.ok(out.warnings.includes("no planner key; using heuristic policy for all beats"), out.warnings.join("; "));
-    assert.equal(JSON.parse(readFileSync(join(take, "take.json"), "utf8")).planner.mode, "fallback");
+    assert.deepEqual(out.planner, PLANNER_STATS);
+    assert.equal(out.warnings.includes("no planner key; using heuristic policy for all beats"), false, out.warnings.join("; "));
+    assert.equal(JSON.parse(readFileSync(join(take, "take.json"), "utf8")).planner.mode, "ai");
     assert.ok(existsSync(join(take, "out", "t1.mp4")));
-    assert.ok(!existsSync(calls), "the signed-in account was never asked");
+    assert.ok(existsSync(calls), "the account answered once the flag allowed it");
   } finally {
     rmSync(take, { recursive: true, force: true });
     rmSync(dir, { recursive: true, force: true });
@@ -282,18 +306,24 @@ test("capture make --planner-account stops loudly when the user has no account",
   }
 });
 
+// The off switch is refused now; the run that renders and prints one JSON object is the account's.
 test("capture make --no-planner renders and prints one JSON object", { skip: needsFfmpeg }, async () => {
   const { home, cleanup } = withHome();
   const dir = buildTake();
   try {
-    const r = run(["capture", "make", dir, "--no-planner", ...FAST_SET], { env: { HOME: home } });
+    const refused = run(["capture", "make", dir, "--no-planner", ...FAST_SET], { env: { HOME: home } });
+    assert.equal(refused.status, 2, refused.stderr);
+    assert.equal(JSON.parse(refused.stdout).error.code, "invalid-arguments");
+    assert.match(JSON.parse(refused.stdout).error.message, /unknown capture make option: --no-planner/);
+    assert.ok(!existsSync(join(dir, "out")) && !existsSync(join(dir, "analysis")));
+    const r = run(["capture", "make", dir, "--planner-account", ...FAST_SET], { env: accountEnv(home) });
     assert.equal(r.status, 0, r.stderr);
     assert.equal(r.stdout.trim().split("\n").length, 1, "stdout carries exactly one JSON object");
     const out = JSON.parse(r.stdout);
     assert.equal(out.out, join(dir, "out", "t1.mp4"));
     assert.ok(out.seconds > 0);
     assert.ok(out.beats > 0);
-    assert.deepEqual(out.planner, { planned_tokens: 0, input_tokens: 0, usd: 0, failed: false });
+    assert.deepEqual(out.planner, PLANNER_STATS);
     assert.ok(Array.isArray(out.warnings));
     assert.ok(existsSync(join(dir, "out", "t1.mp4")));
   } finally {
@@ -367,12 +397,13 @@ test("doctor, make and capture never read the planner key from the environment",
     assert.equal(localStoreDown.status, 0, localStoreDown.stderr);
     assert.equal(JSON.parse(readFileSync(join(dir, "take.json"), "utf8")).planner.mode, "ai");
     for (const r of [doctor, hello, made, storeDown, local, localStoreDown, ...removed]) assert.ok(!r.stdout.includes("bogus-env-key") && !r.stderr.includes("bogus-env-key"));
-    // A bogus env key must behave exactly like no key: zero planned tokens and
-    // no preflight refusal even under --max-tokens 1.
+    // A bogus env key must behave exactly like no key: capture make stops with
+    // planner-unavailable, never a preflight refusal and never a plan.
     const r = run(["capture", "make", dir, "--plan-only", "--max-tokens", "1"], { env });
-    assert.equal(r.status, 0, r.stderr);
+    assert.equal(r.status, 1, r.stderr);
     assert.deepEqual(JSON.parse(r.stdout).planner,
-      { planned_tokens: 0, input_tokens: 0, usd: 0, failed: false });
+      undefined);
+    assert.equal(JSON.parse(r.stdout).error.code, "planner-unavailable");
   } finally {
     rmSync(dir, { recursive: true, force: true });
     cleanup();
@@ -388,8 +419,8 @@ test("capture make --title/--captions land in take.json", { skip: needsFfmpeg },
       { t: 1.5, text: "Hello world" },
       { t: 5, d: 2, text: "Second" },
     ]));
-    const r = run(["capture", "make", dir, "--no-planner",
-      "--title", "Smoke title", "--captions", captionsFile, ...FAST_SET], { env: { HOME: home } });
+    const r = run(["capture", "make", dir, "--planner-account",
+      "--title", "Smoke title", "--captions", captionsFile, ...FAST_SET], { env: accountEnv(home) });
     assert.equal(r.status, 0, r.stderr);
     const take = JSON.parse(readFileSync(join(dir, "take.json"), "utf8"));
     assert.equal(take.title, "Smoke title");
@@ -430,7 +461,7 @@ test("capture make render failure uses the envelope with exit 1", { skip: needsF
     const take = JSON.parse(readFileSync(takePath, "utf8"));
     take.id = "../../other";
     writeFileSync(takePath, JSON.stringify(take));
-    const r = run(["capture", "make", dir, "--no-planner", ...FAST_SET], { env: { HOME: home } });
+    const r = run(["capture", "make", dir, "--planner-account", ...FAST_SET], { env: accountEnv(home) });
     assert.equal(r.status, 1, r.stderr);
     const out = JSON.parse(r.stdout);
     assert.equal(out.error.code, "render-failed");
@@ -476,6 +507,7 @@ test("capture make usage errors use the envelope with exit 2", { skip: needsFfmp
       { args: ["capture", "make"] },
       { args: ["capture", "make", dir, "--no-planner", "--planner-key-fd", "3"], keyFile },
       { args: ["capture", "make", dir, "--no-planner", "--planner-account"] },
+      { args: ["capture", "make", dir, "--no-planner"] },
       { args: ["capture", "make", dir, "--planner-account", "--planner-key-fd", "3"], keyFile },
       { args: ["capture", "make", dir, "--planner-key-fd", "99"] },
       { args: ["capture", "make", dir, "--max-tokens", "banana"] },
@@ -487,7 +519,7 @@ test("capture make usage errors use the envelope with exit 2", { skip: needsFfmp
       assert.equal(r.status, 2, c.args.join(" "));
       assert.equal(JSON.parse(r.stdout).error.code, "invalid-arguments");
     }
-    const missing = run(["capture", "make", join(dir, "nope"), "--no-planner"], { env: { HOME: home } });
+    const missing = run(["capture", "make", join(dir, "nope"), "--planner-account"], { env: { HOME: home } });
     assert.equal(missing.status, 1);
     assert.equal(JSON.parse(missing.stdout).error.code, "take-input");
   } finally {

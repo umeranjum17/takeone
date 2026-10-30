@@ -181,7 +181,12 @@ test("capture make via the CLI scrubs the take dir; takeone make does not", { sk
   try {
     const sets = ["--set", "preset=veryfast", "--set", "out_w=320", "--set", "out_h=180",
       "--set", "ripple_ms=0", "--set", "fade_s=0"];
-    assert.equal(await main(["capture", "make", dir, "--no-planner", ...sets]), 0);
+    // The off switch is gone: capture make refuses it and plans nothing.
+    assert.equal(await main(["capture", "make", dir, "--no-planner", ...sets]), 2);
+    assert.ok(!existsSync(join(dir, "out")) && !existsSync(join(dir, "analysis")));
+    // What replaces it: the user's account, here the recorded engine, through the shipped CLI.
+    const capture = shippedCli(["capture", "make", dir, "--planner-account", ...sets], dir);
+    assert.equal(capture.status, 0, capture.stderr);
     assert.ok(statSync(join(dir, "out", "t1.mp4")).size > 0);
     for (const f of takeFiles(dir)) {
       assert.ok(!readFileSync(f, "utf8").includes(TITLE), `no title in ${f}`);
