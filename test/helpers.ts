@@ -148,3 +148,12 @@ const engines = new Map<string, NodeJS.ProcessEnv>();
 export function shippedCli(args: string[], dir: string, env: NodeJS.ProcessEnv = recordedEngineEnv(dir)): SpawnSyncReturns<string> {
   return spawnSync(process.execPath, ["bin/takeone.mjs", ...args], { encoding: "utf8", env });
 }
+
+/** Everything `run` writes to console.error, for a test driving the CLI's `main` in this process. */
+export async function captureStderr(run: () => Promise<void>): Promise<string> {
+  const lines: string[] = [];
+  const real = console.error;
+  console.error = (...args: unknown[]) => { lines.push(args.join(" ")); };
+  try { await run(); } finally { console.error = real; }
+  return lines.join("\n");
+}

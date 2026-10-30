@@ -10,7 +10,7 @@ import { main } from "../src/cli.ts";
 import { PlannerFileCache, askChunk, resolvePlanner } from "../src/decide/planner.ts";
 import { DEFAULTS } from "../src/camera/defaults.ts";
 import type { TakeMeta } from "../src/types.ts";
-import { hasFfmpeg, buildLongTake, chunkAnswers, shippedCli } from "./helpers.ts";
+import { hasFfmpeg, buildLongTake, chunkAnswers, shippedCli, captureStderr } from "./helpers.ts";
 
 const needsFfmpeg = hasFfmpeg() ? undefined : "requires system ffmpeg and ffprobe on PATH";
 const TITLE = "Quarterly report";
@@ -193,6 +193,10 @@ test("capture make via the CLI scrubs the take dir; takeone make does not", { sk
   try {
     const sets = ["--set", "preset=veryfast", "--set", "out_w=320", "--set", "out_h=180",
       "--set", "ripple_ms=0", "--set", "fade_s=0"];
+    const refused = await captureStderr(async () => {
+      assert.equal(await main(["make", plain, "--no-ai", ...sets]), 2);
+    });
+    assert.match(refused, /unknown option: --no-ai/);
     const made = shippedCli(["make", plain, ...sets], plain);
     assert.equal(made.status, 0, made.stderr);
     assert.ok(readFileSync(join(plain, "events.jsonl"), "utf8").includes(TITLE),

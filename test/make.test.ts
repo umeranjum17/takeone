@@ -18,7 +18,7 @@ import { measureCaptions, renderTake } from "../src/render/render.ts";
 import { bandLayout, bandText, captionLayouts, takeCaptions } from "../src/render/stage.ts";
 import { mapFilm, planFilm } from "../src/decide/film.ts";
 import type { Beat, Decision, TakeMeta } from "../src/types.ts";
-import { STREAM, hasFfmpeg, buildLongTake, beatViews, chunkAnswers, filmAnswers, recordedEngineEnv, shippedCli } from "./helpers.ts";
+import { STREAM, hasFfmpeg, buildLongTake, beatViews, chunkAnswers, filmAnswers, recordedEngineEnv, shippedCli, captureStderr } from "./helpers.ts";
 import { DEFAULTS } from "../src/camera/defaults.ts";
 import { THEMES } from "../src/themes.ts";
 
@@ -121,6 +121,14 @@ test("make renders the agreed beat/decision files into a tiny test MP4, planned 
   const dir = newTake();
   try {
     // --set is test-only plumbing: full-size slow output stays the default.
+    // The offline flag is gone: the CLI refuses it, naming the option, and plans nothing.
+    const refused = await captureStderr(async () => {
+      assert.equal(await main(["make", dir, "--no-ai", "--theme", "paper",
+        "--set", "preset=veryfast", "--set", "out_w=320", "--set", "out_h=180",
+        "--set", "ripple_ms=0", "--set", "fade_s=0"]), 2);
+    });
+    assert.match(refused, /unknown option: --no-ai/);
+    assert.ok(!existsSync(join(dir, "analysis")) && !existsSync(join(dir, "out")));
     const made = shippedCli(["make", dir, "--theme", "paper",
       "--set", "preset=veryfast", "--set", "out_w=320", "--set", "out_h=180",
       "--set", "ripple_ms=0", "--set", "fade_s=0"], dir);
@@ -159,6 +167,10 @@ test("render --preview frames the film like the full render, at preview speed", 
     const wander = Array.from({ length: 40 }, (_, i) => ({ t: 700 + i * 200, k: "ptr", x: 200 - i * 4, y: 90 - i }));
     const events = [...readFileSync(eventsPath, "utf8").trim().split("\n").map((line) => JSON.parse(line)), ...wander].sort((a, b) => a.t - b.t);
     writeFileSync(eventsPath, events.map((e) => JSON.stringify(e)).join("\n") + "\n");
+    const refused = await captureStderr(async () => {
+      assert.equal(await main(["make", dir, "--no-ai", ...look]), 2);
+    });
+    assert.match(refused, /unknown option: --no-ai/);
     const made = shippedCli(["make", dir, ...look], dir);
     assert.equal(made.status, 0, made.stderr);
     const fullPath = join(dir, "camera.json");
@@ -911,6 +923,8 @@ test("a user edit follows its beat across a re-cut, is dropped when the cut remo
     return cli("make", "--max-tokens", "40000");
   };
   try {
+    assert.equal(cli("make", "--no-ai").status, 2);
+    assert.match(cli("make", "--no-ai").stderr, /unknown option: --no-ai/);
     assert.equal(cli("make", "--max-tokens", "40000").status, 0);
     // The user takes the shot off the typing beat by hand, as they would in the file.
     const before = baseline();

@@ -30,6 +30,8 @@ export function takesDir(): string {
 
 interface Args {
   id?: string;
+  /** The first option make does not know; main refuses it with the usage text. */
+  unknown?: string;
   goal?: string;
   style?: string;
   noScreenText: boolean;
@@ -180,16 +182,21 @@ function parseArgs(argv: string[]): Args {
     else if (!s.startsWith("--") && a.id === undefined) a.id = s;
     else if (s === "--help" || s === "-h") usage(0);
     else {
-      console.error(`unknown option: ${s}`);
-      usage(2);
+      a.unknown = s;
+      break;
     }
   }
   return a;
 }
 
 function usage(code: number): never {
+  console.error(usageText());
+  process.exit(code);
+}
+
+function usageText(): string {
   const themes = Object.keys(THEMES).join("|");
-  console.error(`takeone make <id> [--goal "<sentence>"] [--style "<word>"] [--no-screen-text] [--replan] [--max-tokens N] [--theme ${themes}] [--set key=value] [--target-score N] [--max-rounds M]
+  return (`takeone make <id> [--goal "<sentence>"] [--style "<word>"] [--no-screen-text] [--replan] [--max-tokens N] [--theme ${themes}] [--set key=value] [--target-score N] [--max-rounds M]
 takeone render <take-dir> [--theme ${themes}] [--set key=value] [--frame auto|browser|laptop|phone|none] [--aspect landscape|portrait|square|4:5] [--resolution 4k] [--format mp4|gif|webm|prores4444] [--preview]
 takeone render <motion-dir> [--aspect landscape|portrait|square|4:5] [--stills <seconds,...>]
 ${MOTION_USAGE}
@@ -209,7 +216,6 @@ takeone --version|-v    print the installed version
   --max-tokens    refuse above this many planned input tokens (default 40k x take minutes)
   --target-score  score the film against a 10-point rubric and re-render until it reaches N (default 9)
   --max-rounds    hard cap on score rounds (default 4): one judge call per round, plus one determinism re-render`);
-  process.exit(code);
 }
 
 export async function main(argv: string[]): Promise<number> {
@@ -373,6 +379,11 @@ export async function main(argv: string[]): Promise<number> {
     return 2;
   }
   const a = parseArgs(rest);
+  if (a.unknown !== undefined) {
+    console.error(`unknown option: ${a.unknown}`);
+    console.error(usageText());
+    return 2;
+  }
   if (a.maxTokens !== undefined && (!Number.isSafeInteger(a.maxTokens) || a.maxTokens <= 0)) {
     console.error("takeone make: --max-tokens must be a positive integer");
     return 2;
