@@ -3,7 +3,7 @@
 // board serves the files beside a mock up to 5 MB each, so each cut goes up as a board copy that fits.
 
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { runFfmpeg } from "../render/ffmpeg.ts";
 import { renderThreads } from "../render/render.ts";
@@ -67,13 +67,26 @@ export interface BoardCard {
   options: BoardOption[];
 }
 
-/** Write each option's board copy, poster and page beside the board, then post the design card. */
-export async function postCard(card: BoardCard, log: (line: string) => void): Promise<void> {
+/** The key itself when the board holds no card under it, else the first free `<key>-N`: the board keeps archived cards,
+ * and a take captured again under the same name starts its own numbering over. */
+export function freeKey(board: string, key: string): string {
+  const items = (JSON.parse(readFileSync(board, "utf8")) as { items?: { key?: string }[] }).items ?? [];
+  const used = new Set(items.map((i) => i.key));
+  if (!used.has(key)) return key;
+  let n = 2;
+  while (used.has(`${key}-${n}`)) n++;
+  return `${key}-${n}`;
+}
+
+/** Write each option's board copy, poster and page beside the board, then post the design card. Returns the key it was
+ * posted under: the card's own, or the next free one when the board already holds that key. */
+export async function postCard(card: BoardCard, log: (line: string) => void): Promise<string> {
   if (card.options.length < 2 || card.options.length > 6) throw new Error(`a design card takes 2 to 6 options, not ${card.options.length}`);
+  const key = freeKey(card.board, card.key);
   const root = dirname(card.board);
-  const folder = join("mocks", card.key);
+  const folder = join("mocks", key);
   mkdirSync(join(root, folder), { recursive: true });
-  const args = ["post", card.board, "--type", "design", "--key", card.key, "--title", card.title, "--tradeoff", card.tradeoff,
+  const args = ["post", card.board, "--type", "design", "--key", key, "--title", card.title, "--tradeoff", card.tradeoff,
     "--recommend", card.recommend, "--filer", card.filer];
   for (const o of card.options) {
     const copy = await boardCopy(o.film, join(root, folder, `${o.value}.mp4`), join(root, folder, `${o.value}.jpg`), o.posterAt);
@@ -82,7 +95,8 @@ export async function postCard(card: BoardCard, log: (line: string) => void): Pr
     args.push("--option", `${o.value}=${o.label}`, "--mock", `${o.value}=${folder}/${o.value}.html`);
   }
   signOff(args);
-  log(`board: posted "${card.title}" (${card.key}) to ${card.board}`);
+  log(`board: posted "${card.title}" (${key}) to ${card.board}`);
+  return key;
 }
 
 /** Move a card the newer one replaces to the board's archive. A card already gone is not an error. */

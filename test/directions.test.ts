@@ -16,7 +16,7 @@ import { builderRequest, KNOBS, mapBuilder } from "../src/polish/builder.ts";
 import { judgeRound, JudgeUnavailable } from "../src/score/judge.ts";
 import { resolvePlanner, type ResolvedPlanner } from "../src/decide/planner.ts";
 import { cutPage } from "../src/board/page.ts";
-import { cardNotes } from "../src/board/board.ts";
+import { cardNotes, freeKey } from "../src/board/board.ts";
 import { resolveCamera } from "../src/cli.ts";
 import { DEFAULTS } from "../src/camera/defaults.ts";
 import type { MeasuredFacts } from "../src/score/rubric.ts";
@@ -178,6 +178,21 @@ test("the builder sees the score against the target and every item under it, and
   assert.deepEqual(mapBuilder({ ending: choice("shorter") }, { ...DEFAULTS, outro_s: 1.6 }).change, { outro_s: 1 });
   assert.deepEqual(mapBuilder({ ending: choice("shorter") }, { ...DEFAULTS, outro_s: 0.6 }).change, {}, "already at its shortest");
   assert.deepEqual(mapBuilder({ ending: choice("shorter") }, { ...DEFAULTS, outro_s: 0 }).change, {}, "no outro to shorten");
+});
+
+test("a card goes up under a key the board does not hold yet", () => {
+  // The real proof board refused a re-captured take's first card: the archived card of the earlier take held its key.
+  const root = mkdtempSync(join(tmpdir(), "takeone-board-key-"));
+  try {
+    const board = join(root, "decisions.json");
+    writeFileSync(board, JSON.stringify({ schema: 2, items: [{ key: "takeone-t-directions-1" }, { key: "takeone-t-directions-1-2" }] }));
+    assert.equal(freeKey(board, "takeone-t-directions-2"), "takeone-t-directions-2");
+    assert.equal(freeKey(board, "takeone-t-directions-1"), "takeone-t-directions-1-3");
+    writeFileSync(board, "{}");
+    assert.equal(freeKey(board, "takeone-t-polish-1-r1"), "takeone-t-polish-1-r1");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 function facts(): MeasuredFacts {

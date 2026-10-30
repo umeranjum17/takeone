@@ -340,13 +340,12 @@ export async function runPolishCommand(o: PolishOptions): Promise<PolishResult> 
     o.log(`polish: round ${entry.round} scored ${c.score.toFixed(1)}/10 - ${entry.accepted ? "accepted" : "rejected"}${entry.changes.length ? `; changes: ${entry.changes.join("; ")}` : ""}`);
     for (const f of c.feedback) o.log(`polish:   feedback ${f.kept ? "met" : "NOT met"} - "${entry.feedback.find((x) => x.id === f.id)?.text}": ${f.reason}`);
     if (!board || s.rounds.length < 2) return;
-    const key = `takeone-${take}-polish-${k}-r${entry.round}`;
     const final = s.final!;
     const done = s.status === "stopped";
     // One open card per decision: the previous round's card goes to the archive before this round's is posted.
     if (lastKey) replaceCard(board, lastKey, o.log);
-    await postCard({
-      board, key, filer: `takeone-${take}`, recommend: `r${final.round}`,
+    const key = await postCard({
+      board, key: `takeone-${take}-polish-${k}-r${entry.round}`, filer: `takeone-${take}`, recommend: `r${final.round}`,
       title: done ? `Ship round ${final.round} of the ${picked.name} cut? (${final.score.toFixed(1)}/10)` : `Polishing the ${picked.name} cut: round ${entry.round} scored ${c.score.toFixed(1)}/10`,
       tradeoff: `Every round is the picked cut, refined from the judge's gaps and your notes (cumulative, never undone). Judge ${judge.label}, a different model from the builder; target 9/10, at most ${maxRounds} refinements. Leave a note to steer the next round.`,
       options: s.rounds.filter((r) => r.score !== null).slice(-6).map((r) => ({

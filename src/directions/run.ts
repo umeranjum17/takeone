@@ -206,11 +206,10 @@ async function directionsFor(o: DirectionsOptions, board: string | undefined, pr
   write();
   if (board) {
     const runs = previous?.key.match(/-(\d+)$/);
-    const key = `takeone-${file.take}-directions-${runs ? Number(runs[1]) + 1 : 1}`;
     // The board keeps one open card per decision: the older pick goes to the archive before the new one is posted.
     if (previous) replaceCard(previous.file, previous.key, o.log);
-    await postCard({
-      board, key, filer: `takeone-${file.take}`, recommend: recommended,
+    const key = await postCard({
+      board, key: `takeone-${file.take}-directions-${runs ? Number(runs[1]) + 1 : 1}`, filer: `takeone-${file.take}`, recommend: recommended,
       title: `Which cut of ${file.take} should be polished?`,
       tradeoff: `Each option is a full render of the same take. Scores are from an independent judge (${judge?.label ?? "none: --no-ai"}) on 3 sampled frames per cut. Picking one starts the polish rounds.`,
       options: judged.map((d) => ({
