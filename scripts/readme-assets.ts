@@ -109,10 +109,10 @@ BUILDS.push({ id: "A5", assets: [A5], build(put) {
 const A6: Asset = { id: "A6", file: "motion-callouts.mp4", kind: "video", width: 1920, height: 1080, fps: 60, recipe: "takeone motion tidewater-board.png --recipe feature --theme paper (three labelled regions) -> delivery crf 24" };
 BUILDS.push({ id: "A6", assets: [A6], build(put) { const f = join(work, "motion-callouts.mp4"); deliver(motion("a6", ["--recipe", "feature", "--theme", "paper", ...REGIONS.flatMap(r => ["--region", r])]), f); put(A6, f); } });
 
-const A7: Asset = { id: "A7", file: "motion-scroll.mp4", kind: "video", width: 1080, height: 1920, fps: 60, recipe: "takeone motion tidewater-board.png --pattern hero-reveal,zoom-tour,end-card --aspect portrait --theme mono -> delivery crf 24", note: "SUBSTITUTE: the scroll-through pattern is not shipped (docs/motion.md lists it as still to come), so the portrait zoom tour stands in. Replace when scroll-through lands." };
+const A7: Asset = { id: "A7", file: "motion-scroll.mp4", kind: "video", width: 1080, height: 1920, fps: 60, recipe: "takeone motion tidewater-board.png --pattern scroll-through --aspect portrait --theme mono -> delivery crf 24" };
 BUILDS.push({ id: "A7", assets: [A7], build(put) {
   const f = join(work, "motion-scroll.mp4");
-  deliver(motion("a7", ["--pattern", "hero-reveal,zoom-tour,end-card", "--theme", "mono", "--aspect", "portrait", ...REGIONS.flatMap(r => ["--region", r])]), f); put(A7, f);
+  deliver(motion("a7", ["--pattern", "scroll-through", "--theme", "mono", "--aspect", "portrait"]), f); put(A7, f);
 } });
 
 const A8: Asset = { id: "A8", file: "before-after.mp4", kind: "video", width: 1920, height: 540, fps: 60, recipe: "A1 raw screen.webm (paced as the render paced it) beside A1's render, hstack 2x960" };
