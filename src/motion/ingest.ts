@@ -52,7 +52,7 @@ export async function ingest(dir: string, sb: Storyboard): Promise<void> {
     await b.send("Page.addScriptToEvaluateOnNewDocument", { source: INGEST_CLOCK });
     const url = sb.source.kind === "url" ? sb.source.url! : pathToFileURL(resolve(dir, sb.source.file!)).href;
     await navigate(b, url);
-    await b.evaluate(`(async () => { await document.fonts.ready; await Promise.all([...document.images].map(i => i.decode()));
+    await b.evaluate(`(async () => { await document.fonts.ready; await Promise.all([...document.images].filter(i => i.complete).map(i => i.decode().catch(() => {})));
       const style = document.createElement('style'); style.textContent = '* { animation:none!important; transition:none!important; caret-color:transparent!important }'; document.head.append(style); })()`);
     const wait = async (ms: number) => {
       if (!Number.isFinite(ms) || ms < 0 || ms > 30000) throw new Error("state wait: expected 0..30000 ms");

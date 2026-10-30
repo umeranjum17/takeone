@@ -15,6 +15,7 @@ import { renderTake, renderThreads } from "./render/render.ts";
 import { previewSize } from "./render/preview.ts";
 import { THEMES, resolveTheme } from "./themes.ts";
 import { isMotionTake, MOTION_USAGE, runGauntletCommand, runMotion } from "./motion/cli.ts";
+import { runBrand } from "./motion/brand-link.ts";
 import { renderMotion } from "./motion/motion.ts";
 import { applyOverrides, type CameraDefaults, type Overrides } from "./camera/defaults.ts";
 import { filmOverrides, type FilmDecision } from "./decide/film.ts";
@@ -208,6 +209,7 @@ takeone render <take-dir> [--theme ${themes}] [--set key=value] [--frame auto|br
 takeone render <motion-dir> [--aspect landscape|portrait|square|4:5] [--stills <seconds,...>]
 ${DIRECTIONS_USAGE}
 ${MOTION_USAGE}
+takeone brand <url> --out DIR   read a brand link into a draft DIR/brand.json, its logo and contact.png, and print what a person must confirm
 ${REFINE_USAGE}
 takeone key set [--backend <name>] [--model <model>] [--via typesafe|openrouter] < stdin
 takeone [list|record|stop|doctor]
@@ -259,6 +261,14 @@ export async function main(argv: string[]): Promise<number> {
   if (cmd === "--version" || cmd === "-v") {
     console.log(packageVersion());
     return 0;
+  }
+  if (cmd === "brand") {
+    try {
+      return await runBrand(rest);
+    } catch (e) {
+      console.error(`takeone brand: ${e instanceof Error ? e.message : e}`);
+      return 1;
+    }
   }
   if (cmd === "motion") {
     try {
@@ -387,7 +397,7 @@ export async function main(argv: string[]): Promise<number> {
   }
   if (cmd === "directions" || cmd === "pick" || cmd === "polish" || cmd === "polish-feedback") return runDirectionCommand(cmd, rest);
   if (cmd !== "make") {
-    console.error(`takeone: unknown command "${cmd}". Use "make", "render", "directions", "pick", "polish", "polish-feedback", "zoom", "look", "motion", "gauntlet", "record", "stop", "doctor" or "list".`);
+    console.error(`takeone: unknown command "${cmd}". Use "make", "render", "directions", "pick", "polish", "polish-feedback", "zoom", "look", "motion", "brand", "gauntlet", "record", "stop", "doctor" or "list".`);
     return 2;
   }
   const a = parseArgs(rest);

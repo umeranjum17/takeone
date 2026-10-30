@@ -23,3 +23,9 @@ fonts, a drawn logo mark) for `takeone motion --recipe glow --brand resources/de
 The [welcome batch example](../../docs/motion.md#one-film-per-spreadsheet-row)
 shows how to render [its template](batch/welcome.json) with
 [its sample rows](batch/customers.csv).
+
+## Feature-spotlight ad (template 1)
+
+`story-brief.txt` with `tidewater-brand.json` is the shipped example of the feature-spotlight ad: four beats (chips,
+phone, cards, stats) plus the end card, 16:9, driven by `--brand`. `takeone brand <url> --out DIR` writes the draft
+brand file for a real link; see [the ad template](../../docs/motion.md#ad-template-1-feature-spotlight-from-a-brand-link).
