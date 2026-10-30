@@ -677,7 +677,7 @@ export class PlannerUnavailable extends Error {
   constructor(provider: string, reason: string, o: { credentialMissing?: boolean } = {}) {
     const missing = o.credentialMissing === true;
     super(missing
-      ? "takeone needs an AI engine. Sign in with: claude (Claude), or: codex login (Codex), or: opencode auth login (OpenCode)."
+      ? "takeone needs an AI engine. Sign in with: claude (Claude), or: codex login (Codex), or: opencode auth login (OpenCode); or store a key with: takeone key set."
       : `AI planner: ${provider} ${reason}. Check that engine's sign-in and retry, or choose another provider.`);
     this.name = "PlannerUnavailable";
     this.provider = provider;

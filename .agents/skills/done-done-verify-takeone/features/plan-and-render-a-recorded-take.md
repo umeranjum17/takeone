@@ -4,14 +4,14 @@ Part of the takeone verification map. Source: `bin/takeone.ts`, `src/make.ts`, `
 
 ## How to get to it (user POV)
 
-After recording a take, the user runs `takeone make <id>`: it decodes the screen, finds the changed regions and actions, cuts beats, decides each beat's shot, solves the camera and renders `out/<id>.mp4` with the plan beside it in `analysis/`. This is the path every film goes through; `--no-ai` keeps every decision local.
+After recording a take, the user runs `takeone make <id>`: it decodes the screen, finds the changed regions and actions, cuts beats, decides each beat's shot, solves the camera and renders `out/<id>.mp4` with the plan beside it in `analysis/`. This is the path every film goes through.
 
 ## Driving it
 
 Harness: Shell (bash), ffmpeg/ffprobe, `fm-mem-gate.sh` for every capture, render and ffmpeg. A synthetic clip is never the proof: use the realistic board scene, a real recorded take.
 
 1. `node scripts/install-headless-shell.mjs` once, then `node scripts/headless-scene.mjs <scratch>/board` (about ten minutes; a fictional Tidewater board, 3840x2160, typing, clicks, a dialog, a scroll and a drag).
-2. `TAKEONE_DIR=<scratch>/takes TAKEONE_STATE_DIR=<scratch>/state node bin/takeone.mjs make <scratch>/board --no-ai`. Exit 0; `analysis/beats.json`, `analysis/plan.json` (one entry per beat, each with `id` and `key`) and `analysis/decisions.jsonl` (one line per decided beat) exist; `out/<id>.mp4` (the board scene's take id is `headless-demo`) probes 1920x1080 H.264.
+2. `TAKEONE_DIR=<scratch>/takes TAKEONE_STATE_DIR=<scratch>/state scripts/verification/recorded-engine.sh "${TAKEONE_DIR:-tmp}/engine" node bin/takeone.mjs make <scratch>/board`. Exit 0; `analysis/beats.json`, `analysis/plan.json` (one entry per beat, each with `id` and `key`) and `analysis/decisions.jsonl` (one line per decided beat) exist; `out/<id>.mp4` (the board scene's take id is `headless-demo`) probes 1920x1080 H.264.
 3. Look at the film, not the exit code: `node scripts/verification/visual-check.ts <scratch>/board --name board --out <scratch>/check` must report no clipped text or blank frames, and whole PNG frames decoded during the dialog arrival, the drag and the pull-back (`ffmpeg -ss <t> -i out/<id>.mp4 -frames:v 1`) show the action whole and in frame.
 4. Push-ins on a real web page: capture a public page at device scale 5 (so `max_upscale` allows 2.5x) with a click, a scroll-only pass and an expanding answer. After `make`, the camera pushes in on the click (2.5x on a 960x540 CSS page), on what the scroll settled on, and holds a readable crop on a dense page instead of widening to the whole screen; `node scripts/cut-audit.ts --set k=v <take>` (the same sets the take was rendered with) reports 0 at-rest and 0 creeping cuts.
    The real-UI scene gates the same camera: `npm run quality -- --fixture scene` (through the render gate) must report `pan_bounce` 0, so no push-in, pan back, result reveal or outro turns the page edge back without a `min_shot` rest.

@@ -47,7 +47,7 @@ The canonical offline journey (works on any machine, zero capture, zero network,
 ```sh
 export TAKEONE_DIR="$PWD/tmp/verify-takes" && mkdir -p "$TAKEONE_DIR"
 node scripts/synth-take.ts "$TAKEONE_DIR/synth-demo"     # scripted 44 s 1920x1080 take, drawn by ffmpeg — no screen capture
-node bin/takeone.mjs make "$TAKEONE_DIR/synth-demo" --no-ai   # local-only planning + render
+scripts/verification/recorded-engine.sh "${TAKEONE_DIR:-tmp}/engine" node bin/takeone.mjs make "$TAKEONE_DIR/synth-demo"   # local-only planning + render
 test -s "$TAKEONE_DIR/synth-demo/out/synth-demo.mp4"     # the proof artifact
 ```
 
@@ -83,7 +83,7 @@ Proof artifacts live in a named folder inside the checkout, `tmp/evidence/done-d
 - Machine-checkable output facts: `ffprobe -v error -show_entries format=duration,size -show_entries stream=width,height,codec_name -of json out/<id>.mp4 > probe.json`, and the sidecars (`camera.json`, `render.log`) that prove the pipeline ran.
 - A manifest: `sha256sum * > SHA256SUMS` plus a line naming the producing commit (`git rev-parse HEAD`).
 
-Standards: exercise the real user path (published CLI flags only — no internal setters, no test-only endpoints, no importing `dist/` internals as a library); capture the action and the resulting state, not just the final screen; verify side effects are files inside the take directory. `--no-ai` is a true offline mode (zero network calls); with a stored credential or a signed-in CLI account `make` performs real planner calls — verification drives use `--no-ai` unless the point of the proof is the planner itself. A successful encode proves the pipeline and framing decisions ran; it does not qualify camera quality — visual quality claims need human review of the actual media. Label rendered defects `UNQUALIFIED`; missing prerequisites and incomplete validator/product proof must be reported as failure or inconclusive, never as release qualification.
+Standards: exercise the real user path (published CLI flags only — no internal setters, no test-only endpoints, no importing `dist/` internals as a library); capture the action and the resulting state, not just the final screen; verify side effects are files inside the take directory. The recorded engine (`scripts/verification/recorded-engine.sh`) is the offline stand-in (zero network calls); with a stored credential or a signed-in CLI account `make` performs real planner calls — verification drives use the recorded engine unless the point of the proof is the planner itself. A successful encode proves the pipeline and framing decisions ran; it does not qualify camera quality — visual quality claims need human review of the actual media. Label rendered defects `UNQUALIFIED`; missing prerequisites and incomplete validator/product proof must be reported as failure or inconclusive, never as release qualification.
 
 ## Review evidence
 
@@ -116,8 +116,8 @@ rejects `--theme`/`--set` (`docs/verification/motion-films.md`).
 ### Form factor: phone and desktop
 
 ```sh
-node bin/takeone.mjs make <take-dir> --no-ai --set out_w=1080 --set out_h=1920  # phone/portrait
-node bin/takeone.mjs make <take-dir> --no-ai --set out_w=1920 --set out_h=1080  # desktop/wide
+scripts/verification/recorded-engine.sh "${TAKEONE_DIR:-tmp}/engine" node bin/takeone.mjs make <take-dir> --set out_w=1080 --set out_h=1920  # phone/portrait
+scripts/verification/recorded-engine.sh "${TAKEONE_DIR:-tmp}/engine" node bin/takeone.mjs make <take-dir> --set out_w=1920 --set out_h=1080  # desktop/wide
 ```
 
 ffprobe both `out/<id>.mp4` files into `probe.json` and keep one still from each;
@@ -217,7 +217,7 @@ moment, or the motion contact sheets), defect crops, `<cell>.json`, `pass.log`, 
 takes (cuts, speed) are rejected, not checked. A real device run at the largest font is
 `adb -s <emulator> shell settings put system font_scale 1.3` or
 `xcrun simctl ui <udid> content_size accessibility-extra-extra-extra-large`, under the device
-lock and memory gate, then `make --no-ai` and `visual-check.ts <take> --name <cell> --out <dir>`.
+lock and memory gate, then `make` against the recorded engine and `visual-check.ts <take> --name <cell> --out <dir>`.
 
 Limits (`LIMIT` in `scripts/verification/visual-check.ts`), measured on main 868ff39:
 
