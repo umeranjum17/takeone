@@ -14,6 +14,7 @@ import { hasFfmpeg } from "./helpers.ts";
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const BRAND = resolve(root, "resources/demo/tidewater-brand.json");
 const FONT = resolve(root, "resources/fonts/Fraunces-SemiBold.ttf");
+const needsFfmpeg = hasFfmpeg() ? undefined : "requires system ffmpeg and ffprobe on PATH";
 
 test("a take brand keeps its own tokens over a light stage, and still refuses a family it cannot render", () => {
   const dir = mkdtempSync(join(tmpdir(), "takeone-take-brand-"));
@@ -79,7 +80,7 @@ test("the sample brand dresses a take, and an unbundled family exits non-zero na
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
-test("a brand font file reaches the renderer's font directory instead of falling back to another face", {skip:!hasFfmpeg(),timeout:120000}, async () => {
+test("a brand font file reaches the renderer's font directory instead of falling back to another face", { skip: needsFfmpeg, timeout: 120_000 }, async () => {
   const dir = mkdtempSync(join(tmpdir(), "takeone-brand-font-render-"));
   const previous = process.env["FONTCONFIG_FILE"];
   // An empty fontconfig: only the render's own font directory can serve a face, so a font that
