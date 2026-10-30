@@ -52,7 +52,7 @@ function factsText(f: MeasuredFacts): string {
   ].join("; ");
 }
 
-function questions(f: MeasuredFacts): Record<string, Question> {
+function questions(f: MeasuredFacts, extras: JudgeExtras): Record<string, Question> {
   const out: Record<string, Question> = {};
   for (const item of RUBRIC) {
     if (item.id === "baseline" && f.baseline === undefined) continue;
@@ -61,9 +61,51 @@ function questions(f: MeasuredFacts): Record<string, Question> {
       levels: LEVELS,
       floor: 0,
       instructions: `${item.what}\nMeasured for this film: ${factsText(f)}`,
+      // Below 9, the reason is the gap the next round works on: name what to change, not that it is weak.
+      ...(extras.gaps ? { personReason: true } : {}),
+    };
+  }
+  for (const [i, item] of (extras.feedback ?? []).entries()) {
+    out[`feedback_${i + 1}`] = {
+      kind: "yesno",
+      question: `The owner asked: "${item.text}". Is that request visibly met in this round's film, judged from the stills, the measured facts and the build settings listed? `
+        + "Yes only when it is met, not merely attempted.",
+      personReason: true,
     };
   }
   return out;
+}
+
+/** Optional asks beside the rubric in the same single call: actionable gaps and the owner's cumulative feedback. */
+export interface JudgeExtras {
+  /** Ask a one-line reason with each item score; items under 9 become the round's gaps. */
+  gaps?: boolean;
+  /** The owner's requests so far, each checked as met or not met with a reason. */
+  feedback?: { id: string; text: string }[];
+  /** Extra state the judge reads: the picked direction, this round's build settings and changes, earlier scores. */
+  context?: Record<string, unknown>;
+}
+
+export interface FeedbackCheck {
+  id: string;
+  kept: boolean;
+  reason: string;
+}
+
+export interface JudgedCard extends ScoreCard {
+  /** Actionable gaps: every item under 9 with the judge's reason, or the measured note when it gave none. */
+  gaps: string[];
+  feedback: FeedbackCheck[];
+  /** "cache" when the answers came from judge-cache.jsonl and no model call was made. */
+  source: "api" | "cache";
+  inputTokens?: number;
+  outputTokens?: number;
+}
+
+/** A yes/no answer as a boolean; an abstained or missing one makes the judge unavailable (a check is never assumed met). */
+export function answerYes(id: string, answer: Answer | undefined): boolean {
+  if (!answer || answer.abstained || typeof answer.answer !== "boolean") throw new JudgeUnavailable(`${id}: ${answer?.reason ?? "no answer"}`);
+  return answer.answer;
 }
 
 /** The judged frames show the recorded screen, so they go out blurred whole: the judge sees layout, framing and zoom, not words. */
@@ -105,7 +147,8 @@ export async function judgeRound(
   planner: ResolvedPlanner,
   facts: MeasuredFacts,
   o: JudgeOptions,
-): Promise<ScoreCard> {
+  extras: JudgeExtras = {},
+): Promise<JudgedCard> {
   if (!planner.active) throw new JudgeUnavailable(`${planner.label} is not available${planner.refusal ? `: ${planner.refusal}` : ""}`);
   const vision = await seesImages(planner);
   const images = vision ? await imageInputs(facts) : undefined;
@@ -139,11 +182,13 @@ export async function judgeRound(
       frames: facts.frames.map(({ label, t, shows }) => ({ label, t: Number(t.toFixed(2)), shows })),
     },
     rubric: RUBRIC.map(({ id, label, weight, what }) => ({ id, label, weight, what })),
+    ...(extras.context ?? {}),
   };
-  const outcome = await askChunk(state, questions(facts), planner, o.cache, {
+  const outcome = await askChunk(state, questions(facts, extras), planner, o.cache, {
     timeoutMs: JUDGE_TIMEOUT_MS,
     keepAnswers: true,
     ...(images ? { images } : {}),
+    ...(o.fetchImpl ? { fetchImpl: o.fetchImpl } : {}),
   });
   if (!outcome.answers) throw new JudgeUnavailable(outcome.failure ?? "the judge returned no answers");
   const scores: Partial<Record<RubricId, number>> = {};
@@ -152,5 +197,18 @@ export async function judgeRound(
     const value = answerScore(item.id, outcome.answers[item.id]);
     scores[item.id] = value;
   }
-  return scoreCard(scores, facts, planner.label, 1);
+  const card = scoreCard(scores, facts, planner.label, 1);
+  const said = (id: string) => { const a = outcome.answers![id]; return (a?.personReason ?? a?.rationale)?.trim(); };
+  const gaps = extras.gaps
+    ? card.items.filter((item) => item.score < 9).map((item) => `${item.label} (${item.score}/10): ${said(item.id) || item.note}`)
+    : [];
+  const feedback = (extras.feedback ?? []).map((item, i) => {
+    const id = `feedback_${i + 1}`;
+    return { id: item.id, kept: answerYes(id, outcome.answers![id]), reason: said(id) || "no reason given" };
+  });
+  return {
+    ...card, gaps, feedback, source: outcome.decisionSource === "cache" ? "cache" : "api",
+    ...(outcome.inputTokens === undefined ? {} : { inputTokens: outcome.inputTokens }),
+    ...(outcome.outputTokens === undefined ? {} : { outputTokens: outcome.outputTokens }),
+  };
 }
