@@ -61,17 +61,28 @@ test("a planner that abstains on everything gets the fixed table, distinct on th
   assert.equal((req.state.timeline as string[]).length, 41, "a long timeline is cut to its first and last 20 beats");
 });
 
-test("directions and polish refuse --no-ai: every option is judged and every round is built and judged", () => {
+test("directions refuses --no-ai: every option is judged", () => {
   const dir = mkdtempSync(join(tmpdir(), "takeone-no-ai-"));
   try {
     writeFileSync(join(dir, "take.json"), "{}\n");
-    for (const cmd of ["directions", "polish"]) {
-      const result = spawnSync(process.execPath, ["--experimental-strip-types", "src/cli.ts", cmd, dir, "--no-ai"], { encoding: "utf8" });
-      assert.equal(result.status, 2, `${cmd} --no-ai is a usage error`);
-      assert.match(result.stderr, new RegExp(`--no-ai is not offered: ${cmd} needs the planner and the independent judge`));
-      assert.doesNotMatch(result.stdout + result.stderr, /--no-ai\]/, "the usage no longer lists --no-ai");
-    }
-    assert.ok(!existsSync(join(dir, "directions")) && !existsSync(join(dir, "polish")), "nothing was planned or rendered");
+    const result = spawnSync(process.execPath, ["--experimental-strip-types", "src/cli.ts", "directions", dir, "--no-ai"], { encoding: "utf8" });
+    assert.equal(result.status, 2, "directions --no-ai is a usage error");
+    assert.match(result.stderr, /--no-ai is not offered: directions needs the planner and the independent judge/);
+    assert.doesNotMatch(result.stdout + result.stderr, /--no-ai\]/, "the usage no longer lists --no-ai");
+    assert.ok(!existsSync(join(dir, "directions")), "nothing was planned or rendered");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("polish refuses --no-ai: every round is built and judged", () => {
+  const dir = mkdtempSync(join(tmpdir(), "takeone-no-ai-"));
+  try {
+    writeFileSync(join(dir, "take.json"), "{}\n");
+    const result = spawnSync(process.execPath, ["--experimental-strip-types", "src/cli.ts", "polish", dir, "--no-ai"], { encoding: "utf8" });
+    assert.equal(result.status, 2, "polish --no-ai is a usage error");
+    assert.match(result.stderr, /--no-ai is not offered: polish needs the planner and the independent judge/);
+    assert.ok(!existsSync(join(dir, "polish")), "nothing was planned or rendered");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -356,7 +367,9 @@ test("directions render real cuts, post one board pick, and polish refines the p
     const picked = pickDirection(dir, undefined, quiet.log);
     assert.equal(picked.picked.id, "b");
     assert.equal(picked.from, "board");
+    assert.equal(picked.note, "hold the result a bit longer");
     assert.equal(JSON.parse(readFileSync(join(dir, "take.json"), "utf8")).direction.theme, file.directions[1]!.theme);
+    assert.ok(readFileSync(join(dir, "out", "t1.mp4")).equals(readFileSync(join(dir, file.directions[1]!.film))), "out/ is the picked cut");
 
     const result = await runPolishCommand({
       dir, maxRounds: 2, feedback: [], set: FAST, board: sign.board, judge, builder: planner,
