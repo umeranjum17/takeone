@@ -40,8 +40,9 @@ const SURFACE = {
     const tw = W * .19, th = H * .27, gap = H * .03, rows = s.tree;
     rows.forEach((t, i) => {
       const m = /^(\D*?)(\d[\d,]*)\s+(.*)$/.exec(t) ?? [, "", "0", t], value = Number(m[2].replace(/,/g, "")), last = i === rows.length - 1;
+      const em = [...m[1] + value.toLocaleString("en-US")].reduce((n, c) => n + (/\d/.test(c) ? .62 : .34), 0), fit = Math.min(1, (tw - H * .06) / (em * H * .11)); // a long figure shrinks to its tile instead of running under the next one
       const tile = h(`<div style="position:absolute;left:${W * .7 - tw - gap / 2 + (i % 2) * (tw + gap)}px;top:${H / 2 - th - gap / 2 + Math.floor(i / 2) * (th + gap)}px;width:${tw}px;height:${th}px;box-sizing:border-box;padding:${H * .03}px;border-radius:${H * .022}px;border:${last ? 3 : 1}px solid ${last ? "var(--accent)" : "var(--line)"};background:var(--card);color:var(--ink);display:flex;flex-direction:column;justify-content:space-between;${last ? `box-shadow:0 0 ${H * .06}px ${mix("var(--accent)", 35, "transparent")}` : ""}">
-        <div style="font:${H * .11}px/1 var(--display);letter-spacing:-.03em"></div><div style="font:${H * .026}px var(--body);color:${mix("var(--ink)", 70, "var(--card)")}">${esc(m[3])}</div></div>`);
+        <div style="font:${H * .11 * fit}px/1 var(--display);letter-spacing:-.03em;white-space:nowrap"></div><div style="font:${H * .026}px var(--body);color:${mix("var(--ink)", 70, "var(--card)")}">${esc(m[3])}</div></div>`);
       layer.append(tile); rise(tile, 300 + i * 220, `translateY(${H * .04}px)`);
       const num = tile.firstElementChild, t0 = 400 + i * 220;
       tick((ms) => { num.textContent = m[1] + Math.round(value * smootherstep((ms - t0) / 1300)).toLocaleString("en-US"); });

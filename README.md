@@ -100,6 +100,18 @@ Isolated installs (CI, throwaway test HOMEs) can set `TAKEONE_NO_KEYRING=1` so t
 - **Scores its own film.** `takeone make --target-score 9` renders, judges against a written rubric, fixes the weakest items and renders again, with the per-round score in `out/score.json`.
 - **Motion films from screens.** `takeone motion` turns screenshots, HTML, a URL or a take you already made into a short film.
 
+## Ads from a brand link
+
+`takeone brand https://example.com --out brand/` reads the page into a draft `brand.json`, its logo and a `contact.png`, and prints what a person must confirm (the accent, the name, the logo, any near-match font, the copy). `takeone motion --recipe story --brand brand/brand.json` then makes a 16:9 feature-spotlight ad from a four-line brief ([how](docs/motion.md#ad-template-1-feature-spotlight-from-a-brand-link)).
+
+What a model-made ad engine does that TakeOne does not:
+
+- It makes real imagery: photos, scenes, the product in context. TakeOne draws chips, a chat, cards and stat tiles.
+- It writes new copy in a brand's voice. TakeOne uses the words it is given.
+- It takes any font and any layout. TakeOne has 11 bundled families and four fixed surfaces.
+- It varies the picture across dozens of ads. TakeOne varies copy, colour and aspect, so one template's ads look like siblings.
+- It judges the product, the audience and the hero from a page. TakeOne reads colours, fonts and a logo, and a person decides the rest.
+
 ## Learn more
 
 - [Vision](VISION.md): who takeone is for, where it is going and what it is not
