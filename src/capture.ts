@@ -32,7 +32,8 @@ function invalidArguments(message: string, hint: string): never {
 interface MakeArgs {
   take?: string;
   planOnly: boolean;
-  noPlanner: boolean;
+  /** The first option capture make does not know; refused after parsing. */
+  unknown?: string;
   /** Host opt-in: plan with the user's own signed-in account instead of a host key. */
   plannerAccount: boolean;
   screenText: boolean;
@@ -43,14 +44,13 @@ interface MakeArgs {
   set: string[];
 }
 
-const MAKE_HINT = "run `takeone capture make <take> [--plan-only] [--no-planner] [--max-tokens N]`";
+const MAKE_HINT = "run `takeone capture make <take> [--plan-only] [--planner-key-fd N | --planner-account] [--max-tokens N]`";
 
 function parseMakeArgs(argv: string[]): MakeArgs {
-  const a: MakeArgs = { planOnly: false, noPlanner: false, plannerAccount: false, screenText: false, set: [] };
+  const a: MakeArgs = { planOnly: false, plannerAccount: false, screenText: false, set: [] };
   for (let i = 0; i < argv.length; i++) {
     const s = argv[i]!;
     if (s === "--plan-only") a.planOnly = true;
-    else if (s === "--no-planner") a.noPlanner = true;
     else if (s === "--planner-account") a.plannerAccount = true;
     else if (s === "--screen-text") a.screenText = true;
     else if (s === "--planner-key-fd") {
@@ -106,11 +106,8 @@ function parseMakeArgs(argv: string[]): MakeArgs {
       a.set.push(v);
     } else if (!s.startsWith("--") && a.take === undefined) a.take = s;
     else {
-      captureFail({
-        code: "invalid-arguments",
-        message: `unknown capture make option: ${s}`,
-        hint: MAKE_HINT,
-      });
+      a.unknown = s;
+      break;
     }
   }
   return a;
@@ -172,27 +169,22 @@ function readCaptionsFile(path: string): { t: number; d?: number; text: string }
   });
 }
 
+/** One error line on stdout and the exit status, without ending the process: the caller returns it. */
+function refuse(error: CaptureError, status: number): number {
+  emit({ error });
+  return status;
+}
+
 async function runCaptureMake(argv: string[]): Promise<number> {
   const a = parseMakeArgs(argv);
+  if (a.unknown !== undefined) {
+    return refuse({ code: "invalid-arguments", message: `unknown capture make option: ${a.unknown}`, hint: MAKE_HINT }, 2);
+  }
   if (a.take === undefined) {
     captureFail({
       code: "invalid-arguments",
       message: "capture make needs a take directory",
       hint: MAKE_HINT,
-    });
-  }
-  if (a.noPlanner && a.plannerKeyFd !== undefined) {
-    captureFail({
-      code: "invalid-arguments",
-      message: "--no-planner and --planner-key-fd conflict",
-      hint: "pass one or the other, not both",
-    });
-  }
-  if (a.plannerAccount && a.noPlanner) {
-    captureFail({
-      code: "invalid-arguments",
-      message: "--planner-account and --no-planner conflict",
-      hint: "--planner-account asks for the user's account; --no-planner plans with local rules",
     });
   }
   if (a.plannerAccount && a.plannerKeyFd !== undefined) {
@@ -244,14 +236,23 @@ async function runCaptureMake(argv: string[]): Promise<number> {
     });
   }
 
+  // capture make always plans with an AI engine: the host's own key on an fd, or the user's own
+  // account when the host allows it. Neither is a refusal, never a quiet switch to local rules.
+  if (key === null && !viaAccount) {
+    return refuse({
+      code: "planner-unavailable",
+      message: "capture make needs an AI engine: no planner key was passed and the user's account was not allowed",
+      hint: "pass the host's own key with --planner-key-fd 3, or allow the user's own signed-in account with --planner-account (sign in with claude, codex login or opencode auth login)",
+    }, 1);
+  }
+
   // Stdout carries exactly one JSON object; the pipeline logs to stderr.
   const warnings: string[] = [];
-  if (key === null && !viaAccount) warnings.push("no planner key; using heuristic policy for all beats");
   try {
     const r = await makeTake(dir, {
       capture: true,
       screenText: a.screenText,
-      ...(viaAccount ? { requireAi: true } : key === null ? { noAi: true } : { apiKey: key }),
+      ...(viaAccount ? { requireAi: true } : { apiKey: key! }),
       ...(a.maxTokens === undefined ? {} : { maxTokens: a.maxTokens }),
       ...(camera === undefined ? {} : { camera }),
       set: a.set,
@@ -302,7 +303,7 @@ async function runCaptureMake(argv: string[]): Promise<number> {
       const error: CaptureError & { planned?: number; cap?: number } = {
         code: "preflight-refused",
         message: e.message,
-        hint: "raise --max-tokens or pass --no-planner",
+        hint: "raise --max-tokens",
         ...(e.plannedTokens === undefined ? {} : { planned: e.plannedTokens, cap: e.cap }),
       };
       writeSync(1, JSON.stringify({ error }) + "\n");
@@ -318,11 +319,10 @@ async function runCaptureMake(argv: string[]): Promise<number> {
     if (e instanceof PlannerUnavailable) {
       captureFail({
         code: "planner-unavailable",
-        // capture's off switch is --no-planner, so it words its own choices
         message: `AI planner: ${e.provider} ${e.reason}.`,
         hint: e.credentialMissing
-          ? "sign the user's account in, or pass the host's own key with --planner-key-fd 3; --no-planner plans with local rules"
-          : "wait for the limit to reset and rerun, or rerun with --no-planner",
+          ? "sign the user's account in, or pass the host's own key with --planner-key-fd 3"
+          : "wait for the limit to reset and rerun, or pass another provider's key with --planner-key-fd 3",
       });
     }
     if (e instanceof ConfigError) {
