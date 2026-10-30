@@ -14,7 +14,7 @@ and `takeone render <take> --look <name>` applies it (options typed after `--loo
 
 Harness: Shell (bash), ffmpeg/ffprobe, `fm-mem-gate.sh` for every capture and render. The real board scene is the proof, never a synthetic clip.
 
-1. `npm run build`; `node scripts/headless-scene.mjs <dir>/board --aspect=landscape --no-title`; `node bin/takeone.mjs make <dir>/board --no-ai --set fps=60`.
+1. `npm run build`; `node scripts/headless-scene.mjs <dir>/board --aspect=landscape --no-title`; `scripts/verification/recorded-engine.sh "${TAKEONE_DIR:-tmp}/engine" node bin/takeone.mjs make <dir>/board --set fps=60`.
 2. Copy the take twice (`zoomed`, `plain`), delete `text-boxes.json` from both (a push-in crops board text across the safe-area inset). Use a throwaway `XDG_CONFIG_HOME`.
 3. `node bin/takeone.mjs zoom <dir>/zoomed add 26 31 2850,300,800,900` (Activity feed on the 3840x2160 board); `zoom list`; an overlapping `add 26 28 0,0,100,100` must exit 1 with `invalid zooms: overlapping intervals`.
 4. `node bin/takeone.mjs look save launch --theme paper --aspect landscape --set accent=#c2410c`, then render both copies with `--look launch --preview` (default `max_upscale`: with `max_upscale=0.5` the zoom caps at 0.78x and proves nothing).

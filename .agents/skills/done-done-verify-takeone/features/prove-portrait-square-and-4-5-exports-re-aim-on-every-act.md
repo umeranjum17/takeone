@@ -16,7 +16,7 @@ use the realistic board scene (`scripts/headless-scene.mjs`, docs/headless-scene
 
 1. `npm run build`; `node scripts/headless-scene.mjs <dir>`; delete `<dir>/text-boxes.json` (the scene's
    safe-area acceptance is for its own matching-aspect layouts, and a crop of the 16:9 board crosses it);
-   `node bin/takeone.mjs make <dir> --no-ai --set fps=60` with `TAKEONE_DIR`/`TAKEONE_STATE_DIR` in tmp.
+   `scripts/verification/recorded-engine.sh "${TAKEONE_DIR:-tmp}/engine" node bin/takeone.mjs make <dir> --set fps=60` with `TAKEONE_DIR`/`TAKEONE_STATE_DIR` in tmp.
 2. Copy the planned take once per shape and render each copy, one at a time:
    `node bin/takeone.mjs render <copy> --set fps=60 --aspect square|portrait|4:5`. Keep a copy rendered
    on main (`render` overwrites `out/<id>.mp4`) for the before numbers.

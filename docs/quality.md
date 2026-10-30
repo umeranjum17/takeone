@@ -166,7 +166,7 @@ shape the gate never renders cannot hide a miss:
 ```sh
 node scripts/verification/smooth-matrix.ts <work-dir> scene-landscape:portrait synth:4:5 ...
 # sources: scene-landscape scene-portrait scene-square (headless board captures), synth, phone
-# exports: landscape portrait square 4:5; one cell = one take made with `make --no-ai`, rendered at 60 fps
+# exports: landscape portrait square 4:5; one cell = one take made with `make` against the recorded engine, rendered at 60 fps
 ```
 
 A cell writes `matrix-row.json` (every metric, `unmet`, the render's wall seconds). Run each cell as its

@@ -2,9 +2,10 @@
 // code; the only external binary used is ffmpeg, for one tiny webm.
 
 import type { Event, FrameRegions, Region } from "../src/types.ts";
-import { execFileSync } from "node:child_process";
-import { writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { execFileSync, spawnSync, type SpawnSyncReturns } from "node:child_process";
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { delimiter, join, resolve } from "node:path";
 
 let ffmpegCache: boolean | undefined;
 /** True when system ffmpeg+ffprobe are on PATH; video tests skip explicitly otherwise. */
@@ -118,4 +119,41 @@ export function chunkAnswers(body: string, perBeat: (names: string[], k: number)
   if (beats === undefined) return filmAnswers();
   return Object.fromEntries(Object.entries(beats ?? {}).flatMap(([id, beat], k) =>
     Object.entries(perBeat(Object.keys(beat.zones), k)).map(([q, a]) => [`${id}_${q}`, a])));
+}
+
+/** The environment of a provider-free, isolated takeone: HOME, the config folder and the
+ * keyring are fresh and empty, and the only AI engine on PATH is the recorded one
+ * (scripts/verification/recorded-engine.mjs), which answers from a fixed reply. The take
+ * folder and its state are `dir`'s. No test using it can reach a live provider. */
+export function recordedEngineEnv(dir: string): NodeJS.ProcessEnv {
+  const known = engines.get(dir);
+  if (known) return known;
+  const root = mkdtempSync(join(tmpdir(), "takeone-engine-"));
+  process.once("exit", () => rmSync(root, { recursive: true, force: true }));
+  mkdirSync(join(root, "engine"));
+  const claude = join(root, "engine", "claude");
+  writeFileSync(claude, `#!/bin/sh\nexec "${process.execPath}" "${resolve("scripts/verification/recorded-engine.mjs")}" "$@"\n`);
+  chmodSync(claude, 0o755);
+  const env = {
+    ...process.env, PATH: `${join(root, "engine")}${delimiter}${process.env["PATH"] ?? ""}`,
+    HOME: join(root, "home"), XDG_CONFIG_HOME: join(root, "config"), TAKEONE_NO_KEYRING: "1",
+    TAKEONE_DIR: dir, TAKEONE_STATE_DIR: join(dir, "state"),
+  };
+  engines.set(dir, env);
+  return env;
+}
+const engines = new Map<string, NodeJS.ProcessEnv>();
+
+/** The shipped CLI (bin/takeone.mjs) in `env`; the default is the recorded engine's state. */
+export function shippedCli(args: string[], dir: string, env: NodeJS.ProcessEnv = recordedEngineEnv(dir)): SpawnSyncReturns<string> {
+  return spawnSync(process.execPath, ["bin/takeone.mjs", ...args], { encoding: "utf8", env });
+}
+
+/** Everything `run` writes to console.error, for a test driving the CLI's `main` in this process. */
+export async function captureStderr(run: () => Promise<void>): Promise<string> {
+  const lines: string[] = [];
+  const real = console.error;
+  console.error = (...args: unknown[]) => { lines.push(args.join(" ")); };
+  try { await run(); } finally { console.error = real; }
+  return lines.join("\n");
 }

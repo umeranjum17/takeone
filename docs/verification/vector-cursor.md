@@ -49,7 +49,7 @@ The offline proof uses the deterministic board fixture with its painted cursor o
 ```sh
 export TAKEONE_DIR="$PWD/tmp/verify-takes"
 node scripts/headless-scene.mjs "$TAKEONE_DIR/cursor-free" --cursor=hidden   # writes cursor_free: true, no painted cursor
-node bin/takeone.mjs make "$TAKEONE_DIR/cursor-free" --no-ai --set fps=60
+scripts/verification/recorded-engine.sh "${TAKEONE_DIR:-tmp}/engine" node bin/takeone.mjs make "$TAKEONE_DIR/cursor-free" --set fps=60
 node bin/takeone.mjs render "$TAKEONE_DIR/cursor-free" --set motion_blur=0
 ```
 
@@ -70,7 +70,7 @@ Xvfb :220 -screen 0 2560x1440x24 -nolisten tcp &            # pick a free high d
 node bin/takeone.mjs capture record --source x11::220 \
   --root "$TAKEONE_DIR" --state-dir "$TAKEONE_STATE" --events own --max-seconds 18 &
 # drive real page changes (CDP) and sweep the X pointer while it records, then stop
-node bin/takeone.mjs make   "$TAKEONE_DIR/<id>" --no-ai --set fps=60 --set max_upscale=1.5
+scripts/verification/recorded-engine.sh "${TAKEONE_DIR:-tmp}/engine" node bin/takeone.mjs make   "$TAKEONE_DIR/<id>" --set fps=60 --set max_upscale=1.5
 node bin/takeone.mjs render "$TAKEONE_DIR/<id>" --set motion_blur=0
 ```
 
@@ -122,7 +122,7 @@ lists the expected values.
 - At rest (wide shot) the arrow is ~26 px tall at 1080p; the raw art's ink box is
   24.5 px (the 24×32 viewBox includes padding), so measure the rendered pixels, not
   the viewBox.
-- The camera can stay wide on `--no-ai` heuristics; exercise the zoom extreme by
+- The camera can stay wide on the recorded engine's fixed choices; exercise the zoom extreme by
   raising `max_upscale` and forcing a tight decision on a small zone.
 - The pointer track is on the event clock; the render maps it through `offset_ms`
   and the trim/squeeze timeline, so a wrong `offset_ms` offsets the cursor.

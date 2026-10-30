@@ -19,7 +19,7 @@ kept, so no model call). Runs take about 10 minutes each at the shipped 1920x108
 1. `node scripts/install-headless-shell.mjs` once (writes the pinned shell into the gitignored
    `.cache/headless-shell/`), then `node scripts/headless-scene.mjs <new-take-dir>` for a real take.
 2. `TAKEONE_DIR="$PWD/tmp/verify-takes" TAKEONE_STATE_DIR="$PWD/tmp/verify-state" node bin/takeone.mjs make
-   <take-copy> --no-ai`. Note each beat's `id` and `key` from `analysis/plan.json`. Run a second take copy the
+   <take-copy>` (recorded engine). Note each beat's `id` and `key` from `analysis/plan.json`. Run a second take copy the
    same way and check the two plans are byte-identical: keys come from content, not from the run.
 3. Edit two beats by hand in one copy: `shot: {"value":false,"by":"user"}` on a click beat, and
    `follow: {"value":false,"by":"user"}` on a drag beat. Record both keys.

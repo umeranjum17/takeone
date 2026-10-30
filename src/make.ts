@@ -480,7 +480,7 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
     if (reservedTokens > maxTokens) {
       throw new PreflightRefusal(
         `planned ${reservedTokens} tokens exceeds the cap of ${maxTokens} (--max-tokens); ` +
-          `use --no-ai or raise the cap`,
+          `raise the cap with --max-tokens`,
         { plannedTokens: reservedTokens, cap: maxTokens },
       );
     }

@@ -26,6 +26,8 @@ const sha = (file: string) => createHash("sha256").update(readFileSync(file)).di
 const run = (cmd: string, args: string[]) => { execFileSync(cmd, args, { cwd: root, stdio: ["ignore", "inherit", "inherit"], maxBuffer: 64e6 }); };
 const out = (cmd: string, args: string[]) => execFileSync(cmd, args, { cwd: root, encoding: "utf8", maxBuffer: 64e6 });
 const takeone = (...args: string[]) => run("node", ["bin/takeone.mjs", ...args]);
+/** make plans with an AI engine; assets are planned by the recorded one, so they rebuild the same without an account. */
+const makeRecorded = (dir: string, ...args: string[]) => run("scripts/verification/recorded-engine.sh", [join(work, "engine"), "node", "bin/takeone.mjs", "make", dir, ...args]);
 const ff = (...args: string[]) => run("ffmpeg", ["-nostdin", "-hide_banner", "-v", "error", "-y", "-filter_threads", "2", "-filter_complex_threads", "2", "-threads", "4", ...args]);
 const fresh = (dir: string) => { rmSync(dir, { recursive: true, force: true }); return dir; };
 const film = (take: string) => { const dir = join(take, "out"); const f = readdirSync(dir).find(n => n.endsWith(".mp4") && !n.includes("-preview")); if (!f) throw new Error(`no render in ${dir}`); return join(dir, f); };
@@ -35,11 +37,11 @@ const seconds = (file: string) => Number(out("ffprobe", ["-v", "error", "-show_e
 const SRGB = ["-color_primaries", "bt709", "-color_trc", "bt709", "-colorspace", "bt709", "-color_range", "tv"];
 const deliver = (input: string, output: string, extra: string[] = []) => ff("-i", input, ...extra, "-an", "-c:v", "libx264", "-crf", "24", "-preset", "slow", "-tune", "animation", "-pix_fmt", "yuv420p", ...SRGB, "-movflags", "+faststart", output);
 
-/** A headless board take in one aspect, planned locally at 60 fps. */
+/** A headless board take in one aspect, planned by the recorded engine at 60 fps. */
 function board(name: string, aspect: "landscape" | "portrait" | "square", theme?: string) {
   const dir = fresh(join(work, name));
   run("node", ["scripts/headless-scene.mjs", dir, `--aspect=${aspect}`, `--scale=${aspect === "landscape" ? 2 : 1}`]);
-  takeone("make", dir, "--no-ai", "--set", "fps=60", ...theme ? ["--theme", theme] : []);
+  makeRecorded(dir, "--set", "fps=60", ...theme ? ["--theme", theme] : []);
   if (aspect !== "landscape") takeone("render", dir, "--set", "fps=60", ...theme ? ["--theme", theme] : [], "--aspect", aspect);
   return dir;
 }
@@ -70,7 +72,7 @@ function measure(a: Asset, file: string): Pick<Entry, "probe" | "gates"> {
 const still = (video: string, t: number, output: string, size?: string) => ff("-ss", String(t), "-i", video, "-frames:v", "1", ...size ? ["-vf", `scale=${size}:flags=lanczos`] : [], "-update", "1", output);
 const motion = (name: string, args: string[]) => { const dir = fresh(join(work, name)); takeone("motion", join(root, "resources/demo/tidewater-board.png"), "--out", dir, "--no-ai", "--title", "Tidewater", "--subtitle", "Plan the launch in one board", "--cta", "Try it today", ...args); return film(dir); };
 
-const A1 = { id: "A1", file: "hero.mp4", kind: "video", width: 1920, height: 1080, fps: 60, seconds: [20, 45], recipe: "scripts/headless-scene.mjs (3840x2160) -> takeone make --no-ai --set fps=60 -> delivery crf 24", note: "Spec section 4 asked for 20-30 s; the staged choreography plays about 39.5 s at idle_speed 4, so the range is 20-45 s." } satisfies Asset;
+const A1 = { id: "A1", file: "hero.mp4", kind: "video", width: 1920, height: 1080, fps: 60, seconds: [20, 45], recipe: "scripts/headless-scene.mjs (3840x2160) -> takeone make (recorded engine) --set fps=60 -> delivery crf 24", note: "Spec section 4 asked for 20-30 s; the staged choreography plays about 39.5 s at idle_speed 4, so the range is 20-45 s." } satisfies Asset;
 const BUILDS: { id: string; assets: Asset[]; build: (put: (a: Asset, file: string, motionGate?: Entry["motion_gate"]) => void) => void }[] = [];
 // Takes shared between steps live here for one run, never across runs.
 const shared: Record<string, string> = {};
@@ -82,11 +84,11 @@ BUILDS.push({ id: "A1", assets: [A1, { id: "A1", file: "hero-poster.jpg", kind: 
   const poster = join(work, "hero-poster.jpg"); still(hero, 6, poster); put(BUILDS[0]!.assets[1]!, poster);
 } });
 
-const A2: Asset = { id: "A2", file: "synth-demo.mp4", kind: "video", width: 1920, height: 1080, fps: 60, recipe: "scripts/synth-take.ts -> takeone make --no-ai --set fps=60 -> delivery crf 24" };
+const A2: Asset = { id: "A2", file: "synth-demo.mp4", kind: "video", width: 1920, height: 1080, fps: 60, recipe: "scripts/synth-take.ts -> takeone make (recorded engine) --set fps=60 -> delivery crf 24" };
 BUILDS.push({ id: "A2", assets: [A2], build(put) {
   shared.a2 = fresh(join(work, "a2"));
   run("node", ["scripts/synth-take.ts", shared.a2]);
-  takeone("make", shared.a2, "--no-ai", "--set", "fps=60");
+  makeRecorded(shared.a2, "--set", "fps=60");
   const f = join(work, "synth-demo.mp4"); deliver(film(shared.a2), f); put(A2, f);
 } });
 

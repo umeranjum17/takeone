@@ -8,7 +8,7 @@ A render is silent by default. `--set click_sound=0..1` adds a short tick under 
 
 ## Driving it
 
-Harness: Shell (bash), ffmpeg/ffprobe, `fm-mem-gate.sh` and `render-slot.sh` for every render. Use the synthetic take from [Render a synthetic take](render-a-synthetic-take-to-a-framed-demo.md) after `make --no-ai`.
+Harness: Shell (bash), ffmpeg/ffprobe, `fm-mem-gate.sh` and `render-slot.sh` for every render. Use the synthetic take from [Render a synthetic take](render-a-synthetic-take-to-a-framed-demo.md) after `make` against the recorded engine.
 
 1. Make a narration with silent gaps (ffmpeg `sine` gated with `volume='if(lt(mod(t,8),4),0.5,0)':eval=frame`) and a steady music file.
 2. `node bin/takeone.mjs render <take> --set click_sound=1 --set narration=<n.wav> --set music=<m.wav> --set music_volume=0.5`.
