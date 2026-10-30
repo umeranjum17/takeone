@@ -42,7 +42,8 @@ const needsFfmpeg = hasFfmpeg() ? undefined : "requires system ffmpeg and ffprob
 const FAST = { ...DEFAULTS, preset: "veryfast", out_w: 320, out_h: 180, ripple_ms: 0, fade_s: 0 };
 function fastTake(dir: string, opts: MakeOptions = {}): Promise<MakeResult> {
   // No test may discover credentials from the real home; Jev tests pass fake keys explicitly.
-  return makeTake(dir, { apiKey: null, camera: FAST, configDir: join(dir, "test-config"), log: () => {}, warn: () => {}, ...opts });
+  // Every beat is asked, so a 10 s take plans above the default cap (40k tokens a minute); tests that check the cap pass their own.
+  return makeTake(dir, { apiKey: null, camera: FAST, configDir: join(dir, "test-config"), maxTokens: 100000, log: () => {}, warn: () => {}, ...opts });
 }
 
 /** The run a planner failure stopped: the error carries what the run had spent and decided by then. */
@@ -578,7 +579,7 @@ test("a planner request that fails says why: the reply shape, not just a failed 
     }), { status: 200, headers: { "content-type": "application/json" } })) as typeof fetch;
     const warns: string[] = [];
     // The run stops on the reply; what it spent and could not decide is on the error, and the reason is its message.
-    const stopped = await stoppedBy(fastTake(dir, { apiKey: KEY, fetchImpl, log: () => {}, warn: (s) => warns.push(s) }));
+    const stopped = await stoppedBy(fastTake(dir, { apiKey: KEY, maxTokens: 100000, fetchImpl, log: () => {}, warn: (s) => warns.push(s) }));
     const r = stopped.partial;
     assert.ok(r.planner.failed > 0);
     const why = stopped.message;
@@ -638,7 +639,7 @@ function minimaxReply(body: string, broken: boolean): Response {
   const input = Object.fromEntries(Object.entries(questions).flatMap(([name, q]) => {
     if (q.kind === "choice") {
       const options = Object.keys(q.options ?? {});
-      return [[name, { pick: options[0], probabilities: Object.fromEntries(options.map((o, i) => [o, i === 0 ? 0.9 : 0.1 / Math.max(1, options.length - 1)])), rationale: "first zone" }]];
+      return [[name, { pick: options[0], probabilities: Object.fromEntries(options.map((o, i) => [o, options.length === 1 ? 1 : i === 0 ? 0.9 : 0.1 / (options.length - 1)])), rationale: "first zone" }]];
     }
     if (q.kind === "score") {
       const levels = (q.levels ?? []).map((_, i) => String(i));
@@ -1623,7 +1624,7 @@ test("a long take's film is planned in chunks under the cap and joined into one 
       }
       return new Response(JSON.stringify({ answers, usage: { input_tokens: 800 } }), { status: 200 });
     }) as typeof fetch;
-    const quiet = await fastTake(dir, { apiKey: KEY, fetchImpl: quietFetch, camera: { ...FAST, fps: 6 }, log: () => {}, warn: () => {} });
+    const quiet = await fastTake(dir, { apiKey: KEY, maxTokens: 400000, fetchImpl: quietFetch, camera: { ...FAST, fps: 6 }, log: () => {}, warn: () => {} });
     const beats = JSON.parse(readFileSync(join(dir, "analysis", "beats.json"), "utf8")) as { id: string }[];
     assert.ok(quietParts.length >= 3, `the text-less take was planned in ${quietParts.length} film call(s), so no middle chunk was exercised`);
     const quietPlanned = quietParts.flatMap((part) => part.state.timeline.map((line) => line.split(",")[0]!));
@@ -1669,7 +1670,7 @@ test("a long take's film is planned in chunks under the cap and joined into one 
       }
       return new Response(JSON.stringify({ content: [{ type: "tool_use", name: "decisions", input }], usage: { input_tokens: 500, output_tokens: 80 } }), { status: 200 });
     }) as typeof fetch;
-    const r = await fastTake(dir, { apiKey: KEY, fetchImpl, camera: { ...FAST, fps: 6 }, log: () => {}, warn: () => {} });
+    const r = await fastTake(dir, { apiKey: KEY, maxTokens: 400000, fetchImpl, camera: { ...FAST, fps: 6 }, log: () => {}, warn: () => {} });
     assert.ok(parts.length >= 3, `the take was planned in ${parts.length} film call(s)`);
     for (const part of parts) {
       // The planner's own estimate: the body it builds is this state and these questions.
@@ -1768,7 +1769,7 @@ test("live API shape: Android tap hints stay planner decisions", async () => {
       const answer = {
         model: "jev-1.13.0",
         answers: chunkAnswers(String(init?.body), (names) => {
-          const choiceProbs = Object.fromEntries(names.map((name, i) => [name, i === 0 ? 0.95 : 0.05 / (names.length - 1 || 1)]));
+          const choiceProbs = Object.fromEntries(names.map((name, i) => [name, names.length === 1 ? 1 : i === 0 ? 0.95 : 0.05 / (names.length - 1)]));
           return {
           focus_start: { type: "choice", choice: names[0], confidence: 0.93, probabilities: choiceProbs },
           focus_end: { type: "choice", choice: names[0], confidence: 0.65, probabilities: choiceProbs },
@@ -1806,7 +1807,7 @@ test("sparse object-keyed score probabilities stop the run instead of falling ba
     const fake = (async (_url: string | URL | Request, init?: RequestInit) => {
       const answer = {
         answers: chunkAnswers(String(init?.body), (names) => {
-          const choiceProbs = Object.fromEntries(names.map((name, i) => [name, i === 0 ? 0.95 : 0.05 / (names.length - 1 || 1)]));
+          const choiceProbs = Object.fromEntries(names.map((name, i) => [name, names.length === 1 ? 1 : i === 0 ? 0.95 : 0.05 / (names.length - 1)]));
           return {
           focus_start: { choice: names[0], confidence: 0.93, probabilities: choiceProbs },
           focus_end: { choice: names[0], confidence: 0.93, probabilities: choiceProbs },
@@ -1834,9 +1835,10 @@ test("sparse object-keyed score probabilities stop the run instead of falling ba
 test("single-zone beats use the heuristic without planner tokens", async () => {
   const dir = newTake();
   try {
+    // The local-rules run (the noAi option, until that option goes): no planner is asked, so no tokens.
     const bodies: string[] = [];
     let calls = 0;
-    const r = await fastTake(dir, { apiKey: KEY, log: () => {}, warn: () => {}, fetchImpl: (async (_url, init) => {
+    const r = await fastTake(dir, { noAi: true, log: () => {}, warn: () => {}, fetchImpl: (async (_url, init) => {
       const body = String(init?.body);
       calls++;
       bodies.push(...beatViews(body));
@@ -1848,6 +1850,15 @@ test("single-zone beats use the heuristic without planner tokens", async () => {
     assert.ok(bodies.every((body) => Object.keys(JSON.parse(body).state.zones).length >= 2));
     assert.equal(r.planner.input_tokens, calls * 800);
     assert.equal(r.planner.failed, 0);
+    // A planned run asks every beat, one-zone beats too, and decides every one by the model.
+    const asked: string[] = [];
+    const planned = await fastTake(dir, { apiKey: KEY, maxTokens: 100000, log: () => {}, warn: () => {}, fetchImpl: (async (_url, init) => {
+      asked.push(...beatViews(String(init?.body)));
+      return firstZoneReply(String(init?.body));
+    }) as typeof fetch });
+    assert.ok(asked.some((view) => Object.keys(JSON.parse(view).state.zones).length === 1), "a one-zone beat reached the planner");
+    assert.ok(planned.decisions.every((d) => d.decided_by === "ai" && d.input_tokens !== undefined));
+    assert.equal(planned.planner.failed, 0);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -1954,7 +1965,7 @@ test("every planner failure mode stops the run instead of falling back to the he
     try {
       const r = (await stoppedBy(fastTake(dir, { apiKey: KEY, fetchImpl: (async (_url, init) => { calls++; return m.impl(String(init?.body)); }) as typeof fetch, log: () => {}, warn: () => {} }))).partial;
       assert.equal(r.decisions.filter((d) => d.decided_by === "ai").length, 0, m.name);
-      assert.equal(r.planner.failed, r.beats.filter((b) => b.zones.length >= 2).length, m.name);
+      assert.equal(r.planner.failed, r.beats.length, m.name);
       assert.equal(r.planner.input_tokens, calls * m.tokens, m.name);
       // the stop is the whole outcome: nothing decided by rules in the planner's place, nothing rendered
       assert.ok(r.beats.length >= 2);

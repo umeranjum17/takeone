@@ -467,8 +467,8 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
       noteTrimmedContext(chunk.trimmed);
       return chunk;
     };
-    // Beats with one zone have nothing to choose; they keep the rules uncounted.
-    const asked = beats.map((_, i) => i).filter((i) => beats[i]!.zones.length >= 2);
+    // Every beat is asked, one-zone beats too: their shot, idle and follow choices are the planner's as well.
+    const asked = beats.map((_, i) => i);
     const plannerBackend = (planner.config as { backend: string }).backend;
     const chunks = planChunks(asked, build(heuristics), (i) => { throw tooLarge(beats[i]!.id); }, beatsPerCall(plannerBackend));
     // The film calls decide the whole take: one call, or a chain of chunks when
