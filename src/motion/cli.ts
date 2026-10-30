@@ -10,6 +10,7 @@ import { validateStateNames } from "./ingest.ts";
 import { motionTokens } from "./theme.ts";
 import { installHyperframes } from "./hyperframes.ts";
 import { installShell } from "./shell.ts";
+import { measureReference, referenceCuts } from "./reference.ts";
 import { MAX_DURATION_S, minSceneDuration, readingFloor, validateStoryboard } from "./storyboard.ts";
 import { planBento } from "./bento.ts";
 import { planEditorial } from "./editorial.ts";
@@ -45,6 +46,8 @@ takeone motion <screenshot.png> --recipe editorial|bento --pitch TEXT [--logo WO
 takeone motion film <video.mp4> [--intro BRIEF] [--callout "BRIEF@SECONDS"]... [--outro BRIEF] [--tech html|canvas|three] [--out DIR]
 takeone motion <screen.png> [phone.png] --recipe glow --title HEADLINE --pitch TYPED_PROMPT --press "BUTTON TEXT"|x,y,w,h --logo WORD [--brand brand.json|DESIGN.md] [--frame x,y,w,h] [--subtitle KINETIC_WORDS] [--tree "Crew,>Chief,>Scout"] [--region x,y,w,h:CAPTION]... [--cta TEXT] [--url TEXT] [--audio FILE] [--out DIR]
 takeone motion <inputs...> --gauntlet [--max-rounds M]   after rendering, have a fresh critic score every scene against the reference and repair what falls short
+takeone motion --reference <video> --measure [--out DIR]   measure a reference film into facts.json, frames/, contact.jpg and the replication rules, then stop
+takeone motion ... --recipe halo --reference <video|facts.json>   cut that promo on the reference film's measured beats, keeping every reading floor
 takeone gauntlet <motion-dir> [--max-rounds M]   the same critique, repair and ledger on a motion take already rendered
 takeone motion --storyboard template.json --data rows.csv [--out DIR] [--plan-only]
 takeone motion install-shell         download the pinned chrome-headless-shell (sha256 checked)
@@ -96,6 +99,7 @@ export interface MotionArgs {
   workers?: number; blur?: number; storyboard?: string; planOnly: boolean; noAi?: boolean; engine: MotionEngine;
   recipe?: Recipe | "editorial" | "bento" | "glow" | "halo"; press?: string; frame?: string; tree?: string; pitch?: string; brand?: string; audio?: string; alpha?: boolean; gauntlet?: boolean; maxRounds?: number; aspect?: Aspect;
   data?: string;
+  reference?: string; measure?: boolean;
   redactionDryRun?: boolean; publicDomains: string[];
 }
 
@@ -114,6 +118,7 @@ export function parseMotionArgs(argv: string[]): MotionArgs {
     if (s === "--no-ai") { a.noAi = true; continue; }
     if (s === "--alpha") { a.alpha = true; continue; }
     if (s === "--gauntlet") { a.gauntlet = true; continue; }
+    if (s === "--measure") { a.measure = true; continue; }
     const v = value(++i, s);
     if (s === "--public-domain") {
       if (!/^(?:[a-z0-9-]+\.)+[a-z]{2,}$/i.test(v)) throw new Error("--public-domain expects one public domain, without scheme or path");
@@ -137,6 +142,7 @@ export function parseMotionArgs(argv: string[]): MotionArgs {
     else if (s === "--blur") a.blur = Number(v);
     else if (s === "--storyboard") a.storyboard = v;
     else if (s === "--data") a.data = v;
+    else if (s === "--reference") a.reference = v;
     else if (s === "--recipe") {
       if (v !== "editorial" && v !== "bento" && v !== "glow" && v !== "halo" && !Object.hasOwn(RECIPES, v)) throw new Error(`--recipe expects ${[...Object.keys(RECIPES), "editorial", "bento", "glow", "halo"].join(", ")}, got ${v}`);
       a.recipe = v as Recipe | "editorial" | "bento" | "glow" | "halo";
@@ -477,6 +483,18 @@ export async function runMotion(argv: string[], takesDir: string, o: PlanOptions
   if (argv[0] === "film") return await runFilm(argv.slice(1), takesDir, o.warn);
   if (!argv.length || argv.includes("--help") || argv.includes("-h")) { console.error(MOTION_USAGE); return argv.length ? 0 : 2; }
   const a = parseMotionArgs(argv);
+  const log = o.warn ?? ((line: string) => console.error(line));
+  let takeDir: string | undefined;
+  const takeDirPath = (): string => (takeDir ??= newTakeDir(a.out, takesDir));
+  if (a.measure) {
+    if (!a.reference) throw new Error("--measure needs --reference <video>");
+    if (a.inputs.length || a.storyboard) throw new Error("--measure writes the reference measurement and stops; it takes no inputs");
+    if (!existsSync(a.reference)) throw new Error(`no such reference ${a.reference}`);
+    const measured = join(takeDirPath(), "reference");
+    await measureReference(a.reference, measured, log);
+    console.log(join(measured, "facts.json"));
+    return 0;
+  }
   if (a.publicDomains.length && !a.redactionDryRun && a.data === undefined) throw new Error("--public-domain applies only to --redaction-dry-run");
   if (a.redactionDryRun && a.data === undefined) {
     if (!a.out || !a.inputs.length || a.storyboard || a.inputs.some(f => inputKind(f) !== "image"))
@@ -505,7 +523,7 @@ export async function runMotion(argv: string[], takesDir: string, o: PlanOptions
       [a.redactionDryRun === true, "--redaction-dry-run"], [a.publicDomains.length > 0, "--public-domain"],
       [a.pitch !== undefined, "--pitch"], [a.press !== undefined, "--press"], [a.frame !== undefined, "--frame"],
       [a.tree !== undefined, "--tree"], [a.audio !== undefined, "--audio"],
-      [a.brand !== undefined, "--brand"],
+      [a.brand !== undefined, "--brand"], [a.reference !== undefined, "--reference"],
     ];
     const ignored = unsupported.find(([present]) => present)?.[1];
     if (ignored) throw new Error(`--data does not support ${ignored}`);
@@ -521,6 +539,11 @@ export async function runMotion(argv: string[], takesDir: string, o: PlanOptions
     if (!judge.active) throw new JudgeUnavailable(`unavailable - ${judge.label} cannot serve: ${judge.refusal ?? "no sign-in"}. Sign in with \`claude\`, or save another route in judge.json`);
   }
   if (a.brand && (a.recipe !== "glow" || a.storyboard)) throw new Error("--brand dresses the planned glow promo: use it with --recipe glow (and without --storyboard)");
+  let beats: number[] | undefined;
+  if (a.reference) {
+    if (a.recipe !== "halo" || a.storyboard) throw new Error("--reference retimes --recipe halo and film; every other plan keeps its own tempo");
+    beats = await referenceCuts(a.reference, join(takeDirPath(), "reference"), log);
+  }
   let storyboard: unknown;
   let id: string;
   if (a.storyboard) {
@@ -535,11 +558,11 @@ export async function runMotion(argv: string[], takesDir: string, o: PlanOptions
       const plan = a.recipe === "bento" ? planBento : planEditorial;
       storyboard = await plan(a, id, o.warn ?? ((line: string) => console.error(line)));
     } else if (a.recipe === "glow") storyboard = await planGlow(a, id);
-    else if (a.recipe === "halo") storyboard = planHalo({ ...a }, id, ASPECTS[a.aspect ?? "landscape"]);
+    else if (a.recipe === "halo") storyboard = planHalo({ ...a, beats }, id, ASPECTS[a.aspect ?? "landscape"]);
     else storyboard = await planMotion(a, id, o);
   }
   const sb = validateStoryboard(storyboard); // refuse bad plans before touching the disk
-  const dir = newTakeDir(a.out, takesDir);
+  const dir = takeDirPath();
   writeFileSync(join(dir, "storyboard.json"), JSON.stringify(sb, null, 2) + "\n");
   writeFileSync(join(dir, "take.json"), JSON.stringify({ id: basename(dir), theme: sb.theme.name,
     motion: { pattern: sb.scenes.map((s) => s.pattern).join("+"), storyboard: "storyboard.json" } }, null, 2) + "\n");
