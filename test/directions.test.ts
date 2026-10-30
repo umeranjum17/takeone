@@ -252,7 +252,12 @@ function recorded(table: { score?: number; yes?: number; choices?: Record<string
       return new Response(JSON.stringify({ content: [{ type: "tool_use", name: "decisions", input }], stop_reason: "tool_use", usage: { input_tokens: 900, output_tokens: 120 } }), { status: 200 });
     }
     const answers = Object.fromEntries(Object.entries(body.questions!).map(([k, q]) => {
-      if (q.type === "score") return [k, { probabilities: Array.from({ length: 11 }, (_, i) => i === (table.score ?? 9) ? 1 : 0), confidence: 1 }];
+      // The judge's scores run 0 to 10; the planner's own score questions (tightness, key moment) carry their levels.
+      if (q.type === "score") {
+        const levels = Array.isArray(q.criteria) ? q.criteria : undefined;
+        const at = levels ? Math.min(1, levels.length - 1) : table.score ?? 9;
+        return [k, { probabilities: Array.from({ length: levels?.length ?? 11 }, (_, i) => i === at ? 1 : 0), confidence: 1 }];
+      }
       if (q.type === "noul") return [k, { noul: table.yes ?? 1 }];
       const options = Object.keys(q.criteria as object);
       const pick = pickFor(k, options);

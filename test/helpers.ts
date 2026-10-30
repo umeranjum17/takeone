@@ -157,3 +157,13 @@ export async function captureStderr(run: () => Promise<void>): Promise<string> {
   try { await run(); } finally { console.error = real; }
   return lines.join("\n");
 }
+
+/** The Anthropic wire's answer to a beat call: the first option of every question (the first zone, level 1, yes). */
+export function firstOptionAnswers(questions: Record<string, { kind: string; options?: object; levels?: string[] }>): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(questions).map(([name, q]) => {
+    const keys = q.kind === "choice" ? Object.keys(q.options ?? {}) : q.kind === "score" ? (q.levels ?? []).map((_, i) => String(i)) : ["true", "false"];
+    const pick = q.kind === "score" ? "1" : keys[0]!;
+    return [name, { pick, probabilities: Object.fromEntries(keys.map((k) => [k, k === pick ? 1 : 0])), rationale: "recorded" }];
+  }));
+}
+

@@ -9,7 +9,7 @@ import { makeTake, type MakeResult } from "../src/make.ts";
 import { DEFAULTS } from "../src/camera/defaults.ts";
 import { blurredStill } from "../src/decide/ocr.ts";
 import type { TakeMeta } from "../src/types.ts";
-import { hasFfmpeg } from "./helpers.ts";
+import { hasFfmpeg, firstOptionAnswers } from "./helpers.ts";
 
 const needsFfmpeg = hasFfmpeg() ? undefined : "requires system ffmpeg and ffprobe on PATH";
 const W = 320, H = 180;
@@ -56,7 +56,13 @@ test("a text zone OCR read nothing in reaches the planner blurred, never sharp",
     const bodies: string[] = [];
     const r: MakeResult = await makeTake(dir, {
       apiKey: "test-key-000", camera: FAST, configDir: join(dir, "cfg"), log: () => {}, warn: () => {},
-      fetchImpl: (async (_url, init) => { bodies.push(String(init?.body)); return new Response("no", { status: 500 }); }) as typeof fetch,
+      // The planner answers every beat question with its first option; the film's look is not what this checks.
+      film: false,
+      fetchImpl: (async (_url, init) => {
+        bodies.push(String(init?.body));
+        const asked = (JSON.parse(String(init?.body)).messages[0].content as { type: string; text?: string }[]).flatMap((c) => c.type === "text" && c.text?.startsWith("{") ? [JSON.parse(c.text)] : [])[0] as { questions: Parameters<typeof firstOptionAnswers>[0] };
+        return new Response(JSON.stringify({ content: [{ type: "tool_use", name: "decisions", input: firstOptionAnswers(asked.questions) }], usage: { input_tokens: 500, output_tokens: 80 } }), { status: 200 });
+      }) as typeof fetch,
     });
     // Every JPEG the planner was sent, wherever the provider put it in the request.
     const thumbs = bodies.flatMap((b) => b.match(/\/9j\/[A-Za-z0-9+/=]+/g) ?? []).map((b64) => Buffer.from(b64, "base64"));

@@ -126,6 +126,16 @@ function accountMissing(reason: string): PlannerUnavailable {
   return new PlannerUnavailable("signed-in account or stored key", reason, { credentialMissing: true });
 }
 
+/** A planner failure that stopped the run, with what the run had spent and decided by then: the
+ * tokens already billed, and how many asked beats were left without a planner decision (`failed`). */
+export class PlannerStopped extends PlannerUnavailable {
+  readonly partial: { beats: Beat[]; decisions: Decision[]; planner: PlannerStats };
+  constructor(provider: string, reason: string, partial: PlannerStopped["partial"]) {
+    super(provider, reason);
+    this.partial = partial;
+  }
+}
+
 /** Planner accounting for one make. `requests` counts planner asks, cache hits
  * included (`cached`); `request_tokens` is their estimated size. */
 export interface PlannerStats {
@@ -460,7 +470,7 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
     // Beats with one zone have nothing to choose; they keep the rules uncounted.
     const asked = beats.map((_, i) => i).filter((i) => beats[i]!.zones.length >= 2);
     const plannerBackend = (planner.config as { backend: string }).backend;
-    const chunks = planChunks(asked, build(heuristics), () => failed++, beatsPerCall(plannerBackend));
+    const chunks = planChunks(asked, build(heuristics), (i) => { throw tooLarge(beats[i]!.id); }, beatsPerCall(plannerBackend));
     // The film calls decide the whole take: one call, or a chain of chunks when
     // the take is over one request's cap. The film runs before the beat chunks.
     const filmPlan = beats.length === 0 || opts.film === false ? null : planFilm({
@@ -468,8 +478,15 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
       source: `${take.stream.w}x${take.stream.h}`, device: take.device ?? "desktop",
       brightness: appBrightness(dec.frames), beats, text: plannerAnswersText(planner.config),
     });
+    const tooLarge = (id: string) => new PreflightRefusal(`beat ${id}'s planner request is over the ${CHUNK_TOKEN_CAP}-token request cap on its own, so the planner cannot be asked about it`);
+    // The beats the planner has decided so far; a stop reports the rest as failed.
+    const decidedAsked = new Set<number>();
+    const stop = (reason: string): PlannerStopped => new PlannerStopped(planner.label, reason, {
+      beats, decisions,
+      planner: { input_tokens: inputTokens, output_tokens: outputTokens, usd, failed: asked.length - decidedAsked.size, requests, cached: cachedRequests, request_tokens: requestTokens },
+    });
     const filmCalls = filmPlan?.calls.length ?? 0;
-    if (!filmPlan && beats.length > 0 && opts.film !== false) warn(`film call: one beat is over the ${CHUNK_TOKEN_CAP}-token request cap on its own; the film keeps the base look`);
+    if (!filmPlan && beats.length > 0 && opts.film !== false) throw new PreflightRefusal(`the film call is over the ${CHUNK_TOKEN_CAP}-token request cap because of one beat, so the planner cannot choose the film's look`);
     const plannedTokens = chunks.reduce((n, c) => n + c.chunk.tokens, 0) + (filmPlan?.tokens ?? 0);
     // A malformed answer is asked once more: one re-ask of the largest chunk is
     // reserved, or of every chunk where calls are small and the model often
@@ -544,8 +561,9 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
         requests++;
         requestTokens += part.tokens;
         if (r.decisionSource === "cache") cachedRequests++;
-        if (r.failure) warn(`planner: a film request failed: ${r.failure}`);
+        // A film request that gets no usable answer stops the run: the look is the planner's to choose, never a default in its place.
         takeOutcome(r);
+        if (r.failure) throw stop(`could not plan the film: ${r.failure}`);
         replies.push(r.answers);
       }
       const spans = beatSpans(beats, seconds);
@@ -561,20 +579,19 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
       if (planned.length > 0) filmDecision = { ...filmDecision, ...(lit.length > 0 ? { spotlight: lit } : { spotlight: undefined }) };
     }
     let reasks = reaskChunks === chunks ? chunks.length : 1;
-    let overReserve = 0;
     // Chunks run in order: each one starts from the shot the previous chunk decided.
     for (const [c, plannedChunk] of chunks.entries()) {
       const later = chunks.slice(c + 1).reduce((n, next) => n + next.chunk.tokens, 0);
-      const rebuilt = planChunks(plannedChunk.items, build(decisions), () => failed++);
+      const rebuilt = planChunks(plannedChunk.items, build(decisions), (i) => { throw tooLarge(beats[i]!.id); });
       let remaining = rebuilt.reduce((n, part) => n + part.chunk.tokens, 0);
       // Reserve every rebuilt sibling, later planned chunk, and the possible re-ask.
       const covered = (tokens: number) => requestTokens + tokens + (remaining - tokens) + later <= reservedTokens;
       for (const { items, chunk } of rebuilt) {
         if (!covered(chunk.tokens)) {
-          remaining -= chunk.tokens;
-          failed += items.length;
-          overReserve += items.length;
-          continue;
+          throw new PreflightRefusal(
+            `the rebuilt request for ${items.map((i) => beats[i]!.id).join(", ")} no longer fits the ${reservedTokens} tokens the preflight reserved; raise --max-tokens`,
+            { plannedTokens: requestTokens + chunk.tokens, cap: reservedTokens },
+          );
         }
         const ask = async (from: DecideCache) => {
           const r = await askChunk(chunk.state, chunk.questions, planner, from, { fetchImpl: opts.fetchImpl,
@@ -596,8 +613,8 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
         const outcomes = [await ask(cache)];
         remaining -= chunk.tokens;
         if (outcomes[0]!.decisionSource === "failed" && reasks > 0 && requestTokens + chunk.tokens + remaining + later <= reservedTokens) {
-          // A malformed chunk is asked once more without the cache; beats the
-          // re-ask still cannot map keep the first answer, then the rules.
+          // A malformed chunk is asked once more without the cache; a beat neither
+          // answer maps stops the run below.
           reasks--;
           outcomes.unshift(await ask({ get: async () => undefined, set: (k, v) => cacheFile.set(k, v) }));
         }
@@ -611,12 +628,13 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
               break;
             }
           }
-          if (d) decisions[i] = d;
-          else failed++;
+          // A beat the model's answers cannot be mapped to stops the run: its shot is the planner's to choose.
+          if (!d) throw stop(`could not use the planner's answer for beat ${beats[i]!.id}: ${outcomes[0]!.failure ?? "the answer did not map to this beat's zones"}`);
+          decisions[i] = d;
+          decidedAsked.add(i);
         }
       }
     }
-    if (overReserve) warn(`planner: ${overReserve} beats keep the rules; their rebuilt chunk no longer fit the preflight reserve`);
   }
   // The film: the planner's choices, then the user's plan.json edits over them.
   // A picked direction's pairs are pinned like the user's own: the film call never replaces the look the person picked.
