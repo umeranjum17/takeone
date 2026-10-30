@@ -24,7 +24,7 @@ journeys:
   brand-take:
     command: >-
       npm run build && export TAKEONE_RENDER_WRAP="$HOME/firstmate/config/fm-mem-gate.sh $HOME/.treehouse/firstmate-8bf1b0/1/firstmate/config/render-slot.sh"
-      && bash scripts/verification/brand-take.sh "$DONE_DONE_EVIDENCE_ROOT/${RUN_ID}"
+      && bash scripts/verification/brand-take.sh "$DONE_DONE_EVIDENCE_ROOT"
   fast-preview:
     command: npm run build && export TAKEONE_PREVIEW_TAKE=$HOME/.treehouse/firstmate-8bf1b0/1/firstmate/data/t1-camera-polish2/takes/take-a TAKEONE_RENDER_WRAP="$HOME/firstmate/config/fm-mem-gate.sh $HOME/.treehouse/firstmate-8bf1b0/1/firstmate/config/render-slot.sh" && bash scripts/verification/preview-timing.sh "$DONE_DONE_EVIDENCE_ROOT"
   visual-reference:
