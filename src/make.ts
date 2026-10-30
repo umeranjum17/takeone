@@ -15,6 +15,7 @@ import { segmentBeats, actStart, resultTime, RESULT_MIN_AREA } from "./beats/seg
 import { actionVideoSeconds } from "./beats/clock.ts";
 import { zonesForBeat, OCR_MAX_AREA } from "./beats/zones.ts";
 import { beatAnswers, beatsPerCall, buildChunk, planChunks, TIGHTNESS_LEVELS, CHUNK_BEATS, CHUNK_TOKEN_CAP, type BeatHint, type ChunkCtx } from "./decide/request.ts";
+import { litWindow } from "./perceive/lit.ts";
 import { appBrightness, appliedFilm, beatSpans, filmOverrides, joinFilm, mapFilm, planFilm, type FilmDecision } from "./decide/film.ts";
 import type { Answer, DecideCache, ImageInput } from "@byokit/decide";
 import { ConfigError } from "@byokit/decide";
@@ -75,6 +76,9 @@ export interface MakeOptions {
   /** Config dir holding planner.json and the sealed store; defaults to the
    * platform config dir. Tests point it at a throwaway dir. */
   configDir?: string;
+  /** A planner the caller already resolved and checked (`directions` does, before it plans the take); make uses it
+   * instead of resolving its own, so one run never plans with an engine nobody checked. */
+  resolvedPlanner?: ResolvedPlanner;
   /** injectable for tests */
   fetchImpl?: typeof fetch;
   /** camera defaults override for the render; tests pass a fast preset */
@@ -87,7 +91,7 @@ export interface MakeOptions {
   film?: boolean;
   /** stop after the preflight: no planner calls, no render; returns planned tokens */
   planOnly?: boolean;
-  /** false plans the take and writes take.json without rendering a film (the caller renders its own cuts). */
+  /** false plans the take and writes take.json without rendering a film (`takeone directions` renders its own cuts). */
   render?: boolean;
   log?: (line: string) => void;
   warn?: (line: string) => void;
@@ -227,7 +231,8 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
   let planner: ResolvedPlanner | null = null;
   let plannerOff = "no signed-in account or stored key was found";
   if (!opts.noAi) {
-    try {
+    if (opts.resolvedPlanner) planner = opts.resolvedPlanner;
+    else try {
       planner = await resolvePlanner({
         apiKeyOverride: opts.apiKey,
         ...(opts.configDir === undefined ? {} : { configDir: opts.configDir }),
@@ -541,7 +546,17 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
         takeOutcome(r);
         replies.push(r.answers);
       }
-      filmDecision = mapFilm(joinFilm(replies), filmPlan.calls.at(-1)!.endings, beatSpans(beats, seconds));
+      const spans = beatSpans(beats, seconds);
+      filmDecision = mapFilm(joinFilm(replies), filmPlan.calls.at(-1)!.endings, spans);
+      // A spotlight only lights a region while the footage there has content: never the empty patch of a menu not yet open.
+      const planned = filmDecision.spotlight ?? [];
+      const lit = (await Promise.all(planned.map(async (s) => {
+        const span = Object.values(spans).find((b) => b.t === s.t);
+        const w = await litWindow(webm, s.rect, s.t, s.t + (span?.len ?? s.d) + 1);
+        return w ? { ...s, ...w } : null;
+      }))).filter((s): s is NonNullable<typeof s> => s !== null);
+      if (lit.length < planned.length) warn(`film: ${planned.length - lit.length} spotlight(s) dropped, the region is blank while its beat runs`);
+      if (planned.length > 0) filmDecision = { ...filmDecision, ...(lit.length > 0 ? { spotlight: lit } : { spotlight: undefined }) };
     }
     let reasks = reaskChunks === chunks ? chunks.length : 1;
     let overReserve = 0;
