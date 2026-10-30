@@ -46,7 +46,7 @@ test("story recipe names what a bad brief is missing", () => {
 
 test("story stacks the headline above the product on a portrait or square frame, with no two boxes meeting", { timeout: 120_000 }, async () => {
   for (const [w, h] of [[1080, 1920], [1080, 1080]] as const) {
-    const sb = validateStoryboard(planStory({ pitch: BRIEF, logo: "Tidewater", brand: BRAND }, `story-stack-${w}x${h}`, [w, h]));
+    const sb = validateStoryboard(planStory({ pitch: BRIEF.replace(/^chips:.*$/m, "chips: Plan the watch / the way you'd say it. | Who has the 0400?; Swap Ines and Kofi; Galley duty, Tuesday; Ines is rested; Kofi is on call; Standby crew"), logo: "Tidewater", brand: BRAND }, `story-stack-${w}x${h}`, [w, h]));
     const dir = mkdtempSync(join(tmpdir(), "takeone-story-stack-"));
     try {
       await withPage(writePage(dir, sb).html, w, h, async (b) => {
