@@ -16,7 +16,7 @@ import { builderRequest, KNOBS, mapBuilder } from "../src/polish/builder.ts";
 import { judgeRound, JudgeUnavailable } from "../src/score/judge.ts";
 import { resolvePlanner, type ResolvedPlanner } from "../src/decide/planner.ts";
 import { cutPage } from "../src/board/page.ts";
-import { litWindow } from "../src/perceive/lit.ts";
+import { litSpotlights, litWindow } from "../src/perceive/lit.ts";
 import { cardNotes, freeKey } from "../src/board/board.ts";
 import { resolveCamera } from "../src/cli.ts";
 import { DEFAULTS } from "../src/camera/defaults.ts";
@@ -454,6 +454,12 @@ test("a spotlight window starts when its region has content and is dropped when 
     const lit = await litWindow(webm, [0, 0, 320, 180], 0, 4);
     assert.ok(lit && Math.abs(lit.t - 2) <= 0.25 && lit.d >= 1.5, JSON.stringify(lit));
     assert.equal(await litWindow(webm, [0, 0, 320, 180], 0, 1.8), null, "a region that stays flat is never lit");
+    // A take planned before the measure kept its planned window: render measures it and keeps a measured one as it is.
+    const rect: [number, number, number, number] = [0, 0, 320, 180];
+    const kept = await litSpotlights(webm, [{ t: 0, d: 2, rect }, { t: 2.5, d: 1, rect, lit: true }]);
+    assert.equal(kept.length, 2);
+    assert.ok(Math.abs(kept[0]!.t - 2) <= 0.25 && kept[0]!.lit === true, "the planned window moved to when the region changes");
+    assert.deepEqual(kept[1], { t: 2.5, d: 1, rect, lit: true }, "a measured window is left as it is");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

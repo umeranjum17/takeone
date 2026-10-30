@@ -29,6 +29,7 @@ import { runFfmpeg } from "./ffmpeg.ts";
 import { addSound } from "./sound.ts";
 import { bubbleGraph, webcamClip } from "./webcam.ts";
 import { encodePng } from "../motion/png.ts";
+import { litSpotlights } from "../perceive/lit.ts";
 import { ensureProxy, previewDefaults, previewTiming, proxySize, scaleBand, scaleBeat, scaleEvent, scaleFrames, scaleMeta, type PreviewSpec } from "./preview.ts";
 import {
   backgroundPixels, bandCamera, bandFrames, bandLayout, bandText, beatClicks, captionAss, captionLayouts, cardFilter, clickAss, deviceFrame, insideScreen, measureAss, sourceViewport, stageFrames, stageGeometry, stageImageFilter,
@@ -409,7 +410,9 @@ export async function renderTake(dir: string, camera?: CameraDefaults, preview?:
   const { text, captionInk, band, stage } = renderLayout;
   const blurs = overlayRegions(meta, "blur", outTime, trimStart, trimEnd);
   // The take's own spotlights win; else the film's key moments. Blurs run first in the graph, so a lit region stays blurred.
-  const spotlights = overlayRegions({ ...meta, spotlight: meta.spotlight ?? meta.film?.spotlight }, "spotlight", outTime, trimStart, trimEnd);
+  // A planned spotlight lights its region only while the footage there changes, also for a take planned before that was measured.
+  const filmSpots = meta.spotlight === undefined && meta.film?.spotlight ? await litSpotlights(source, meta.film.spotlight) : undefined;
+  const spotlights = overlayRegions({ ...meta, spotlight: meta.spotlight ?? filmSpots ?? meta.film?.spotlight }, "spotlight", outTime, trimStart, trimEnd);
   const commandFile = join(workDir, "camera.cmd");
   // With a band the camera frames the screen alone, into the fixed card.
   const stageCamera = band ? bandFrames(frames, band, d) : stageFrames(frames, meta.width, meta.height, stage, d);

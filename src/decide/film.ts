@@ -71,8 +71,9 @@ export interface FilmDecision {
   /** Captions in video-relative seconds, one per beat the planner chose; `d` is the planner's
    * length, never under the caption's reading time. */
   captions?: { t: number; d: number; text: string }[];
-  /** Key moments the planner spotlights, as take.json `spotlight`; the take's own wins. */
-  spotlight?: { t: number; d: number; rect: BBox }[];
+  /** Key moments the planner spotlights, as take.json `spotlight`; the take's own wins. `lit` marks a window already
+   * measured against the footage (src/perceive/lit.ts); render measures the rest, so a take planned earlier is corrected too. */
+  spotlight?: { t: number; d: number; rect: BBox; lit?: true }[];
   /** Beats whose shortcut shows a keycap, and beats whose clicks get a ring; absent shows all. */
   keys?: string[];
   clicks?: string[];
