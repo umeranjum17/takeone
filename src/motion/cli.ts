@@ -33,7 +33,7 @@ type Recipe = keyof typeof RECIPES;
 const ASPECTS = { landscape: [1920, 1080], portrait: [1080, 1920], square: [1080, 1080] } as const;
 type Aspect = keyof typeof ASPECTS;
 
-export const MOTION_USAGE = `takeone motion <image.png|page.html|https://url|take-dir>... [--out DIR] [--pattern hero-reveal,zoom-tour,end-card,kinetic-type,logo-sting,spotlight,feature-callouts,before-after,device-orbit]
+export const MOTION_USAGE = `takeone motion <image.png|page.html|https://url|take-dir>... [--out DIR] [--pattern hero-reveal,zoom-tour,end-card,kinetic-type,logo-sting,spotlight,feature-callouts,before-after,device-orbit,scroll-through]
   [--recipe launch|feature|social|compare] [--aspect landscape|portrait|square]
   [--theme midnight|paper|aurora|mono|neon|brutalist|sand|terminal|editorial]
   [--title TEXT] [--subtitle TEXT] [--cta TEXT] [--url TEXT] [--logo WORD] [--device browser|phone|laptop|none]
@@ -303,6 +303,7 @@ export function planStoryboard(a: MotionArgs, id: string): unknown {
     if (p === "kinetic-type") return [typeBeat(title, a.subtitle)];
     if (p === "logo-sting") return [{ pattern: p, d: 2.5, logo: a.logo ?? "TakeOne" }];
     if (p === "device-orbit") return [{ pattern: p, d: 4, screen: screens[0]!, device: a.device ?? "browser" }];
+    if (p === "scroll-through") return [{ pattern: p, d: 6, screen: screens[0]!, device: a.device ?? "browser", ...(a.subtitle ? { title: a.subtitle } : {}) }];
     if (p === "before-after") {
       if (screens.length < 2) throw new Error("before-after needs two screens: pass two images, or two --state names");
       const scene: Scene = { pattern: p, d: 0, screen: screens[0]!, after: screens[1]!, device: a.device ?? "browser", ...(a.subtitle ? { title: a.subtitle } : {}) };
@@ -321,7 +322,7 @@ export function planStoryboard(a: MotionArgs, id: string): unknown {
       scene.d = Math.max(Math.ceil((p === "spotlight" ? end + .6 : end + .8 + readingFloor(caps.join(" "))) * 60) / 60, minSceneDuration(scene));
       return [scene];
     }
-    throw new Error(`--pattern ${p} needs a storyboard (patterns planned from flags: hero-reveal, zoom-tour, end-card, kinetic-type, logo-sting, spotlight, feature-callouts, before-after, device-orbit)`);
+    throw new Error(`--pattern ${p} needs a storyboard (patterns planned from flags: hero-reveal, zoom-tour, end-card, kinetic-type, logo-sting, spotlight, feature-callouts, before-after, device-orbit, scroll-through)`);
   };
   // Launch film: no --pattern and three or more screens. The title opens on bare type, every
   // labelled screen gets its label as a full-type beat before a clean (captionless) tour, and

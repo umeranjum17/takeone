@@ -46,7 +46,7 @@ export function sceneTexts(s: Scene): string[] {
   if (s.pattern === "halo-end") return [s.logo, s.credit].filter((t): t is string => !!t);
   if (s.pattern === "logo-sting") return [s.logo].filter((t): t is string => !!t);
   if (s.pattern === "welcome") return [s.label, s.title, s.subtitle, s.cta, ...(s.tree ?? []), s.logo].filter((t): t is string => !!t);
-  if (s.pattern === "before-after") return [s.title].filter((t): t is string => !!t);
+  if (s.pattern === "before-after" || s.pattern === "scroll-through") return [s.title].filter((t): t is string => !!t);
   if (s.pattern === "end-card") return [s.logo, s.cta, s.url].filter((t): t is string => !!t);
   if (s.pattern === "fragment") {
     if (s.kind === "counter") return ["60"];
@@ -89,6 +89,8 @@ function sceneRevealDuration(s: Scene): number {
     reveal = .7 + .07 * (glyphs - 1);
   } else if (s.pattern === "logo-sting") { // letters settle by 0.9 s
     reveal = .9;
+  } else if (s.pattern === "scroll-through") { // the title pill fades up over 0.6 s
+    reveal = .6;
   } else if (s.pattern === "before-after") { // the delta line fades up once the wipe has settled
     reveal = 2.2;
   } else if (s.pattern === "end-card") {
@@ -133,7 +135,7 @@ function sceneHolds(s: Scene): { text: string; reveal: number }[] {
     if (s.pattern === "feature-callouts") holds.push({ text: caps.join(" "), reveal: end + .5 });
   }
   if (s.pattern === "statement" && s.note) holds.push({ text: s.note, reveal: .8 }); // footnote fades up from 0.5 s
-  const chromed = ["hero-reveal", "zoom-tour", "spotlight", "feature-callouts", "before-after", "device-orbit"].includes(s.pattern) || (s.pattern === "kinetic-type" && !!s.device && s.device !== "none");
+  const chromed = ["hero-reveal", "zoom-tour", "spotlight", "feature-callouts", "before-after", "device-orbit", "scroll-through"].includes(s.pattern) || (s.pattern === "kinetic-type" && !!s.device && s.device !== "none");
   if (chromed) {
     const device = s.device ?? "browser";
     const text = device === "browser" ? "Design preview" : device === "phone" ? "9:41" : "";
