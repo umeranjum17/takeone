@@ -349,9 +349,12 @@ test("directions render real cuts, post one board pick, and polish refines the p
     const warnings: string[] = [];
     const quiet = { log: () => {}, warn: (l: string) => { warnings.push(l); } };
     const camera = (d: string, pairs: string[], theme?: string) => resolveCamera(d, pairs, theme, true);
+    // Every request any phase sends passes here, to compare with the take's own count at the end.
+    let sent = 0;
+    const counted = (inner: typeof fetch): typeof fetch => (async (url: unknown, init?: unknown) => { sent++; return inner(url as string, init as RequestInit); }) as typeof fetch;
     const file: DirectionsFile = await runDirections({
       dir, count: 2, replan: false, set: FAST, board: sign.board, planner, judge, configDir: join(root, "cfg"),
-      fetchImpl: recorded({ score: 8 }), resolveCamera: camera, ...quiet,
+      fetchImpl: counted(recorded({ score: 8 })), resolveCamera: camera, ...quiet,
     });
     assert.equal(file.directions.length, 2);
     assert.deepEqual(file.directions.map((d) => d.by.theme), ["ai", "ai"], warnings.join("\n"));
@@ -379,7 +382,7 @@ test("directions render real cuts, post one board pick, and polish refines the p
 
     const result = await runPolishCommand({
       dir, maxRounds: 2, feedback: [], set: FAST, board: sign.board, judge, builder: planner,
-      configDir: join(root, "cfg"), fetchImpl: recorded({ score: 8, yes: 1, choices: { opening: "longer", ending: "longer" } }),
+      configDir: join(root, "cfg"), fetchImpl: counted(recorded({ score: 8, yes: 1, choices: { opening: "longer", ending: "longer" } })),
       resolveCamera: camera, ...quiet,
     });
     const { state } = result;
@@ -414,7 +417,7 @@ test("directions render real cuts, post one board pick, and polish refines the p
       ? new Response("overloaded", { status: 529 }) : judgeDown(url as string, init as RequestInit)) as typeof fetch;
     await assert.rejects(runPolishCommand({
       dir, maxRounds: 2, feedback: ["keep the cursor easy to follow"], set: [], judge, builder: planner,
-      configDir: join(root, "cfg"), fetchImpl: failing, resolveCamera: camera, ...quiet,
+      configDir: join(root, "cfg"), fetchImpl: counted(failing), resolveCamera: camera, ...quiet,
     }), JudgeUnavailable);
     const second = latestRun(dir)!;
     const run2 = JSON.parse(readFileSync(join(second, "run.json"), "utf8"));
@@ -425,6 +428,12 @@ test("directions render real cuts, post one board pick, and polish refines the p
     assert.equal(JSON.parse(readFileSync(join(dir, "take.json"), "utf8")).direction.polished.run, second.split("/").at(-1));
     assert.ok(existsSync(join(second, "round-1.mp4")), "round 1 was rendered before the judge failed");
     assert.throws(() => polishFeedback(dir, "x"), /stopped/);
+
+    // Directions (with the take's planning), the first polish and the failed second polish are three commands; the take's
+    // one count holds every request any of them sent, planner, builder and judge alike.
+    const calls = JSON.parse(readFileSync(join(dir, "take.json"), "utf8")).calls as { used: number; by_workflow: Record<string, number> };
+    assert.equal(calls.used, sent, "the take's count is every request sent across all phases");
+    for (const workflow of ["film planner", "directions planner", "polish builder", "judge"]) assert.ok((calls.by_workflow[workflow] ?? 0) > 0, `${workflow} is in the count`);
   } finally {
     if (was === undefined) delete process.env.TAKEONE_SIGN_OFF;
     else process.env.TAKEONE_SIGN_OFF = was;
@@ -452,14 +461,15 @@ test("a take that runs past its model-call cap stops there, naming the workflow 
       resolveCamera: (d, pairs, theme) => resolveCamera(d, pairs, theme, true), log: () => {}, warn: () => {},
     }), (e: unknown) => {
       assert.ok(e instanceof CallBudgetExceeded);
-      assert.match(e.message, new RegExp(`^the directions planner workflow hit the cap of ${cap} model calls per take after ${cap} calls`));
+      assert.match(e.message, new RegExp(`^the (film planner|beat planner|directions planner|judge) workflow hit the cap of ${cap} model calls per take after ${cap} calls`));
       return true;
     });
     assert.equal(sent, cap, "the request past the cap was never sent");
     assert.equal(budget.used, cap);
     const calls = JSON.parse(readFileSync(join(dir, "take.json"), "utf8")).calls as { cap: number; used: number; by_workflow: Record<string, number> };
     assert.deepEqual([calls.cap, calls.used], [cap, cap]);
-    assert.deepEqual(calls.by_workflow, { "film planner": 2, "beat planner": 2 }, "the retried film request and the chunk re-ask count; the directions ask was refused");
+    assert.equal(Object.values(calls.by_workflow).reduce((n, v) => n + v, 0), cap, "the workflows add up to the count");
+    assert.equal(calls.by_workflow["film planner"], 2, "the rate-limited film request and its retry are two requests");
     assert.ok(!existsSync(join(dir, "directions", "directions.json")), "the run stopped before it wrote directions");
   } finally {
     rmSync(root, { recursive: true, force: true });
