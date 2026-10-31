@@ -364,7 +364,8 @@ test("doctor, make and capture never read the planner key from the environment",
   try {
     // All three read the key the same way: an env key is no key.
     const doctor = run(["doctor"], { env });
-    assert.match(doctor.stdout, /ai-planner,false,planner,AI planner unavailable/, doctor.stdout);
+    assert.match(doctor.stdout, /ai-planner,false,planner,"?AI planner unavailable/, doctor.stdout);
+    assert.match(doctor.stdout, /sign in with claude, codex login or opencode auth login, or store a key with takeone key set/, doctor.stdout);
     const hello = run(["capture", "hello"], { env });
     assert.equal(hello.status, 0, hello.stderr);
     assert.equal(JSON.parse(hello.stdout).planner.available, false);
@@ -377,6 +378,9 @@ test("doctor, make and capture never read the planner key from the environment",
     assert.equal(storeDown.status, 3, storeDown.stderr);
     assert.match(storeDown.stderr, /takeone needs an AI engine/);
     assert.ok(!existsSync(join(dir, "analysis")) && !existsSync(join(dir, "out")));
+    // doctor says what is wrong with the store and, as every stop does, how to set an engine up.
+    const doctorStoreDown = run(["doctor"], { env: { ...env, TAKEONE_TEST_KEYRING_FAILURE: "1" } });
+    assert.match(doctorStoreDown.stdout, /AI planner store unavailable: .*; sign in with claude, codex login or opencode auth login, or store a key with takeone key set/, doctorStoreDown.stdout);
     // The offline flag is gone from the shipped CLI, whatever the account state: it is an unknown
     // option, refused before the take is read, and nothing is planned or rendered.
     const removed = [env, { ...env, TAKEONE_TEST_KEYRING_FAILURE: "1" }].map((state) => run(["make", dir, "--no-ai", ...FAST_SET], { env: state }));
