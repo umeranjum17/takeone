@@ -4,10 +4,10 @@
 // stage. The copy is the caller's; only the pressed control is found (by OCR, on this machine) so the click lands on a
 // real button of the real screen.
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { rmSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { screenLines } from "../decide/ocr.ts";
+import { scratchDirSync } from "../tmpspace.ts";
 import { readBrand, type Brand } from "./brand.ts";
 import { imageSize } from "./ingest.ts";
 import { minSceneDuration } from "./storyboard.ts";
@@ -21,7 +21,7 @@ const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9 ]/g, "").replace(/
 
 /** Text lines read off the screen, then off its negative: OCR misses the light label of a filled button. */
 async function bothLines(file: string): Promise<{ text: string; box: number[] }[]> {
-  const dir = mkdtempSync(join(tmpdir(), "takeone-glow-"));
+  const dir = scratchDirSync("takeone-glow-");
   try {
     const neg = join(dir, "negative.png");
     execFileSync("ffmpeg", ["-nostdin", "-v", "error", "-i", file, "-vf", "negate", neg], { timeout: 60000 });

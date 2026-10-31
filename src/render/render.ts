@@ -1,8 +1,8 @@
 import { execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { copyFileSync, existsSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
-import { availableParallelism, tmpdir } from "node:os";
+import { availableParallelism } from "node:os";
 import { fileURLToPath } from "node:url";
 import { resolveTheme } from "../themes.ts";
 import { basename, dirname, join, resolve } from "node:path";
@@ -26,6 +26,7 @@ import { clipDrags, typingBursts, editBeats, editTimeline, validateEdits, valida
 import { applyPlan, readPlan, validatePlan, withUserFilm } from "../decide/plan.ts";
 import { withFilmText } from "../decide/film.ts";
 import { runFfmpeg } from "./ffmpeg.ts";
+import { scratchDirSync } from "../tmpspace.ts";
 import { addSound } from "./sound.ts";
 import { bubbleGraph, webcamClip } from "./webcam.ts";
 import { encodePng } from "../motion/png.ts";
@@ -727,7 +728,7 @@ export const FONTS_DIR = fileURLToPath(new URL("../../resources/fonts/", import.
 
 /** A font directory for one render: the bundled faces plus the brand's own files, since libass reads one directory. */
 function stagedFonts(files: string[]): { dir: string; cleanup: () => void } {
-  const dir = mkdtempSync(join(tmpdir(), "takeone-fonts-"));
+  const dir = scratchDirSync("takeone-fonts-");
   for (const file of readdirSync(FONTS_DIR)) if (/\.(ttf|otf)$/i.test(file)) copyFileSync(join(FONTS_DIR, file), join(dir, file));
   for (const file of files) copyFileSync(file, join(dir, `brand-${basename(file)}`));
   return { dir, cleanup: () => rmSync(dir, { recursive: true, force: true }) };

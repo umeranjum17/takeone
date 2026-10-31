@@ -1,9 +1,9 @@
 // Zero-dependency Chrome DevTools Protocol client over Node's built-in WebSocket.
 import { spawn } from "node:child_process";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
+import { scratchDir } from "../tmpspace.ts";
 
 export interface Browser {
   send<T = Record<string, unknown>>(method: string, params?: Record<string, unknown>): Promise<T>;
@@ -35,7 +35,7 @@ export function shellFlags(o: LaunchOptions, profile: string): string[] {
 }
 
 export async function launch(shell: string, o: LaunchOptions): Promise<Browser> {
-  const profile = await mkdtemp(join(tmpdir(), "takeone-motion-"));
+  const profile = await scratchDir("takeone-motion-");
   const child = spawn(shell, shellFlags(o, profile), { stdio: ["ignore", "ignore", "pipe"] });
   let stderr = "", failure: Error | undefined, socket: WebSocket | undefined, id = 0;
   child.on("error", (e) => { failure = e; });

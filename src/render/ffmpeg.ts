@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { quotaFailure } from "../tmpspace.ts";
 
 /** Run ffmpeg, resolve with its stderr, and include its final 20 stderr lines on failure. */
 export function runFfmpeg(args: string[], signal?: AbortSignal): Promise<string> {
@@ -15,7 +16,7 @@ export function runFfmpeg(args: string[], signal?: AbortSignal): Promise<string>
         return;
       }
       const lastLines = stderr.split("\n").slice(-20).join("\n");
-      reject(new Error(`ffmpeg exited ${code}\n${lastLines}`));
+      reject(quotaFailure(new Error(`ffmpeg exited ${code}\n${lastLines}`)));
     });
   });
 }
