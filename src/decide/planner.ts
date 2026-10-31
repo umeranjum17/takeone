@@ -554,7 +554,7 @@ export async function plannerStatus(o: ResolvePlannerOptions = {}): Promise<{
         return { config: { ...DEFAULT_PLANNER_CONFIG } };
       }
     })();
-    return { available: false, detail: `AI planner store unavailable: ${reason}`, config, label: describePlanner(config) };
+    return { available: false, detail: `AI planner store unavailable: ${reason}; ${DOCTOR_SETUP}`, config, label: describePlanner(config) };
   }
 }
 
