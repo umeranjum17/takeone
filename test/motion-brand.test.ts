@@ -5,7 +5,8 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
-import { readBrand } from "../src/motion/brand.ts";
+import { contrast, readBrand } from "../src/motion/brand.ts";
+import { planStory } from "../src/motion/story.ts";
 import { glowStoryboard } from "../src/motion/glow.ts";
 import { imageSize } from "../src/motion/ingest.ts";
 import { filmDuration, validateStoryboard } from "../src/motion/storyboard.ts";
@@ -62,4 +63,31 @@ test("the glow storyboard carries the brand; without one the stage keeps its blu
   for (const hex of ["#1f6bff", "#6aaaffdd", "#cfe3ff"]) assert.equal(same(hex), hex);
   const [r, g, b] = [1, 3, 5].map(i => parseInt(teal("#1f6bff").slice(i, i + 2), 16));
   assert.ok(g! > r! && g! > b! * 0.8 && teal("#6aaaffdd").endsWith("dd"), `the blue glow turns teal: ${teal("#1f6bff")}`);
+});
+
+test("a light brand is accepted by the story and take stages and inked from its own page; a failing pair is said with its ratio and drawn in the nearest colour that passes", () => {
+  const dir = mkdtempSync(join(tmpdir(), "takeone-brand-light-"));
+  try {
+    const write = (name: string, colors: Record<string, string>) => { const f = join(dir, name); writeFileSync(f, JSON.stringify({ name: "Larder", colors })); return f; };
+    const cream = write("cream.json", { background: "#faf5ea", accent: "#b4441e" });
+    assert.throws(() => readBrand(cream), /too light for the glow recipe's dark stage/, "glow's white type still needs its dark stage");
+    for (const stage of ["story", "take"] as const) {
+      const brand = readBrand(cream, stage);
+      assert.equal(brand.overrides["background"], "#faf5ea", "the brand keeps its own page");
+      assert.ok(contrast(brand.overrides["text"]!, "#faf5ea") >= 4.5 && contrast(brand.overrides["card"]!, brand.overrides["text"]!) >= 4.5, "the foreground it chose reads on the page and on the cards");
+      assert.deepEqual(brand.warnings, []);
+    }
+    const bad = readBrand(write("bad.json", { background: "#faf5ea", foreground: "#c9c3b5", accent: "#e9dcc0" }), "story");
+    assert.match(bad.warnings[0]!, /foreground #c9c3b5 on #eee9df reads at 1\.5:1, below the 4\.5:1 floor; drawn as #[0-9a-f]{6} \(4\.[5-9]:1\)/);
+    assert.match(bad.warnings[1]!, /accent #e9dcc0 on #faf5ea reads at 1\.2:1, below the 3:1 floor/);
+    assert.ok(contrast(bad.overrides["text"]!, "#faf5ea") >= 4.5 && contrast(bad.overrides["accent"]!, "#faf5ea") >= 3, "no role is left below the floor");
+    assert.equal(readBrand(BRAND, "story").warnings.length, 0, "a dark brand that already passes is untouched");
+
+    const lines: string[] = [];
+    const board = planStory({ pitch: "chips: Plan the watch / now. | A; B\nstats: One board / done. | 9 crew; 4 watches", brand: write("bad2.json", { background: "#faf5ea", foreground: "#c9c3b5" }) }, "story", [1920, 1080], l => lines.push(l)) as { theme: { overrides: Record<string, string> } };
+    assert.match(lines.join("\n"), /1\.5:1/);
+    assert.ok(contrast(board.theme.overrides["text"]!, "#faf5ea") >= 4.5, "the planned film carries the repaired colour");
+    // A foreground alone, on a theme whose own page it cannot read, is refused before a frame is drawn.
+    assert.throws(() => planStory({ pitch: "chips: Plan / now. | A; B\nstats: One / two. | 9 crew; 4 watches", theme: "paper", brand: write("pale.json", { foreground: "#f1faf7" }) }, "story"), /below the 4\.5:1 floor/);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
 });
