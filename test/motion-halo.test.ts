@@ -75,12 +75,44 @@ test("halo kinetic lines reject blank text in every position", () => {
   }
 });
 
-test("halo end card keeps the earlier pieces in view, so the closing hold is never an empty field", () => {
+test("halo end card is a quiet lockup, not a second UI collage", () => {
   const sb = validateStoryboard(planHalo({ inputs: [BOARD], regions, pitch: "Your crew. No chatbot. Asks first." }, "halo-end-pieces"));
   const end = sb.scenes.at(-1)!, lines = sb.scenes.find(s => s.pattern === "halo-lines")!;
   assert.equal(end.pattern, "halo-end");
-  assert.equal(end.items?.length, 4, "the end card carries the same four pieces the kinetic lines left on screen");
-  assert.deepEqual(end.items, lines.items, "so the cut to the end card does not empty the frame");
+  assert.ok(lines.items!.length > 0, "the product remains present in the preceding beat");
+  assert.equal(end.items?.length, undefined, "the closing card contains no floating UI pieces");
+  assert.equal(end.items, undefined, "the closing card drops the floating UI pieces");
+});
+
+test("halo logo morphs into a pill before typing inline; the end card holds a smaller quiet lockup", { timeout: 120_000 }, async () => {
+  const sb = validateStoryboard(planHalo({ inputs: [BOARD], regions, pitch: "Your crew. No chatbot. Asks first.", url: "A film made with TakeOne from real Crewhouse screens" }, "halo-logo-end-motion"));
+  const dir = mkdtempSync(join(tmpdir(), "takeone-halo-logo-end-"));
+  try {
+    await ingest(dir, sb);
+    await withPage(writePage(dir, sb).html, 1920, 1080, async (b) => {
+      const result = await b.evaluate<{ typed: { shown: boolean; text: string }[]; pill: { width: number; height: number; radius: string; shadow: string }[]; end: { pieces: number; wordSize: number; animations: number; credit: string } }>(`(()=>{
+        const open=document.querySelector('[data-pattern="halo-open"]'), pill=open.querySelector('div[style*="border-radius"]'), text=open.querySelector('[data-safe]'), typed=text.querySelector('.halo-open-typed');
+        const start=Number(open.dataset.start), end=document.querySelector('[data-pattern="halo-end"]'), endStart=Number(end.dataset.start), d=Number(end.dataset.duration);
+        const frames=[];
+        for(const local of [1.2,1.35,1.5,1.7,2.0]){window.__apply(start*1000+local*1000);frames.push({shown:getComputedStyle(text).visibility==="visible",text:typed.textContent})}
+        const pillFrames=[];
+        for(const local of [.6,1.0,1.5]){window.__apply(start*1000+local*1000);const c=getComputedStyle(pill);pillFrames.push({width:parseFloat(c.width),height:parseFloat(c.height),radius:c.borderRadius,shadow:c.boxShadow})}
+        window.__apply((endStart+Math.min(1.8,d-.05))*1000);
+        const group=end.querySelector('div[style*="display:flex"]'), word=group.querySelector('.kern'), credit=end.querySelector('[data-safe]:last-child');
+        return {typed:frames,pill:pillFrames,end:{pieces:end.querySelectorAll('[data-moves]').length,wordSize:parseFloat(getComputedStyle(word).fontSize),animations:group.getAnimations().length,credit:credit?.textContent??""}};
+      })()`);
+      assert.deepEqual(result.typed.slice(0, 2).map(f => f.shown), [false, true], "the pill grows before the tagline begins typing");
+      assert.equal(result.typed[1]!.text, "Y", "the first grapheme lands at the reveal start");
+      assert.equal(result.typed.at(-1)!.text, "Your crew.", "the inline reveal completes and holds");
+      assert.ok(result.pill[0]!.width > result.pill[0]!.height * 0.9 && result.pill[0]!.height > result.pill[1]!.height, "the logo-sized square rounds down into a pill-height capsule");
+      assert.ok(result.pill[2]!.width > result.pill[1]!.width, "the capsule expands to fit its inline copy");
+      assert.notEqual(result.pill[2]!.shadow, "none", "the expanded pill keeps a visible glow rim");
+      assert.equal(result.end.pieces, 0, "no UI collage remains on the closing card");
+      assert.ok(result.end.wordSize < 108, `closing wordmark is restrained (${result.end.wordSize}px)`);
+      assert.equal(result.end.animations, 0, "the closing lockup does not keep pushing in");
+      assert.match(result.end.credit, /TakeOne/);
+    });
+  } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
 test("halo stack rows never sit on each other, so every row of the list reads", { timeout: 120_000 }, async () => {

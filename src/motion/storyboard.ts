@@ -81,8 +81,9 @@ function sceneRevealDuration(s: Scene): number {
     reveal = .67 + .5 * Math.max(0, (s.chips ?? []).length - 1);
   } else if (s.pattern === "bento") {
     reveal = .5 + .3 * Math.max(0, (s.tiles ?? []).length - 1);
-  } else if (s.pattern === "halo-open") { // the tagline types in once the pill has grown, done by 1.3 s
-    reveal = 1.2;
+  } else if (s.pattern === "halo-open") { // the tagline types inline after the pill finishes growing
+    const glyphs = [...new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(s.title ?? "")].length;
+    reveal = HALO_OPEN_TYPE_START + HALO_OPEN_TYPE_STEP * glyphs;
   } else if (s.pattern === "halo-float") { // the title rises a word every 70 ms, read like any headline; the pieces' landing is the beat's own floor (halo.ts)
     const words = (s.title ?? "").trim().split(/\s+/).filter(Boolean).length;
     reveal = words ? .4 + .06 * (words - 1) : 0;
@@ -116,6 +117,7 @@ export function storySettle(s: Scene): number {
 
 /** halo-lines timing (halo.js): one lockup. The lead-in lines rise in a word at a time, one every .45 s; the last line types on
  * a grapheme every 50 ms from .45 s after the last lead-in starts. Every line stays up to the scene end, so the reads overlap. */
+export const HALO_OPEN_TYPE_START = 1.35, HALO_OPEN_TYPE_STEP = .05;
 export const HALO_LEAD_STEP = .45, HALO_TYPE_LAG = .45, HALO_TYPE_STEP = .05;
 export function haloLineHolds(s: Scene): { text: string; reveal: number }[] {
   const lines = s.lines ?? [], leads = lines.slice(0, -1), last = lines.at(-1);
