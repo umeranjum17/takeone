@@ -40,6 +40,7 @@ import {
 import { estimateUsd } from "./decide/prices.ts";
 import { keyframeThumb, ocrZone } from "./decide/ocr.ts";
 import { redactText } from "./decide/redact.ts";
+import { CallBudget } from "./decide/budget.ts";
 import { renderTake } from "./render/render.ts";
 import { resolveTheme } from "./themes.ts";
 import { DEFAULTS, applyOverrides, type CameraDefaults } from "./camera/defaults.ts";
@@ -90,6 +91,8 @@ export interface MakeOptions {
   planOnly?: boolean;
   /** false plans the take and writes take.json without rendering a film (`takeone directions` renders its own cuts). */
   render?: boolean;
+  /** The take's model-call budget, when a larger run (directions, score) already holds it; else the take's saved count is opened. */
+  budget?: CallBudget;
   log?: (line: string) => void;
   warn?: (line: string) => void;
 }
@@ -218,6 +221,7 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
     }
   };
   const take = readTakeMeta(dir);
+  const budget = opts.budget ?? new CallBudget(dir);
   delete take.film; // a film from an earlier make stays only if this make decides one
   // Portrait takes (phone footage) default to a portrait output unless the
   // caller overrode the output size; desktop behaviour is unchanged.
@@ -491,6 +495,10 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
     // The ceiling is estimated in the default request shape; other backends
     // answer the same questions, so the bound still holds within its margin.
     planned = { planned_tokens: reservedTokens, usd: estimateUsd(plannerPricing!.backend, reservedTokens, plannerPricing!.auth) ?? null };
+    // The planned requests must fit what is left of the take's budget; a re-ask that does not fit is refused when it is sent.
+    if (chunks.length + filmCalls > budget.remaining) {
+      throw new PreflightRefusal(`planned ${chunks.length + filmCalls} model calls exceeds the ${budget.remaining} left of the ${budget.cap} per take`);
+    }
     if (reservedTokens > maxTokens) {
       throw new PreflightRefusal(
         `planned ${reservedTokens} tokens exceeds the cap of ${maxTokens} (--max-tokens); ` +
@@ -552,7 +560,7 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
     if (filmPlan) {
       const replies: (Record<string, Answer> | undefined)[] = [];
       for (const part of filmPlan.calls) {
-        const r = await askChunk(part.state, part.questions, planner, cache, { fetchImpl: opts.fetchImpl, keepAnswers: true });
+        const r = await askChunk(part.state, part.questions, planner, cache, { fetchImpl: opts.fetchImpl, keepAnswers: true, budget, workflow: "film planner" });
         requests++;
         requestTokens += part.tokens;
         if (r.decisionSource === "cache") cachedRequests++;
@@ -589,7 +597,7 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
           );
         }
         const ask = async (from: DecideCache) => {
-          const r = await askChunk(chunk.state, chunk.questions, planner, from, { fetchImpl: opts.fetchImpl,
+          const r = await askChunk(chunk.state, chunk.questions, planner, from, { fetchImpl: opts.fetchImpl, budget, workflow: "beat planner",
             usable: (answers) => items.every((i) => {
               const a = toPlannerAnswers(beatAnswers(answers, beats[i]!.id));
               return a !== null && mapAnswers(beats[i]!, a, mapCtx(i)) !== null;
@@ -697,7 +705,7 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
   // is the capture length, which the 10 fps analysis timeline rounds to a frame
   // boundary in either direction, so an unmarked end within one analysis frame of
   // the video's end is record's too.
-  const meta: RenderMeta = { ...take, ...renderMeta };
+  const meta: RenderMeta = { ...take, ...renderMeta, calls: budget.summary() };
   const trimEnd = take.trim?.end;
   const recorderOwned = trimEnd !== undefined && Math.abs(videoEndMs - trimEnd) <= ANALYSIS_FRAME_MS;
   const autoTrim = take.auto_trim === true ? trimEnd === take.duration_ms : recorderOwned;

@@ -1,6 +1,7 @@
 // Directions (A/B/C cuts of one take), the pick, and the judge-refine polish loop. Every model answer here is a
 // recorded Jev-wire reply served by a fake fetch; the sign-off board is a fake binary that records its arguments.
 
+import { CallBudget, CallBudgetExceeded } from "../src/decide/budget.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
@@ -13,7 +14,7 @@ import { pickDirection, runDirections, type DirectionsFile } from "../src/direct
 import { runPolish, type Candidate, type Critique, type Feedback, type PolishHooks } from "../src/polish/loop.ts";
 import { latestRun, pickRound, polishFeedback, runPolishCommand } from "../src/polish/run.ts";
 import { builderRequest, KNOBS, mapBuilder } from "../src/polish/builder.ts";
-import { judgeRound, JudgeUnavailable } from "../src/score/judge.ts";
+import { judgeRound as judgeWith, JudgeUnavailable, type JudgeOptions } from "../src/score/judge.ts";
 import { resolvePlanner, type ResolvedPlanner } from "../src/decide/planner.ts";
 import { cutPage } from "../src/board/page.ts";
 import { litSpotlights, litWindow } from "../src/perceive/lit.ts";
@@ -22,6 +23,10 @@ import { resolveCamera } from "../src/cli.ts";
 import { DEFAULTS } from "../src/camera/defaults.ts";
 import type { MeasuredFacts } from "../src/score/rubric.ts";
 import { hasFfmpeg } from "./helpers.ts";
+
+/** A judge call with a take budget of its own, for the tests that judge one round and nothing else. */
+const judgeRound = (...[planner, facts, o, extras]: [Parameters<typeof judgeWith>[0], Parameters<typeof judgeWith>[1], Omit<JudgeOptions, "budget">, Parameters<typeof judgeWith>[3]?]) =>
+  judgeWith(planner, facts, { ...o, budget: new CallBudget() }, extras);
 
 const needsFfmpeg = hasFfmpeg() ? undefined : "requires system ffmpeg and ffprobe on PATH";
 const FAST = ["preset=veryfast", "out_w=320", "out_h=180", "fade_s=0"];
@@ -348,9 +353,12 @@ test("directions render real cuts, post one board pick, and polish refines the p
     const warnings: string[] = [];
     const quiet = { log: () => {}, warn: (l: string) => { warnings.push(l); } };
     const camera = (d: string, pairs: string[], theme?: string) => resolveCamera(d, pairs, theme, true);
+    // Every request any phase sends passes here, to compare with the take's own count at the end.
+    let sent = 0;
+    const counted = (inner: typeof fetch): typeof fetch => (async (url: unknown, init?: unknown) => { sent++; return inner(url as string, init as RequestInit); }) as typeof fetch;
     const file: DirectionsFile = await runDirections({
       dir, count: 2, replan: false, set: FAST, board: sign.board, planner, judge, configDir: join(root, "cfg"),
-      fetchImpl: recorded({ score: 8 }), resolveCamera: camera, ...quiet,
+      fetchImpl: counted(recorded({ score: 8 })), resolveCamera: camera, ...quiet,
     });
     assert.equal(file.directions.length, 2);
     assert.deepEqual(file.directions.map((d) => d.by.theme), ["ai", "ai"], warnings.join("\n"));
@@ -378,7 +386,7 @@ test("directions render real cuts, post one board pick, and polish refines the p
 
     const result = await runPolishCommand({
       dir, maxRounds: 2, feedback: [], set: FAST, board: sign.board, judge, builder: planner,
-      configDir: join(root, "cfg"), fetchImpl: recorded({ score: 8, yes: 1, choices: { opening: "longer", ending: "longer" } }),
+      configDir: join(root, "cfg"), fetchImpl: counted(recorded({ score: 8, yes: 1, choices: { opening: "longer", ending: "longer" } })),
       resolveCamera: camera, ...quiet,
     });
     const { state } = result;
@@ -413,7 +421,7 @@ test("directions render real cuts, post one board pick, and polish refines the p
       ? new Response("overloaded", { status: 529 }) : judgeDown(url as string, init as RequestInit)) as typeof fetch;
     await assert.rejects(runPolishCommand({
       dir, maxRounds: 2, feedback: ["keep the cursor easy to follow"], set: [], judge, builder: planner,
-      configDir: join(root, "cfg"), fetchImpl: failing, resolveCamera: camera, ...quiet,
+      configDir: join(root, "cfg"), fetchImpl: counted(failing), resolveCamera: camera, ...quiet,
     }), JudgeUnavailable);
     const second = latestRun(dir)!;
     const run2 = JSON.parse(readFileSync(join(second, "run.json"), "utf8"));
@@ -424,9 +432,85 @@ test("directions render real cuts, post one board pick, and polish refines the p
     assert.equal(JSON.parse(readFileSync(join(dir, "take.json"), "utf8")).direction.polished.run, second.split("/").at(-1));
     assert.ok(existsSync(join(second, "round-1.mp4")), "round 1 was rendered before the judge failed");
     assert.throws(() => polishFeedback(dir, "x"), /stopped/);
+
+    // Directions (with the take's planning), the first polish and the failed second polish are three commands; the take's
+    // one count holds every request any of them sent, planner, builder and judge alike.
+    const calls = JSON.parse(readFileSync(join(dir, "take.json"), "utf8")).calls as { used: number; by_workflow: Record<string, number> };
+    assert.equal(calls.used, sent, "the take's count is every request sent across all phases");
+    for (const workflow of ["film planner", "directions planner", "polish builder", "judge"]) assert.ok((calls.by_workflow[workflow] ?? 0) > 0, `${workflow} is in the count`);
   } finally {
     if (was === undefined) delete process.env.TAKEONE_SIGN_OFF;
     else process.env.TAKEONE_SIGN_OFF = was;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("a take that runs past its model-call cap stops there, naming the workflow and the count, and take.json keeps the count", { skip: needsFfmpeg, timeout: 600_000 }, async () => {
+  const root = mkdtempSync(join(tmpdir(), "takeone-budget-"));
+  try {
+    const dir = buildTake(mkdtempSync(join(root, "take-")));
+    const { planner, judge } = await jevRoutes(root);
+    const answers = recorded({ score: 8 });
+    // The first request is rate-limited and retried: a retry is a request, so it is a unit of the budget like any other.
+    let sent = 0;
+    const fetchImpl = (async (url: unknown, init?: unknown) => {
+      sent++;
+      return sent === 1 ? new Response("{}", { status: 429, headers: { "retry-after": "0" } }) : answers(url as string, init as RequestInit);
+    }) as typeof fetch;
+    const cap = 4;
+    const budget = new CallBudget(dir, cap);
+    // The take is planned first (its film and beat calls), then directions asks once and the judge scores each cut.
+    await assert.rejects(runDirections({
+      dir, count: 3, replan: false, set: FAST, planner, judge, configDir: join(root, "cfg"), budget, fetchImpl,
+      resolveCamera: (d, pairs, theme) => resolveCamera(d, pairs, theme, true), log: () => {}, warn: () => {},
+    }), (e: unknown) => {
+      assert.ok(e instanceof CallBudgetExceeded);
+      assert.match(e.message, new RegExp(`^the (film planner|beat planner|directions planner|judge) workflow hit the cap of ${cap} model calls per take after ${cap} calls`));
+      return true;
+    });
+    assert.equal(sent, cap, "the request past the cap was never sent");
+    assert.equal(budget.used, cap);
+    const calls = JSON.parse(readFileSync(join(dir, "take.json"), "utf8")).calls as { cap: number; used: number; by_workflow: Record<string, number> };
+    assert.deepEqual([calls.cap, calls.used], [cap, cap]);
+    assert.equal(Object.values(calls.by_workflow).reduce((n, v) => n + v, 0), cap, "the workflows add up to the count");
+    assert.equal(calls.by_workflow["film planner"], 2, "the rate-limited film request and its retry are two requests");
+    assert.ok(!existsSync(join(dir, "directions", "directions.json")), "the run stopped before it wrote directions");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("the budget does not reset between phases of one take: make, directions and the judge draw down one count across commands", { skip: needsFfmpeg, timeout: 600_000 }, async () => {
+  const root = mkdtempSync(join(tmpdir(), "takeone-budget-phases-"));
+  try {
+    const dir = buildTake(mkdtempSync(join(root, "take-")));
+    const { planner, judge } = await jevRoutes(root);
+    const answers = recorded({ score: 8 });
+    let sent = 0;
+    const fetchImpl = (async (url: unknown, init?: unknown) => { sent++; return answers(url as string, init as RequestInit); }) as typeof fetch;
+    const spent = () => (JSON.parse(readFileSync(join(dir, "take.json"), "utf8")) as { calls: { used: number; by_workflow: Record<string, number> } }).calls;
+    // One command plans the take (make), asks for the directions and judges each cut: three phases, one count.
+    await runDirections({
+      dir, count: 2, replan: false, set: FAST, planner, judge, configDir: join(root, "cfg"), fetchImpl,
+      resolveCamera: (d, pairs, theme) => resolveCamera(d, pairs, theme, true), log: () => {}, warn: () => {},
+    });
+    const first = spent();
+    assert.equal(first.used, sent, "every request that was sent is in the count, and nothing else");
+    assert.deepEqual(Object.keys(first.by_workflow).sort(), ["beat planner", "directions planner", "film planner", "judge"]);
+
+    // A later command opens the same take's budget: it carries on from the count, with a cap one call above it.
+    const cap = first.used + 1;
+    const later = new CallBudget(dir, cap);
+    assert.equal(later.used, first.used, "the budget is the take's, not the command's");
+    const cache = { get: async () => undefined, set: async () => undefined };
+    await judgeWith(judge, facts(), { cache, budget: later, fetchImpl }, {});
+    assert.equal(spent().used, cap);
+    assert.equal(spent().by_workflow.judge, first.by_workflow.judge! + 1);
+    // A budget that reset between phases would still have room here; this one has none.
+    await assert.rejects(judgeWith(judge, facts(), { cache, budget: later, fetchImpl }, {}),
+      (e: unknown) => e instanceof CallBudgetExceeded && e.message.startsWith(`the judge workflow hit the cap of ${cap} model calls per take after ${cap} calls`));
+    assert.equal(sent, cap, "the refused request was never sent");
+  } finally {
     rmSync(root, { recursive: true, force: true });
   }
 });

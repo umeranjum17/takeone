@@ -8,6 +8,7 @@ import { join } from "node:path";
 import type { CameraDefaults } from "../camera/defaults.ts";
 import type { TakeMeta } from "../camera/types.ts";
 import { planCamera, renderTake } from "../render/render.ts";
+import { CallBudget } from "../decide/budget.ts";
 import { askChunk, PlannerFileCache, PlannerUnavailable, resolveJudge, resolvePlanner, type ResolvedPlanner } from "../decide/planner.ts";
 import { JudgeUnavailable, judgeRound } from "../score/judge.ts";
 import { improveRound } from "../score/improve.ts";
@@ -215,8 +216,10 @@ export async function runPolishCommand(o: PolishOptions): Promise<PolishResult> 
   const cameras = new Map<number, CameraDefaults>();
   const baseMeta = pickMeta(readMeta(o.dir));
   let det: Determinism = { frames: 0, identical: 0, tolerance: 0.995 };
-  let builderCalls = 0;
-  let judgeCalls = 0;
+  // The take's one budget: this run's calls are what it spent since the run began, and the rest of the take's spend counts too.
+  const budget = new CallBudget(o.dir);
+  const spentBefore = { ...budget.byWorkflow };
+  const spentNow = (workflow: string) => (budget.byWorkflow[workflow] ?? 0) - (spentBefore[workflow] ?? 0);
   let renders = 0;
   // --set is part of round 0's settings, so refinements build on it and may change it like any other setting.
   const camOf = (set: string[]) => o.resolveCamera(o.dir, set, picked.theme);
@@ -273,8 +276,7 @@ export async function runPolishCommand(o: PolishOptions): Promise<PolishResult> 
       direction: { name: picked.name, theme: picked.theme }, camera, feedback, gaps, history, ruleChanges,
       score: seeded.card.score, items: seeded.card.items.map(({ label, score, note }) => ({ label, score, note })), target: polishState.target,
     });
-    const outcome = await askChunk({ ...state, round }, questions, builder, builderCache, { keepAnswers: true, ...(o.fetchImpl ? { fetchImpl: o.fetchImpl } : {}) });
-    if (outcome.decisionSource === "api") builderCalls++;
+    const outcome = await askChunk({ ...state, round }, questions, builder, builderCache, { keepAnswers: true, budget, workflow: "polish builder", ...(o.fetchImpl ? { fetchImpl: o.fetchImpl } : {}) });
     if (!outcome.answers) o.warn(`polish: the builder gave no answers (${outcome.failure ?? "no reason"}); measured changes only`);
     const mapped = mapBuilder(outcome.answers ?? {}, camera);
     Object.assign(camera, mapped.change);
@@ -294,7 +296,7 @@ export async function runPolishCommand(o: PolishOptions): Promise<PolishResult> 
   const judgeRoundFor = async (c: Candidate, round: number, feedback: Feedback[]): Promise<Critique> => {
     const camera = cameras.get(round)!;
     const facts = await measureFilm(c.film, round, det, { dir: o.dir, camera, frameDir: join(runDir, "frames") });
-    const card = await judgeRound(judge, facts, { cache: judgeCache, log: o.log, ...(o.fetchImpl ? { fetchImpl: o.fetchImpl } : {}) }, {
+    const card = await judgeRound(judge, facts, { cache: judgeCache, budget, log: o.log, ...(o.fetchImpl ? { fetchImpl: o.fetchImpl } : {}) }, {
       gaps: true,
       feedback: feedback.map((f) => ({ id: f.id, text: f.text })),
       context: {
@@ -304,7 +306,6 @@ export async function runPolishCommand(o: PolishOptions): Promise<PolishResult> 
         earlier_rounds: polishState.rounds.map((r) => ({ round: r.round, score: r.score, accepted: r.accepted })),
       },
     });
-    if (card.source === "api") judgeCalls++;
     measured.set(round, { facts, card, camera });
     // The picked look is structural: the theme is pinned and camera_path never leaves the picked one.
     const directionKept = camera.camera_path === o.resolveCamera(o.dir, picked.set, picked.theme).camera_path && pathOf(c.set) === pathOf(picked.set);
@@ -322,7 +323,7 @@ export async function runPolishCommand(o: PolishOptions): Promise<PolishResult> 
     polishState = s;
     json(join(runDir, "run.json.tmp"), {
       ...s, take, picked, judge: judge.label, builder: builder.label,
-      determinism: det, calls: { judge: judgeCalls, builder: builderCalls, renders },
+      determinism: det, calls: { judge: spentNow("judge"), builder: spentNow("polish builder"), renders },
       ...(board ? { board: { file: board, ...(lastKey ? { card: lastKey } : {}) } } : {}),
     });
     renameSync(join(runDir, "run.json.tmp"), join(runDir, "run.json"));
@@ -388,7 +389,7 @@ export async function runPolishCommand(o: PolishOptions): Promise<PolishResult> 
   }
   const scores = state.rounds.map((r) => r.score === null ? "error" : r.score.toFixed(1)).join(", ");
   o.log(`polish: scores by round ${scores}; stopped: ${state.stop_reason}`);
-  o.log(`polish: cost ${judgeCost(judgeCalls)}, ${builderCalls} builder call(s), ${renders} render(s) of the take`);
+  o.log(`polish: cost ${judgeCost(spentNow("judge"))}, ${spentNow("polish builder")} builder call(s), ${renders} render(s) of the take`);
   if (final && final.score! < 9) o.log(`polish: BELOW TARGET - the best accepted round scored ${final.score!.toFixed(1)}/10 against 9/10`);
   if (final) o.log(`polish: final round ${final.round} (${final.score!.toFixed(1)}/10) -> ${film}; run ${runDir}`);
   return { state, runDir, film };

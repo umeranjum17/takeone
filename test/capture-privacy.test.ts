@@ -1,4 +1,5 @@
 /** Capture privacy switches: titles dropped, cache hashes only, no coords in current_shot. */
+import { CallBudget } from "../src/decide/budget.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
@@ -101,7 +102,7 @@ test("PlannerFileCache stores hash and answers only, never request bodies; hits 
       }), { status: 200 });
     }) as typeof fetch;
     const planner = await resolvePlanner({ apiKeyOverride: KEY, configDir: join(dir, "config") });
-    const r1 = await askChunk(state, questions, planner, new PlannerFileCache(path), { fetchImpl: fake });
+    const r1 = await askChunk(state, questions, planner, new PlannerFileCache(path), { fetchImpl: fake, budget: new CallBudget(), workflow: "test" });
     assert.equal(r1.decisionSource, "api");
     const raw = readFileSync(path, "utf8");
     assert.ok(!raw.includes("request-body-marker"), "no request body on disk");
@@ -110,7 +111,7 @@ test("PlannerFileCache stores hash and answers only, never request bodies; hits 
     assert.equal(line.key.length, 64);
     assert.ok(line.answers !== undefined, "answers stored");
     // a reloaded cache hits without a network call and records zero tokens
-    const r2 = await askChunk(state, questions, planner, new PlannerFileCache(path), { fetchImpl: fake });
+    const r2 = await askChunk(state, questions, planner, new PlannerFileCache(path), { fetchImpl: fake, budget: new CallBudget(), workflow: "test" });
     assert.equal(r2.decisionSource, "cache");
     assert.equal(r2.inputTokens, undefined);
     // The hit returns the first run's answers, each marked as served from the cache.

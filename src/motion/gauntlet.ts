@@ -6,6 +6,7 @@ import { createHash } from "node:crypto";
 import { appendFileSync, copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { MemoryCache, type Question } from "@byokit/decide";
+import { CallBudget } from "../decide/budget.ts";
 import { askChunk, type ResolvedPlanner } from "../decide/planner.ts";
 import { runFfmpeg } from "../render/ffmpeg.ts";
 import { JudgeUnavailable, LEVELS, answerScore } from "../score/judge.ts";
@@ -55,7 +56,7 @@ async function stills(film: string, sb: Storyboard, dir: string, round: number):
 }
 
 /** Settled stills are kept for the person reading the ledger; the critic receives scene facts only. */
-export async function critique(planner: ResolvedPlanner, sb: Storyboard, film: string, dir: string, round: number): Promise<{ findings: Finding[] }> {
+export async function critique(planner: ResolvedPlanner, sb: Storyboard, film: string, dir: string, round: number, budget: CallBudget): Promise<{ findings: Finding[] }> {
   await stills(film, sb, dir, round);
   const questions = questionsFor(sb);
   const state = {
@@ -63,7 +64,7 @@ export async function critique(planner: ResolvedPlanner, sb: Storyboard, film: s
     scale: "Each item is an integer from 0 (absent or broken) to 10 (at the reference bar).",
     film: { seconds: sb.scenes.reduce((t, s) => Math.max(t, s.at! + s.d), 0), scenes: sb.scenes.length },
   };
-  const outcome = await askChunk(state, questions, planner, new MemoryCache(), { timeoutMs: CRITIC_TIMEOUT_MS, keepAnswers: true });
+  const outcome = await askChunk(state, questions, planner, new MemoryCache(), { timeoutMs: CRITIC_TIMEOUT_MS, keepAnswers: true, budget, workflow: "motion critic" });
   if (!outcome.answers) throw new JudgeUnavailable(outcome.failure ?? "the critic returned no answers");
   const findings = Object.keys(questions).map((id) => {
     const [, n, criterion] = /^s(\d+)-(\w+)$/.exec(id)!;
@@ -130,6 +131,7 @@ async function filmFor(dir: string, sb: Storyboard, raw: string): Promise<{ film
 
 export async function runGauntlet(o: GauntletOptions): Promise<GauntletResult> {
   const log = o.log ?? ((line: string) => console.log(line));
+  const budget = new CallBudget(o.dir);
   const bar = DEFAULT_BAR, maxRounds = o.maxRounds ?? DEFAULT_GAUNTLET_ROUNDS;
   validateMaxRounds(maxRounds);
   if (!o.planner.active) throw new JudgeUnavailable(`unavailable - ${o.planner.label} cannot serve: ${o.planner.refusal ?? "no sign-in"}. Sign in with \`claude\`, or save another route in judge.json`);
@@ -166,7 +168,7 @@ export async function runGauntlet(o: GauntletOptions): Promise<GauntletResult> {
       copyFileSync(film, copy);
       copyFileSync(storyboardFile, join(runKeep, `round-${n}.storyboard.json`));
       copyFileSync(join(o.dir, "render.json"), join(runKeep, `round-${n}.render.json`));
-      const { findings } = await critique(o.planner, sb, film, runKeep, n);
+      const { findings } = await critique(o.planner, sb, film, runKeep, n, budget);
       const score = mean(findings);
       const failing = findings.filter((f) => f.score < bar);
       rounds.push({ n, score, film: copy, storyboard: join(runKeep, `round-${n}.storyboard.json`), manifest: join(runKeep, `round-${n}.render.json`), findings });
