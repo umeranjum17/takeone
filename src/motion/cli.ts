@@ -561,7 +561,7 @@ export async function runMotion(argv: string[], takesDir: string, o: PlanOptions
       const plan = a.recipe === "bento" ? planBento : planEditorial;
       storyboard = await plan(a, id, o.warn ?? ((line: string) => console.error(line)));
     } else if (a.recipe === "glow") storyboard = await planGlow(a, id);
-    else if (a.recipe === "story") storyboard = planStory({ ...a, beats }, id, ASPECTS[a.aspect ?? "landscape"]);
+    else if (a.recipe === "story") storyboard = planStory({ ...a, beats }, id, ASPECTS[a.aspect ?? "landscape"], o.warn);
     else if (a.recipe === "halo") storyboard = planHalo({ ...a, beats }, id, ASPECTS[a.aspect ?? "landscape"]);
     else storyboard = await planMotion(a, id, o);
   }
