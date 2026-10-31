@@ -1,6 +1,7 @@
 // End-to-end planner test over a synthetic take: a tiny webm generated with
 // ffmpeg, plus events and frames.tsv written in code.
 
+import { CallBudget, MAX_CALLS_PER_TAKE } from "../src/decide/budget.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
@@ -501,7 +502,7 @@ test("a signed-in Claude CLI that refuses the ask stops the run instead of falli
     const planner = await resolvePlanner({ configDir, env, store: empty as unknown as Keystore });
     assert.equal(planner.config.backend, "claude-code", planner.refusal ?? "no discovered account");
     await assert.rejects(
-      askChunk({ secret: "x" }, { focus: { kind: "choice", options: { a: "Zone A" } } } as never, planner, new Map() as never, { timeoutMs: 5000 }),
+      askChunk({ secret: "x" }, { focus: { kind: "choice", options: { a: "Zone A" } } } as never, planner, new Map() as never, { timeoutMs: 5000, budget: new CallBudget(), workflow: "test" }),
       (e: unknown) => {
         assert.ok(e instanceof PlannerUnavailable, `not a stop: ${String(e)}`);
         // The stop names the CLI, its sign-in and the check the user can run.
@@ -527,7 +528,7 @@ test("a Claude CLI that answers in the wrong shape falls back per beat instead o
     const empty = { get: async () => null, set: async () => {}, delete: async () => {} };
     const planner = await resolvePlanner({ configDir, env, store: empty as unknown as Keystore });
     assert.equal(planner.config.backend, "claude-code", planner.refusal ?? "no discovered account");
-    const outcome = await askChunk({ secret: "x" }, { focus: { kind: "choice", options: { a: "Zone A" } } } as never, planner, new Map() as never, { timeoutMs: 5000 });
+    const outcome = await askChunk({ secret: "x" }, { focus: { kind: "choice", options: { a: "Zone A" } } } as never, planner, new Map() as never, { timeoutMs: 5000, budget: new CallBudget(), workflow: "test" });
     assert.equal(outcome.decisionSource, "failed");
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -1639,6 +1640,10 @@ test("a long take's film is planned in chunks under the cap and joined into one 
       return new Response(JSON.stringify({ answers, usage: { input_tokens: 800 } }), { status: 200 });
     }) as typeof fetch;
     const quiet = await fastTake(dir, { apiKey: KEY, maxTokens: 400000, fetchImpl: quietFetch, camera: { ...FAST, fps: 6 }, log: () => {}, warn: () => {} });
+    const spent = () => (JSON.parse(readFileSync(join(dir, "take.json"), "utf8")) as { calls: { used: number; by_workflow: Record<string, number> } }).calls;
+    // The measured cost of a take this long (400 s at the planner's densest, 30 beats a minute): far past a 15-call ceiling, well under the real one.
+    assert.equal(spent().used, 54, "every request the take sent is in its count");
+    assert.ok(spent().used > 15 && spent().used <= MAX_CALLS_PER_TAKE, "the long take completes under the cap");
     const beats = JSON.parse(readFileSync(join(dir, "analysis", "beats.json"), "utf8")) as { id: string }[];
     assert.ok(quietParts.length >= 3, `the text-less take was planned in ${quietParts.length} film call(s), so no middle chunk was exercised`);
     const quietPlanned = quietParts.flatMap((part) => part.state.timeline.map((line) => line.split(",")[0]!));
@@ -1685,6 +1690,7 @@ test("a long take's film is planned in chunks under the cap and joined into one 
       return new Response(JSON.stringify({ content: [{ type: "tool_use", name: "decisions", input }], usage: { input_tokens: 500, output_tokens: 80 } }), { status: 200 });
     }) as typeof fetch;
     const r = await fastTake(dir, { apiKey: KEY, maxTokens: 400000, fetchImpl, camera: { ...FAST, fps: 6 }, log: () => {}, warn: () => {} });
+    assert.ok(spent().used > 54 && spent().used <= MAX_CALLS_PER_TAKE, "planning the same take a second time still fits the take's cap");
     assert.ok(parts.length >= 3, `the take was planned in ${parts.length} film call(s)`);
     for (const part of parts) {
       // The planner's own estimate: the body it builds is this state and these questions.

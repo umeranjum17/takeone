@@ -5,6 +5,7 @@ import { resolveTheme } from "../themes.ts";
 import type { TakeMeta } from "../camera/types.ts";
 import { makeTake, type MakeOptions, type MakeResult } from "../make.ts";
 import { planCamera, renderTake } from "../render/render.ts";
+import { CallBudget } from "../decide/budget.ts";
 import { PlannerFileCache, resolveJudge, type ResolvedPlanner } from "../decide/planner.ts";
 import { JudgeUnavailable, judgeRound } from "./judge.ts";
 import { improveRound } from "./improve.ts";
@@ -70,6 +71,8 @@ export async function makeWithScore(o: ScoreRunOptions): Promise<ScoreRunResult>
     throw new JudgeUnavailable(`unavailable - ${judgePlanner.label} cannot serve: ${judgePlanner.refusal ?? "no sign-in"}. Sign in with \`claude\`, or save another route in judge.json`);
   }
   const cache = new PlannerFileCache(join(o.dir, "analysis", "score-cache.jsonl"), o.warn);
+  // One budget covers the planning, every build and every judge round, and what the take spent before.
+  const budget = new CallBudget(o.dir);
   let camera = o.make.camera ?? resolveTheme(readMeta(o.dir).theme);
   let det = { frames: 0, identical: 0, tolerance: 0.995 };
   let made: MakeResult | undefined;
@@ -83,7 +86,7 @@ export async function makeWithScore(o: ScoreRunOptions): Promise<ScoreRunResult>
     build: async (round) => {
       if (round === 1) {
         clearOverlays(o.dir);
-        made = await makeTake(o.dir, { ...o.make, camera, log: o.log, warn: o.warn });
+        made = await makeTake(o.dir, { ...o.make, camera, budget, log: o.log, warn: o.warn });
         if (!made.out) throw new Error("make produced no film");
         camera = o.resolveFilmCamera(o.dir, o.make.set ?? [], o.make.theme);
         builder = builderLabel(readMeta(o.dir));
@@ -108,7 +111,7 @@ export async function makeWithScore(o: ScoreRunOptions): Promise<ScoreRunResult>
       });
       return facts;
     },
-    judge: (facts) => judgeRound(judgePlanner, facts, { cache, log: o.log }),
+    judge: (facts) => judgeRound(judgePlanner, facts, { cache, budget, log: o.log }),
     improve: (card, facts) => {
       const meta = readMeta(o.dir);
       return improveRound(card, facts, {

@@ -379,6 +379,7 @@ export async function main(argv: string[]): Promise<number> {
         throw Error(`unknown format ${format}; use mp4, gif, webm or prores4444`);
       }
       const brand = brandFile ? readBrand(brandFile, "take") : undefined;
+      brand?.warnings.forEach(w => console.error(`takeone render: ${w}`));
       const camera = resolveCamera(dir, pairs, theme, true, brand?.overrides);
       const full = applyOverrides(dimensions, camera);
       // A preview is the same film, framed the same way, at a fraction of the render cost.
@@ -448,6 +449,7 @@ export async function main(argv: string[]): Promise<number> {
     console.error(`takeone make: ${e instanceof Error ? e.message : e}`);
     return 2;
   }
+  brand?.warnings.forEach(w => console.error(`takeone make: ${w}`));
   a.fonts = brand?.fonts;
   try {
     a.camera = resolveCamera(dir, a.set, a.theme, false, brand?.overrides);

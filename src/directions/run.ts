@@ -5,6 +5,7 @@ import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from
 import { join } from "node:path";
 import type { CameraDefaults } from "../camera/defaults.ts";
 import type { TakeMeta } from "../camera/types.ts";
+import { CallBudget } from "../decide/budget.ts";
 import { makeTake } from "../make.ts";
 import { renderTake } from "../render/render.ts";
 import { askChunk, PlannerFileCache, PlannerUnavailable, resolveJudge, resolvePlanner, type ResolvedPlanner } from "../decide/planner.ts";
@@ -27,6 +28,8 @@ export interface DirectionsOptions {
   planner?: ResolvedPlanner;
   judge?: ResolvedPlanner;
   fetchImpl?: typeof fetch;
+  /** The take's model-call budget: the prerequisite planning, the directions ask and every judge call spend from it. */
+  budget?: CallBudget;
   log: (line: string) => void;
   warn: (line: string) => void;
   resolveCamera: (dir: string, pairs: string[], theme?: string) => CameraDefaults;
@@ -106,6 +109,7 @@ export async function runDirections(o: DirectionsOptions): Promise<DirectionsFil
   if (sameModel(planner, judge)) throw new JudgeUnavailable(`the judge (${judge.label}) is the planner's own model; save a different model in judge.json so the judge stays independent`);
   // New directions replace the old pick: the take renders with its own look again until one is picked. A run that fails
   // puts the old pick back.
+  const budget = o.budget ?? new CallBudget(o.dir);
   const meta = readMeta(o.dir);
   const oldPick = meta.direction;
   if (oldPick) {
@@ -113,7 +117,7 @@ export async function runDirections(o: DirectionsOptions): Promise<DirectionsFil
     writeMeta(o.dir, meta);
   }
   try {
-    return await directionsFor(o, board, previous, planner, judge, outDir);
+    return await directionsFor(o, board, previous, planner, judge, outDir, budget);
   } catch (e) {
     if (oldPick) {
       const back = readMeta(o.dir);
@@ -125,11 +129,11 @@ export async function runDirections(o: DirectionsOptions): Promise<DirectionsFil
 }
 
 async function directionsFor(o: DirectionsOptions, board: string | undefined, previous: DirectionsFile["board"], planner: ResolvedPlanner,
-  judge: ResolvedPlanner, outDir: string): Promise<DirectionsFile> {
+  judge: ResolvedPlanner, outDir: string, budget: CallBudget): Promise<DirectionsFile> {
   if (o.replan || !existsSync(join(o.dir, "analysis", "beats.json"))) {
     o.log("directions: planning the take once (beats, camera decisions, captions); every direction renders this one plan");
     await makeTake(o.dir, {
-      replan: o.replan, set: o.set, render: false, log: o.log, warn: o.warn, resolvedPlanner: planner,
+      replan: o.replan, set: o.set, render: false, budget, log: o.log, warn: o.warn, resolvedPlanner: planner,
       camera: o.resolveCamera(o.dir, o.set),
       ...(o.goal === undefined ? {} : { goal: o.goal }),
       ...(o.style === undefined ? {} : { style: o.style }),
@@ -148,15 +152,14 @@ async function directionsFor(o: DirectionsOptions, board: string | undefined, pr
   };
   const { state, questions } = directionsRequest(ctx, o.count);
   const plannerCache = new PlannerFileCache(join(o.dir, "analysis", "directions-cache.jsonl"), o.warn);
-  const outcome = await askChunk(state, questions, planner, plannerCache, { keepAnswers: true, ...(o.fetchImpl ? { fetchImpl: o.fetchImpl } : {}) });
-  const plannerCalls = outcome.decisionSource === "api" ? 1 : 0;
+  const outcome = await askChunk(state, questions, planner, plannerCache, { keepAnswers: true, budget, workflow: "directions planner", ...(o.fetchImpl ? { fetchImpl: o.fetchImpl } : {}) });
+  const calls = (workflow: string) => budget.byWorkflow[workflow] ?? 0;
   if (!outcome.answers) o.warn(`directions: the planner gave no answers (${outcome.failure ?? "no reason"}); using the fixed table`);
   const directions: Direction[] = mapDirections(outcome.answers ?? {}, o.count);
 
   mkdirSync(outDir, { recursive: true });
   const cache = new PlannerFileCache(join(o.dir, "analysis", "judge-cache.jsonl"), o.warn);
   let det: Determinism = { frames: 0, identical: 0, tolerance: 0.995 };
-  let judgeCalls = 0;
   const judged: JudgedDirection[] = [];
   for (const d of directions) {
     o.log(`directions: ${letter(d.id)} - ${d.name} (${d.why})`);
@@ -171,18 +174,17 @@ async function directionsFor(o: DirectionsOptions, board: string | undefined, pr
       o.log(`directions: determinism ${det.identical}/${det.frames} decoded frames identical on a second render of ${letter(d.id)}`);
     }
     const facts = await measureFilm(film, 0, det, { dir: o.dir, camera, frameDir: join(outDir, `frames-${d.id}`) });
-    const card = await judgeRound(judge, facts, { cache, log: o.log, ...(o.fetchImpl ? { fetchImpl: o.fetchImpl } : {}) }, {
+    const card = await judgeRound(judge, facts, { cache, budget, log: o.log, ...(o.fetchImpl ? { fetchImpl: o.fetchImpl } : {}) }, {
       gaps: true,
       context: { option: { letter: letter(d.id), direction: d.name, why: d.why } },
     });
-    if (card.source === "api") judgeCalls++;
     o.log(`directions: ${letter(d.id)} scored ${card.score.toFixed(1)}/10 by ${judge.label}`);
     judged.push({ ...d, film: `directions/${d.id}.mp4`, score: card.score, items: card.items, gaps: card.gaps });
   }
   const recommended = judged.reduce((best, d) => d.score > best.score ? d : best, judged[0]!).id;
   const file: DirectionsFile = {
     version: 1, take: takeId(o.dir), directions: judged, recommended, planner: planner.label, judge: judge.label,
-    determinism: { ...det, measuredOn: judged[0]!.id }, calls: { planner: plannerCalls, judge: judgeCalls }, set: o.set,
+    determinism: { ...det, measuredOn: judged[0]!.id }, calls: { planner: calls("directions planner"), judge: calls("judge") }, set: o.set,
   };
   // The report is written before the card goes up: the films are already new, so a failed post leaves a report that
   // names them (pick by letter still works) and no card that shows the old ones.
@@ -203,7 +205,7 @@ async function directionsFor(o: DirectionsOptions, board: string | undefined, pr
           ...(d.id === recommended ? { pill: "Recommended cut" } : {}),
           status: ["Option judged once", `Picked by ${d.by.theme === "ai" ? "the planner" : "rule"}: ${d.why}`],
           items: d.items.map((i) => ({ label: i.label, score: i.score, note: i.note })),
-          feedback: [], changes: [], cost: `${judgeCost(judgeCalls)} for ${judged.length} options; ${plannerCalls} planner call`,
+          feedback: [], changes: [], cost: `${judgeCost(calls("judge"))} for ${judged.length} options; ${calls("directions planner")} planner call`,
         },
       })),
     }, o.log);

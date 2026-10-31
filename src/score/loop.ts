@@ -1,3 +1,4 @@
+import { CallBudgetExceeded } from "../decide/budget.ts";
 import type { MeasuredFacts, ScoreCard } from "./rubric.ts";
 
 export type StopReason = "target" | "no-gain" | "max-rounds" | "no-improvement" | "judge-unavailable";
@@ -80,6 +81,8 @@ export async function runScoreLoop(hooks: LoopHooks): Promise<LoopResult> {
     try {
       card = await hooks.judge(measured);
     } catch (e) {
+      // A spent budget ends the run; it is not a judge that could not answer.
+      if (e instanceof CallBudgetExceeded) throw e;
       judgeError = e instanceof Error ? e.message : String(e);
       stop = "judge-unavailable";
       logLine(hooks, `score: judge unavailable in round ${round}: ${judgeError}`);

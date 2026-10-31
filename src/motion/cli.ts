@@ -15,6 +15,7 @@ import { measureReference, missedBeats, referenceCuts } from "./reference.ts";
 import { MAX_DURATION_S, minSceneDuration, readingFloor, validateStoryboard } from "./storyboard.ts";
 import { planBento } from "./bento.ts";
 import { planEditorial } from "./editorial.ts";
+import { CallBudget } from "../decide/budget.ts";
 import { planHalo } from "./halo.ts";
 import { FILM_USAGE, newTakeDir, runFilm } from "./film.ts";
 import { planGlow } from "./glow.ts";
@@ -547,6 +548,8 @@ export async function runMotion(argv: string[], takesDir: string, o: PlanOptions
     if ((a.recipe !== "halo" && a.recipe !== "story") || a.storyboard) throw new Error("--reference retimes --recipe halo, --recipe story and film; every other plan keeps its own tempo");
     beats = await referenceCuts(a.reference, join(takeDirPath(), "reference"), log);
   }
+  // The take's budget: a motion take opened with --out onto a take that has spent calls carries on from them.
+  const budget = new CallBudget(a.out === undefined ? undefined : resolve(a.out));
   let storyboard: unknown;
   let id: string;
   if (a.storyboard) {
@@ -559,9 +562,9 @@ export async function runMotion(argv: string[], takesDir: string, o: PlanOptions
     if (a.recipe === "editorial" || a.recipe === "bento") {
       if (a.noAi) throw new Error(`--recipe ${a.recipe} is planned by the AI engine; there is no --no-ai plan for it`);
       const plan = a.recipe === "bento" ? planBento : planEditorial;
-      storyboard = await plan(a, id, o.warn ?? ((line: string) => console.error(line)));
+      storyboard = await plan(a, id, o.warn ?? ((line: string) => console.error(line)), budget);
     } else if (a.recipe === "glow") storyboard = await planGlow(a, id);
-    else if (a.recipe === "story") storyboard = planStory({ ...a, beats }, id, ASPECTS[a.aspect ?? "landscape"]);
+    else if (a.recipe === "story") storyboard = planStory({ ...a, beats }, id, ASPECTS[a.aspect ?? "landscape"], o.warn);
     else if (a.recipe === "halo") storyboard = planHalo({ ...a, beats }, id, ASPECTS[a.aspect ?? "landscape"]);
     else storyboard = await planMotion(a, id, o);
   }
@@ -571,7 +574,7 @@ export async function runMotion(argv: string[], takesDir: string, o: PlanOptions
   const dir = takeDirPath();
   writeFileSync(join(dir, "storyboard.json"), JSON.stringify(sb, null, 2) + "\n");
   writeFileSync(join(dir, "take.json"), JSON.stringify({ id: basename(dir), theme: sb.theme.name,
-    motion: { pattern: sb.scenes.map((s) => s.pattern).join("+"), storyboard: "storyboard.json" } }, null, 2) + "\n");
+    motion: { pattern: sb.scenes.map((s) => s.pattern).join("+"), storyboard: "storyboard.json" }, calls: budget.summary() }, null, 2) + "\n");
   if (a.planOnly) { console.log(join(dir, "storyboard.json")); return 0; }
   const { out, manifest } = await renderMotion(dir, { engine: a.engine, alpha: a.alpha });
   console.error(`motion: ${manifest.frames} frames ${manifest.width}x${manifest.height}@${manifest.fps} on ${manifest.workers} workers in ${manifest.render_s} s`);

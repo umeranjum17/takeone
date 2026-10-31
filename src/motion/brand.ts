@@ -22,8 +22,14 @@ export interface Brand {
   fonts?: string[];
   /** Absolute path of the logo image, when the file names one. */
   logo?: string;
+  /** Pairs the file set that fell below the legibility floor, each said with its measured ratio and the colour used instead. */
+  warnings: string[];
   file: string;
 }
+
+/** The legibility floors (WCAG AA): type reads at 4.5:1 or more on the stage it is drawn on, a lit accent at 3:1. `readBrand` holds every
+ * brand-dressed recipe to them, and `planStory` checks the finished theme against them before a frame is drawn. */
+export const TEXT_FLOOR = 4.5, ACCENT_FLOOR = 3;
 
 const hexOf = (v: unknown, path: string): string => {
   const m = typeof v === "string" ? /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(v.trim()) : null;
@@ -40,6 +46,26 @@ export function luminance(hex: string): number {
 export function contrast(a: string, b: string): number {
   const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
   return (hi! + 0.05) / (lo! + 0.05);
+}
+
+const channels = (hex: string) => [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16));
+/** `p` percent of `a` over `b`, as #rrggbb. */
+export function mixHex(a: string, p: number, b: string): string {
+  const [x, y] = [channels(a), channels(b)];
+  return "#" + x.map((v, i) => Math.round((v * p + y[i]! * (100 - p)) / 100).toString(16).padStart(2, "0")).join("");
+}
+/** The colour nearest `hex` that reads at `min` or more on every surface: its own shade pushed toward black on a light surface
+ * (white on a dark one) by the least amount that passes. */
+export function nearestPassing(hex: string, surfaces: string[], min: number): string {
+  let out = hex;
+  for (const bg of surfaces) {
+    if (contrast(out, bg) >= min) continue;
+    const to = luminance(bg) > 0.179 ? "#000000" : "#ffffff";
+    let [lo, hi] = [0, 100];
+    while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (contrast(mixHex(to, mid, out), bg) >= min) hi = mid; else lo = mid; }
+    out = mixHex(to, hi, out);
+  }
+  return out;
 }
 
 /** The YAML subset a DESIGN.md frontmatter uses: `key: value` and one level of nested `  key: value`. */
@@ -162,8 +188,8 @@ function logoPath(v: unknown, dir: string): string | undefined {
 const TAKE_KEYS = ["background", "background_to", "accent", "text", "card", "border_color", "shadow_color", "display_font", "caption_font"];
 
 /** Read `brand.json` (colors, typography, logo, name) or a DESIGN.md (frontmatter colors, Typography lines) into render overrides.
- * `stage` picks the consumer: glow's dark stage, or a take render (which takes any background lightness and only its own tokens). */
-export function readBrand(file: string, stage: "glow" | "take" = "glow"): Brand {
+ * `stage` picks the consumer: glow's dark stage, a story ad, or a take render (the last two take any background lightness; a take keeps only its own tokens). */
+export function readBrand(file: string, stage: "glow" | "story" | "take" = "glow"): Brand {
   const path = resolve(file);
   if (!existsSync(path) || !statSync(path).isFile()) throw new Error(`--brand ${file}: no such file`);
   const text = readFileSync(path, "utf8"), dir = dirname(path);
@@ -238,11 +264,31 @@ export function readBrand(file: string, stage: "glow" | "take" = "glow"): Brand 
     files.push(fontFile);
   }
 
-  // Glow is a dark-stage recipe: white type and a lit accent on the background. Say so instead of rendering unreadable.
-  const bg = overrides["background"] ?? "#030719";
-  if (stage === "glow" && c.background && contrast(bg, "#ffffff") < 7) throw new Error(`brand background ${bg} is too light for the glow recipe's dark stage (contrast against white ${contrast(bg, "#ffffff").toFixed(1)}:1, needs 7:1 or more); give it a darker background colour`);
-  if (c.foreground && contrast(c.foreground, bg) < 4.5) throw new Error(`brand foreground ${c.foreground} on background ${bg} reads at ${contrast(c.foreground, bg).toFixed(1)}:1; the type needs 4.5:1`);
-  if (c.accent && contrast(c.accent, bg) < 3) throw new Error(`brand accent ${c.accent} on background ${bg} reads at ${contrast(c.accent, bg).toFixed(1)}:1; the lit controls need 3:1`);
+  // Each recipe is held to the contrast it draws. Glow sets white type on its dark stage, so its background must hold white (7:1);
+  // every other recipe draws the brand's own foreground on the brand's own background, whatever its lightness.
+  const bg = overrides["background"] ?? "#030719", warnings: string[] = [];
+  if (stage === "glow") {
+    if (c.background && contrast(bg, "#ffffff") < 7) throw new Error(`brand background ${bg} is too light for the glow recipe's dark stage (contrast against white ${contrast(bg, "#ffffff").toFixed(1)}:1, needs 7:1 or more); give it a darker background colour`);
+    if (c.foreground && contrast(c.foreground, bg) < TEXT_FLOOR) throw new Error(`brand foreground ${c.foreground} on background ${bg} reads at ${contrast(c.foreground, bg).toFixed(1)}:1; the type needs 4.5:1`);
+    if (c.accent && contrast(c.accent, bg) < ACCENT_FLOOR) throw new Error(`brand accent ${c.accent} on background ${bg} reads at ${contrast(c.accent, bg).toFixed(1)}:1; the lit controls need 3:1`);
+  } else {
+    // A light page leaves the theme's pale type invisible: ink the roles the file left out from the page itself.
+    if (c.background && contrast(bg, "#ffffff") < TEXT_FLOOR) {
+      const ink = contrast(bg, "#0b0d12") >= TEXT_FLOOR ? "#0b0d12" : "#000000";
+      for (const [role, keys, v] of [["foreground", ["text", "ink"], ink], ["surface", ["card"], mixHex(ink, 5, bg)], ["muted", ["muted"], mixHex(ink, 62, bg)], ["border", ["border_color", "line"], mixHex(ink, 16, bg)]] as const) {
+        if (!(role in c)) for (const k of keys) overrides[k] = v;
+      }
+    }
+    // A pair that fails is not refused: it is said with its measured ratio and drawn in the nearest colour that passes.
+    const surfaces = [bg, ...(overrides["card"] ? [overrides["card"]] : [])];
+    for (const [label, keys, min, on] of [["foreground", ["text", "ink"], TEXT_FLOOR, surfaces], ["muted", ["muted"], TEXT_FLOOR, [bg]], ["accent", ["accent"], ACCENT_FLOOR, [bg]]] as const) {
+      const have = overrides[keys[0]], fixed = have && nearestPassing(have, [...on], min);
+      if (!have || fixed === have) continue;
+      const worst = (v: string) => on.reduce((w, s) => (contrast(v, s) < contrast(v, w) ? s : w), on[0]);
+      warnings.push(`brand ${label} ${have} on ${worst(have)} reads at ${contrast(have, worst(have)).toFixed(1)}:1, below the ${min}:1 floor; drawn as ${fixed} (${contrast(fixed!, worst(fixed!)).toFixed(1)}:1) instead`);
+      for (const k of keys) overrides[k] = fixed!;
+    }
+  }
 
   const mark = logoPath(logo, dir);
   const label = typeof name === "string" && name.trim() ? name.trim() : undefined;
@@ -252,5 +298,5 @@ export function readBrand(file: string, stage: "glow" | "take" = "glow"): Brand 
   // invisible: the brand's own colour is the stage, not the default theme's four mesh pools.
   if (stage === "take" && kept["background"]) kept["bg_stops"] = "";
   if (stage === "take" && !Object.keys(kept).length) throw new Error(`--brand ${file}: nothing in it dresses a take render; a take takes a background, surface, foreground, border, accent and display/body typeface`);
-  return { ...(label ? { name: label } : {}), overrides: kept, ...(files.length ? { fonts: [...new Set(files)] } : {}), ...(mark ? { logo: mark } : {}), file: path };
+  return { ...(label ? { name: label } : {}), overrides: kept, warnings, ...(files.length ? { fonts: [...new Set(files)] } : {}), ...(mark ? { logo: mark } : {}), file: path };
 }

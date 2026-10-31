@@ -148,7 +148,8 @@ export async function brandFromUrl(rawUrl: string, outDir: string): Promise<Bran
     const brandFile = join(out, "brand.json");
     writeFileSync(brandFile, JSON.stringify(brand, null, 2) + "\n");
     // Say now whether the draft can render, so the person is not surprised later.
-    try { readBrand(brandFile); } catch (e) { confirm.push(`render check: ${(e as Error).message}`); brand.draft.confirm = confirm; writeFileSync(brandFile, JSON.stringify(brand, null, 2) + "\n"); }
+    const checks = (() => { try { return readBrand(brandFile, "story").warnings; } catch (e) { return [(e as Error).message]; } })();
+    if (checks.length) { confirm.push(...checks.map(w => `render check: ${w}`)); brand.draft.confirm = confirm; writeFileSync(brandFile, JSON.stringify(brand, null, 2) + "\n"); }
     const html = join(out, ".contact.html");
     writeFileSync(html, contactHtml({ url: url.href, shot, bg, fg, ...(accent ? { accent } : {}), ...(logo ? { logo: join(out, logo.file) } : {}), fonts, h1: facts.h1, confirm }));
     await navigate(b, pathToFileURL(html).href);
