@@ -60,7 +60,7 @@ export function planHalo(a: GlowArgs, id: string, outputSize: readonly [number, 
   const floats = scenes.filter(s => s.pattern === "halo-float"), seen = new Set<string>(), backdrop: string[] = [];
   for (const pass of [0, 1]) for (const f of floats) for (const id of pass ? f.items!.slice(1) : f.items!.slice(0, 1)) if (backdrop.length < 4 && !seen.has(id)) { seen.add(id); backdrop.push(id); }
   if (lines.length) scenes.push(fit({ pattern: "halo-lines", d: 0, lines, ...(backdrop.length ? { items: backdrop } : {}) }, 1));
-  scenes.push(fit({ pattern: "halo-end", d: 0, mark, logo: a.logo ?? "TakeOne", ...(a.url ? { credit: a.url } : {}) }, 2));
+  scenes.push(fit({ pattern: "halo-end", d: 0, mark, logo: a.logo ?? "TakeOne", ...(backdrop.length ? { items: backdrop.slice(0, 4) } : {}), ...(a.url ? { credit: a.url } : {}) }, 2));
   // --reference: the reading floors above are the hard minimum; a measured beat of the reference is where each cut lands.
   if (a.beats?.length) beatTimings(scenes.map(s => s.d), a.beats).forEach((d, i) => { scenes[i]!.d = d; });
   // The kinetic lines pair a light lead-in with a heavy last line: a theme whose two faces are one font gets Geist for the light one.

@@ -168,11 +168,15 @@ const arrange = (kind, sizes, W, H, u) => {
     return { w, h: hh, z: z(sc), radius: radiusOf(w, hh, aspect[i]) };
   });
   if (kind === "stack") {
-    const fit = Math.min(1, H * 0.8 / (items.reduce((m, p) => m + p.h * 0.88, 0) + items.at(-1).h * 0.12));
+    // Rows lift over the row above by a sliver of the SHORTER of the two, so a tall middle row cannot swallow the top
+    // of the row below it: the band stays inside the plate edge and every row of the list reads whole.
+    const lift = (a, b) => 0.04 * Math.min(a, b);
+    const total0 = items.reduce((m, p) => m + p.h, 0) - items.slice(1).reduce((m, p, i) => m + lift(items[i].h, p.h), 0);
+    const fit = Math.min(1, (H * 0.8) / total0);
     const fitted = items.map((p) => ({ ...p, w: p.w * fit, h: p.h * fit }));
-    const step = fitted.map((p) => p.h * 0.88), total = step.reduce((m, x) => m + x, 0) + fitted.at(-1).h * 0.12;
-    let y = (H - total) / 2;
-    return fitted.map((p, i) => { const c = { ...p, cx: W / 2 + (i % 2 ? 1 : -1) * W * 0.05, cy: y + p.h / 2 }; y += step[i]; return c; });
+    const lifts = fitted.map((p, i) => i ? lift(fitted[i - 1].h, p.h) : 0);
+    let y = (H - (fitted.reduce((m, p) => m + p.h, 0) - lifts.reduce((m, x) => m + x, 0))) / 2;
+    return fitted.map((p, i) => { y -= lifts[i]; const c = { ...p, cx: W / 2 + (i % 2 ? 1 : -1) * W * 0.05, cy: y + p.h / 2 }; y += p.h; return c; });
   }
   const overlap = kind === "chips" ? 0.06 : 0.05, fit = Math.min(1, (W * 0.8) / (items.reduce((m, p) => m + p.w * (1 - overlap), 0) + items.at(-1).w * overlap), (H * 0.68) / Math.max(...items.map((p) => p.h)));
   let x = 0;
@@ -201,8 +205,9 @@ PATTERNS["halo-float"] = (layer, s, ctx) => {
     const el = piece(scr[i].url, w, hh, radius, z, u);
     el.style.left = `${cx - w / 2}px`; el.style.top = `${cy - hh / 2}px`; el.style.zIndex = String(order + 1);
     group.append(el);
-    // Entrance: a short tilt-up and rise, the near ones travelling further and arriving last.
-    const at = 80 + order * 90, rise = u * (0.05 + 0.06 * z);
+    // Entrance: a short tilt-up and rise, the near ones travelling further and arriving last. A stack rises in place
+    // instead: its rows are stacked shoulder to shoulder, so a long travel would carry the near row across the one below it.
+    const at = 80 + order * 90, rise = u * (s.kind === "stack" ? 0.015 : 0.05 + 0.06 * z);
     const pose = (a, tilt, y, sc) => ({ opacity: a, transform: `perspective(${u * 1.6}px) rotateX(${tilt}deg) translateY(${y}px) scale(${sc})` });
     const from = pose(0, 16, rise, 0.88), rest = pose(1, 0, 0, 1);
     K(el, [[0, from], [at, from, EXPO], [at + 600, rest], [end - 160, rest, "ease-in"], [end, pose(0, -4, -u * 0.015, 0.98)]]);
@@ -261,6 +266,16 @@ PATTERNS["halo-lines"] = (layer, s, ctx) => {
 PATTERNS["halo-end"] = (layer, s, ctx) => {
   const { W, H } = ctx, u = Math.min(W, H), mark = ctx.screen(s.mark);
   glowStage(layer, W, H, s.d);
+  // The film's last frame keeps the product in view: the earlier pieces, small and dim, at the same corners the lines
+  // left them in, so they carry across the cut and lie still: the closing hold gains content, not a second gesture.
+  (s.items ?? []).slice(0, BACKDROP.length).forEach((id, i) => {
+    const c = ctx.screen(id), [fx, fy, sc, z] = BACKDROP[i], a = c.width / c.height;
+    const w = Math.min(a >= 1.18 ? W * 0.19 * sc : u * 0.22 * sc * a, W * 0.21), hh = w / a;
+    const circle = a > 0.85 && a < 1.18, radius = circle || a > 2 ? Math.min(w, hh) / 2 : Math.min(w, hh) * 0.2;
+    const el = piece(c.url, w, hh, radius, z, u);
+    el.style.left = `${W * fx - w / 2}px`; el.style.top = `${H * fy - hh / 2}px`; el.style.zIndex = "0"; el.style.opacity = "0.7";
+    layer.append(el); el.dataset.moves = "";
+  });
   const size = Math.min(W * 0.075, u * 0.14), d = size * 0.95;
   const group = h(`<div style="position:absolute;left:0;right:0;top:50%;transform:translateY(-50%);display:flex;align-items:center;justify-content:center;gap:${size * 0.28}px"></div>`);
   const logo = markEl(mark.url, d); logo.style.position = "relative";

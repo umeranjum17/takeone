@@ -75,6 +75,40 @@ test("halo kinetic lines reject blank text in every position", () => {
   }
 });
 
+test("halo end card keeps the earlier pieces in view, so the closing hold is never an empty field", () => {
+  const sb = validateStoryboard(planHalo({ inputs: [BOARD], regions, pitch: "Your crew. No chatbot. Asks first." }, "halo-end-pieces"));
+  const end = sb.scenes.at(-1)!, lines = sb.scenes.find(s => s.pattern === "halo-lines")!;
+  assert.equal(end.pattern, "halo-end");
+  assert.equal(end.items?.length, 4, "the end card carries the same four pieces the kinetic lines left on screen");
+  assert.deepEqual(end.items, lines.items, "so the cut to the end card does not empty the frame");
+});
+
+test("halo stack overlaps a sliver of the next row, never a row's content", { timeout: 120_000 }, async () => {
+  // Three rows of one list: the middle row is the tall one, and it used to swallow the top quarter of the row below it.
+  const stack = ["0,0,400,300:logo@S1", "100,100,700,180:stack:Ask@S1", "100,320,700,180:stack@S1", "100,540,700,160:stack@S1", "800,100,500,400:card@S1", "100,900,300,100:chips@S1"];
+  const sb = validateStoryboard(planHalo({ inputs: [BOARD], regions: stack, pitch: "Your crew." }, "halo-stack"));
+  const dir = mkdtempSync(join(tmpdir(), "takeone-halo-stack-"));
+  try {
+    await ingest(dir, sb);
+    await withPage(writePage(dir, sb).html, 1920, 1080, async (b) => {
+      const shots = await b.evaluate<{ at: number; rows: { top: number; bottom: number; h: number }[] }[]>(`(()=>{
+        const l=document.querySelector('[data-pattern="halo-float"]'),start=Number(l.dataset.start),d=Number(l.dataset.duration);
+        return [0.3,0.6,0.9].map((f)=>{window.__apply((start+f*d)*1000);
+          return {at:f,rows:[...l.querySelectorAll('[data-moves]')].map(e=>{const r=e.getBoundingClientRect();return {top:r.top,bottom:r.bottom,h:r.height}}).sort((a,b)=>a.top-b.top)};});
+      })()`);
+      // The band is a sliver of the shorter row all the way through the beat: a quarter of the third row used to sit behind the
+      // tall middle one, and the entrance carried the middle row across it, so both the settled and the arriving frame are checked.
+      for (const { at, rows } of shots) {
+        assert.equal(rows.length, 3, `${at}: three rows of the list`);
+        for (let i = 1; i < rows.length; i++) {
+          const covered = rows[i - 1]!.bottom - rows[i]!.top, share = covered / Math.min(rows[i - 1]!.h, rows[i]!.h);
+          assert.ok(share <= 0.12, `${at}: row ${i + 1} is covered by ${covered.toFixed(1)} px, ${(share * 100).toFixed(0)}% of its height`);
+        }
+      }
+    });
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
 test("halo kinetic lines type the last line on a frame at a time, never a bare caret, over a static grain", { timeout: 120_000 }, async () => {
   const sb = validateStoryboard(planHalo({ inputs: [BOARD], regions, pitch: "Your crew. No chatbot. Asks first." }, "halo-lines-page"));
   const dir = mkdtempSync(join(tmpdir(), "takeone-halo-lines-"));

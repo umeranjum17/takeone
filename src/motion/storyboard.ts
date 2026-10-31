@@ -273,7 +273,13 @@ function scene(raw: unknown, path: string): Scene {
   if (s.pattern === "halo-open" || s.pattern === "halo-end") {
     if (!ID.test(String(raw["mark"]))) throw new StoryboardError(`${path}.mark`, `${s.pattern} needs the logo crop id as mark`);
     s.mark = String(raw["mark"]);
-    if (s.pattern === "halo-end") { s.logo ??= "TakeOne"; if (raw["credit"] !== undefined) s.credit = str(raw["credit"], `${path}.credit`, 80); }
+    if (s.pattern === "halo-end") { s.logo ??= "TakeOne"; if (raw["credit"] !== undefined) s.credit = str(raw["credit"], `${path}.credit`, 80);
+      const items = raw["items"];
+      if (items !== undefined) {
+        if (!Array.isArray(items) || items.length > 4 || items.some(c => !ID.test(String(c)))) throw new StoryboardError(`${path}.items`, "halo-end keeps up to 4 crop ids in view");
+        s.items = items.map(String);
+      }
+    }
     else if (!s.title?.trim()) throw new StoryboardError(`${path}.title`, "halo-open needs a tagline as title");
   }
   if (s.pattern === "halo-float") {
