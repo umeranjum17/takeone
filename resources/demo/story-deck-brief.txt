@@ -1,0 +1,3 @@
+deck[Onboarding]: Four steps. / One workspace. | Welcome flow - Design; Checklist - First-day tasks; Voice note - Welcome audio; Roles - Who sees what
+chips[Setup]: Set up the team / the way you'd say it. | Invite the crew; Assign the first week; Share the handbook; Pick a start date
+stats[One board]: Less chasing. / More doing. | 9 crew; 4 steps; 0 missed

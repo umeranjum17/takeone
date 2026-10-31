@@ -108,6 +108,7 @@ function sceneRevealDuration(s: Scene): number {
 /** story surface timing (story.js), in seconds from the cut: chips land one per 140 ms, the chat types 35 ms a character then answers a line per 450 ms, cards step 160 ms, stat counters run 1.3 s. */
 export function storySettle(s: Scene): number {
   const n = s.tree?.length ?? 0;
+  if (s.kind === "deck") return (1300 + 1200 * (n - 2) + 480 + 1000) / 1000; // the hand turns a card per 1.2 s from 1.3 s, then the last command types out
   if (s.kind === "sheet") return 1.6 + .1 * n; // rows rise a step apart, then the first row is ringed
   if (s.kind === "fill") return 1 + .9 * (n - 1); // each row fills the card for 0.9 s
   if (s.kind === "grid") return 3.2; // the counter runs 2.6 s from 0.3 s
@@ -297,8 +298,8 @@ function scene(raw: unknown, path: string): Scene {
     }
   }
   if (s.pattern === "story") {
-    const [lo, hi] = ({ chips: [3, 8], phone: [2, 5], cards: [2, 5], stats: [2, 4], sheet: [3, 9], fill: [3, 5], grid: [3, 9] } as Record<string, number[]>)[String(s.kind)] ?? [];
-    if (lo === undefined) throw new StoryboardError(`${path}.kind`, "story kind is chips, phone, cards, stats, sheet, fill or grid");
+    const [lo, hi] = ({ chips: [3, 8], phone: [2, 5], cards: [2, 5], stats: [2, 4], deck: [3, 5], sheet: [3, 9], fill: [3, 5], grid: [3, 9] } as Record<string, number[]>)[String(s.kind)] ?? [];
+    if (lo === undefined) throw new StoryboardError(`${path}.kind`, "story kind is chips, phone, cards, stats, deck, sheet, fill or grid");
     const tree = raw["tree"];
     if (!s.title?.trim() || !Array.isArray(tree) || tree.length < lo! || tree.length > hi!) throw new StoryboardError(path, `story ${s.kind} needs a title and ${lo} to ${hi} tree rows`);
     s.tree = tree.map((t, j) => str(t, `${path}.tree[${j}]`, 80));
