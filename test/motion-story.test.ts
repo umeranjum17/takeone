@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { writePage } from "../src/motion/motion.ts";
@@ -76,4 +76,42 @@ test("story stacks the headline above the product on a portrait or square frame,
       });
     } finally { rmSync(dir, { recursive: true, force: true }); }
   }
+});
+
+const SHEET = join(tmpdir(), `takeone-story-sheet-${process.pid}.csv`);
+const SHEET_BRIEF = ["sheet[customers.csv]: One spreadsheet. / Every row a customer.", "fill[template]: One template. / Every field filled.", "grid[films]: Five hundred films. / One command."].map(l => `${l} | ${SHEET}`).join("\n");
+const sheetCsv = (rows: number) => ["id,name,company,plan,accent,notes", ...Array.from({ length: rows }, (_, i) => `c${i},${i ? "Bartholomew Oyelaran-Whitfield" : "Ada Okafor"},${i ? "Northwind Freight & Logistics" : "Lumen Labs"},Pro,#d9673f,x`)].join("\n");
+
+test("story draws a spreadsheet beat from a CSV's own rows, the id column left out and long cells cut", () => {
+  writeFileSync(SHEET, sheetCsv(500));
+  try {
+    const sb = validateStoryboard(planStory({ pitch: SHEET_BRIEF, logo: "Tidewater", brand: BRAND }, "sheet-test", [1080, 1350]));
+    assert.deepEqual(sb.scenes.map(s => s.kind ?? s.pattern), ["sheet", "fill", "grid", "end-card"]);
+    assert.deepEqual(sb.scenes.map(s => s.tree?.length), [9, 5, 9, undefined], "the header and the first rows, four for the fill");
+    assert.equal(sb.scenes[0]!.tree![0], "name | company | plan | accent", "the id column names a folder, it is not drawn, and only four columns are");
+    assert.equal(sb.scenes[0]!.tree![2], "Bartholomew Oyel… | Northwind Freigh… | Pro | #d9673f");
+    assert.deepEqual([sb.scenes[0]!.text, sb.scenes[0]!.note], ["500", SHEET.split("/").pop()], "the whole sheet's row count and file name");
+    assert.deepEqual(sb.output && [sb.output.out_w, sb.output.out_h], [1080, 1350]);
+    for (const s of sb.scenes.slice(0, 3)) assert.ok(s.d >= storySettle(s) + .8 - 1e-9, "the product settles, then holds");
+  } finally { rmSync(SHEET, { force: true }); }
+  assert.throws(() => planStory({ pitch: "sheet: A / B | no-such.csv\ngrid: C / D | no-such.csv", logo: "T" }, "x"), /no-such\.csv/);
+});
+
+test("the spreadsheet beats keep their text and product inside a 4:5 frame", { timeout: 120_000 }, async () => {
+  writeFileSync(SHEET, sheetCsv(500));
+  const [w, h] = [1080, 1350], dir = mkdtempSync(join(tmpdir(), "takeone-story-sheet-"));
+  try {
+    const sb = validateStoryboard(planStory({ pitch: SHEET_BRIEF, logo: "Tidewater", brand: BRAND }, "sheet-frame", [w, h]));
+    await withPage(writePage(dir, sb).html, w, h, async (b) => {
+      const read = await b.evaluate<{ wide: string[]; outside: number[][] }[]>(`(()=>[...document.querySelectorAll('[data-pattern="story"]')].map((l)=>{
+        window.__apply(Number(l.dataset.start)*1000+Number(l.dataset.duration)*1000-50);
+        const stage=[...l.children].filter((c)=>c.tagName==="DIV")[1];
+        const text=(e)=>[...e.childNodes].some((n)=>n.nodeType===3&&n.textContent.trim());
+        const wide=[...stage.querySelectorAll("*")].filter((e)=>text(e)&&e.clientWidth&&e.scrollWidth>e.clientWidth+1&&getComputedStyle(e).overflow!=="hidden").map((e)=>e.textContent.trim());
+        const outside=[...stage.children].filter((c)=>c.tagName==="DIV").map((c)=>{const r=c.getBoundingClientRect();return [r.left,r.top,r.right,r.bottom];}).filter((r)=>r[0]<0||r[1]<0||r[2]>${w}||r[3]>${h}*.95);
+        return {wide,outside};}))()`);
+      assert.equal(read.length, 3);
+      for (const { wide, outside } of read) assert.deepEqual([wide, outside], [[], []], "no text wider than its box, nothing past the frame or its bottom margin");
+    });
+  } finally { rmSync(dir, { recursive: true, force: true }); rmSync(SHEET, { force: true }); }
 });
