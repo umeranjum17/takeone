@@ -1053,8 +1053,9 @@ test("plan edits the render cannot honour stop the CLI with a clear error", { sk
     const kept = baseline();
     assert.equal(kept.beats.find((beat) => beat.id === "b1")?.shot?.by, "user");
 
-    // The Android tap fallback builds its own beats: no user edit reaches it. make plans afresh and
-    // would record the engine's own mode over the one set here, so render reads the take as it is.
+    // A take planned with the removed local-rules mode (the Android tap fallback was part of it) is refused, not
+    // rendered with its edits ignored. make plans afresh and would record the engine's own mode over the one
+    // set here, so render reads the take as it is.
     const meta = JSON.parse(readFileSync(join(dir, "take.json"), "utf8"));
     writeFileSync(join(dir, "take.json"), JSON.stringify({ ...meta, device: "android", planner: { ...meta.planner, mode: "fallback" } }));
     const android = JSON.parse(clean) as Plan;
@@ -1062,7 +1063,11 @@ test("plan edits the render cannot honour stop the CLI with a clear error", { sk
     writePlanFile(android);
     const refused = cli("render");
     assert.equal(refused.status, 1, refused.stderr);
-    assert.match(refused.stderr, /beat b1 \(click\): shot cannot be honoured - this Android take renders the rule-only tap fallback/);
+    assert.match(refused.stderr, /this take was planned with local rules \(planner\.mode: fallback\), which takeone no longer has; run `takeone make kinds` with an AI engine/);
+    // make plans the take again with the engine, and the take then records that.
+    const replanned = cli("make");
+    assert.equal(replanned.status, 0, replanned.stderr);
+    assert.equal(JSON.parse(readFileSync(join(dir, "take.json"), "utf8")).planner.mode, "ai");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

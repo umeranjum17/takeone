@@ -78,7 +78,7 @@ export interface TakeEdits {
 export interface WebcamClip { file: string; start_ms: number; device?: string }
 
 export interface TakeMeta extends TakeEdits {
-  planner?: { mode: "ai" | "fallback" };
+  planner?: { mode: "ai" };
   /** Model requests the latest run on this take sent, by workflow (`src/decide/budget.ts`). */
   calls?: { cap: number; used: number; by_workflow: Record<string, number> };
   /** Mobile capture renders inside a handset frame. */
