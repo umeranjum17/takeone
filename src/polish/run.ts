@@ -9,7 +9,7 @@ import type { CameraDefaults } from "../camera/defaults.ts";
 import type { TakeMeta } from "../camera/types.ts";
 import { planCamera, renderTake } from "../render/render.ts";
 import { CallBudget } from "../decide/budget.ts";
-import { askChunk, PlannerFileCache, PlannerUnavailable, resolveJudge, resolvePlanner, type ResolvedPlanner } from "../decide/planner.ts";
+import { askChunk, PlannerFileCache, PlannerUnavailable, resolveJudge, resolveOrNoEngine, type ResolvedPlanner } from "../decide/planner.ts";
 import { JudgeUnavailable, judgeRound } from "../score/judge.ts";
 import { improveRound } from "../score/improve.ts";
 import { clearOverlays, compareFrames, frameHashes, measureFilm } from "../score/measure.ts";
@@ -172,7 +172,7 @@ export async function runPolishCommand(o: PolishOptions): Promise<PolishResult> 
 
   const judge = o.judge ?? await resolveJudge(cfg);
   if (!judge.active) throw new JudgeUnavailable(`unavailable - ${judge.label} cannot serve: ${judge.refusal ?? "no sign-in"}. Sign in with \`claude\`, or save another route in judge.json`);
-  const builder = o.builder ?? await resolvePlanner(cfg);
+  const builder = o.builder ?? await resolveOrNoEngine(cfg);
   if (!builder.active) throw new PlannerUnavailable(builder.label, builder.refusal ?? "is not signed in", { credentialMissing: !builder.accountPresent });
   if (sameModel(builder, judge)) throw new JudgeUnavailable(`the judge (${judge.label}) is the builder's own model; save a different model in judge.json so the judge stays independent`);
 

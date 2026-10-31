@@ -546,6 +546,24 @@ test("directions stops with the AI-engine message when no engine can serve, thro
   }
 });
 
+test("directions with no engine and no readable secret store gives the sign-in words, not the keyring's error, and stops", { skip: needsFfmpeg, timeout: 120_000 }, () => {
+  const root = mkdtempSync(join(tmpdir(), "takeone-directions-nostore-"));
+  try {
+    const dir = buildTake(mkdtempSync(join(root, "take-")));
+    // No keyring and no passphrase for the sealed store: the store cannot be read, so no engine can be checked.
+    const env: NodeJS.ProcessEnv = { ...process.env };
+    for (const name of ["TYPESAFE_API_KEY", "TAKEONE_SECRETS_PASSPHRASE_FD", "TAKEONE_TEST_NO_KEYRING", "TAKEONE_TEST_KEYRING_FAILURE", "TAKEONE_TEST_KEYRING_KEY"]) delete env[name];
+    Object.assign(env, { HOME: root, XDG_CONFIG_HOME: join(root, ".config"), PATH: "", TAKEONE_NO_KEYRING: "1", TAKEONE_DIR: join(root, "takes"), TAKEONE_STATE_DIR: join(root, "state") });
+    const r = spawnSync(process.execPath, [resolve("bin/takeone.mjs"), "directions", dir, "--count", "2"], { encoding: "utf8", env, timeout: 100_000 });
+    assert.equal(r.status, 3, r.stderr);
+    assert.match(r.stderr, /takeone needs an AI engine\. Sign in with: claude \(Claude\), or: codex login \(Codex\), or: opencode auth login \(OpenCode\); or store a key with: takeone key set\./);
+    assert.doesNotMatch(r.stderr, /OS keyring|PASSPHRASE/);
+    assert.equal(existsSync(join(dir, "directions")), false, "nothing ran after the hint");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("a spotlight window starts when its region has content and is dropped when it never does", { skip: needsFfmpeg, timeout: 60_000 }, async () => {
   const dir = mkdtempSync(join(tmpdir(), "takeone-lit-"));
   try {

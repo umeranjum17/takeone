@@ -48,13 +48,13 @@ import {
 import { codex } from "@byokit/decide/codex";
 import { pi } from "@byokit/decide/pi";
 import { claudeCode } from "@byokit/decide/claude-code";
-import { writeFileAtomic } from "@byokit/secrets";
+import { KeystoreError, writeFileAtomic } from "@byokit/secrets";
 // Type only: the sign-in method the kit reads from the CLI's own status
 // command. Erased at compile time, so the Node-only subpath stays dynamic.
 import type { SignInMethod } from "@byokit/accounts/cli";
 import type { PlannerAnswers } from "../types.ts";
 import { meteredFetch, type CallBudget } from "./budget.ts";
-import { takeoneConfigDir, loadPlannerKey, readPlannerKey, noKeyring, type KeyOptions } from "../secrets.ts";
+import { takeoneConfigDir, loadPlannerKey, readPlannerKey, noKeyring, SecretStoreUnavailable, type KeyOptions } from "../secrets.ts";
 
 /** Whole-call budget per chunk of beats (attempts plus bounded 429 waits). */
 export const DECIDE_TIMEOUT_MS = 30000;
@@ -449,6 +449,22 @@ export const JUDGE_CONFIG_FILE = "judge.json";
 /** The route the score judge asks: a saved judge.json when the person wrote
  * one, else Claude Haiku through the installed Claude CLI's subscription
  * sign-in, the account route the planner discovers first. Never a key. */
+/** The same way forward `doctor` gives as the message every planning command stops with. */
+const DOCTOR_SETUP = "sign in with claude, codex login or opencode auth login, or store a key with takeone key set";
+
+/** Resolve a route for a command that plans. A secret store that cannot be read means no engine can be checked: the
+ * user gets the same plain sign-in message every planning command gives, never the keyring's own error, and nothing runs after it. */
+export async function resolveOrNoEngine(o: ResolvePlannerOptions = {}): Promise<ResolvedPlanner> {
+  try {
+    return await resolvePlanner(o);
+  } catch (e) {
+    if (e instanceof SecretStoreUnavailable || (e instanceof KeystoreError && ["unavailable", "unsupported"].includes(e.code))) {
+      throw new PlannerUnavailable("signed-in account or stored key", "could not be checked: the secret store cannot be read", { credentialMissing: true });
+    }
+    throw e;
+  }
+}
+
 export async function resolveJudge(o: ResolvePlannerOptions = {}): Promise<ResolvedPlanner> {
   if (existsSync(plannerConfigPath(o, JUDGE_CONFIG_FILE))) return resolvePlanner({ ...o, file: JUDGE_CONFIG_FILE });
   const env = o.env ?? process.env;
@@ -515,8 +531,8 @@ export async function plannerStatus(o: ResolvePlannerOptions = {}): Promise<{
       return {
         available: false,
         detail: r.refusal
-          ? `AI planner unavailable: ${r.refusal}; sign in with claude or codex login`
-          : "AI planner unavailable: sign in with claude or codex login",
+          ? `AI planner unavailable: ${r.refusal}; ${DOCTOR_SETUP}`
+          : `AI planner unavailable: ${DOCTOR_SETUP}`,
         config: r.config,
         label: r.label,
       };

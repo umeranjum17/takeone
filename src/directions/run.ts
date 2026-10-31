@@ -8,7 +8,7 @@ import type { TakeMeta } from "../camera/types.ts";
 import { CallBudget } from "../decide/budget.ts";
 import { makeTake } from "../make.ts";
 import { renderTake } from "../render/render.ts";
-import { askChunk, PlannerFileCache, PlannerUnavailable, resolveJudge, resolvePlanner, type ResolvedPlanner } from "../decide/planner.ts";
+import { askChunk, PlannerFileCache, PlannerUnavailable, resolveJudge, resolveOrNoEngine, type ResolvedPlanner } from "../decide/planner.ts";
 import { JudgeUnavailable, judgeRound, type JudgedCard } from "../score/judge.ts";
 import { clearOverlays, compareFrames, frameHashes, measureFilm } from "../score/measure.ts";
 import type { Determinism } from "../score/loop.ts";
@@ -102,7 +102,7 @@ export async function runDirections(o: DirectionsOptions): Promise<DirectionsFil
   const board = boardFile(o.board) ?? previous?.file;
   const cfg = o.configDir === undefined ? {} : { configDir: o.configDir };
   // Both routes are checked before any planning is spent: the judge must not be the planner that proposes the options.
-  const planner = o.planner ?? await resolvePlanner(cfg);
+  const planner = o.planner ?? await resolveOrNoEngine(cfg);
   if (!planner.active) throw new PlannerUnavailable(planner.label, planner.refusal ?? "is not signed in", { credentialMissing: !planner.accountPresent });
   const judge = o.judge ?? await resolveJudge(cfg);
   if (!judge.active) throw new JudgeUnavailable(`unavailable - ${judge.label} cannot serve: ${judge.refusal ?? "no sign-in"}. Sign in with \`claude\`, or save another route in judge.json`);
