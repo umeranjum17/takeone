@@ -80,6 +80,7 @@ test("halo end card is a quiet lockup, not a second UI collage", () => {
   const end = sb.scenes.at(-1)!, lines = sb.scenes.find(s => s.pattern === "halo-lines")!;
   assert.equal(end.pattern, "halo-end");
   assert.ok(lines.items!.length > 0, "the product remains present in the preceding beat");
+  assert.equal(end.items?.length, undefined, "the closing card contains no floating UI pieces");
   assert.equal(end.items, undefined, "the closing card drops the floating UI pieces");
 });
 
