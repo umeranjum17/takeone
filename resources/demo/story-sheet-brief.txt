@@ -1,0 +1,3 @@
+sheet[customers.csv]: One spreadsheet. / Every row a customer. | resources/demo/story-customers.csv
+fill[template]: One template. / Every field filled. | resources/demo/story-customers.csv
+grid[500 films]: Five hundred films. / One command. | resources/demo/story-customers.csv
