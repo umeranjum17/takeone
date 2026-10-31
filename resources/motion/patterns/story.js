@@ -148,7 +148,7 @@ const SURFACE = {
     plane.append(...tiles); view.append(plane); layer.append(view); rise(view, 100, `translateY(${U * .05}px)`);
     const rank = tiles.map((_, i) => Math.hypot(i % cols - (cols - 1) / 2, Math.floor(i / cols) - (nrows - 1) / 2)), far = Math.max(...rank);
     tick((ms) => {
-      const p = smootherstep((ms - 300) / 2600), n = Math.floor(p * total), r = rows[n % rows.length];
+      const p = smootherstep((ms - 300) / 2600), n = Math.max(1, Math.floor(p * total)), r = rows[(n - 1) % rows.length];
       plane.style.transform = `perspective(${P.w * 1.1}px) rotateX(56deg) rotateZ(${-22 + ms * .0016}deg) scale(${(1.05 + ms * .00004).toFixed(4)})`;
       tiles.forEach((t, i) => { t.style.opacity = (.16 + .84 * Math.min(1, Math.max(0, (p - rank[i] / far * .9) / .08))).toFixed(3); });
       say(p >= 1 ? `done · ${total} films, one template` : `row ${padTo(n, total)} · ${r.name}`, `${padTo(n, total)} / ${total}`);
