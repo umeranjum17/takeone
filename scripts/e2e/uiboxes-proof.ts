@@ -10,13 +10,14 @@ import { DEFAULTS } from "../../src/camera/defaults.ts";
 import { clippedFractions } from "../../src/camera/solver.ts";
 import type { CameraFrame } from "../../src/camera/types.ts";
 import type { BBox, FrameRegions } from "../../src/types.ts";
+import { RECORDED_KEY, recordedPlanner } from "../verification/recorded-planner.ts";
 
 const evidence = resolve("tmp/evidence/uiboxes");
 const dir = resolve("tmp/uiboxes-proof");
 const ffmpeg = (args: string[]) => execFileSync("ffmpeg", ["-nostdin", "-v", "error", "-y", ...args], { stdio: "inherit" });
 const clicks: number[][] = JSON.parse(readFileSync(join(dir, "proof-clicks.json"), "utf8"));
 const camera = { ...DEFAULTS, preset: "veryfast", idle_speed: 1 };
-const planned = await makeTake(dir, { noAi: true, apiKey: null, camera, planOnly: true });
+const planned = await makeTake(dir, { apiKey: RECORDED_KEY, fetchImpl: recordedPlanner(), film: false, camera, planOnly: true });
 const changes = JSON.parse(readFileSync(join(dir, "analysis/regions.json"), "utf8")).frames as FrameRegions[];
 for (const [t] of clicks) {
   const near = changes.filter(f => Math.abs(f.t - t!) <= 200);

@@ -252,7 +252,7 @@ async function runCaptureMake(argv: string[]): Promise<number> {
     const r = await makeTake(dir, {
       capture: true,
       screenText: a.screenText,
-      ...(viaAccount ? { requireAi: true } : { apiKey: key! }),
+      ...(viaAccount ? {} : { apiKey: key! }),
       ...(a.maxTokens === undefined ? {} : { maxTokens: a.maxTokens }),
       ...(camera === undefined ? {} : { camera }),
       set: a.set,

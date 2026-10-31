@@ -13,6 +13,7 @@ import { cameraFilter } from '../src/render/camera-filter.ts';
 import { bandFrames, bandLayout, bandText, stageFrames, stageGeometry, takeCaptions, type Band } from '../src/render/stage.ts';
 import { idleSqueezes, purposefulEnd, warp } from '../src/render/pace.ts';
 import { auditTake } from './cut-audit.ts';
+import { RECORDED_KEY, recordedPlanner } from './verification/recorded-planner.ts';
 
 export interface Metric { value: number; target: number; direction: 'max' | 'min'; unit: string; goalPassed: boolean }
 export type Metrics = Record<string, Metric>;
@@ -376,7 +377,7 @@ async function main() {
         const meta = json<Record<string, unknown>>(join(dir, 'take.json'));
         save(join(dir, 'take.json'), { ...meta, title: 'Explore the demo', captions: [{ t: 3, text: 'Tap to see details' }] });
       }
-      await makeTake(dir, { noAi: true, camera: d });
+      await makeTake(dir, { apiKey: RECORDED_KEY, fetchImpl: recordedPlanner(), film: false, camera: d });
     }
     const original = sha(video);
     await renderTake(dir, d);

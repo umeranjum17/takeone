@@ -54,8 +54,6 @@ const ANALYSIS_FRAME_MS = 100;
 export interface MakeOptions {
   /** Capture privacy: drop window titles, cache hashes only, no coords in current_shot. */
   capture?: boolean;
-  /** Decide every beat with the local heuristic; zero network calls. */
-  noAi?: boolean;
   /** What the demo is for; sharpens key moments. Alias --about. */
   goal?: string;
   /** Style hint for the film call. */
@@ -70,9 +68,6 @@ export interface MakeOptions {
   /** Host-passed BYOKit credential override for the configured backend;
    * null disables the planner, undefined loads the configured store. */
   apiKey?: string | null;
-  /** Host opt-in for capture's account route; normal make also stops when no
-   * engine can serve the run. `capture make --planner-account`. */
-  requireAi?: boolean;
   /** Config dir holding planner.json and the sealed store; defaults to the
    * platform config dir. Tests point it at a throwaway dir. */
   configDir?: string;
@@ -203,7 +198,16 @@ export function videoOnlyHeadStart(frames: FrameRegions[], recordStartMs: number
   return Math.max(recordStartMs, first.t - VIDEO_ONLY_HEAD_LEAD_MS);
 }
 
+/** Options makeTake used to take and no longer does: one still passed is refused by name, never ignored. */
+const REMOVED_OPTIONS: Record<string, string> = {
+  noAi: "takeone always plans with an AI engine; there is no local-rules mode",
+  requireAi: "a run with no engine that can serve it always stops; pass no option for it",
+};
+
 export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<MakeResult> {
+  for (const [name, why] of Object.entries(REMOVED_OPTIONS)) {
+    if ((opts as Record<string, unknown>)[name] !== undefined) throw new PreflightRefusal(`makeTake: unknown option ${name}: ${why}`);
+  }
   const log = opts.log ?? ((s: string) => console.log(s));
   const warn = opts.warn ?? ((s: string) => console.error(s));
   let warnedTrimmedContext = false;
@@ -241,42 +245,33 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
   // Resolve the provider-agnostic decider before perception output is built:
   // screen words are read by default only when the planner will actually run.
   let planner: ResolvedPlanner | null = null;
-  let plannerOff = "no signed-in account or stored key was found";
-  if (!opts.noAi) {
-    if (opts.resolvedPlanner) planner = opts.resolvedPlanner;
-    else try {
-      planner = await resolvePlanner({
-        apiKeyOverride: opts.apiKey,
-        ...(opts.configDir === undefined ? {} : { configDir: opts.configDir }),
-      });
-    } catch (e) {
-      // A corrupt planner.json is user error. An unreadable secret store
-      // also stops normal make before any analysis is written.
-      if (e instanceof ConfigError) throw e;
-      if (!(e instanceof SecretStoreUnavailable) &&
-          !(e instanceof KeystoreError && ["unavailable", "unsupported"].includes(e.code))) throw e;
-      planner = null;
-      plannerOff = "the secret store cannot be read";
-      if (opts.requireAi || !opts.noAi) throw accountMissing(`could not be checked: ${plannerOff}`);
-    }
-    if (planner && !planner.active) {
-      // A saved provider whose credential is missing stops without switching.
-      const auth = (planner.config as { auth?: string }).auth;
-      if (!planner.defaulted && opts.apiKey === undefined) {
-        throw new PlannerUnavailable(planner.label, planner.refusal ?? `no ${auth === "account" ? "sign-in" : "key"} for ${planner.label}`);
-      }
-      // A host that passed --planner-account asked for the user's own planner:
-      // with none to serve the run, stop and name the cause instead of
-      // planning with local rules it did not ask for.
-      if (opts.requireAi || !opts.noAi) throw accountMissing(planner.refusal ?? planner.skipped ?? "was not found");
-      if (planner.refusal ?? planner.skipped) plannerOff = (planner.refusal ?? planner.skipped) as string;
-      planner = null;
-    }
-    // A signed-in account that could not serve, while another provider took
-    // the run: say so rather than letting the switch pass unnoticed.
-    if (planner?.skipped) warn(`planner: ${planner.skipped}`);
+  if (opts.resolvedPlanner) planner = opts.resolvedPlanner;
+  else try {
+    planner = await resolvePlanner({
+      apiKeyOverride: opts.apiKey,
+      ...(opts.configDir === undefined ? {} : { configDir: opts.configDir }),
+    });
+  } catch (e) {
+    // A corrupt planner.json is user error. An unreadable secret store
+    // also stops make before any analysis is written.
+    if (e instanceof ConfigError) throw e;
+    if (!(e instanceof SecretStoreUnavailable) &&
+        !(e instanceof KeystoreError && ["unavailable", "unsupported"].includes(e.code))) throw e;
+    throw accountMissing("could not be checked: the secret store cannot be read");
   }
-  const readScreenText = planner !== null && !opts.noScreenText && (!opts.capture || opts.screenText === true);
+  if (!planner.active) {
+    // A saved provider whose credential is missing stops without switching.
+    const auth = (planner.config as { auth?: string }).auth;
+    if (!planner.defaulted && opts.apiKey === undefined) {
+      throw new PlannerUnavailable(planner.label, planner.refusal ?? `no ${auth === "account" ? "sign-in" : "key"} for ${planner.label}`);
+    }
+    // No engine can serve the run: stop and name the cause, never plan with local rules.
+    throw accountMissing(planner.refusal ?? planner.skipped ?? "was not found");
+  }
+  // A signed-in account that could not serve, while another provider took
+  // the run: say so rather than letting the switch pass unnoticed.
+  if (planner.skipped) warn(`planner: ${planner.skipped}`);
+  const readScreenText = !opts.noScreenText && (!opts.capture || opts.screenText === true);
 
   // 1 perceive ------------------------------------------------------------
   let videoStartMs: number;
