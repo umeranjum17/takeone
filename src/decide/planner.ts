@@ -37,6 +37,7 @@ import {
   UnsupportedAccountError,
   UnsupportedImagesError,
   type Answer,
+  type Backend,
   type DecideCache,
   type DecideConfig,
   type FailureCode,
@@ -52,6 +53,7 @@ import { writeFileAtomic } from "@byokit/secrets";
 // command. Erased at compile time, so the Node-only subpath stays dynamic.
 import type { SignInMethod } from "@byokit/accounts/cli";
 import type { PlannerAnswers } from "../types.ts";
+import { meteredFetch, type CallBudget } from "./budget.ts";
 import { takeoneConfigDir, loadPlannerKey, readPlannerKey, noKeyring, type KeyOptions } from "../secrets.ts";
 
 /** Whole-call budget per chunk of beats (attempts plus bounded 429 waits). */
@@ -900,13 +902,19 @@ export async function askChunk(
     images?: ImageInput[];
     /** Cache partly answered requests too: the caller maps each field and falls back per field. */
     keepAnswers?: boolean;
-  } = {},
+    /** Every request this ask sends is spent from the take's budget, under this workflow's name. */
+    budget: CallBudget;
+    workflow: string;
+  },
 ): Promise<AskOutcome> {
   const c = planner.config as { backend: string; model?: string };
+  // The one choke point: a request is spent immediately before it is sent. An HTTP backend sends through the metered
+  // fetch (a 429 retry is another request); a CLI backend spends once per ask. A cache hit sends nothing and spends nothing.
+  const sends = (backend: Backend): Backend => ({ ...backend, ask: (...a) => { o.budget.spend(o.workflow); return backend.ask(...a); } });
   let runDecider: () => Promise<Record<string, Answer>>;
   if (c.backend === "pi") {
     const config = planner.config as PiPlannerConfig;
-    const backend = pi({ bin: config.bin, model: config.model, timeoutMs: 120_000 });
+    const backend = sends(pi({ bin: config.bin, model: config.model, timeoutMs: 120_000 }));
     // Answers cached per model and binary: a different pi or model is a different decider.
     const scopedCache: DecideCache = {
       get: (key) => cache.get(`pi:${config.model}:${config.bin}:${key}`),
@@ -934,9 +942,9 @@ export async function askChunk(
     const config = planner.config as CliPlannerConfig;
     const account = planner.cliLaunch;
     if (account === null) throw new Error("CLI planner resolved without a launch");
-    const backend = config.backend === "codex"
+    const backend = sends(config.backend === "codex"
       ? codex({ bin: config.bin, account, model: config.model, timeoutMs: 120_000 })
-      : claudeCode({ bin: config.bin, account, model: config.model, timeoutMs: 120_000 });
+      : claudeCode({ bin: config.bin, account, model: config.model, timeoutMs: 120_000 }));
     const scopedCache: DecideCache = {
       get: (key) => cache.get(`${config.backend}:${modelOf(config)}:${config.account}:${key}`),
       set: (key, value) => cache.set(`${config.backend}:${modelOf(config)}:${config.account}:${key}`, value),
@@ -959,7 +967,7 @@ export async function askChunk(
       return answered;
     };
   } else {
-    const host = await plannerHost(planner, o.fetchImpl);
+    const host = await plannerHost(planner, meteredFetch(o.fetchImpl ?? globalThis.fetch, o.budget, o.workflow));
     runDecider = () => decide(state, questions, {
       config: planner.config as DecideConfig,
       host,
@@ -972,7 +980,10 @@ export async function askChunk(
   let answers: Record<string, Answer>;
   try {
     answers = await runDecider();
+    // decide() turns a backend's throw into a failed answer; a refused spend is the run's failure, not a beat's.
+    if (o.budget.tripped) throw o.budget.tripped;
   } catch (e) {
+    if (o.budget.tripped) throw o.budget.tripped;
     if (e instanceof UnsupportedAccountError || e instanceof UnsupportedImagesError || e instanceof ConfigError) {
       throw new PlannerUnavailable(planner.label, e instanceof Error ? e.message : String(e));
     }

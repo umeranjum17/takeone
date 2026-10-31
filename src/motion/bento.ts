@@ -2,6 +2,7 @@
 // words, the demo figure, the feed rows and picks the screen lines shown as real UI; this module measures the
 // screen and lays them on the 120 BPM grid. The tiles reflow between three grids inside the scene.
 import { resolve } from "node:path";
+import type { CallBudget } from "../decide/budget.ts";
 import { clamp, line, planWithEngine, text, type EditorialArgs, type Grey, type Line } from "./editorial.ts";
 import { minSceneDuration } from "./storyboard.ts";
 import type { Crop, Rect, Scene } from "./types.ts";
@@ -76,6 +77,6 @@ export function bentoStoryboard(a: EditorialArgs, id: string, size: { width: num
   };
 }
 
-export function planBento(a: EditorialArgs, id: string, log: (line: string) => void): Promise<unknown> {
-  return planWithEngine("bento", a, ASK, FIELDS, (size, lines, answer, _grey: Grey) => bentoStoryboard(a, id, size, lines, answer), log);
+export function planBento(a: EditorialArgs, id: string, log: (line: string) => void, budget: CallBudget): Promise<unknown> {
+  return planWithEngine("bento", a, ASK, FIELDS, (size, lines, answer, _grey: Grey) => bentoStoryboard(a, id, size, lines, answer), log, budget);
 }

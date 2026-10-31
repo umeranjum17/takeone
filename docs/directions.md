@@ -115,11 +115,24 @@ click, the final shot) and measures the film locally with ffmpeg; on an image-ca
 go to the judge blurred past reading. The default route (Claude CLI) is text-only and judges the measured facts from the
 same three frames. So a judge call's size does not grow with the film's length: the frames are three whatever the
 length, and only the planner's timeline (capped at 40 lines in the directions call) grows with the number of beats.
-The directions and polish calls per take are therefore bounded at 1 + 3 + 6 + 5 = 15 for a three-way pick and a full
-five-round polish, and their cost per minute of video falls as takes get longer. That ceiling does not count planning
-the take: on a take not planned yet (or with `--replan`), `directions` first runs `make`'s planning once (the film call
-and the beat calls, which grow with the take and are chunked, see [cost](cost.md)); a take already made adds none.
-Bringing that planning under one per-take ceiling is separate follow-up work, not part of this command yet.
+Model calls are capped per take, and the cap is enforced. One count belongs to the take: `calls` in `take.json`
+(`cap`, `used`, `by_workflow`). Every phase opens that count (`CallBudget` in `src/decide/budget.ts`) and draws it down:
+`make`'s film and beat planning, the directions ask, polish, the judge, the score loop and the motion recipes and gauntlet. A
+phase run inside another (directions planning an unplanned take, score making then judging) shares the one object; a
+phase run by a later command starts from the saved count. Nothing restarts it, so a retry, a re-ask of a chunk,
+prerequisite planning and a second command are each counted once, in one place (`askChunk`, immediately before a
+request is sent). A judge or planner answer served from a cache sends nothing and spends nothing.
+
+The cap is 150 calls over a take's whole life (`MAX_CALLS_PER_TAKE`). It is sized from a measured run, not chosen: planning
+a 400 s take at the planner's densest, 30 beats a minute, is 54 requests (4 film, 50 beat), so planning it twice
+(`--replan`) is 108, and the 42 left cover what else a take does: directions (1 planner call and 3 judge calls) and a
+full polish (6 judge and 5 builder calls) are 15 of them, then retries, up to 4 score rounds, and a motion recipe or gauntlet. A take that plans in more than the 150 less what it has
+spent is refused by `make` before it sends anything. The next request past the cap is never sent: the run stops with
+`the <workflow> workflow hit the cap of 150 model calls per take after 150 calls`, naming `film planner`, `beat planner`,
+`directions planner`, `polish builder`, `judge` or a `motion` workflow. The count is written on every spend, so a stopped run still shows
+what it spent. A take's directions need one planner call and three judge calls for a three-way pick; on a take not
+planned yet (or with `--replan`) `directions` first runs `make`'s planning (see [cost](cost.md)), which spends from the
+same count. There is no per-take override: raising the cap is a change to the constant.
 Measured on a real 43 s take: see [the proof run](#measured).
 
 ## Measured

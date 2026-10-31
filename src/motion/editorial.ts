@@ -9,6 +9,7 @@ import { KeystoreError } from "@byokit/secrets";
 import { SecretStoreUnavailable } from "../secrets.ts";
 import { screenLines } from "../decide/ocr.ts";
 import { redactText } from "../decide/redact.ts";
+import type { CallBudget } from "../decide/budget.ts";
 import { askChunk, PlannerUnavailable, resolvePlanner } from "../decide/planner.ts";
 import { imageSize } from "./ingest.ts";
 import { minSceneDuration } from "./storyboard.ts";
@@ -201,13 +202,13 @@ export async function signedInPlanner() {
 }
 
 /** Read the screen, ask the signed-in engine once, and plan the film. Stops when no engine can answer. */
-export function planEditorial(a: EditorialArgs, id: string, log: (line: string) => void): Promise<unknown> {
-  return planWithEngine("editorial", a, ASK, FIELDS, (size, lines, answer, grey) => editorialStoryboard(a, id, size, lines, answer, grey), log);
+export function planEditorial(a: EditorialArgs, id: string, log: (line: string) => void, budget: CallBudget): Promise<unknown> {
+  return planWithEngine("editorial", a, ASK, FIELDS, (size, lines, answer, grey) => editorialStoryboard(a, id, size, lines, answer, grey), log, budget);
 }
 
 /** The shared recipe flow: one screenshot and a pitch in, the model's checked answer laid out by `build`. */
 export async function planWithEngine(recipe: string, a: EditorialArgs, ask: string, fields: readonly string[],
-  build: (size: { width: number; height: number }, lines: Line[], answer: Record<string, unknown>, grey: Grey) => unknown, log: (line: string) => void): Promise<unknown> {
+  build: (size: { width: number; height: number }, lines: Line[], answer: Record<string, unknown>, grey: Grey) => unknown, log: (line: string) => void, budget: CallBudget): Promise<unknown> {
   if (a.inputs.length !== 1 || !/\.(png|jpe?g|webp)$/i.test(a.inputs[0]!)) throw new Error(`--recipe ${recipe} takes exactly one screenshot (png, jpg or webp)`);
   if (!a.pitch?.trim()) throw new Error(`--recipe ${recipe} needs --pitch "what the product does, in a few lines"`);
   const planner = await signedInPlanner();
@@ -225,7 +226,7 @@ export async function planWithEngine(recipe: string, a: EditorialArgs, ask: stri
   // A broken field is asked again once, with the model's own answer and what it broke; a second miss stops.
   for (let retry: Record<string, unknown> | undefined, attempt = 0; ; attempt++) {
     const outcome = await askChunk(retry ? { ...state, retry } : state, { film: { kind: "yesno", question: ask, answerFields: [...fields] } }, planner, new MemoryCache(),
-      { timeoutMs: 180_000, keepAnswers: true });
+      { timeoutMs: 180_000, keepAnswers: true, budget, workflow: `motion ${recipe}` });
     const answer: Answer | undefined = outcome.answers?.["film"];
     if (!answer || answer.abstained || answer.answer !== true) {
       throw new Error(`${recipe} planner gave no plan (${outcome.failure ?? answer?.reason ?? "no answer"}); rerun to ask again`);
