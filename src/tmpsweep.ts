@@ -50,6 +50,8 @@ export type SweepOptions = {
   uid?: number;
   /** Paths of live processes' cwd, open files and command lines; read from /proc when omitted. */
   inUse?: string[];
+  /** Removes one directory tree; replaceable so a refusal can be injected. */
+  remove?: (path: string) => void;
 };
 
 /** Size and newest mtime of a tree, without following symlinks. */
@@ -148,7 +150,7 @@ export function sweep(o: SweepOptions = {}): SweepResult {
   const removed: SweepEntry[] = [], refused: Skipped[] = [];
   for (const e of p.remove) {
     try {
-      rmSync(e.path, { recursive: true, force: true });
+      (o.remove ?? ((path: string) => rmSync(path, { recursive: true, force: true })))(e.path);
       removed.push(e);
     } catch (err) {
       refused.push({ path: e.path, reason: `removal refused by the OS (${(err as NodeJS.ErrnoException).code ?? err}), likely content we do not own; left in place` });

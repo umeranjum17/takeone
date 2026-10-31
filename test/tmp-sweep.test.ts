@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -63,14 +63,21 @@ test("a sweep skips what a live process holds, another user's entries, and symli
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
-test("an entry the OS refuses to remove is reported, not retried", { skip: process.getuid?.() === 0 }, () => {
-  const root = fakeTmp({ "fhl.locked": 30 });
+test("an entry the OS refuses to remove is reported, not retried", () => {
+  const root = fakeTmp({ "fhl.locked": 30, "fhl.free": 30 });
+  const tried: string[] = [];
   try {
-    chmodSync(join(root, "fhl.locked"), 0o500);
-    const r = sweep({ root, inUse: [] });
-    assert.equal(r.removed.length, 0);
-    assert.match(r.refused[0]?.reason ?? "", /refused/);
-  } finally { chmodSync(join(root, "fhl.locked"), 0o700); rmSync(root, { recursive: true, force: true }); }
+    const refuse = Object.assign(new Error("EACCES: permission denied"), { code: "EACCES" });
+    const r = sweep({
+      root, inUse: [],
+      remove: (path) => { tried.push(path); if (path.endsWith("fhl.locked")) throw refuse; rmSync(path, { recursive: true, force: true }); },
+    });
+    assert.deepEqual(r.removed.map(e => e.path.slice(root.length + 1)), ["fhl.free"]);
+    assert.equal(r.refused.length, 1);
+    assert.match(r.refused[0]?.reason ?? "", /refused by the OS \(EACCES\)/);
+    assert.equal(tried.filter(p => p.endsWith("fhl.locked")).length, 1, "tried once");
+    assert.ok(existsSync(join(root, "fhl.locked")));
+  } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
 test("human sizes", () => {
