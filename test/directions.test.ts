@@ -14,7 +14,7 @@ import { pickDirection, runDirections, type DirectionsFile } from "../src/direct
 import { runPolish, type Candidate, type Critique, type Feedback, type PolishHooks } from "../src/polish/loop.ts";
 import { latestRun, pickRound, polishFeedback, runPolishCommand } from "../src/polish/run.ts";
 import { builderRequest, KNOBS, mapBuilder } from "../src/polish/builder.ts";
-import { judgeRound, JudgeUnavailable } from "../src/score/judge.ts";
+import { judgeRound as judgeWith, JudgeUnavailable, type JudgeOptions } from "../src/score/judge.ts";
 import { resolvePlanner, type ResolvedPlanner } from "../src/decide/planner.ts";
 import { cutPage } from "../src/board/page.ts";
 import { litSpotlights, litWindow } from "../src/perceive/lit.ts";
@@ -23,6 +23,10 @@ import { resolveCamera } from "../src/cli.ts";
 import { DEFAULTS } from "../src/camera/defaults.ts";
 import type { MeasuredFacts } from "../src/score/rubric.ts";
 import { hasFfmpeg } from "./helpers.ts";
+
+/** A judge call with a take budget of its own, for the tests that judge one round and nothing else. */
+const judgeRound = (...[planner, facts, o, extras]: [Parameters<typeof judgeWith>[0], Parameters<typeof judgeWith>[1], Omit<JudgeOptions, "budget">, Parameters<typeof judgeWith>[3]?]) =>
+  judgeWith(planner, facts, { ...o, budget: new CallBudget() }, extras);
 
 const needsFfmpeg = hasFfmpeg() ? undefined : "requires system ffmpeg and ffprobe on PATH";
 const FAST = ["preset=veryfast", "out_w=320", "out_h=180", "fade_s=0"];
@@ -281,7 +285,7 @@ test("the judge checks each piece of owner feedback in the same call and names t
   try {
     const { judge } = await jevRoutes(dir);
     const cache = { get: async () => undefined, set: async () => undefined };
-    const card = await judgeRound(judge, facts(), { cache, budget: new CallBudget(), fetchImpl: recorded({ score: 8, yes: 0.9 }) }, {
+    const card = await judgeRound(judge, facts(), { cache, fetchImpl: recorded({ score: 8, yes: 0.9 }) }, {
       gaps: true, feedback: [{ id: "x", text: "make the click easier to see" }],
     });
     assert.equal(card.score, 8);
@@ -289,7 +293,7 @@ test("the judge checks each piece of owner feedback in the same call and names t
     assert.equal(card.gaps.length, card.items.length, "every item under 9 is a gap");
     assert.match(card.gaps[0]!, /^Real page size in frame \(8\/10\): recorded reason for page$/);
     assert.equal(card.feedback[0]!.reason, "recorded reason for feedback_1");
-    await assert.rejects(judgeRound(judge, facts(), { cache, budget: new CallBudget(), fetchImpl: recorded({ score: 9, yes: 0.5 }) }, {
+    await assert.rejects(judgeRound(judge, facts(), { cache, fetchImpl: recorded({ score: 9, yes: 0.5 }) }, {
       feedback: [{ id: "x", text: "a split answer is not a yes" }],
     }), JudgeUnavailable);
   } finally {
@@ -499,11 +503,11 @@ test("the budget does not reset between phases of one take: make, directions and
     const later = new CallBudget(dir, cap);
     assert.equal(later.used, first.used, "the budget is the take's, not the command's");
     const cache = { get: async () => undefined, set: async () => undefined };
-    await judgeRound(judge, facts(), { cache, budget: later, fetchImpl }, {});
+    await judgeWith(judge, facts(), { cache, budget: later, fetchImpl }, {});
     assert.equal(spent().used, cap);
     assert.equal(spent().by_workflow.judge, first.by_workflow.judge! + 1);
     // A budget that reset between phases would still have room here; this one has none.
-    await assert.rejects(judgeRound(judge, facts(), { cache, budget: later, fetchImpl }, {}),
+    await assert.rejects(judgeWith(judge, facts(), { cache, budget: later, fetchImpl }, {}),
       (e: unknown) => e instanceof CallBudgetExceeded && e.message.startsWith(`the judge workflow hit the cap of ${cap} model calls per take after ${cap} calls`));
     assert.equal(sent, cap, "the refused request was never sent");
   } finally {
