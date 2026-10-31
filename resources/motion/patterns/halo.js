@@ -168,11 +168,14 @@ const arrange = (kind, sizes, W, H, u) => {
     return { w, h: hh, z: z(sc), radius: radiusOf(w, hh, aspect[i]) };
   });
   if (kind === "stack") {
-    const fit = Math.min(1, H * 0.8 / (items.reduce((m, p) => m + p.h * 0.88, 0) + items.at(-1).h * 0.12));
+    // A list's rows are cropped to their own content, down to the last line's baseline, so no row may sit on another: any
+    // band, however thin, lands on someone's last line. The rows stack with a hairline gap instead, and the wide middle row
+    // is wider than the rows it frames, so the depth comes from scale, shadow and parallax, never from covering a row.
+    const gap = H * 0.018, total = items.reduce((m, p) => m + p.h, 0) + gap * items.length;
+    const fit = Math.min(1, (H * 0.8) / total);
     const fitted = items.map((p) => ({ ...p, w: p.w * fit, h: p.h * fit }));
-    const step = fitted.map((p) => p.h * 0.88), total = step.reduce((m, x) => m + x, 0) + fitted.at(-1).h * 0.12;
-    let y = (H - total) / 2;
-    return fitted.map((p, i) => { const c = { ...p, cx: W / 2 + (i % 2 ? 1 : -1) * W * 0.05, cy: y + p.h / 2 }; y += step[i]; return c; });
+    let y = (H - (fitted.reduce((m, p) => m + p.h, 0) + gap * (fitted.length - 1))) / 2;
+    return fitted.map((p, i) => { const c = { ...p, cx: W / 2 + (i % 2 ? 1 : -1) * W * 0.05, cy: y + p.h / 2 }; y += p.h + gap; return c; });
   }
   const overlap = kind === "chips" ? 0.06 : 0.05, fit = Math.min(1, (W * 0.8) / (items.reduce((m, p) => m + p.w * (1 - overlap), 0) + items.at(-1).w * overlap), (H * 0.68) / Math.max(...items.map((p) => p.h)));
   let x = 0;
@@ -201,14 +204,16 @@ PATTERNS["halo-float"] = (layer, s, ctx) => {
     const el = piece(scr[i].url, w, hh, radius, z, u);
     el.style.left = `${cx - w / 2}px`; el.style.top = `${cy - hh / 2}px`; el.style.zIndex = String(order + 1);
     group.append(el);
-    // Entrance: a short tilt-up and rise, the near ones travelling further and arriving last.
-    const at = 80 + order * 90, rise = u * (0.05 + 0.06 * z);
+    // Entrance: a short tilt-up and rise, the near ones travelling further and arriving last. A stack rises in place
+    // instead: its rows are stacked shoulder to shoulder, so a long travel would carry the near row across the one below it.
+    const at = 80 + order * 90, rise = u * (s.kind === "stack" ? 0.015 : 0.05 + 0.06 * z);
     const pose = (a, tilt, y, sc) => ({ opacity: a, transform: `perspective(${u * 1.6}px) rotateX(${tilt}deg) translateY(${y}px) scale(${sc})` });
     const from = pose(0, 16, rise, 0.88), rest = pose(1, 0, 0, 1);
     K(el, [[0, from], [at, from, EXPO], [at + 600, rest], [end - 160, rest, "ease-in"], [end, pose(0, -4, -u * 0.015, 0.98)]]);
     el.dataset.moves = "";
     // Parallax: the whole beat pans one way, the near pieces faster than the far, with a slow bob that never settles.
-    const pan = u * 0.05 * (0.3 + 1.4 * z), bob = u * 0.006 * (0.5 + z);
+    // The bob is damped in a stack: its rows sit a hairline apart, so a full bob would carry one over the next.
+    const pan = u * 0.05 * (0.3 + 1.4 * z), bob = u * (s.kind === "stack" ? 0.002 : 0.006) * (0.5 + z);
     tick((ms) => {
       const t = Math.min(1, Math.max(0, ms / end)), x = (0.5 - t) * 2 * pan, y = Math.sin((ms / 2800) * Math.PI * 2 + i * 1.7) * bob;
       el.style.translate = `${x.toFixed(3)}px ${y.toFixed(3)}px`;
@@ -230,7 +235,8 @@ PATTERNS["halo-lines"] = (layer, s, ctx) => {
     el.style.left = `${W * fx - w / 2}px`; el.style.top = `${H * fy - hh / 2}px`; el.style.zIndex = "0";
     layer.append(el); el.dataset.moves = "";
     K(el, [[0, { opacity: 0, transform: `translateY(${u * 0.05}px) scale(.9)` }], [120 + i * 90, { opacity: 0, transform: `translateY(${u * 0.05}px) scale(.9)` }, EXPO], [900 + i * 90, { opacity: 0.8, transform: "none" }], [end - 200, { opacity: 0.8, transform: "none" }, "ease-in"], [end, { opacity: 0, transform: "none" }]]);
-    const pan = u * 0.05 * (0.3 + 1.4 * z), bob = u * 0.006 * (0.5 + z);
+    // The bob is damped in a stack: its rows sit a hairline apart, so a full bob would carry one over the next.
+    const pan = u * 0.05 * (0.3 + 1.4 * z), bob = u * (s.kind === "stack" ? 0.002 : 0.006) * (0.5 + z);
     tick((ms) => { const t = Math.min(1, Math.max(0, ms / end)); el.style.translate = `${((0.5 - t) * 2 * pan).toFixed(3)}px ${(Math.sin((ms / 2800) * Math.PI * 2 + i * 1.7) * bob).toFixed(3)}px`; });
   });
   // One lockup, two voices: the lead-ins small, light and muted, one every 450 ms, a word at a time; then the last line,
@@ -261,6 +267,16 @@ PATTERNS["halo-lines"] = (layer, s, ctx) => {
 PATTERNS["halo-end"] = (layer, s, ctx) => {
   const { W, H } = ctx, u = Math.min(W, H), mark = ctx.screen(s.mark);
   glowStage(layer, W, H, s.d);
+  // The film's last frame keeps the product in view: the earlier pieces, small and dim, at the same corners the lines
+  // left them in, so they carry across the cut and lie still: the closing hold gains content, not a second gesture.
+  (s.items ?? []).slice(0, BACKDROP.length).forEach((id, i) => {
+    const c = ctx.screen(id), [fx, fy, sc, z] = BACKDROP[i], a = c.width / c.height;
+    const w = Math.min(a >= 1.18 ? W * 0.19 * sc : u * 0.22 * sc * a, W * 0.21), hh = w / a;
+    const circle = a > 0.85 && a < 1.18, radius = circle || a > 2 ? Math.min(w, hh) / 2 : Math.min(w, hh) * 0.2;
+    const el = piece(c.url, w, hh, radius, z, u);
+    el.style.left = `${W * fx - w / 2}px`; el.style.top = `${H * fy - hh / 2}px`; el.style.zIndex = "0"; el.style.opacity = "0.7";
+    layer.append(el); el.dataset.moves = "";
+  });
   const size = Math.min(W * 0.075, u * 0.14), d = size * 0.95;
   const group = h(`<div style="position:absolute;left:0;right:0;top:50%;transform:translateY(-50%);display:flex;align-items:center;justify-content:center;gap:${size * 0.28}px"></div>`);
   const logo = markEl(mark.url, d); logo.style.position = "relative";
