@@ -70,7 +70,7 @@ function measure(a: Asset, file: string): Pick<Entry, "probe" | "gates"> {
 }
 
 const still = (video: string, t: number, output: string, size?: string) => ff("-ss", String(t), "-i", video, "-frames:v", "1", ...size ? ["-vf", `scale=${size}:flags=lanczos`] : [], "-update", "1", output);
-const motion = (name: string, args: string[]) => { const dir = fresh(join(work, name)); takeone("motion", join(root, "resources/demo/tidewater-board.png"), "--out", dir, "--no-ai", "--title", "Tidewater", "--subtitle", "Plan the launch in one board", "--cta", "Try it today", ...args); return film(dir); };
+const motion = (name: string, args: string[]) => { const dir = fresh(join(work, name)); takeone("motion", join(root, "resources/demo/tidewater-board.png"), "--out", dir, "--title", "Tidewater", "--subtitle", "Plan the launch in one board", "--cta", "Try it today", ...args); return film(dir); };
 
 const A1 = { id: "A1", file: "hero.mp4", kind: "video", width: 1920, height: 1080, fps: 60, seconds: [20, 45], recipe: "scripts/headless-scene.mjs (3840x2160) -> takeone make (recorded engine) --set fps=60 -> delivery crf 24", note: "Spec section 4 asked for 20-30 s; the staged choreography plays about 39.5 s at idle_speed 4, so the range is 20-45 s." } satisfies Asset;
 const BUILDS: { id: string; assets: Asset[]; build: (put: (a: Asset, file: string, motionGate?: Entry["motion_gate"]) => void) => void }[] = [];

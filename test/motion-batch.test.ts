@@ -90,7 +90,7 @@ test("--data rejects every option the batch path does not apply before reading i
   for (const [flag, ...args] of unsupported) {
     await assert.rejects(
       runMotion(["--storyboard", "missing-template.json", "--data", "missing-rows.csv", flag!, ...args], "unused-takes"),
-      new RegExp(`--data does not support ${flag}`),
+      flag === "--no-ai" ? /--no-ai is not offered/ : new RegExp(`--data does not support ${flag}`),
       `${flag} must be rejected before batch inputs are read`,
     );
   }

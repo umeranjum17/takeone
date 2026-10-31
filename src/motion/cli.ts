@@ -14,7 +14,7 @@ import { planStory } from "./story.ts";
 import { measureReference, missedBeats, referenceCuts } from "./reference.ts";
 import { MAX_DURATION_S, minSceneDuration, readingFloor, validateStoryboard } from "./storyboard.ts";
 import { planBento } from "./bento.ts";
-import { planEditorial } from "./editorial.ts";
+import { planEditorial, signedInPlanner } from "./editorial.ts";
 import { CallBudget } from "../decide/budget.ts";
 import { planHalo } from "./halo.ts";
 import { FILM_USAGE, newTakeDir, runFilm } from "./film.ts";
@@ -41,7 +41,7 @@ export const MOTION_USAGE = `takeone motion <image.png|page.html|https://url|tak
   [--theme midnight|paper|aurora|mono|neon|brutalist|sand|terminal|editorial]
   [--title TEXT] [--subtitle TEXT] [--cta TEXT] [--url TEXT] [--logo WORD] [--device browser|phone|laptop|none]
   [--region x,y,w,h[:label][@SCREEN]]... [--state NAME='click #id; type #id "text"; drag #a #b; wait 300']...
-  [--workers N] [--blur 0|1] [--storyboard file.json] [--plan-only] [--no-ai]
+  [--workers N] [--blur 0|1] [--storyboard file.json] [--plan-only]
   [--engine hyperframes|legacy] [--alpha] [--redaction-dry-run --out DIR] [--public-domain example.com]...
 takeone motion <screen.png>... --recipe halo --pitch "Tagline. Line one. Line two." --logo WORD --region x,y,w,h:logo@S1 --region x,y,w,h:row|stack|card|chips[:title]@S1... [--url CREDIT] [--out DIR]
 takeone motion <screenshot.png> --recipe editorial|bento --pitch TEXT [--logo WORD] [--cta TEXT] [--url TEXT] [--audio FILE] [--out DIR]
@@ -99,7 +99,7 @@ ${FILM_USAGE.split("\n").slice(1).join("\n")}`;
 export interface MotionArgs {
   inputs: string[]; out?: string; patterns?: PatternName[]; theme?: string; title?: string;
   subtitle?: string; cta?: string; url?: string; logo?: string; device?: Device; regions: string[]; states: [string, string][];
-  workers?: number; blur?: number; storyboard?: string; planOnly: boolean; noAi?: boolean; engine: MotionEngine;
+  workers?: number; blur?: number; storyboard?: string; planOnly: boolean; engine: MotionEngine;
   recipe?: Recipe | "editorial" | "bento" | "glow" | "halo" | "story"; press?: string; frame?: string; tree?: string; pitch?: string; brand?: string; audio?: string; alpha?: boolean; gauntlet?: boolean; maxRounds?: number; aspect?: Aspect;
   data?: string;
   reference?: string; measure?: boolean;
@@ -118,7 +118,7 @@ export function parseMotionArgs(argv: string[]): MotionArgs {
     if (!s.startsWith("--")) { a.inputs.push(s); continue; }
     if (s === "--plan-only") { a.planOnly = true; continue; }
     if (s === "--redaction-dry-run") { a.redactionDryRun = true; continue; }
-    if (s === "--no-ai") { a.noAi = true; continue; }
+    if (s === "--no-ai") throw new Error("--no-ai is not offered: an image run is planned with an AI engine and stops without one; name --pattern or --recipe to lay the film out yourself");
     if (s === "--alpha") { a.alpha = true; continue; }
     if (s === "--gauntlet") { a.gauntlet = true; continue; }
     if (s === "--measure") { a.measure = true; continue; }
@@ -460,13 +460,17 @@ export function planStoryboard(a: MotionArgs, id: string): unknown {
 export interface PlanOptions {
   /** Warning sink; defaults to stderr. */
   warn?: (line: string) => void;
+  /** The engine an image run needs; defaults to the signed-in planner, which stops with the sign-in line when there is none. */
+  engine?: () => Promise<unknown>;
 }
 
-/** The storyboard for a motion run. AI image planning is off until screenshots can be redacted, so an
- *  image-only run makes no planner call and every run gets the local plan. */
+/** The storyboard for a motion run. A screenshot run that leaves the film to the planner (no --pattern, no
+ *  --recipe) needs an AI engine and stops without one. Image planning is off until screenshots can be redacted,
+ *  so no screenshot is sent and the engine's film is laid out by the local rules. */
 export async function planMotion(a: MotionArgs, id: string, o: PlanOptions = {}): Promise<unknown> {
   const local = planStoryboard(a, id);
-  if (a.noAi || !a.inputs.length || inputKind(a.inputs[0]!) !== "image") return local;
+  if (!a.inputs.length || inputKind(a.inputs[0]!) !== "image" || a.patterns !== undefined || a.recipe !== undefined) return local;
+  await (o.engine ?? signedInPlanner)();
   const warn = o.warn ?? ((line: string) => console.error(line));
   warn("motion: AI image planning is OFF until screenshots can be redacted; this film uses the local rules " +
     "and no screenshot is sent to a planner.");
@@ -522,7 +526,7 @@ export async function runMotion(argv: string[], takesDir: string, o: PlanOptions
       [a.subtitle !== undefined, "--subtitle"], [a.cta !== undefined, "--cta"], [a.url !== undefined, "--url"],
       [a.logo !== undefined, "--logo"], [a.device !== undefined, "--device"], [a.regions.length > 0, "--region"],
       [a.states.length > 0, "--state"], [a.workers !== undefined, "--workers"], [a.blur !== undefined, "--blur"],
-      [a.noAi === true, "--no-ai"], [a.recipe !== undefined, "--recipe"], [a.alpha === true, "--alpha"],
+      [a.recipe !== undefined, "--recipe"], [a.alpha === true, "--alpha"],
       [a.gauntlet === true, "--gauntlet"], [a.maxRounds !== undefined, "--max-rounds"], [a.aspect !== undefined, "--aspect"],
       [a.redactionDryRun === true, "--redaction-dry-run"], [a.publicDomains.length > 0, "--public-domain"],
       [a.pitch !== undefined, "--pitch"], [a.press !== undefined, "--press"], [a.frame !== undefined, "--frame"],
@@ -560,7 +564,6 @@ export async function runMotion(argv: string[], takesDir: string, o: PlanOptions
     for (const f of a.inputs) if (!/^https?:\/\//.test(f) && !existsSync(f)) throw new Error(`no such input ${f}`);
     id = "motion";
     if (a.recipe === "editorial" || a.recipe === "bento") {
-      if (a.noAi) throw new Error(`--recipe ${a.recipe} is planned by the AI engine; there is no --no-ai plan for it`);
       const plan = a.recipe === "bento" ? planBento : planEditorial;
       storyboard = await plan(a, id, o.warn ?? ((line: string) => console.error(line)), budget);
     } else if (a.recipe === "glow") storyboard = await planGlow(a, id);

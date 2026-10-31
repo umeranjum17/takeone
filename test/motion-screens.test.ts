@@ -1,13 +1,18 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { execFileSync, spawnSync } from "node:child_process";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join, resolve } from "node:path";
+import { PlannerUnavailable } from "../src/decide/planner.ts";
 import { FOCUS, screenAsk, screenDecision } from "../src/motion/ai.ts";
 import { parseMotionArgs, planMotion, planStoryboard } from "../src/motion/cli.ts";
 import { main } from "../src/cli.ts";
 import { validateStoryboard } from "../src/motion/storyboard.ts";
+
+/** An engine that can serve, and one that cannot: the stop is the sign-in line the other surfaces give. */
+const engine = async () => ({});
+const noEngine = async () => { throw new PlannerUnavailable("signed-in account or stored key", "no sign-in found", { credentialMissing: true }); };
 
 /** Three 1200x900 flat screenshots: only their sizes and order matter here. */
 function screenshots(dir: string): string[] {
@@ -24,7 +29,8 @@ test("screenshot runs are planned locally: every run keeps the local plan and sa
     const files = screenshots(dir);
     const args = parseMotionArgs(files);
     const warns: string[] = [];
-    const sb = validateStoryboard(await planMotion(args, "motion", { warn: (s) => warns.push(s) }));
+    await assert.rejects(planMotion(args, "motion", { warn: (s) => warns.push(s), engine: noEngine }), /takeone needs an AI engine/);
+    const sb = validateStoryboard(await planMotion(args, "motion", { warn: (s) => warns.push(s), engine }));
     assert.deepEqual(sb, validateStoryboard(planStoryboard(args, "motion")));
     assert.deepEqual(sb.planner, { by: "local", abstained: [] });
     assert.deepEqual(sb.scenes.map((s) => s.pattern), ["kinetic-type", "zoom-tour", "zoom-tour", "zoom-tour", "end-card"]);
@@ -35,12 +41,15 @@ test("screenshot runs are planned locally: every run keeps the local plan and sa
   }
 });
 
-test("--no-ai keeps the local plan and warns about nothing", { timeout: 120000 }, async () => {
+test("--no-ai is refused by name: a film the user lays out keeps the local plan and warns about nothing", { timeout: 120000 }, async () => {
   const dir = mkdtempSync(join(tmpdir(), "takeone-screens-"));
   try {
     const files = screenshots(dir);
     const warns: string[] = [];
-    const args = parseMotionArgs([...files, "--no-ai"]);
+    assert.throws(() => parseMotionArgs([...files, "--no-ai"]), /--no-ai is not offered: an image run is planned with an AI engine/);
+    await assert.rejects(planMotion(parseMotionArgs(files), "motion", { warn: (s) => warns.push(s), engine: noEngine }), /takeone needs an AI engine/);
+    // --pattern is the way to keep the local rules: the user names the film, so no engine is asked.
+    const args = parseMotionArgs([...files, "--pattern", "end-card"]);
     assert.deepEqual(await planMotion(args, "motion", { warn: (s) => warns.push(s) }), planStoryboard(args, "motion"));
     assert.deepEqual(warns, []);
   } finally {
@@ -48,7 +57,7 @@ test("--no-ai keeps the local plan and warns about nothing", { timeout: 120000 }
   }
 });
 
-test("a stored planner is never resolved for a screenshot run", { timeout: 120000 }, async () => {
+test("a screenshot run resolves the stored planner: a corrupt one stops it before any storyboard", { timeout: 120000 }, async () => {
   const dir = mkdtempSync(join(tmpdir(), "takeone-screens-"));
   const saved = [process.env.XDG_CONFIG_HOME, process.env.TAKEONE_DIR, process.env.TAKEONE_NO_KEYRING];
   process.env.XDG_CONFIG_HOME = join(dir, "config");
@@ -60,11 +69,13 @@ test("a stored planner is never resolved for a screenshot run", { timeout: 12000
   console.log = () => {};
   try {
     mkdirSync(join(dir, "config", "takeone"), { recursive: true });
-    // Corrupt on purpose: resolving the planner would fail the run.
+    // Corrupt on purpose: resolving the planner fails the run, and nothing is planned.
     writeFileSync(join(dir, "config", "takeone", "planner.json"), "{not json");
     const out = join(dir, "take");
-    assert.equal(await main(["motion", ...screenshots(dir), "--out", out, "--plan-only", "--theme", "paper"]), 0);
-    const sb = JSON.parse(readFileSync(join(out, "storyboard.json"), "utf8")) as { theme: { name: string }; planner: unknown };
+    assert.notEqual(await main(["motion", ...screenshots(dir), "--out", out, "--plan-only", "--theme", "paper"]), 0);
+    assert.ok(!existsSync(join(out, "storyboard.json")), "no storyboard is written");
+    // With an engine the same flags plan locally, as before.
+    const sb = validateStoryboard(await planMotion(parseMotionArgs([...screenshots(dir), "--theme", "paper"]), "motion", { warn: () => {}, engine }));
     assert.equal(sb.theme.name, "paper");
     assert.deepEqual(sb.planner, { by: "local", abstained: [] });
   } finally {
@@ -150,6 +161,27 @@ test("an existing take is a motion input: its footage becomes an editable clip f
     const out = join(dir, "film");
     assert.equal(await main(["motion", take, "--out", out, "--plan-only"]), 0);
     assert.equal(validateStoryboard(JSON.parse(readFileSync(join(out, "storyboard.json"), "utf8"))).source.kind, "take");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a screenshot run with no engine stops with the sign-in line and plans nothing; --no-ai fails by name", { timeout: 120000 }, () => {
+  const dir = mkdtempSync(join(tmpdir(), "takeone-screens-noengine-"));
+  try {
+    const [board] = screenshots(dir);
+    const run = (...extra: string[]) => spawnSync(process.execPath, [resolve("bin/takeone.mjs"), "motion", board!, "--out", join(dir, "film"), "--plan-only", ...extra], {
+      encoding: "utf8", timeout: 60_000,
+      env: { HOME: dir, XDG_CONFIG_HOME: join(dir, ".config"), TMPDIR: dir, PATH: dirname(process.execPath), TAKEONE_NO_KEYRING: "1" },
+    });
+    const stopped = run("--theme", "paper");
+    assert.equal(stopped.status, 3, stopped.stderr);
+    assert.match(stopped.stderr, /takeone needs an AI engine.*Sign in with: claude/);
+    const removed = run("--no-ai");
+    assert.equal(removed.status, 1, removed.stderr);
+    assert.match(removed.stderr, /--no-ai is not offered: an image run is planned with an AI engine/);
+    assert.ok(!existsSync(join(dir, "film", "storyboard.json")), "no storyboard is written");
+    assert.equal(run("--pattern", "end-card").status, 0, "a film the user lays out with --pattern needs no engine");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
