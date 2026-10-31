@@ -78,7 +78,7 @@ export interface TakeEdits {
 export interface WebcamClip { file: string; start_ms: number; device?: string }
 
 export interface TakeMeta extends TakeEdits {
-  planner?: { mode: "ai" | "fallback" };
+  planner?: { mode: "ai" };
   /** Mobile capture renders inside a handset frame. */
   device?: "android" | "ios";
   theme?: string;

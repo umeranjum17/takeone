@@ -200,10 +200,10 @@ export interface TakeMeta extends TakeEdits {
   film?: import("./decide/film.ts").FilmDecision;
   /** The picked direction (`takeone pick`): its theme and `--set` pairs win over the film's look. */
   direction?: import("./directions/directions.ts").PickedDirection;
-  /** How the film was planned: AI decider or local fallback rules. */
+  /** How the film was planned: always by the AI decider. A take recorded with the removed mode "fallback" (local rules) is refused at render. */
   planner?: {
-    mode: "ai" | "fallback";
-    /** The provider that planned; null for fallback. */
+    mode: "ai";
+    /** The provider that planned. */
     backend: string | null;
     model: string | null;
     input_tokens: number;

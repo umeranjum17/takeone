@@ -678,7 +678,7 @@ export async function makeTake(dir: string, opts: MakeOptions = {}): Promise<Mak
     requests, cached: cachedRequests, request_tokens: requestTokens,
   };
   take.planner = {
-    mode: byAi > 0 ? "ai" : "fallback",
+    mode: "ai",
     backend: plannerBackend,
     model: plannerModel,
     ...plannerStats,

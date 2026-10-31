@@ -19,7 +19,6 @@ import { motionBlurGraph, shutterPlan } from "./motion-blur.ts";
 import { idleSqueezes, purposefulEnd, setptsExpr, warp, warpBeats } from "./pace.ts";
 import { cursorAss, pointerSamples } from "./cursor.ts";
 import { firstFrameTimeMs, readEvents } from "../perceive/decode.ts";
-import { phoneTapShots } from "./phone.ts";
 import { edgeCuts, cutCount, holdPath, lastFrameSecond, videoFrames } from "./framing.ts";
 import { SAFE_INSET, safeAreaReport, type Rect } from "./safe-area.ts";
 import { clipDrags, typingBursts, editBeats, editTimeline, validateEdits, validateZooms } from "./edits.ts";
@@ -192,6 +191,10 @@ export async function planCamera(dir: string, camera?: CameraDefaults, take?: Ta
   if (phone && d.out_h >= d.out_w) d = { ...d, deadzone_zoom: Math.min(d.deadzone_zoom, 1.02) };
   validateZooms(meta.zooms, meta.width, meta.height);
   validateEdits(meta);
+  // A take planned with the removed local-rules mode is not rendered as if it had been planned: it is made again.
+  if (meta.planner !== undefined && (meta.planner.mode as string) !== "ai") {
+    throw new Error(`this take was planned with local rules (planner.mode: ${meta.planner.mode}), which takeone no longer has; run \`takeone make ${meta.id}\` with an AI engine to plan it again`);
+  }
   const beats = JSON.parse(await readFile(join(dir, "analysis/beats.json"), "utf8")) as Beat[];
   // The planner stores seconds; the existing FOLLOW solver consumes action timestamps in ms.
   if ("stream" in meta) for (const beat of beats) beat.actions = beat.actions.map(actionCameraMilliseconds);
@@ -199,7 +202,7 @@ export async function planCamera(dir: string, camera?: CameraDefaults, take?: Ta
   // plan.json holds the camera choices the user may have edited; they win over decisions.jsonl.
   // Refuse an edit this take cannot honour before any camera path is built.
   const plan = readPlan(dir);
-  validatePlan(plan, beats, { androidFallback: meta.device === "android" && meta.planner?.mode === "fallback" });
+  validatePlan(plan, beats);
   const decisions = applyPlan(decisionLines.split(/\r?\n/).filter(Boolean)
     .map((line) => JSON.parse(line) as Decision), plan);
 
@@ -240,8 +243,6 @@ export async function planCamera(dir: string, camera?: CameraDefaults, take?: Ta
     const B = kept(decision.B) ? decision.B : A;
     return [{ ...decision, A, B }];
   }) : decisions;
-  const tapShots = meta.device === "android" && meta.planner?.mode === "fallback"
-    ? phoneTapShots(outBeats, meta.width, meta.height) : null;
   const shown = withFilmText(meta);
   const captions = takeCaptions(clock ? { ...shown, captions: shown.captions?.filter(c => clock.contains(c.t)) } : shown, outTime, duration);
   // Every take with text gets the band, a phone in its handset too: text never covers the app.
@@ -307,7 +308,7 @@ export async function planCamera(dir: string, camera?: CameraDefaults, take?: Ta
   const key = take ? undefined : solveKey(dir, [meta, d, outBeats, outDecisions, solveLayout.band, solveLayout.stage, squeezes, typing, changes, trimStart, trimEnd]);
   const cached = key ? readSolve(dir, key) : undefined;
   const solve = cached ?? (() => {
-    const solved = solveCamera(tapShots?.beats ?? outBeats, tapShots?.decisions ?? outDecisions, { ...meta, trim_end: trimStart + duration },
+    const solved = solveCamera(outBeats, outDecisions, { ...meta, trim_end: trimStart + duration },
       { ...cam, min_shot: d.min_shot * d.pace, dwell: d.dwell * d.pace, dwell_k2: d.dwell_k2 * d.pace },
       banded ? fit && (phone ? (frame) => fit(phoneReframe(frame)) : fit) : phone ? (frame) => project(phoneReframe(frame)) : project, cuts, changes);
     const solvedFrames = phone ? solved.map(phoneReframe) : solved;
