@@ -5,11 +5,11 @@
 // pure (redact.ts).
 
 import { spawn } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import type { BBox, Zone } from "../types.ts";
 import { redactWord } from "./redact.ts";
+import { scratchDirSync } from "../tmpspace.ts";
 
 export const OCR_WORD_CAP = 12;
 export const OCR_MIN_CONF = 60;
@@ -27,7 +27,7 @@ export async function ocrZone(
   bbox: BBox,
   tMs: number,
 ): Promise<string | null> {
-  const dir = mkdtempSync(join(tmpdir(), "takeone-ocr-"));
+  const dir = scratchDirSync("takeone-ocr-");
   const png = join(dir, "zone.png");
   try {
     await cropFrame(webm, bbox, tMs, png);
@@ -56,7 +56,7 @@ export async function keyframeThumb(
   zones: Zone[],
   stream: { w: number; h: number },
 ): Promise<Uint8Array> {
-  const dir = mkdtempSync(join(tmpdir(), "takeone-thumb-"));
+  const dir = scratchDirSync("takeone-thumb-");
   const jpg = join(dir, "thumb.jpg");
   try {
     const k = Math.max(stream.w, stream.h) / THUMB_LONG_SIDE; // source pixels per thumbnail pixel
@@ -81,7 +81,7 @@ export async function keyframeThumb(
 
 /** A still blurred past reading, as PNG bytes at its own size: what a planner is shown of a rendered frame. */
 export async function blurredStill(png: string): Promise<Uint8Array> {
-  const dir = mkdtempSync(join(tmpdir(), "takeone-blur-"));
+  const dir = scratchDirSync("takeone-blur-");
   const out = join(dir, "blurred.png");
   try {
     await ffmpeg(["-i", png, "-vf", BLUR, "-frames:v", "1", "-y", out]);

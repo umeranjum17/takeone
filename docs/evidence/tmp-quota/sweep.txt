@@ -1,0 +1,17 @@
+tmp-sweep: /tmp, entries older than 4 h
+  removed  /tmp/fhl.19KWpm  104.0 KB
+... (3809 'removed' lines in the full run; trimmed)
+  skip   /tmp/fhl.94xa5i  (removal refused: EACCES)
+  skip   /tmp/fhl.dUXtdV  (removal refused: EACCES)
+  skip   /tmp/tmp.2FsBjxwo4D  (not a plain directory)
+  skip   /tmp/tmp.7SaN2AvYyR  (not a plain directory)
+  skip   /tmp/tmp.LHSLr4gB8N  (not a plain directory)
+  skip   /tmp/tmp.bWuS4TI7y0  (not a plain directory)
+  skip   /tmp/tmp.dEwUc7QHQl  (not a plain directory)
+  skip   /tmp/tmp.ksizbieX2q  (not a plain directory)
+  skip   /tmp/tmp.mvpsP41K2O  (not a plain directory)
+  skip   /tmp/tmp.rz8sbHPWCo  (not a plain directory)
+  skip   /tmp/tmp.y4JVHoiiJk  (not a plain directory)
+  skip   72 entries touched within the 4 h floor
+swept shapes before: 5.6 GB, after: 4.2 GB; reclaimed 1557991424 bytes (1.5 GB) in 3809 entries
+free space on /tmp: before 10.8 GB, after 12.4 GB

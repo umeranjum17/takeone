@@ -1,0 +1,36 @@
+tmp-sweep dry run: /tmp, entries older than 4 h, nothing removed
+  would remove  /tmp/fhl.19KWpm  104.0 KB  83.7 h old
+  would remove  /tmp/fhl.32it29  104.0 KB  227.4 h old
+  would remove  /tmp/fhl.4iHQd3  4.0 KB  63.8 h old
+  would remove  /tmp/fhl.5Rw0tt  284.0 KB  51.5 h old
+  would remove  /tmp/fhl.7kRu6n  4.0 KB  138.1 h old
+  would remove  /tmp/fhl.94xa5i  286.5 MB  23.6 h old
+  would remove  /tmp/fhl.A9kaV9  104.0 KB  227.5 h old
+  would remove  /tmp/fhl.AW0lxp  4.0 KB  33.4 h old
+  would remove  /tmp/fhl.AoGsDY  104.0 KB  83.7 h old
+  would remove  /tmp/fhl.EENpLk  4.0 KB  38.6 h old
+  would remove  /tmp/fhl.GYNTKn  108.0 KB  267.8 h old
+  would remove  /tmp/fhl.JrO6Qo  4.0 KB  59.2 h old
+  would remove  /tmp/fhl.Kw7IGx  108.0 KB  267.8 h old
+  would remove  /tmp/fhl.QL1DvQ  4.0 KB  63.2 h old
+  would remove  /tmp/fhl.V2v57B  4.0 KB  137.8 h old
+  would remove  /tmp/fhl.Vxdvwj  4.0 KB  61.3 h old
+  would remove  /tmp/fhl.bxTlSZ  4.0 KB  256.2 h old
+  would remove  /tmp/fhl.bzhJh8  4.0 KB  70.6 h old
+  would remove  /tmp/fhl.dUXtdV  286.5 MB  40.9 h old
+  would remove  /tmp/fhl.eS2fBz  420.0 KB  51.8 h old
+  would remove  /tmp/fhl.eXPvd0  4.0 KB  71.2 h old
+  would remove  /tmp/fhl.hVKZrS  4.0 KB  67.1 h old
+  would remove  /tmp/fhl.i3ji5i  4.0 KB  107.6 h old
+  would remove  /tmp/fhl.mKehFF  4.0 KB  38.6 h old
+... (3811 'would remove' lines in the full run; trimmed)
+  skip   /tmp/tmp.2FsBjxwo4D  (not a plain directory)
+  skip   /tmp/tmp.7SaN2AvYyR  (not a plain directory)
+  skip   /tmp/tmp.LHSLr4gB8N  (not a plain directory)
+  skip   /tmp/tmp.bWuS4TI7y0  (not a plain directory)
+  skip   /tmp/tmp.dEwUc7QHQl  (not a plain directory)
+  skip   /tmp/tmp.ksizbieX2q  (not a plain directory)
+  skip   /tmp/tmp.mvpsP41K2O  (not a plain directory)
+  skip   /tmp/tmp.rz8sbHPWCo  (not a plain directory)
+  skip   /tmp/tmp.y4JVHoiiJk  (not a plain directory)
+  skip   72 entries touched within the 4 h floor
