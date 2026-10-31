@@ -105,17 +105,24 @@ Per take, whatever its length, for the directions and polish steps themselves:
 | Step | Model calls | Renders |
 | --- | --- | --- |
 | directions (3) | 1 planner call, 3 judge calls | 4 (one per direction, one determinism re-render) |
-| polish | 1 judge call per round, 1 builder call per refinement | 1 per round |
-| polish at its cap (5 refinements) | 6 judge calls, 5 builder calls | 6 |
+| polish | 3 judge calls per scored round (the median is the round's score), 1 builder call per refinement | 1 per round |
+| polish at its cap (5 refinements) | 18 judge calls, 5 builder calls | 6 |
 
 A judge answer served from `analysis/judge-cache.jsonl` is not counted as a call.
+
+A polish round is judged three times through the same judge route and reported by its median, because one judge
+scored the same untouched cut 8.4 and then 8.0. Each axis takes its median too, so the by-axis report stays comparable
+with earlier rounds. The round's band is the lowest to the highest of the three scores; when the band reaches the 9/10
+target without all three clearing it, the round is called inconclusive rather than a pass or a fail. The second and
+third judging name their number in the request, so they are fresh draws and not the cached answer of the first. A
+scored round therefore consumes 3 judge calls (budget units); a cached judging costs none.
 
 The judge never sees the whole film. Each judged round extracts **three single frames** (the page at rest, the first
 click, the final shot) and measures the film locally with ffmpeg; on an image-capable judge route those three frames
 go to the judge blurred past reading. The default route (Claude CLI) is text-only and judges the measured facts from the
 same three frames. So a judge call's size does not grow with the film's length: the frames are three whatever the
 length, and only the planner's timeline (capped at 40 lines in the directions call) grows with the number of beats.
-The directions and polish calls per take are therefore bounded at 1 + 3 + 6 + 5 = 15 for a three-way pick and a full
+The directions and polish calls per take are therefore bounded at 1 + 3 + 18 + 5 = 27 for a three-way pick and a full
 five-round polish, and their cost per minute of video falls as takes get longer. That ceiling does not count planning
 the take: on a take not planned yet (or with `--replan`), `directions` first runs `make`'s planning once (the film call
 and the beat calls, which grow with the take and are chunked, see [cost](cost.md)); a take already made adds none.

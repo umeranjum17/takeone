@@ -96,10 +96,60 @@ export interface JudgedCard extends ScoreCard {
   /** Actionable gaps: every item under 9 with the judge's reason, or the measured note when it gave none. */
   gaps: string[];
   feedback: FeedbackCheck[];
+  /** Set by `medianCard`: the judged round scores, lowest to highest, and whether they straddle the target. */
+  spread?: Spread;
+  /** Set by `medianCard`: each axis's lowest and highest score across the samples. */
+  itemRange?: Record<string, [number, number]>;
   /** "cache" when the answers came from judge-cache.jsonl and no model call was made. */
   source: "api" | "cache";
   inputTokens?: number;
   outputTokens?: number;
+}
+
+/** A round is judged this many times and reported by its median: one judge scored the same cut 8.4 and then 8.0. */
+export const JUDGE_SAMPLES = 3;
+
+export interface Spread {
+  /** Every sampled round score, in the order judged. */
+  scores: number[];
+  low: number;
+  high: number;
+  /** The band reaches the target without every sample clearing it: neither a pass nor a fail. */
+  inconclusive: boolean;
+}
+
+const middle = (xs: number[]) => [...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)]!;
+
+/**
+ * One card from an odd number of samples of the same round. The round score and every axis take the median; the
+ * round's spread is the lowest to the highest sample score. Gaps come from the sample whose round score is the median,
+ * and each feedback check goes by majority, so the loop reads the card exactly as it read a single judged one.
+ */
+export function medianCard(cards: JudgedCard[], target: number): JudgedCard {
+  if (cards.length % 2 === 0) throw new Error("a median needs an odd number of judged cards");
+  const scores = cards.map((c) => c.score);
+  const score = middle(scores);
+  const low = Math.min(...scores);
+  const high = Math.max(...scores);
+  const chosen = cards.find((c) => c.score === score)!;
+  const itemRange: Record<string, [number, number]> = {};
+  const items = chosen.items.map((item) => {
+    const each = cards.map((c) => c.items.find((i) => i.id === item.id)!.score);
+    itemRange[item.id] = [Math.min(...each), Math.max(...each)];
+    return { ...item, score: middle(each) };
+  });
+  const feedback = chosen.feedback.map((f) => {
+    const votes = cards.map((c) => c.feedback.find((x) => x.id === f.id)!);
+    const kept = votes.filter((v) => v.kept).length * 2 > votes.length;
+    return { id: f.id, kept, reason: votes.find((v) => v.kept === kept)!.reason };
+  });
+  const total = (key: "inputTokens" | "outputTokens") => cards.some((c) => c[key] !== undefined) ? { [key]: cards.reduce((n, c) => n + (c[key] ?? 0), 0) } : {};
+  return {
+    ...chosen, score, items, feedback, itemRange, calls: cards.length,
+    source: cards.some((c) => c.source === "api") ? "api" : "cache",
+    spread: { scores, low, high, inconclusive: low < target && high >= target },
+    ...total("inputTokens"), ...total("outputTokens"),
+  };
 }
 
 /** A yes/no answer as a boolean; an abstained or missing one makes the judge unavailable (a check is never assumed met). */

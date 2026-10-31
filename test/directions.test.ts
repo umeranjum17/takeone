@@ -13,7 +13,7 @@ import { pickDirection, runDirections, type DirectionsFile } from "../src/direct
 import { runPolish, type Candidate, type Critique, type Feedback, type PolishHooks } from "../src/polish/loop.ts";
 import { latestRun, pickRound, polishFeedback, runPolishCommand } from "../src/polish/run.ts";
 import { builderRequest, KNOBS, mapBuilder } from "../src/polish/builder.ts";
-import { judgeRound, JudgeUnavailable } from "../src/score/judge.ts";
+import { JUDGE_SAMPLES, judgeRound, JudgeUnavailable, medianCard, type JudgedCard } from "../src/score/judge.ts";
 import { resolvePlanner, type ResolvedPlanner } from "../src/decide/planner.ts";
 import { cutPage } from "../src/board/page.ts";
 import { litSpotlights, litWindow } from "../src/perceive/lit.ts";
@@ -294,6 +294,64 @@ test("the judge checks each piece of owner feedback in the same call and names t
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+/** Three judgings of one round, each answering the given score on every axis (the measured caps still apply). */
+async function judgedThrice(scores: number[], yes: number[] = [1, 1, 1]): Promise<{ cards: JudgedCard[]; calls: number }> {
+  const dir = mkdtempSync(join(tmpdir(), "takeone-median-"));
+  try {
+    const { judge } = await jevRoutes(dir);
+    const cache = { get: async () => undefined, set: async () => undefined };
+    const cards: JudgedCard[] = [];
+    let calls = 0;
+    for (const [i, score] of scores.entries()) {
+      const fetchImpl = recorded({ score, yes: yes[i]! });
+      cards.push(await judgeRound(judge, facts(), { cache, fetchImpl: (async (...a: Parameters<typeof fetch>) => { calls++; return fetchImpl(...a); }) as typeof fetch }, { gaps: true, feedback: [{ id: "x", text: "note" }] }));
+    }
+    return { cards, calls };
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+test("a round is scored three times: the median is the score and the lowest to highest is the spread", async () => {
+  assert.equal(JUDGE_SAMPLES, 3);
+  const { cards, calls } = await judgedThrice([6, 8, 7]);
+  assert.equal(calls, 3, "three judge calls make one scored round");
+  assert.deepEqual(cards.map((c) => c.score), [6, 8, 7]);
+  const card = medianCard(cards, 9);
+  assert.equal(card.score, 7, "the median, not the mean (7) or the last draw");
+  assert.deepEqual(card.spread, { scores: [6, 8, 7], low: 6, high: 8, inconclusive: false }, "a band wholly under the target is a clear miss");
+  assert.deepEqual(card.items.map((i) => i.score), cards[2]!.items.map((i) => i.score), "every axis keeps its own median");
+  assert.equal(card.itemRange!.pacing![0], 6);
+  assert.equal(card.itemRange!.pacing![1], 8);
+  assert.equal(card.calls, 3);
+});
+
+test("a spread that crosses the target is inconclusive, and a band wholly on one side is not", async () => {
+  const straddle = medianCard((await judgedThrice([8, 9, 8])).cards, 9);
+  assert.deepEqual([straddle.score, straddle.spread!.low, straddle.spread!.high, straddle.spread!.inconclusive], [8, 8, 9, true], "8, 8 and 9 reach 9 without all clearing it");
+  const clear = medianCard((await judgedThrice([9, 9, 9])).cards, 9);
+  assert.equal(clear.spread!.inconclusive, false, "all three at the target is a pass");
+  const top = medianCard((await judgedThrice([10, 9, 10])).cards, 9);
+  assert.equal(top.spread!.inconclusive, false, "a band that stays at or over the target is a pass");
+});
+
+test("the median card keeps the gaps of the median sample and decides each feedback check by majority", async () => {
+  const { cards } = await judgedThrice([7, 8, 9], [0.9, 0.9, 0.1]);
+  const card = medianCard(cards, 9);
+  assert.deepEqual(card.feedback.map((f) => [f.id, f.kept]), [["x", true]], "two yes of three");
+  assert.deepEqual(card.gaps, cards[1]!.gaps, "the gaps are the median sample's own");
+  const split = medianCard((await judgedThrice([8, 8, 8], [0.9, 0.1, 0.1])).cards, 9);
+  assert.equal(split.feedback[0]!.kept, false, "one yes of three is not met");
+  assert.throws(() => medianCard(cards.slice(0, 2), 9), /odd number/);
+});
+
+test("a scored round costs three judge calls, so a full polish stays far under the 150-call cap", () => {
+  const rounds = 5;
+  const judgeCalls = (rounds + 1) * JUDGE_SAMPLES;
+  assert.equal(judgeCalls, 18, "round 0 and five refinements, three judgings each");
+  assert.ok(judgeCalls + rounds <= 150, "plus one builder call per refinement is 23");
 });
 
 test("the cut page plays the video in place and escapes every field", () => {

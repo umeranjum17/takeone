@@ -9,7 +9,7 @@ import type { CameraDefaults } from "../camera/defaults.ts";
 import type { TakeMeta } from "../camera/types.ts";
 import { planCamera, renderTake } from "../render/render.ts";
 import { askChunk, PlannerFileCache, PlannerUnavailable, resolveJudge, resolvePlanner, type ResolvedPlanner } from "../decide/planner.ts";
-import { JudgeUnavailable, judgeRound } from "../score/judge.ts";
+import { JUDGE_SAMPLES, JudgeUnavailable, judgeRound, medianCard, type JudgedCard } from "../score/judge.ts";
 import { improveRound } from "../score/improve.ts";
 import { clearOverlays, compareFrames, frameHashes, measureFilm } from "../score/measure.ts";
 import type { Determinism } from "../score/loop.ts";
@@ -18,7 +18,7 @@ import { boardFile, cardAnswer, cardNotes, postCard, replaceCard } from "../boar
 import { judgeCost, readDirections, readMeta, sameModel, takeId, writeMeta } from "../directions/run.ts";
 import { IDLE_SPEED_MAX, type PickedDirection } from "../directions/directions.ts";
 import { builderRequest, mapBuilder } from "./builder.ts";
-import { roundCap, runPolish, type Candidate, type Critique, type Feedback, type PolishRound, type PolishState } from "./loop.ts";
+import { POLISH_TARGET, roundCap, runPolish, type Candidate, type Critique, type Feedback, type PolishRound, type PolishState } from "./loop.ts";
 
 /** Take keys a refinement may change; every round writes all of them, so a rejected round's edits never linger. */
 const META_KEYS = ["trim_start", "zooms", "cursor_free"] as const;
@@ -47,6 +47,9 @@ export interface PolishResult {
   runDir: string;
   film: string | null;
 }
+
+/** "median 8.2 of 3 judgings, 8.0 to 8.4", and a band that straddles the target is called inconclusive, not a pass or a fail. */
+const band = (c: Critique): string => !c.spread ? "" : ` (median of ${c.spread.scores.length} judgings, ${c.spread.low.toFixed(1)} to ${c.spread.high.toFixed(1)}${c.spread.inconclusive ? `; INCONCLUSIVE: the band crosses the ${POLISH_TARGET}/10 target, so this round is neither a pass nor a fail` : ""})`;
 
 const json = (file: string, value: unknown, flag = "w") => writeFileSync(file, JSON.stringify(value, null, 1) + "\n", { flag });
 
@@ -294,22 +297,31 @@ export async function runPolishCommand(o: PolishOptions): Promise<PolishResult> 
   const judgeRoundFor = async (c: Candidate, round: number, feedback: Feedback[]): Promise<Critique> => {
     const camera = cameras.get(round)!;
     const facts = await measureFilm(c.film, round, det, { dir: o.dir, camera, frameDir: join(runDir, "frames") });
-    const card = await judgeRound(judge, facts, { cache: judgeCache, log: o.log, ...(o.fetchImpl ? { fetchImpl: o.fetchImpl } : {}) }, {
-      gaps: true,
-      feedback: feedback.map((f) => ({ id: f.id, text: f.text })),
-      context: {
-        picked_direction: { name: picked.name, theme: picked.theme },
-        round: round === 0 ? "round 0: the picked cut as the owner picked it" : `refinement ${round} of at most ${maxRounds}`,
-        this_round_changes: c.changes.length ? c.changes : ["(none)"],
-        earlier_rounds: polishState.rounds.map((r) => ({ round: r.round, score: r.score, accepted: r.accepted })),
-      },
-    });
-    if (card.source === "api") judgeCalls++;
+    const context = {
+      picked_direction: { name: picked.name, theme: picked.theme },
+      round: round === 0 ? "round 0: the picked cut as the owner picked it" : `refinement ${round} of at most ${maxRounds}`,
+      this_round_changes: c.changes.length ? c.changes : ["(none)"],
+      earlier_rounds: polishState.rounds.map((r) => ({ round: r.round, score: r.score, accepted: r.accepted })),
+    };
+    // The same round is judged JUDGE_SAMPLES times through the one route. The first ask keeps its cache key as before;
+    // the others name their number, so each is a fresh draw instead of the cached answer of the first.
+    const samples: JudgedCard[] = [];
+    for (let sample = 1; sample <= JUDGE_SAMPLES; sample++) {
+      const one = await judgeRound(judge, facts, { cache: judgeCache, log: o.log, ...(o.fetchImpl ? { fetchImpl: o.fetchImpl } : {}) }, {
+        gaps: true,
+        feedback: feedback.map((f) => ({ id: f.id, text: f.text })),
+        context: sample === 1 ? context : { ...context, judging: `sample ${sample} of ${JUDGE_SAMPLES}` },
+      });
+      if (one.source === "api") judgeCalls++;
+      samples.push(one);
+    }
+    const card = medianCard(samples, POLISH_TARGET);
     measured.set(round, { facts, card, camera });
     // The picked look is structural: the theme is pinned and camera_path never leaves the picked one.
     const directionKept = camera.camera_path === o.resolveCamera(o.dir, picked.set, picked.theme).camera_path && pathOf(c.set) === pathOf(picked.set);
     return {
-      score: card.score, items: card.items.map(({ id, label, score, note }) => ({ id, label, score, note })), gaps: card.gaps,
+      score: card.score, ...(card.spread ? { spread: card.spread } : {}), ...(card.itemRange ? { itemRange: card.itemRange } : {}),
+      items: card.items.map(({ id, label, score, note }) => ({ id, label, score, note })), gaps: card.gaps,
       directionKept, feedback: card.feedback, judge: judge.label,
       ...(card.inputTokens === undefined ? {} : { inputTokens: card.inputTokens }),
       ...(card.outputTokens === undefined ? {} : { outputTokens: card.outputTokens }),
@@ -331,7 +343,7 @@ export async function runPolishCommand(o: PolishOptions): Promise<PolishResult> 
   const onRound = async (entry: PolishRound, s: PolishState) => {
     json(join(runDir, `round-${entry.round}.json`), entry, "wx");
     const c = entry.critique!;
-    o.log(`polish: round ${entry.round} scored ${c.score.toFixed(1)}/10 - ${entry.accepted ? "accepted" : "rejected"}${entry.changes.length ? `; changes: ${entry.changes.join("; ")}` : ""}`);
+    o.log(`polish: round ${entry.round} scored ${c.score.toFixed(1)}/10${band(c)} - ${entry.accepted ? "accepted" : "rejected"}${entry.changes.length ? `; changes: ${entry.changes.join("; ")}` : ""}`);
     for (const f of c.feedback) o.log(`polish:   feedback ${f.kept ? "met" : "NOT met"} - "${entry.feedback.find((x) => x.id === f.id)?.text}": ${f.reason}`);
     if (!board || s.rounds.length < 2) return;
     const final = s.final!;
@@ -350,7 +362,8 @@ export async function runPolishCommand(o: PolishOptions): Promise<PolishResult> 
           ...(r.round === final.round ? { pill: done ? "Final cut" : "Best so far" } : {}),
           status: [
             r.round === 0 ? "Round 0: the picked cut" : `Round ${r.round} of ${maxRounds}`,
-            r.accepted ? (r.score! >= 9 ? "At target" : "Below target") : "Rejected: missed feedback or left the picked look",
+            r.accepted ? (r.critique!.spread?.inconclusive ? `Inconclusive: judged ${r.critique!.spread.low.toFixed(1)} to ${r.critique!.spread.high.toFixed(1)}, across the target` : r.score! >= 9 ? "At target" : "Below target") : "Rejected: missed feedback or left the picked look",
+            ...(r.critique!.spread ? [`Median of ${r.critique!.spread.scores.length} judgings, ${r.critique!.spread.low.toFixed(1)} to ${r.critique!.spread.high.toFixed(1)}`] : []),
           ],
           items: r.critique!.items.map((i) => ({ label: i.label, score: i.score, note: i.note })),
           feedback: r.feedback.map((f) => {
@@ -358,7 +371,7 @@ export async function runPolishCommand(o: PolishOptions): Promise<PolishResult> 
             return { text: f.text, kept: check ? check.kept : null, reason: check?.reason ?? "" };
           }),
           changes: r.changes,
-          cost: `${judgeCost(r.round + 1)} so far`,
+          cost: `${judgeCost((r.round + 1) * JUDGE_SAMPLES)} so far`,
         },
       })),
     }, o.log);
@@ -389,7 +402,9 @@ export async function runPolishCommand(o: PolishOptions): Promise<PolishResult> 
   const scores = state.rounds.map((r) => r.score === null ? "error" : r.score.toFixed(1)).join(", ");
   o.log(`polish: scores by round ${scores}; stopped: ${state.stop_reason}`);
   o.log(`polish: cost ${judgeCost(judgeCalls)}, ${builderCalls} builder call(s), ${renders} render(s) of the take`);
-  if (final && final.score! < 9) o.log(`polish: BELOW TARGET - the best accepted round scored ${final.score!.toFixed(1)}/10 against 9/10`);
-  if (final) o.log(`polish: final round ${final.round} (${final.score!.toFixed(1)}/10) -> ${film}; run ${runDir}`);
+  const spread = final?.critique?.spread;
+  if (spread?.inconclusive) o.log(`polish: INCONCLUSIVE - the final round was judged ${spread.low.toFixed(1)} to ${spread.high.toFixed(1)}, across the ${POLISH_TARGET}/10 target`);
+  else if (final && final.score! < 9) o.log(`polish: BELOW TARGET - the best accepted round scored ${final.score!.toFixed(1)}/10 against 9/10`);
+  if (final) o.log(`polish: final round ${final.round} (${final.score!.toFixed(1)}/10${final.critique?.spread ? `, judged ${final.critique.spread.low.toFixed(1)} to ${final.critique.spread.high.toFixed(1)}` : ""}) -> ${film}; run ${runDir}`);
   return { state, runDir, film };
 }
