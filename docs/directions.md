@@ -105,10 +105,17 @@ Per take, whatever its length, for the directions and polish steps themselves:
 | Step | Model calls | Renders |
 | --- | --- | --- |
 | directions (3) | 1 planner call, 3 judge calls | 4 (one per direction, one determinism re-render) |
-| polish | 1 judge call per round, 1 builder call per refinement | 1 per round |
-| polish at its cap (5 refinements) | 6 judge calls, 5 builder calls | 6 |
+| polish | 3 judge calls per scored round (the median is the round's score), 1 builder call per refinement | 1 per round |
+| polish at its cap (5 refinements) | 18 judge calls, 5 builder calls | 6 |
 
 A judge answer served from `analysis/judge-cache.jsonl` is not counted as a call.
+
+A polish round is judged three times through the same judge route and reported by its median, because one judge
+scored the same untouched cut 8.4 and then 8.0. Each axis takes its median too, so the by-axis report stays comparable
+with earlier rounds. The round's band is the lowest to the highest of the three scores; when the band reaches the 9/10
+target without all three clearing it, the round is called inconclusive rather than a pass or a fail. The second and
+third judging name their number in the request, so they are fresh draws and not the cached answer of the first. A
+scored round therefore consumes 3 judge calls (budget units); a cached judging costs none.
 
 The judge never sees the whole film. Each judged round extracts **three single frames** (the page at rest, the first
 click, the final shot) and measures the film locally with ffmpeg; on an image-capable judge route those three frames
@@ -126,7 +133,7 @@ request is sent). A judge or planner answer served from a cache sends nothing an
 The cap is 150 calls over a take's whole life (`MAX_CALLS_PER_TAKE`). It is sized from a measured run, not chosen: planning
 a 400 s take at the planner's densest, 30 beats a minute, is 54 requests (4 film, 50 beat), so planning it twice
 (`--replan`) is 108, and the 42 left cover what else a take does: directions (1 planner call and 3 judge calls) and a
-full polish (6 judge and 5 builder calls) are 15 of them, then retries, up to 4 score rounds, and a motion recipe or gauntlet. A take that plans in more than the 150 less what it has
+full polish (18 judge, three per scored round, and 5 builder calls) are 27 of them, then retries, up to 4 score rounds, and a motion recipe or gauntlet. A take that plans in more than the 150 less what it has
 spent is refused by `make` before it sends anything. The next request past the cap is never sent: the run stops with
 `the <workflow> workflow hit the cap of 150 model calls per take after 150 calls`, naming `film planner`, `beat planner`,
 `directions planner`, `polish builder`, `judge` or a `motion` workflow. The count is written on every spend, so a stopped run still shows

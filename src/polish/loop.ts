@@ -26,7 +26,12 @@ export interface FeedbackCheck {
 }
 
 export interface Critique {
+  /** The median of the judged samples of this round. */
   score: number;
+  /** The samples' round scores, lowest to highest; `inconclusive` when that band reaches the target without clearing it. */
+  spread?: { scores: number[]; low: number; high: number; inconclusive: boolean };
+  /** Each axis's lowest and highest sample score, by item id. */
+  itemRange?: Record<string, [number, number]>;
   items: { id: string; label: string; score: number; note: string }[];
   /** Actionable gaps: what the next round works on. */
   gaps: string[];
