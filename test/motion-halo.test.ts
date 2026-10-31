@@ -83,8 +83,8 @@ test("halo end card keeps the earlier pieces in view, so the closing hold is nev
   assert.deepEqual(end.items, lines.items, "so the cut to the end card does not empty the frame");
 });
 
-test("halo stack overlaps a sliver of the next row, never a row's content", { timeout: 120_000 }, async () => {
-  // Three rows of one list: the middle row is the tall one, and it used to swallow the top quarter of the row below it.
+test("halo stack rows never sit on each other, so every row of the list reads", { timeout: 120_000 }, async () => {
+  // Three rows of one list, each cropped down to its own last line: the tall middle row used to swallow a quarter of the third.
   const stack = ["0,0,400,300:logo@S1", "100,100,700,180:stack:Ask@S1", "100,320,700,180:stack@S1", "100,540,700,160:stack@S1", "800,100,500,400:card@S1", "100,900,300,100:chips@S1"];
   const sb = validateStoryboard(planHalo({ inputs: [BOARD], regions: stack, pitch: "Your crew." }, "halo-stack"));
   const dir = mkdtempSync(join(tmpdir(), "takeone-halo-stack-"));
@@ -96,13 +96,15 @@ test("halo stack overlaps a sliver of the next row, never a row's content", { ti
         return [0.3,0.6,0.9].map((f)=>{window.__apply((start+f*d)*1000);
           return {at:f,rows:[...l.querySelectorAll('[data-moves]')].map(e=>{const r=e.getBoundingClientRect();return {top:r.top,bottom:r.bottom,h:r.height}}).sort((a,b)=>a.top-b.top)};});
       })()`);
-      // The band is a sliver of the shorter row all the way through the beat: a quarter of the third row used to sit behind the
-      // tall middle one, and the entrance carried the middle row across it, so both the settled and the arriving frame are checked.
+      // No row sits on another: a row is cropped to its own content down to its last line, so any band hides text. The rows
+      // stay a hairline apart through the beat, entrance and bob included; the old layout put a quarter of the third row
+      // behind the tall middle one.
       for (const { at, rows } of shots) {
         assert.equal(rows.length, 3, `${at}: three rows of the list`);
         for (let i = 1; i < rows.length; i++) {
           const covered = rows[i - 1]!.bottom - rows[i]!.top, share = covered / Math.min(rows[i - 1]!.h, rows[i]!.h);
-          assert.ok(share <= 0.12, `${at}: row ${i + 1} is covered by ${covered.toFixed(1)} px, ${(share * 100).toFixed(0)}% of its height`);
+          assert.ok(share <= 0.02, `${at}: row ${i + 1} is covered by ${covered.toFixed(1)} px, ${(share * 100).toFixed(0)}% of its height`);
+          assert.ok(covered <= 0, `${at}: rows ${i} and ${i + 1} stay apart, ${covered.toFixed(1)} px apart`);
         }
       }
     });
