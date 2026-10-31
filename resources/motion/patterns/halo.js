@@ -4,6 +4,7 @@
 // the glow is drawn in a canvas with a per-channel dither held over 2x2 pixels, so no frame bands.
 (() => {
 const EXPO = "cubic-bezier(.16,1,.3,1)", INOUT = "cubic-bezier(.65,0,.35,1)";
+const HALO_OPEN_TYPE_START = 1.35, HALO_OPEN_TYPE_STEP = 0.05;
 const rgb = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
 const accentRgb = () => rgb(STORYBOARD.palette?.accent ?? "#3b82f6");
 // Triangular dither of +-2 levels per channel from independent integer hashes, one value per 2x2 block.
@@ -126,20 +127,29 @@ PATTERNS["halo-open"] = (layer0, s, ctx) => {
   const pw = ph + gap * 0.6 + tw + ph * 0.45, inner = ph * 0.74;
   const hal = halo(layer, W, H, cx, cy, big * 3);
   K(hal, [[0, { opacity: 0, transform: "scale(.5)" }], [600, { opacity: 1, transform: "scale(1)" }, INOUT], [1500, { opacity: 0.55, transform: "scale(.8)" }], [s.d * 1000, { opacity: 0.8, transform: "scale(1.05)" }]]);
-  const pill = h(`<div style="position:absolute;left:${cx}px;top:${cy}px;height:${ph}px;margin-top:${-ph / 2}px;border-radius:${ph}px;background:var(--card);box-shadow:0 0 0 ${Math.max(2, u * 0.003)}px rgb(${accentRgb().join(",")} / .75),0 0 ${u * 0.05}px rgb(${accentRgb().join(",")} / .45)"></div>`);
+  const pill = h(`<div style="position:absolute;left:${cx}px;top:${cy}px;width:${big}px;height:${big}px;margin-left:${-big / 2}px;margin-top:${-big / 2}px;border-radius:${big * 0.23}px;background:var(--card);box-shadow:0 0 0 ${Math.max(2, u * 0.004)}px rgb(${accentRgb().join(" ")} / .9),0 0 ${u * 0.06}px rgb(${accentRgb().join(" ")} / .65),0 0 ${u * 0.14}px rgb(${accentRgb().join(" ")} / .25)"></div>`);
   layer.append(pill);
-  K(pill, [[0, { opacity: 0, width: `${big}px`, transform: `translateX(${-big / 2}px)` }], [650, { opacity: 0, width: `${big}px`, transform: `translateX(${-big / 2}px)` }],
-    [651, { opacity: 1, width: `${ph}px`, transform: `translateX(${-ph / 2}px)` }, EXPO], [1100, { opacity: 1, width: `${pw}px`, transform: `translateX(${-pw / 2}px)` }]]);
+  K(pill, [[0, { opacity: 0, width: `${big}px`, height: `${big}px`, borderRadius: `${big * 0.23}px` }],
+    [500, { opacity: 0.2, width: `${big}px`, height: `${big}px`, borderRadius: `${big * 0.23}px` }],
+    [850, { opacity: 1, width: `${ph}px`, height: `${ph}px`, borderRadius: `${ph / 2}px` }, EXPO],
+    [1350, { opacity: 1, width: `${pw}px`, height: `${ph}px`, borderRadius: `${ph / 2}px` }]]);
   const logo = markEl(mark.url, big);
   logo.dataset.moves = "";
   layer.append(logo);
   const lx = cx - pw / 2 + (ph - inner) / 2;
   logo.style.left = `${cx - big / 2}px`; logo.style.top = `${cy - big / 2}px`;
-  K(logo, [[0, { opacity: 0, transform: "scale(.7)" }], [500, { opacity: 1, transform: "none" }, EXPO], [650, { opacity: 1, transform: "scale(1)" }, EXPO],
-    [1100, { opacity: 1, transform: `translate(${lx + inner / 2 - cx}px,0) scale(${inner / big})` }]]);
-  const text = h(`<div data-safe style="position:absolute;left:${cx - pw / 2 + ph + gap * 0.6}px;top:${cy}px;transform:translateY(-50%);white-space:nowrap;font:${titleSize}px/1 var(--display);color:var(--text)">${esc(s.title)}</div>`);
+  K(logo, [[0, { opacity: 0, transform: "scale(.7)" }], [500, { opacity: 1, transform: "none" }, EXPO],
+    [850, { opacity: 1, transform: `scale(${inner / big})` }, EXPO],
+    [1350, { opacity: 1, transform: `translate(${lx + inner / 2 - cx}px,0) scale(${inner / big})` }]]);
+  const text = h(`<div data-safe style="position:absolute;left:${cx - pw / 2 + ph + gap * 0.6}px;top:${cy}px;transform:translateY(-50%);white-space:nowrap;font:${titleSize}px/1 var(--display);color:var(--text)"><span style="visibility:hidden">${esc(s.title)}</span><span style="position:absolute;left:0;top:0;white-space:nowrap"><span class="halo-open-typed"></span><i style="display:inline-block;width:.035em;height:.86em;margin-left:.05em;vertical-align:-.08em;background:var(--text)"></i></span></div>`);
   layer.append(text);
-  K(text, [[0, { opacity: 0, transform: "translateY(-30%)" }], [800, { opacity: 0, transform: "translateY(-30%)" }, EXPO], [1200, { opacity: 1, transform: "translateY(-50%)" }]]);
+  const glyphs = [...new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(s.title)].map((g) => g.segment);
+  const typeAt = HALO_OPEN_TYPE_START * 1000, done = typeAt + HALO_OPEN_TYPE_STEP * 1000 * (glyphs.length - 1), typed = $(".halo-open-typed", text), caret = $("i", text);
+  WINDOW(text, typeAt, s.d * 1000);
+  tick((ms) => {
+    typed.textContent = glyphs.slice(0, Math.min(glyphs.length, Math.max(1, Math.floor((ms - typeAt) / (HALO_OPEN_TYPE_STEP * 1000)) + 1))).join("");
+    caret.style.opacity = Math.min(1, Math.max(0, 1 - (ms - done - 350) / 150)).toFixed(3);
+  });
 };
 
 // Sizes of a beat's pieces relative to each other, by how many there are: the middle one stands nearest and biggest, the
@@ -267,17 +277,8 @@ PATTERNS["halo-lines"] = (layer, s, ctx) => {
 PATTERNS["halo-end"] = (layer, s, ctx) => {
   const { W, H } = ctx, u = Math.min(W, H), mark = ctx.screen(s.mark);
   glowStage(layer, W, H, s.d);
-  // The film's last frame keeps the product in view: the earlier pieces, small and dim, at the same corners the lines
-  // left them in, so they carry across the cut and lie still: the closing hold gains content, not a second gesture.
-  (s.items ?? []).slice(0, BACKDROP.length).forEach((id, i) => {
-    const c = ctx.screen(id), [fx, fy, sc, z] = BACKDROP[i], a = c.width / c.height;
-    const w = Math.min(a >= 1.18 ? W * 0.19 * sc : u * 0.22 * sc * a, W * 0.21), hh = w / a;
-    const circle = a > 0.85 && a < 1.18, radius = circle || a > 2 ? Math.min(w, hh) / 2 : Math.min(w, hh) * 0.2;
-    const el = piece(c.url, w, hh, radius, z, u);
-    el.style.left = `${W * fx - w / 2}px`; el.style.top = `${H * fy - hh / 2}px`; el.style.zIndex = "0"; el.style.opacity = "0.7";
-    layer.append(el); el.dataset.moves = "";
-  });
-  const size = Math.min(W * 0.075, u * 0.14), d = size * 0.95;
+  // A quiet lockup closes the promo; the product pieces leave with the preceding beat.
+  const size = Math.min(W * 0.055, u * 0.105), d = size * 0.95;
   const group = h(`<div style="position:absolute;left:0;right:0;top:50%;transform:translateY(-50%);display:flex;align-items:center;justify-content:center;gap:${size * 0.28}px"></div>`);
   const logo = markEl(mark.url, d); logo.style.position = "relative";
   const word = kernedLetters(s.logo);
@@ -297,6 +298,5 @@ PATTERNS["halo-end"] = (layer, s, ctx) => {
     layer.append(c); fitText(c, W * 0.84, u * 0.024);
     K(c, [[0, { opacity: 0 }], [900, { opacity: 0 }, SMOOTH], [1500, { opacity: 1 }]]);
   }
-  K(group, [[0, { scale: "1" }], [s.d * 1000, { scale: "1.03" }]]);
 };
 })();
