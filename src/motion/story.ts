@@ -1,5 +1,6 @@
 // The story recipe: a plain brief in (no screenshot, no model), a 15-20 s film out. Each brief line is one beat: a headline whose
 // second half takes the accent, and the product drawn beside it from the line's own rows (chips, phone chat, cards or stat tiles).
+// A deck beat fans its rows as a perspective hand of cards, one stepped to the front at a time under a typed command.
 // Three beats draw a spreadsheet instead (sheet, fill, grid): their rows are a CSV's own, so one batch of films is explained from its own data.
 // Beats alternate dark and light and end on the brand's end card; every length is a whole frame, so the film is the same on every run.
 import { readFileSync } from "node:fs";
@@ -13,7 +14,7 @@ import type { Scene } from "./types.ts";
 
 export interface StoryArgs { pitch?: string; logo?: string; cta?: string; url?: string; brand?: string; theme?: string; workers?: number; /** A measured reference film's beats; each beat runs on to the next of these. */ beats?: number[] }
 
-const LINE = /^(chips|phone|cards|stats|sheet|fill|grid)(?:\[([^\]]{1,40})\])?:\s*([^|]+?)\s*(?:\|\s*(.+))?$/i;
+const LINE = /^(chips|phone|cards|stats|deck|sheet|fill|grid)(?:\[([^\]]{1,40})\])?:\s*([^|]+?)\s*(?:\|\s*(.+))?$/i;
 const grid = (s: number) => Math.ceil(s * 60 - 1e-9) / 60;
 
 const DATA_ROWS: Record<string, number> = { sheet: 8, fill: 4, grid: 8 };
@@ -24,7 +25,7 @@ function sheetRows(kind: string, file: string): Partial<Scene> {
   return { note: basename(file), text: String(rows.length), tree: [columns, ...rows.slice(0, DATA_ROWS[kind]).map(r => columns.map(c => r[c]!))].map(r => r.map(cell).join(" | ")) };
 }
 
-/** `kind[badge]: Headline / accent half | row; row; row`, one per line. A phone's first row is the question, the rest its answer; a sheet, fill or grid takes a CSV path instead of rows. */
+/** `kind[badge]: Headline / accent half | row; row; row`, one per line. A phone's first row is the question, the rest its answer; a deck's rows read "Name - caption"; a sheet, fill or grid takes a CSV path instead of rows. */
 export function storyBeats(brief: string, name: string): Scene[] {
   return brief.split(/\r?\n/).map(l => l.trim()).filter(Boolean).map((line, i) => {
     const m = LINE.exec(line);

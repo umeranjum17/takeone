@@ -115,3 +115,27 @@ test("the spreadsheet beats keep their text and product inside a 4:5 frame", { t
     });
   } finally { rmSync(dir, { recursive: true, force: true }); rmSync(SHEET, { force: true }); }
 });
+
+const DECK = "deck[Onboarding]: Four steps. / One workspace. | Welcome flow - Design; Checklist - First-day tasks; Voice note - Welcome audio; Roles - Who sees what\nstats: Less chasing. / More doing. | 9 crew; 0 missed";
+
+test("a deck beat plans from its rows, is refused outside 3 to 5 cards, and holds long enough to type its last command", () => {
+  const sb = validateStoryboard(planStory({ pitch: DECK, logo: "Tidewater" }, "deck"));
+  assert.equal(sb.scenes[0]!.kind, "deck");
+  assert.ok(sb.scenes[0]!.d >= storySettle(sb.scenes[0]!) + .8 - 1e-9, "the hand turns to the last card, its command types, then it holds");
+  assert.throws(() => validateStoryboard(planStory({ pitch: "deck: A / B | one - x; two - y\nstats: C / D | 9 crew; 0 missed", logo: "T" }, "x")), /deck needs a title and 3 to 5 tree rows/);
+});
+
+test("a deck beat turns one card to the front per step while the terminal types that card's command and counts", { timeout: 120_000 }, async () => {
+  const sb = validateStoryboard(planStory({ pitch: DECK, logo: "Tidewater" }, "deck", [1080, 1350]));
+  const dir = mkdtempSync(join(tmpdir(), "takeone-story-deck-"));
+  try {
+    await withPage(writePage(dir, sb).html, 1080, 1350, async (b) => {
+      const at = await b.evaluate<{ front: string; term: string }[]>(`(()=>{const l=document.querySelector('[data-pattern="story"]');return [800,2500,3700,4900,5600].map((ms)=>{
+        window.__apply(Number(l.dataset.start)*1000+ms);
+        const cards=[...l.querySelectorAll("[style*='rotateY']")],front=cards.reduce((a,c)=>(Number(c.style.zIndex)>Number(a.style.zIndex)?c:a));
+        return {front:front.children[1].textContent.split(" ")[0],term:[...l.querySelectorAll("*")].filter((e)=>!e.children.length&&/\\d \\/ \\d/.test(e.textContent)).map((e)=>e.textContent)[0]};});})()`);
+      assert.deepEqual(at.map((a) => a.front), ["Welcome", "Checklist", "Voice", "Roles", "Roles"]);
+      assert.deepEqual(at.map((a) => a.term), ["1 / 4", "2 / 4", "3 / 4", "4 / 4", "4 / 4"]);
+    });
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});

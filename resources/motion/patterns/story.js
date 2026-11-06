@@ -1,5 +1,5 @@
 // Story beat (`--recipe story`): copy on one side and the product drawn on the other from the brief's own words, so a film needs
-// no screenshot. `kind` picks the surface (chips, phone, cards, stats); `tree` holds its rows. Dark and light beats alternate
+// no screenshot. `kind` picks the surface (chips, phone, cards, stats, deck, or a spreadsheet's sheet, fill, grid); `tree` holds its rows. Dark and light beats alternate
 // through `invert`. Entrances are K keys, the drift and the counters are ticks: every frame is a pure function of the clock.
 // Layout: a landscape frame sets copy left and product right. A portrait or square frame (W <= H) stacks them instead. One rule places
 // every block: the headline is balanced and fitted to the top 27% (10% side margins, room for the push-in between beats); the product
@@ -82,6 +82,36 @@ const SURFACE = {
       layer.append(tile); rise(tile, 300 + i * 220, `translateY(${S * .04}px)`);
       const num = tile.firstElementChild, t0 = 400 + i * 220;
       tick((ms) => { num.textContent = p.pre + Math.round(p.value * smootherstep((ms - t0) / 1300)).toLocaleString("en-US") + p.post; });
+    });
+  },
+  // deck: the rows as a fanned hand of cards in perspective. The front card sits square-on; the rest step back, turn, rise and dim by their distance from it.
+  // The hand turns one card at a time while the terminal types that card's command. A row reads "Name - caption"; each card draws a little UI of its own (curve, checklist, waveform, flow, timeline) on a tile tinted from the accent.
+  deck: (layer, s, ctx) => {
+    const { U } = ctx, { say, P } = prompt(layer, ctx), n = s.tree.length, STEP = 1200, T0 = 1300, dot = U * .013;
+    const cards = s.tree.map((t) => { const [name, ...rest] = t.split(" - "); return { name, cap: rest.join(" - ") }; });
+    const w = Math.min(P.w * .56, (P.h - U * .08) * .92 / .95), ch = w * .95, step = w * .36, top = (P.h - U * .07 - ch) / 2;
+    const ART = ['<path d="M10 48C30 48 30 12 50 30S76 14 90 12" fill="none" stroke="currentColor" stroke-width="2.4"/><circle cx="10" cy="48" r="3.2"/><circle cx="90" cy="12" r="3.2"/>',
+      [14, 26, 38].map((y, i) => `<rect x="20" y="${y}" width="60" height="9" rx="3" opacity=".22"/><circle cx="26" cy="${y + 4.5}" r="2.6" opacity="${i < 2 ? 1 : .35}"/>`).join(""),
+      [6, 14, 8, 22, 30, 18, 26, 12, 20, 9, 16].map((v, i) => `<rect x="${14 + i * 6.6}" y="${30 - v}" width="3.4" height="${2 * v}" rx="1.7"/>`).join(""),
+      '<rect x="8" y="22" width="22" height="16" rx="3"/><rect x="39" y="10" width="22" height="16" rx="3" opacity=".55"/><rect x="39" y="34" width="22" height="16" rx="3" opacity=".55"/><rect x="70" y="22" width="22" height="16" rx="3"/><path d="M30 30H34V18H39M30 30H34V42H39M61 18H65V30H70M61 42H65V30H70" fill="none" stroke="currentColor" stroke-width="1.6"/>',
+      [[10, 8, 40], [24, 22, 52], [18, 36, 34]].map(([x, y, l]) => `<rect x="${x}" y="${y}" width="${l}" height="9" rx="3"/>`).join("") + '<path d="M58 6V54" stroke="currentColor" stroke-width="1.6"/>'];
+    const stage = h(`<div style="position:absolute;left:${P.x}px;top:${P.y}px;width:${P.w}px;height:${P.h}px;perspective:${P.w * 1.3}px;perspective-origin:50% 40%"></div>`);
+    const els = cards.map((c, i) => h(`<div style="position:absolute;left:${(P.w - w) / 2}px;top:${top}px;width:${w}px;height:${ch}px;box-sizing:border-box;padding:${U * .012}px;border-radius:${U * .022}px;border:1px solid var(--line);background:var(--card);color:var(--ink);box-shadow:0 ${U * .016}px ${U * .04}px rgba(0,0,0,.22);display:flex;flex-direction:column;gap:${U * .008}px">
+      <div style="flex:0 0 58%;border-radius:${U * .014}px;display:grid;place-items:center;background:color-mix(in srgb, hsl(from var(--accent) calc(h + ${58 * i}) 60% 58%) 38%, var(--card))"><svg viewBox="0 0 100 60" fill="currentColor" style="width:78%">${ART[i % ART.length]}</svg></div>
+      <div style="padding:${U * .004}px ${U * .008}px 0;font:${U * .036}px/1.1 var(--display)">${esc(c.name)}</div><div style="padding:0 ${U * .008}px;font:${U * .017}px var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--muted)">${esc(c.cap)}</div></div>`));
+    const dots = h(`<div style="position:absolute;left:0;right:0;top:${top + ch + U * .04}px;display:flex;justify-content:center;gap:${dot}px">${cards.map(() => `<i style="height:${dot}px;border-radius:99px;background:var(--line)"></i>`).join("")}</div>`);
+    stage.append(...els, dots); layer.append(stage); rise(stage, 100, `translateY(${U * .05}px)`);
+    const born = (j) => (j ? T0 + (j - 1) * STEP + STEP * .4 : 300), cmd = cards.map((c) => `add ${c.name} -> ${c.cap.toLowerCase()}`);
+    tick((ms) => {
+      const k = (ms - T0) / STEP, pos = k < 0 ? 0 : Math.min(n - 1, Math.floor(k) + smootherstep((k % 1) / .45));
+      els.forEach((el, i) => {
+        const d = i - pos, a = Math.min(Math.abs(d), 2.2), r = Math.max(-2, Math.min(2, d));
+        el.style.transform = `translate3d(${(d * step).toFixed(1)}px,${(-a * ch * .05).toFixed(1)}px,${(-a * w * .21).toFixed(1)}px) rotateY(${(-r * 11).toFixed(2)}deg) scale(${(1 - .14 * a).toFixed(3)})`;
+        el.style.filter = `brightness(${(1 - .15 * a).toFixed(3)})`; el.style.opacity = Math.max(0, Math.min(1, 1 - (Math.abs(d) - 2.2) * 2)).toFixed(3); el.style.zIndex = Math.round((5 - a) * 10);
+      });
+      $$("i", dots).forEach((el, i) => { const on = Math.max(0, 1 - Math.abs(i - pos)); el.style.width = `${dot * (1 + 2.4 * on)}px`; el.style.background = mix("var(--accent)", Math.round(on * 100), "var(--line)"); });
+      const j = cards.reduce((m, _, i) => (born(i) <= ms ? i : m), 0);
+      say(cmd[j].slice(0, Math.max(0, Math.floor((ms - born(j)) / 26))), `${padTo(j + 1, n)} / ${padTo(n, n)}`);
     });
   },
   // sheet: the CSV as a table, its rows rising a step apart, the first row ringed.
