@@ -140,9 +140,10 @@ probe "$take/screen.webm" "$evidence/takeone-core-record-probe.json"
 probe "$film" "$evidence/takeone-core-render-probe.json"
 cp "$work/source-board.png" "$evidence/takeone-core-source-board.png"
 run $wrap ffmpeg -nostdin -y -threads 2 -filter_threads 2 -filter_complex_threads 2 -ss 5 -i "$take/screen.webm" -frames:v 1 -update 1 "$evidence/takeone-core-record-frame.png"
+run $wrap ffmpeg -nostdin -y -threads 2 -filter_threads 2 -filter_complex_threads 2 -ss 28 -i "$take/screen.webm" -frames:v 1 -update 1 "$evidence/takeone-core-record-end-frame.png"
 run $wrap ffmpeg -nostdin -y -threads 2 -filter_threads 2 -filter_complex_threads 2 -ss 5 -i "$film" -frames:v 1 -update 1 "$evidence/takeone-core-render-frame.png"
 run $wrap ffmpeg -nostdin -y -threads 2 -filter_threads 2 -filter_complex_threads 2 -i "$film" -an -vf "fps=1,scale=480:-2,tile=5x4" -frames:v 1 -update 1 "$evidence/takeone-core-render-sheet.png"
 cp "$film" "$evidence/takeone-core-render.mp4"
 cp "$log" "$evidence/takeone-core-commands.log"
-( cd "$evidence" && sha256sum takeone-core-render.mp4 takeone-core-render-frame.png takeone-core-record-frame.png > SHA256SUMS )
+( cd "$evidence" && sha256sum takeone-core-render.mp4 takeone-core-render-frame.png takeone-core-record-frame.png takeone-core-record-end-frame.png > SHA256SUMS )
 echo "core journey: recorded $id, rendered $film"
