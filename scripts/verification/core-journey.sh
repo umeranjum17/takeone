@@ -58,15 +58,16 @@ browser() { CHROME_DEVTOOLS_AXI_SESSION="core-journey-$$" CHROME_DEVTOOLS_AXI_BR
 runq browser open "file://$root/scripts/e2e/scene.html"
 sleep 3
 
-uid() { # uid <visible text>...: those accessibility nodes, one ref per line, from one snapshot
+uid() { # uid <visible text>...: those accessibility nodes, one ref per line, from one snapshot; "last:<text>" takes the last match
   browser snapshot > "$work/snapshot.log"
   python3 - "$work/snapshot.log" "$@" <<'PY'
 import re, sys
 text = open(sys.argv[1]).read()
 for want in sys.argv[2:]:
-    match = re.search(r'uid=(\S+)(?: [A-Za-z]+)? "' + re.escape(want) + r'"[ \t]*$', text, re.M)
-    if not match: raise SystemExit('missing fixture target: ' + want)
-    print(match.group(1))
+    last = want.startswith('last:')
+    found = re.findall(r'uid=(\S+)(?: [A-Za-z]+)? "' + re.escape(want[5:] if last else want) + r'"[ \t]*$', text, re.M)
+    if not found: raise SystemExit('missing fixture target: ' + want)
+    print(found[-1] if last else found[0])
 PY
 }
 
@@ -84,18 +85,19 @@ runq browser click "@$(uid 'Fix export timeout')"
 sleep 2
 runq browser click "@$(uid '+ New task')"
 sleep 1
-runq browser click "@$(uid 'Title')"
-runq browser type "Draft launch announcement"
+runq browser type "Draft launch announcement"  # the dialog focuses Title itself, as for a person
 sleep 1
-runq browser click "@$(uid 'Notes')"
+runq browser press Tab
 runq browser type "Two short paragraphs and a link to the release notes."
 sleep 1
-runq browser click "@$(uid 'Priority')"
+runq browser click "@$(uid 'Normal')"
 sleep 1
-runq browser click "@$(uid 'High')"
+runq browser click "@$(uid 'last:High')"
 sleep 1
 runq browser click "@$(uid 'Create task')"
 sleep 3
+uid 'Draft launch announcement' > /dev/null   # the new card carries what was typed, not "Untitled"
+[ "$(grep -c ' "High"[ \t]*$' "$work/snapshot.log")" -ge 2 ] || { echo "core-journey: the new task did not take priority High" >&2; exit 1; }
 { read -r from; read -r to; } < <(uid 'Update pricing page' 'Beta feedback survey')
 runq browser drag "@$from" "@$to"
 sleep 3
