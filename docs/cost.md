@@ -56,6 +56,8 @@ Motion renders use no tokens. Model calls come only from the recipes below, and 
 | Recipe | Model calls per film | What bounds it |
 |---|---|---|
 | `glow`, `halo`, `story` | 0 | Planned locally. A `--brand` file, the pinned Open Design slice and the closing card add none |
+| `glow --brand <Open Design token kit>` | 0 | Reads the local `design-tokens.json`; no network or model call |
+| Glow closing-card logo assembly | 0 | Local animation; SVG shape count changes no call or render-engine cost |
 | `editorial` | 1, at most 2 | A broken field is asked again once; a second miss stops |
 | `bento` | 1 | A bad answer stops and says to rerun. The reel is 12 s, so 5 calls a minute of video |
 | `film` | 1 per written segment, at most 2 | A broken page is asked again once. A `.html` path uses no call |
