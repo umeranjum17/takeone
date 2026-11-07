@@ -44,7 +44,7 @@ export const MOTION_USAGE = `takeone motion <image.png|page.html|https://url|tak
   [--workers N] [--blur 0|1] [--storyboard file.json] [--plan-only]
   [--engine hyperframes|legacy] [--alpha] [--redaction-dry-run --out DIR] [--public-domain example.com]...
 takeone motion <screen.png>... --recipe halo --pitch "Tagline. Line one. Line two." --logo WORD --region x,y,w,h:logo@S1 --region x,y,w,h:row|stack|card|chips[:title]@S1... [--url CREDIT] [--out DIR]
-takeone motion <screenshot.png> --recipe editorial|bento --pitch TEXT [--logo WORD] [--cta TEXT] [--url TEXT] [--audio FILE] [--out DIR]
+takeone motion <screenshot.png> --recipe editorial|bento --pitch TEXT [--logo WORD] [--cta TEXT] [--url TEXT] [--audio FILE] [--aspect landscape|portrait|square|4:5] [--out DIR]
 takeone motion film <video.mp4> [--intro BRIEF] [--callout "BRIEF@SECONDS"]... [--outro BRIEF] [--tech html|canvas|three] [--out DIR]
 takeone motion <screen.png> [phone.png] --recipe glow --title HEADLINE --pitch TYPED_PROMPT --press "BUTTON TEXT"|x,y,w,h --logo WORD [--brand brand.json|design-tokens.json|DESIGN.md|KIT_FOLDER] [--frame x,y,w,h] [--subtitle KINETIC_WORDS] [--tree "Crew,>Chief,>Scout"] [--region x,y,w,h:CAPTION]... [--cta TEXT] [--url TEXT] [--audio FILE] [--out DIR]
 takeone motion <inputs...> --gauntlet [--max-rounds M]   after rendering, have a fresh critic score every scene against the reference and repair what falls short
@@ -570,7 +570,7 @@ export async function runMotion(argv: string[], takesDir: string, o: PlanOptions
     if (a.recipe === "editorial" || a.recipe === "bento") {
       const plan = a.recipe === "bento" ? planBento : planEditorial;
       storyboard = await plan(a, id, o.warn ?? ((line: string) => console.error(line)), budget);
-    } else if (a.recipe === "glow") storyboard = await planGlow(a, id, o.warn);
+    } else if (a.recipe === "glow") storyboard = await planGlow(a, id, o.warn, ASPECTS[a.aspect ?? "landscape"]);
     else if (a.recipe === "story") storyboard = planStory({ ...a, beats }, id, ASPECTS[a.aspect ?? "landscape"], o.warn);
     else if (a.recipe === "halo") storyboard = planHalo({ ...a, beats }, id, ASPECTS[a.aspect ?? "landscape"]);
     else storyboard = await planMotion(a, id, o);

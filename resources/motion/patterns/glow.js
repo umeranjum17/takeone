@@ -181,14 +181,15 @@ PATTERNS["glow-screen"] = (layer, s, ctx) => {
   const { W, H } = ctx, u = Math.min(W, H), d = s.d * 1000, scr = ctx.screen(s.screen), crop = STORYBOARD.storyboard.crops?.[s.screen];
   if (!crop) throw new Error(`glow-screen: ${s.screen} is not a crop`);
   glowBg(layer, W, H, s.zoom ? [0.5, 1.05] : [0.12, 0.15], d);
-  const phone = !s.zoom && s.phone ? ctx.screen(s.phone) : null, k = Math.min((W * (s.zoom ? 0.86 : 0.64)) / scr.width, (H * (s.zoom ? 0.8 : 0.72)) / scr.height);
-  const w = scr.width * k, hh = scr.height * k, left = (W - w) / 2 - (phone ? W * 0.09 : 0), top = (H - hh) / 2;
+  // On a tall frame the window spans the width and the phone sits below it, not beside it.
+  const tall = H > W, phone = !s.zoom && s.phone ? ctx.screen(s.phone) : null, k = Math.min((W * (s.zoom ? 0.86 : tall ? 0.88 : 0.64)) / scr.width, (H * (s.zoom ? 0.8 : 0.72)) / scr.height);
+  const w = scr.width * k, hh = scr.height * k, left = (W - w) / 2 - (phone && !tall ? W * 0.09 : 0), top = phone && tall ? H * 0.1 : (H - hh) / 2;
   const win = h(`<div data-safe="window" style="position:absolute;left:${left}px;top:${top}px;width:${w}px;height:${hh}px;border-radius:${u * 0.018}px;overflow:hidden;box-shadow:0 0 0 ${Math.max(1, u * 0.002)}px #ffffff2e,0 ${u * 0.03}px ${u * 0.1}px #000c,0 0 ${u * 0.14}px ${glC("#1f6bff66")}"><img src="${scr.url}" style="width:100%;height:100%;display:block"></div>`);
   layer.append(win);
   K(win, [[0, { transform: s.zoom ? "scale(.95)" : "perspective(1800px) rotateX(9deg) rotateY(-11deg) scale(.92)" }, EXPO], [Math.min(650, d * 0.7), { transform: "none" }], [d, { transform: "scale(1.02)" }]]);
   if (phone) {
-    const ph = H * 0.62, pw = ph * (phone.width / phone.height);
-    const card = h(`<div data-safe="phone" style="position:absolute;left:${left + w - pw * 0.25}px;top:${(H - ph) / 2 + H * 0.05}px;width:${pw}px;height:${ph}px;border-radius:${u * 0.03}px;overflow:hidden;box-shadow:0 0 0 ${Math.max(1, u * 0.002)}px #ffffff38,0 ${u * 0.03}px ${u * 0.09}px #000c,0 0 ${u * 0.1}px ${glC("#1f6bff66")}"><img src="${phone.url}" style="width:100%;height:100%;display:block"></div>`);
+    const ph = tall ? Math.min(H * 0.44, W * 0.8 * phone.height / phone.width) : H * 0.62, pw = ph * (phone.width / phone.height);
+    const card = h(`<div data-safe="phone" style="position:absolute;left:${tall ? (W - pw) / 2 : left + w - pw * 0.25}px;top:${tall ? top + hh + H * 0.05 : (H - ph) / 2 + H * 0.05}px;width:${pw}px;height:${ph}px;border-radius:${u * 0.03}px;overflow:hidden;box-shadow:0 0 0 ${Math.max(1, u * 0.002)}px #ffffff38,0 ${u * 0.03}px ${u * 0.09}px #000c,0 0 ${u * 0.1}px ${glC("#1f6bff66")}"><img src="${phone.url}" style="width:100%;height:100%;display:block"></div>`);
     layer.append(card);
     K(card, [[0, { opacity: 0, transform: `translateY(${H * 0.08}px)` }, EXPO], [350, { opacity: 1, transform: "none" }]]);
   }

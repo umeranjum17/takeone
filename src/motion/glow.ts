@@ -66,9 +66,11 @@ export function deckCards(specs: string[], W: number, H: number): { rect: Rect; 
 }
 
 /** The storyboard for one or two screens and the copy. Pure given the pressed control's box and optional brand. */
-export function glowStoryboard(a: GlowArgs, id: string, sizes: { width: number; height: number }[], tap: Rect, frame?: Rect, brand?: Brand): unknown {
+export function glowStoryboard(a: GlowArgs, id: string, sizes: { width: number; height: number }[], tap: Rect, frame?: Rect, brand?: Brand, outputSize?: readonly [number, number]): unknown {
   const { width: W, height: H } = sizes[0]!;
-  const zw = Math.min(ZOOM_W, W), zh = Math.min(Math.round(zw * 9 / 16), H);
+  // The close-up takes the frame's own shape: 16:9 on landscape, a narrower window as tall as the frame is on portrait.
+  const [oW, oH] = outputSize ?? [16, 9], tall = oH > oW;
+  const zw = Math.min(tall ? Math.round(ZOOM_W * 0.6) : ZOOM_W, W), zh = Math.min(Math.round(zw * oH / oW), H);
   const rect = (c: number, len: number, max: number) => Math.round(Math.max(0, Math.min(c - len / 2, max - len)));
   const deck = deckCards(a.regions ?? [], W, H);
   const crops: Record<string, Crop> = {
@@ -91,7 +93,7 @@ export function glowStoryboard(a: GlowArgs, id: string, sizes: { width: number; 
   ];
   return {
     version: 1, id,
-    output: { ...(a.workers !== undefined ? { workers: a.workers } : {}) },
+    output: { ...(outputSize ? { out_w: outputSize[0], out_h: outputSize[1] } : {}), ...(a.workers !== undefined ? { workers: a.workers } : {}) },
     theme: { name: "aurora", overrides: { ...GLOW_THEME, ...brand?.overrides } },
     source: { kind: "image", files: a.inputs.map(f => resolve(f)) },
     screens: Object.create(null), regions: [], crops,
@@ -101,11 +103,11 @@ export function glowStoryboard(a: GlowArgs, id: string, sizes: { width: number; 
   };
 }
 
-export async function planGlow(a: GlowArgs, id: string, warn: (line: string) => void = line => console.error(line)): Promise<unknown> {
+export async function planGlow(a: GlowArgs, id: string, warn: (line: string) => void = line => console.error(line), outputSize?: readonly [number, number]): Promise<unknown> {
   if (a.inputs.length < 1 || a.inputs.length > 2 || a.inputs.some(f => !/\.(png|jpe?g|webp)$/i.test(f))) throw new Error("--recipe glow takes one or two screenshots (png, jpg or webp): the screen, then an optional phone screen");
   const brand = a.brand ? readBrand(a.brand) : undefined;
   brand?.warnings.forEach(w => warn(`takeone motion: ${w}`));
   const missing = (["title", "pitch", "press", "logo"] as const).filter(k => !(k === "logo" ? a.logo ?? brand?.name : a[k])?.trim());
   if (missing.length) throw new Error(`--recipe glow needs ${missing.map(k => ({ title: "--title HEADLINE", pitch: "--pitch TYPED_PROMPT", press: "--press BUTTON_TEXT_OR_x,y,w,h", logo: "--logo WORDMARK (or a brand file with a name)" })[k]).join(", ")}`);
-  return glowStoryboard(a, id, a.inputs.map(f => imageSize(resolve(f))), await pressBox(resolve(a.inputs[0]!), a.press!), a.frame ? await pressBox("", a.frame) : undefined, brand);
+  return glowStoryboard(a, id, a.inputs.map(f => imageSize(resolve(f))), await pressBox(resolve(a.inputs[0]!), a.press!), a.frame ? await pressBox("", a.frame) : undefined, brand, outputSize);
 }
