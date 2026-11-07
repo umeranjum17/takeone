@@ -668,6 +668,7 @@ interface Flags {
   touchOffsetMs?: number;
   webcam?: boolean;
   webcamDevice?: string;
+  flow?: string;
 }
 
 function parseFlags(args: string[]): Flags {
@@ -688,7 +689,7 @@ function parseFlags(args: string[]): Flags {
   for (let i = 0; i < rest.length; i += 2) {
     const name = rest[i]!;
     const value = rest[i + 1];
-    if (!["--fps", "--bitrate", "--root", "--state-dir", "--android", "--touch-offset-ms", "--ios-udid", "--webcam-device"].includes(name) || value === undefined || value === "" || value.startsWith("--") || seen.has(name)) {
+    if (!["--fps", "--bitrate", "--root", "--state-dir", "--android", "--touch-offset-ms", "--ios-udid", "--webcam-device", "--flow"].includes(name) || value === undefined || value === "" || value.startsWith("--") || seen.has(name)) {
       fail({ code: "invalid-arguments", message: `invalid record option: ${name}`, hint: "run `takeone --help`" });
     }
     seen.add(name);
@@ -704,6 +705,7 @@ function parseFlags(args: string[]): Flags {
       flags.touchOffsetMs = number;
     } else if (name === "--ios-udid") flags.iosUdid = value;
     else if (name === "--webcam-device") flags.webcamDevice = value;
+    else if (name === "--flow") flags.flow = value;
     else if (name === "--root") flags.root = value;
     else flags.state = value;
   }
@@ -778,12 +780,13 @@ async function readRecording(stateDirPath: string) {
 async function record(args: string[]): Promise<void> {
   const { toonTable } = await import("./toon.js");
   const flags = parseFlags(args);
+  const flow = await openFlow(flags);
   if (flags.android !== undefined) {
-    await recordAndroid(flags);
+    await recordAndroid(flags, flow);
     return;
   }
   if (flags.iosSim) {
-    await recordIosSim(flags);
+    await recordIosSim(flags, flow);
     return;
   }
   const { runRecord } = await import("./record.js");
@@ -794,7 +797,7 @@ async function record(args: string[]): Promise<void> {
       ...(flags.root === undefined ? {} : { takesRoot: flags.root }),
       ...(flags.state === undefined ? {} : { stateDirPath: flags.state }),
       ...(flags.webcam ? { webcam: flags.webcamDevice ?? true } : {}),
-      onRecording: reportRecordingReady,
+      onRecording: flow.ready,
     });
     const { takeJson } = result;
     console.log(toonTable("record", ["id", "take_path", "frames", "offset_ms", "spread_ms", "trim_ms"], [
@@ -807,6 +810,7 @@ async function record(args: string[]): Promise<void> {
         `${takeJson.trim!.start}-${takeJson.trim!.end}`,
       ],
     ]));
+    flow.finish();
   } catch (error) {
     const rec = error as { code?: unknown; message?: unknown; hint?: unknown };
     if (typeof rec.code === "string" && typeof rec.message === "string" && typeof rec.hint === "string") {
@@ -821,13 +825,40 @@ function reportRecordingReady(takeDir: string): void {
   console.error(`recording: ${takeDir}; Ctrl-C or takeone stop to finish`);
 }
 
-async function recordAndroid(flags: Flags): Promise<void> {
+interface FlowHooks {
+  /** The recorder's ready hook: reports the take, then starts the flow when `--flow` was given. */
+  ready: (takeDir: string) => void;
+  /** After the recorder returns: refuse, naming the step, when the flow did not run to its end. */
+  finish: () => void;
+}
+
+/** Reads `--flow` before any recorder starts, so a bad flow file costs no consent prompt. */
+async function openFlow(flags: Flags): Promise<FlowHooks> {
+  if (flags.flow === undefined) return { ready: reportRecordingReady, finish: () => undefined };
+  const { parseFlow, runFlow } = await import("./flow.js");
+  let run: ReturnType<typeof runFlow>;
+  try {
+    run = runFlow(parseFlow(flags.flow));
+  } catch (error) {
+    const e = error as { code?: string; hint?: string };
+    return fail({ code: e.code ?? "invalid-flow", message: error instanceof Error ? error.message : String(error), hint: e.hint ?? "run `takeone --help`" });
+  }
+  return {
+    ready: (takeDir) => { reportRecordingReady(takeDir); run.start(takeDir); },
+    finish: () => {
+      const outcome = run.outcome();
+      if (!outcome.ok) fail({ code: "flow-failed", message: outcome.message, hint: "the take was kept; fix the flow file and record again" });
+    },
+  };
+}
+
+async function recordAndroid(flags: Flags, flow: FlowHooks): Promise<void> {
   const { runAndroidRecord } = await import("./android/record.js");
   const { toonTable } = await import("./toon.js");
   try {
     const result = await runAndroidRecord({
       serial: flags.android!,
-      onReady: reportRecordingReady,
+      onReady: flow.ready,
       ...(flags.touchOffsetMs === undefined ? {} : { touchOffsetMs: flags.touchOffsetMs }),
       ...(flags.root === undefined ? {} : { takesRoot: flags.root }),
       ...(flags.state === undefined ? {} : { stateDirPath: flags.state }),
@@ -843,6 +874,7 @@ async function recordAndroid(flags: Flags): Promise<void> {
         takeJson.scale,
       ],
     ]));
+    flow.finish();
   } catch (error) {
     const rec = error as { code?: unknown; message?: unknown; hint?: unknown };
     if (typeof rec.code === "string" && typeof rec.message === "string" && typeof rec.hint === "string") {
@@ -852,7 +884,7 @@ async function recordAndroid(flags: Flags): Promise<void> {
   }
 }
 
-async function recordIosSim(flags: Flags): Promise<void> {
+async function recordIosSim(flags: Flags, flow: FlowHooks): Promise<void> {
   const { runIosSimRecord } = await import("./ios/record.js");
   const { toonTable } = await import("./toon.js");
   try {
@@ -860,7 +892,7 @@ async function recordIosSim(flags: Flags): Promise<void> {
       ...(flags.iosUdid === undefined ? {} : { udid: flags.iosUdid }),
       ...(flags.root === undefined ? {} : { takesRoot: flags.root }),
       ...(flags.state === undefined ? {} : { stateDirPath: flags.state }),
-      onReady: reportRecordingReady,
+      onReady: flow.ready,
     });
     const { takeJson } = result;
     console.log(toonTable("record", ["id", "take_path", "frames", "offset_ms", "scale"], [
@@ -872,6 +904,7 @@ async function recordIosSim(flags: Flags): Promise<void> {
         takeJson.scale,
       ],
     ]));
+    flow.finish();
   } catch (error) {
     const rec = error as { code?: unknown; message?: unknown; hint?: unknown };
     if (typeof rec.code === "string" && typeof rec.message === "string" && typeof rec.hint === "string") {
@@ -934,6 +967,7 @@ USAGE:
   takeone record --webcam [--webcam-device /dev/videoN]   record the desktop and a camera (shown as a bubble in the film) into one take
   takeone record --android <serial> [--touch-offset-ms 0]   record a phone or emulator into a take
   takeone record --ios-sim [--ios-udid UUID]   record the booted iOS Simulator into a take (macOS only)
+  takeone record ... --flow flow.json   run the steps of flow.json while it records, then stop by itself (any record form above)
   takeone stop            stop the active recording
   takeone doctor          check what the recorder needs on this machine`);
     return 0;

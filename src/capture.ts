@@ -346,10 +346,11 @@ export interface CaptureRecordOptions {
   stateDir: string;
   events: "own" | "none";
   maxSeconds?: number;
+  flow?: string;
 }
 
 const RECORD_HINT =
-  "run `takeone capture record --source screen|x11:<display> --root <dir> --state-dir <dir> [--events own|none] [--max-seconds N]`";
+  "run `takeone capture record --source screen|x11:<display> --root <dir> --state-dir <dir> [--events own|none] [--max-seconds N] [--flow flow.json]`";
 
 /** Parse `capture record` flags; usage problems fail with the envelope (exit 2). */
 export function parseCaptureRecordArgs(args: string[]): CaptureRecordOptions {
@@ -358,12 +359,13 @@ export function parseCaptureRecordArgs(args: string[]): CaptureRecordOptions {
   let stateDir: string | undefined;
   let events: "own" | "none" = "own";
   let maxSeconds: number | undefined;
+  let flow: string | undefined;
   const seen = new Set<string>();
   for (let i = 0; i < args.length; i++) {
     const name = args[i]!;
     const value = args[i + 1];
     if (
-      !["--source", "--root", "--state-dir", "--events", "--max-seconds"].includes(name) ||
+      !["--source", "--root", "--state-dir", "--events", "--max-seconds", "--flow"].includes(name) ||
       seen.has(name) ||
       value === undefined ||
       value === "" ||
@@ -386,7 +388,8 @@ export function parseCaptureRecordArgs(args: string[]): CaptureRecordOptions {
     else if (name === "--events") {
       if (value !== "own" && value !== "none") invalidArguments(`invalid --events ${value} (want own or none)`, RECORD_HINT);
       events = value;
-    } else {
+    } else if (name === "--flow") flow = value;
+    else {
       const n = Number(value);
       if (!Number.isFinite(n) || n <= 0) invalidArguments("--max-seconds must be a positive number of seconds", RECORD_HINT);
       maxSeconds = n;
@@ -395,12 +398,18 @@ export function parseCaptureRecordArgs(args: string[]): CaptureRecordOptions {
   if (source === undefined || root === undefined || stateDir === undefined) {
     invalidArguments("capture record needs --source, --root and --state-dir", RECORD_HINT);
   }
-  return { source, root, stateDir, events, ...(maxSeconds === undefined ? {} : { maxSeconds }) };
+  return { source, root, stateDir, events, ...(maxSeconds === undefined ? {} : { maxSeconds }), ...(flow === undefined ? {} : { flow }) };
 }
 
 async function runCaptureRecord(args: string[]): Promise<number> {
   const opts = parseCaptureRecordArgs(args);
   const { runRecord } = await import("./record.js");
+  let flow: import("./flow.js").FlowRun | undefined;
+  if (opts.flow !== undefined) {
+    const { parseFlow, runFlow } = await import("./flow.js");
+    try { flow = runFlow(parseFlow(opts.flow)); }
+    catch (error) { invalidArguments(error instanceof Error ? error.message : String(error), RECORD_HINT); }
+  }
   emit({ event: "consent-pending" });
   try {
     const result = await runRecord({
@@ -409,7 +418,7 @@ async function runCaptureRecord(args: string[]): Promise<number> {
       source: opts.source,
       events: opts.events,
       ...(opts.maxSeconds === undefined ? {} : { maxSeconds: opts.maxSeconds }),
-      onRecording: (take) => emit({ event: "recording", take }),
+      onRecording: (take) => { emit({ event: "recording", take }); flow?.start(take); },
     });
     emit({
       event: "done",
@@ -417,6 +426,10 @@ async function runCaptureRecord(args: string[]): Promise<number> {
       seconds: Math.round((result.takeJson.trim?.end ?? 0) / 100) / 10,
       warnings: result.takeJson.warnings,
     });
+    const flowOutcome = flow?.outcome();
+    if (flowOutcome && !flowOutcome.ok) {
+      captureFail({ code: "flow-failed", message: flowOutcome.message, hint: "the take was kept; fix the flow file and record again" });
+    }
     return 0;
   } catch (error) {
     const rec = error as { code?: unknown; message?: unknown; hint?: unknown };

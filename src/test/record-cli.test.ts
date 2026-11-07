@@ -310,3 +310,46 @@ test("stop during monitor setup does not publish an unusable take", { timeout: 2
     await rm(base, { recursive: true, force: true });
   }
 });
+
+test("record --flow runs the steps while recording, stops by itself, and names a failing step", { timeout: 60_000 }, async () => {
+  const base = await mkdtemp(join(tmpdir(), "takeone-flow-"));
+  try {
+    const stateDir = join(base, "state");
+    await mkdir(stateDir, { recursive: true });
+    const wrapper = join(stateDir, "fake-engine-wrapper.sh");
+    await writeFile(wrapper, `#!/bin/sh\nexec "${process.execPath}" "${join(here, "fake-engine.js")}" serve\n`);
+    await chmod(wrapper, 0o755);
+    const marker = `require("fs").writeFileSync(require("path").join(process.env.TAKEONE_TAKE, "flow-ran.txt"), "step\\n")`;
+    const record = (name: string, steps: unknown[]) => {
+      const root = join(base, `takes-${name}`);
+      return writeFile(join(base, `${name}.json`), JSON.stringify({ steps })).then(() => ({
+        root,
+        result: spawnSync(process.execPath, [join(here, "../cli.js"), "record", "--root", root, "--state-dir", stateDir, "--flow", join(base, `${name}.json`)], {
+          encoding: "utf8", timeout: 30_000,
+          env: { ...process.env, DESKLINK_ENGINE: wrapper, HYPRLAND_INSTANCE_SIGNATURE: "unreachable", XDG_RUNTIME_DIR: base },
+        }),
+      }));
+    };
+
+    const ok = await record("ok", [{ wait_ms: 300 }, { run: [process.execPath, "-e", marker] }, { wait_ms: 300 }]);
+    assert.equal(ok.result.status, 0, ok.result.stderr);
+    const [take] = (await readdir(ok.root)).filter((n) => /^\d{8}-\d{6}/.test(n));
+    assert.equal(await readFile(join(ok.root, take!, "flow-ran.txt"), "utf8"), "step\n");
+    assert.ok((await stat(join(ok.root, take!, "take.json"))).size > 0);
+    assert.match(ok.result.stderr, /flow step 2\/3/);
+
+    const bad = await record("bad", [{ run: [process.execPath, "-e", "process.exit(7)"] }, { run: [process.execPath, "-e", marker] }]);
+    assert.equal(bad.result.status, 1);
+    assert.match(bad.result.stderr, /flow-failed.*flow step 1 \(.*\) failed: exited 7/);
+    const [kept] = (await readdir(bad.root)).filter((n) => /^\d{8}-\d{6}/.test(n));
+    await stat(join(bad.root, kept!, "take.json"));
+    await assert.rejects(stat(join(bad.root, kept!, "flow-ran.txt")));
+
+    const broken = await record("broken", [{ run: [] }]);
+    assert.equal(broken.result.status, 1);
+    assert.match(broken.result.stderr, /invalid-flow/);
+    await assert.rejects(stat(broken.root));
+  } finally {
+    await rm(base, { recursive: true, force: true });
+  }
+});
