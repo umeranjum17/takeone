@@ -37,23 +37,30 @@ motion project. The no-charge terms apply only while end users are not charged a
 
 ## Brand file shape
 
-The brand reader in `src/motion/brand.ts` follows the published `brand.json` and DESIGN.md frontmatter shape of
+The brand reader in `src/motion/brand.ts` follows the published `brand.json`, DESIGN.md frontmatter and `od-design-tokens/v1` shape of
 https://github.com/nexu-io/open-design (Apache License 2.0): the colour roles (background, surface, foreground, muted, border,
 accent, accent-secondary), the display, body and mono typography families and the logo path. Format reference only: no upstream
-code is copied. The one upstream file this project does vendor is the replication rules document recorded below, whose Apache-2.0
+code is copied. The one upstream document this project vendors is the replication rules recorded below, whose Apache-2.0
 licence text is bundled there.
+
+## Closing card timing
+
+The glow recipe's closing card in `resources/motion/patterns/end-card.js` is TakeOne's own code, modified from the timing of
+`plugins/_official/video-templates/frame-logo-outro/source/index.html` in the same project (Apache License 2.0, text below). No
+markup, name or mark is copied. [ENGINE.md](ENGINE.md) records the source and what changed.
 
 ## Motion replication rules
 
-https://github.com/nexu-io/open-design, commit 12d970eacc8971150e3c76470d2a9afe16dc2ed1, `skills/motion-design/references/replicate.md`.
+https://github.com/umeranjum17/open-design (fork of https://github.com/nexu-io/open-design), commit
+3805d0303285d019185cde25b110e5bba4f21140, `skills/motion-design/references/replicate.md`.
 Copyright the project's contributors. Apache License 2.0.
 
-Vendored unmodified as `resources/motion/craft/REPLICATE.md` (SHA-256 `1fc7656c70fde870d515fcef40b439d17f5b79bdab3a2c136816741ca8a95d43`),
-with `resources/motion/craft/README.md` recording that path, commit and hash. It is the procedure
+Vendored unmodified at `vendor/open-design/skills/motion-design/references/replicate.md` (SHA-256 `1fc7656c70fde870d515fcef40b439d17f5b79bdab3a2c136816741ca8a95d43`),
+with [ENGINE.md](ENGINE.md) and `vendor/open-design/manifest.json` recording that path, commit and hash. It is the procedure
 `takeone motion --reference <video> --measure` copies beside the measurement it writes; the measurement code itself
 (`src/motion/reference.ts`) is TakeOne's own, adapted from the same project's procedure and written in the ffmpeg shape
-this project already uses. Nothing else of that project is vendored: none of its application, its daemon, its engine
-scaffolding, its catalogue entries or the rest of its prose.
+this project already uses. Apart from the licence text, nothing else of that project is vendored: none of its application,
+its daemon, its engine scaffolding, its catalogue entries or the rest of its prose.
 
 >                                  Apache License
 >                            Version 2.0, January 2004

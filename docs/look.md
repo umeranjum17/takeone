@@ -37,7 +37,7 @@ Colours (`background`, `background_to`, `accent`, `text`, `card`) take
 `--set key=#RRGGBB`. `caption_font` and `display_font` take letters, digits and
 spaces, for example `--set "display_font=Inter Bold"`.
 
-**A brand file dresses the film.** `make --brand brand.json|DESIGN.md` and
+**A brand file dresses the film.** `make --brand brand.json|design-tokens.json|DESIGN.md`, or a folder holding one, and
 `render --brand ...` read a product's palette and typeface from disk (no
 network, no model call) and apply them to the take: `background` becomes the
 stage and its gradient, `surface` the card, `foreground` the type, plus

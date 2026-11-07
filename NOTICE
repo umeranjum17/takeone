@@ -1,0 +1,20 @@
+TakeOne
+Third-party terms for this package. Full licence texts: THIRD_PARTY_NOTICES.md.
+
+Open Design
+https://github.com/umeranjum17/open-design
+Upstream: https://github.com/nexu-io/open-design
+Copyright the Open Design contributors.
+Licensed under the Apache License, Version 2.0 (Apache-2.0).
+The pinned commit, the vendored paths and what was removed are in ENGINE.md.
+Unmodified files and the licence are in vendor/open-design.
+The glow recipe's closing card in resources/motion/patterns/end-card.js is TakeOne's
+own code, modified from the timing of Open Design's frame-logo-outro template.
+
+GSAP 3.13.0
+https://gsap.com. Copyright 2025, GreenSock.
+Vendored unmodified as resources/motion/vendor/gsap.min.js under GreenSock's
+"Standard No Charge" licence, https://gsap.com/standard-license. It is not licensed
+under MIT or Apache-2.0, and those terms do not cover it.
+
+No Remotion code and no third-party brand or logo asset is included from Open Design.

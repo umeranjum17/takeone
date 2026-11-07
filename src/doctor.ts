@@ -1,7 +1,7 @@
 /** `takeone doctor`: what the recorder needs on this machine, and what's missing. */
 
 import { execFile } from "node:child_process";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { promises as fs } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -34,8 +34,24 @@ const NEEDED_BY: Record<string, string> = {
   "screen-recording": "macos-desktop",
   xcrun: "ios-simulator",
   "motion-shell": "motion",
+  "open-design": "motion",
   "ai-planner": "planner",
 };
+
+/** The pinned Open Design slice: the fork commit, and that every vendored file still hashes to its manifest row. */
+async function openDesignCheck(): Promise<DoctorCheck> {
+  const vendor = new URL("../vendor/open-design/", import.meta.url);
+  try {
+    const manifest = JSON.parse(await fs.readFile(new URL("manifest.json", vendor), "utf8")) as { commit: string; files: { path: string; sha256: string }[] };
+    for (const row of manifest.files) {
+      const sha = createHash("sha256").update(await fs.readFile(new URL(row.path, vendor))).digest("hex");
+      if (sha !== row.sha256) return { check: "open-design", ok: false, detail: `${row.path} does not match the pin ${manifest.commit}` };
+    }
+    return { check: "open-design", ok: true, detail: `fork ${manifest.commit}, ${manifest.files.length} files verified` };
+  } catch (error) {
+    return { check: "open-design", ok: false, detail: error instanceof Error ? error.message : String(error) };
+  }
+}
 
 export function neededBy(check: string): string {
   return NEEDED_BY[check] ?? "all";
@@ -220,6 +236,8 @@ export async function runDoctor(): Promise<DoctorCheck[]> {
   } catch (error) {
     checks.push({ check: "motion-shell", ok: false, detail: error instanceof Error ? error.message : String(error) });
   }
+
+  checks.push(await openDesignCheck());
 
   // Writable state dir
   const state = process.env.TAKEONE_STATE_DIR ?? join(homedir(), ".local", "state", "takeone");

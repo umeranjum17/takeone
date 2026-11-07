@@ -1,0 +1,24 @@
+{
+  "source": "https://github.com/umeranjum17/open-design",
+  "upstream": "https://github.com/nexu-io/open-design",
+  "commit": "3805d0303285d019185cde25b110e5bba4f21140",
+  "license": "Apache-2.0",
+  "files": [
+    {
+      "path": "LICENSE",
+      "sha256": "9d95806a26532623360eb84bb17d298f394b55ef73fb4c0796d99b4319b2b0da"
+    },
+    {
+      "path": "skills/motion-design/references/replicate.md",
+      "sha256": "1fc7656c70fde870d515fcef40b439d17f5b79bdab3a2c136816741ca8a95d43"
+    }
+  ],
+  "adapted": [
+    {
+      "path": "plugins/_official/video-templates/frame-logo-outro/source/index.html",
+      "sha256": "74897d35497b68af9783e5c71baff3e826330d3b344de1883aefac3700c1ea66",
+      "into": "resources/motion/patterns/end-card.js",
+      "what": "timing only: pieces arrive staggered from an offset at 1.4x with overshoot, then a glow, the name, and a sweep; no markup, name or mark is copied"
+    }
+  ]
+}

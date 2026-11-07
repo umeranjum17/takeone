@@ -101,9 +101,10 @@ export function glowStoryboard(a: GlowArgs, id: string, sizes: { width: number; 
   };
 }
 
-export async function planGlow(a: GlowArgs, id: string): Promise<unknown> {
+export async function planGlow(a: GlowArgs, id: string, warn: (line: string) => void = line => console.error(line)): Promise<unknown> {
   if (a.inputs.length < 1 || a.inputs.length > 2 || a.inputs.some(f => !/\.(png|jpe?g|webp)$/i.test(f))) throw new Error("--recipe glow takes one or two screenshots (png, jpg or webp): the screen, then an optional phone screen");
   const brand = a.brand ? readBrand(a.brand) : undefined;
+  brand?.warnings.forEach(w => warn(`takeone motion: ${w}`));
   const missing = (["title", "pitch", "press", "logo"] as const).filter(k => !(k === "logo" ? a.logo ?? brand?.name : a[k])?.trim());
   if (missing.length) throw new Error(`--recipe glow needs ${missing.map(k => ({ title: "--title HEADLINE", pitch: "--pitch TYPED_PROMPT", press: "--press BUTTON_TEXT_OR_x,y,w,h", logo: "--logo WORDMARK (or a brand file with a name)" })[k]).join(", ")}`);
   return glowStoryboard(a, id, a.inputs.map(f => imageSize(resolve(f))), await pressBox(resolve(a.inputs[0]!), a.press!), a.frame ? await pressBox("", a.frame) : undefined, brand);

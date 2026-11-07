@@ -18,7 +18,10 @@
     "bin",
     "dist",
     "resources",
+    "vendor",
     "scripts/synth-take.ts",
+    "ENGINE.md",
+    "NOTICE",
     "THIRD_PARTY_NOTICES.md"
   ],
   "scripts": {

@@ -77,14 +77,17 @@ export function pageData(dir: string, sb: Storyboard, cameras: Record<string, un
     if (!existsSync(file)) throw new Error(`audio: ${sb.audio.file} is missing`);
     return { url: pathToFileURL(file).href, start: sb.audio.start ?? 0, volume: sb.audio.volume ?? 1 };
   })() : undefined;
-  const logos = Object.fromEntries(allTimelines(sb.layout, sb.scenes).flat().filter(s => s.logo_image).map(s => {
+  const logoFiles = allTimelines(sb.layout, sb.scenes).flat().filter(s => s.logo_image).map(s => {
     const file = isAbsolute(s.logo_image!) ? s.logo_image! : resolve(dir, s.logo_image!);
     if (!existsSync(file)) throw new Error(`end-card logo_image: ${s.logo_image} is missing`);
-    return [s.logo_image!, pathToFileURL(file).href];
-  }));
+    return [s.logo_image!, file] as const;
+  });
+  const logos = Object.fromEntries(logoFiles.map(([key, file]) => [key, pathToFileURL(file).href]));
+  // A vector logo's text too: the closing card splits it into its own shapes, which a file URL cannot be read for.
+  const logo_svgs = Object.fromEntries(logoFiles.filter(([, file]) => /\.svg$/i.test(file)).map(([key, file]) => [key, readFileSync(file, "utf8")]));
   const first = Object.values(sb.screens)[0];
   const palette = first ? samplePalette(isAbsolute(first.file) ? first.file : resolve(dir, first.file)) : null;
-  return { storyboard: sb, screens, clips, segments, logos, ...(audio ? { audio } : {}), cameras, palette, tokens: motionTokens(sb.theme.name, sb.theme.overrides) };
+  return { storyboard: sb, screens, clips, segments, logos, logo_svgs, ...(audio ? { audio } : {}), cameras, palette, tokens: motionTokens(sb.theme.name, sb.theme.overrides) };
 }
 
 /** Write the page for a storyboard and return its path (dir/.motion/film.html). */
