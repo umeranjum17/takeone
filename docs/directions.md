@@ -1,8 +1,8 @@
 # Directions, pick and polish
 
 One take, two or three distinct cuts, one pick, then an independent judge refines the picked cut round by round until it
-scores 9/10. This is first-draft's directions-then-polish loop (first-draft PR 105, `polish chosen.html`) applied to a
-demo film: the same rules for feedback, rejection and stopping, with the film's own builder and rubric.
+scores 9/10. This adapts the directions-then-polish workflow to a demo film: the same rules for feedback, rejection and
+stopping, with the film's own builder and rubric.
 
 ```sh
 takeone directions <take> [--count 2|3] [--goal "<sentence>"] [--board .sign-off/decisions.json]
@@ -42,7 +42,7 @@ directions card.
 
 ## Polish
 
-The loop follows first-draft's polish:
+The loop follows the same polish workflow:
 
 - **Round 0 is the picked cut**, rendered again (that second render is the determinism check against the picked one)
   and judged. Refinements are rounds 1 to `--max-rounds` (default and most: 5).
@@ -61,7 +61,7 @@ The loop follows first-draft's polish:
   (`round_cap`), or when no build input is left to change (`no_change_left`). A judge failure records the round and
   stops the run (`error`); no score is invented.
 - **Ships** the best-scored accepted round (the latest on a tie): `out/<id>.mp4`, and `take.json`'s direction gets that
-  round's pairs and `polished`. A page ships its latest accepted round in first-draft; a film ships its best one. Below
+  round's pairs and `polished`. A page ships its latest accepted round; a film ships its best one. Below
   9 the run says `BELOW TARGET` with the score. A run that fails part way still ships its best accepted round.
 - Idle footage never plays faster than 5x in a round: the score loop's "squeeze idle footage" change is skipped past it.
   On the 43 s 4K proof take the camera solve took 192-220 s at 4x and 5x and ran for over an hour at 6x.
@@ -95,7 +95,7 @@ With `--board <decisions.json>` (or `TAKEONE_BOARD`), every option and every rou
 - A card goes up under the first key the board does not hold yet, so a take captured again under the same name never
   collides with an archived card.
 - The board serves a file beside a page up to 5 MB, so each cut goes up as an H.264 board copy that steps down in size
-  (1280 px first) until it fits, with a poster still. The page was designed with first-draft.
+  (1280 px first) until it fits, with a poster still. The page was designed with the same workflow.
 - `TAKEONE_SIGN_OFF` names the sign-off CLI (default `sign-off-axi`).
 
 ## Cost

@@ -1,0 +1,51 @@
+{
+  "schemaVersion": 1,
+  "format": "od-design-tokens/v1",
+  "tokens": [
+    {
+      "name": "--bg",
+      "value": "#04141a",
+      "type": "color"
+    },
+    {
+      "name": "--surface",
+      "value": "#0b2530",
+      "type": "color"
+    },
+    {
+      "name": "--fg",
+      "value": "#f1faf7",
+      "type": "color"
+    },
+    {
+      "name": "--muted",
+      "value": "rgba(241, 250, 247, 0.7)",
+      "type": "color"
+    },
+    {
+      "name": "--border",
+      "value": "#1d4651",
+      "type": "color"
+    },
+    {
+      "name": "--accent",
+      "value": "#18c8a4",
+      "type": "color"
+    },
+    {
+      "name": "--font-display",
+      "value": "\"Space Grotesk\", system-ui, sans-serif",
+      "type": "font"
+    },
+    {
+      "name": "--font-body",
+      "value": "Manrope, system-ui, sans-serif",
+      "type": "font"
+    },
+    {
+      "name": "--font-mono",
+      "value": "\"SF Mono\", \"JetBrains Mono\", monospace",
+      "type": "font"
+    }
+  ]
+}

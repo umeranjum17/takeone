@@ -11,6 +11,7 @@ checks remain authoritative; this is not a release-quality qualification.
 - No new skipped tests or assertion removals: only test-diet deletions meeting the exception below are allowed, and a check the same test block replaces with a stronger check on the same quantity.
 - No secrets in source: findings must never print matched credential values.
 - No weakening this file or existing motion, VMAF, quality, privacy or custody bars to make a change pass.
+- No rival product names: docs, commits, branches, tags and pull requests describe the feature, never a rival product or its promo.
 
 ## Enforcement
 

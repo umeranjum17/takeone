@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { readBrand } from "../src/motion/brand.ts";
 import { deckCards, glowStoryboard, pressBox, treeRows } from "../src/motion/glow.ts";
 import { imageSize, ingest } from "../src/motion/ingest.ts";
 import { writePage } from "../src/motion/motion.ts";
@@ -80,6 +81,36 @@ test("glow deck measures wide captions and preserves sizes that already fit", { 
       assert.ok(Math.abs(measured.footer[1]!.size - Math.min(cardWidth * 0.055, (cardWidth * 0.72) / (0.55 * captions[1]!.length))) < 0.001);
       for (const text of [...measured.headline, ...measured.footer]) assert.ok(text.width <= text.max + 0.5, `${text.text}: ${text.width} > ${text.max}`);
     });
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("a branded closing card assembles an svg logo from its own shapes and lands them on the mark; a raster logo arrives whole", { timeout: 120_000 }, async () => {
+  const size = imageSize(BOARD), tap = await pressBox(BOARD, "1,2,3,4"), brand = readBrand("resources/demo/tidewater-brand.json");
+  const dir = mkdtempSync(join(tmpdir(), "takeone-glow-card-"));
+  const card = async (logo: string, id: string) => {
+    const sb = validateStoryboard(glowStoryboard({ inputs: [BOARD], title: "Meet the crew", pitch: "Plan the launch", tree: "Crew,>Chief,>Scout" }, id, [size], tap, undefined, { ...brand, logo }));
+    await ingest(dir, sb);
+    return await withPage(writePage(dir, sb).html, 1920, 1080, async (b) => await b.evaluate<{ pieces: number; early: number; settled: number; opacity: number; swept: boolean; split: number[] }>(`(()=>{
+      const l=document.querySelector('[data-pattern="end-card"]'),start=Number(l.dataset.start)*1000,d=Number(l.dataset.duration)*1000;
+      const imgs=[...l.querySelectorAll('img')],mark=imgs.find(i=>i.style.visibility==='hidden'),pieces=imgs.filter(i=>i!==mark);
+      const away=()=>{const m=mark.getBoundingClientRect();return Math.max(...pieces.map(p=>{const r=p.getBoundingClientRect();return Math.hypot(r.x+r.width/2-m.x-m.width/2,r.y+r.height/2-m.y-m.height/2);}));};
+      window.__apply(start);const early=away();
+      let swept=false;for(let t=1250;t<2250;t+=50){window.__apply(start+t);swept=swept||[...l.querySelectorAll('.kern span')].some(g=>g.style.color.includes('color-mix'));}
+      window.__apply(start+d);
+      const svg=(body)=>'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 9 9">'+body+'</svg>',shape='<rect width="9" height="9"/>';
+      const split=[svg('<g transform="scale(.5)">'+shape+shape+'</g>'),svg(shape),svg(shape.repeat(9)),'not svg'].map(t=>logoPieces(t)?.length??0);
+      return {pieces:pieces.length,early,settled:away(),opacity:Math.min(...pieces.map(p=>Number(p.style.opacity))),swept,split};})()`));
+  };
+  try {
+    const shapes = await card(resolve("resources/demo/tidewater-mark.svg"), "glow-card-svg"), whole = await card(BOARD, "glow-card-png");
+    assert.equal(shapes.pieces, 3, "the mark's rect and two waves");
+    assert.equal(whole.pieces, 1);
+    assert.deepEqual(shapes.split, [2, 0, 0, 0], "a wrapping group is looked through; one shape, too many shapes or a bad file arrive whole");
+    for (const c of [shapes, whole]) {
+      assert.ok(c.early > 20, `pieces start away from home: ${c.early}`);
+      assert.ok(c.settled < 1 && c.opacity > 0.99, `pieces land on the mark: ${c.settled} px, opacity ${c.opacity}`);
+      assert.ok(c.swept, "the accent crosses the name");
+    }
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 

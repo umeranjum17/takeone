@@ -1,3 +1,5 @@
 # Install and run the published CLI
 
 This is a package-boundary journey. On the exact candidate checkout, run `npm pack`, install its tarball into an empty prefix, then invoke both `takeone --version` and `takeone-axi --version`; both must equal `package.json`'s version. Run `takeone doctor` from that prefix and confirm it resolves bundled `dist/` and installed runtime dependencies without a build at install time. Keep the package file list and command output as evidence.
+
+`takeone motion install-hyperframes` is the one engine setup step: on a fresh cache it must fetch the HyperFrames pair and the pinned shell, about 640 MB, after which `takeone doctor` shows `motion-shell` and `open-design` true and a default render runs. The `glow-open-design` journey in `.done-done.yaml` packs the branch, installs it into an empty prefix and renders from that installed tool. It uses the machine's existing engine cache, so run the fresh-cache step by hand with a throwaway `HOME` and `XDG_CACHE_HOME` when the setup step itself changes.

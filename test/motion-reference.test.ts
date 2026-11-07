@@ -4,13 +4,15 @@
 // (out/scenes.json: 0, 2.617, 4.133, 5.267, 7.633, 10.017 s).
 import test from "node:test";
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { planHalo } from "../src/motion/halo.ts";
 import { filmStoryboard } from "../src/motion/film.ts";
 import { planStory } from "../src/motion/story.ts";
-import { measureReference, missedBeats } from "../src/motion/reference.ts";
+import { measureReference, missedBeats, RULES } from "../src/motion/reference.ts";
 import { minSceneDuration, validateStoryboard } from "../src/motion/storyboard.ts";
 import { hasFfmpeg } from "./helpers.ts";
 
@@ -83,4 +85,14 @@ test("a story in a brand follows a reference's beats, and a beat its reading flo
   // A scene that ran 5.66 s cannot end at 6.22 s: that beat has no cut, and the next one does.
   assert.deepEqual(missedBeats([3.37, 5.66, 3.35], [3.37, 6.22, 9.03]), [6.22]);
   assert.deepEqual(missedBeats([3.37, 2.85, 2], [3.37, 6.22, 9.03, 20]), [], "a beat past the film's end is not missed");
+});
+
+test("the rules a measurement copies are the pinned Open Design file: it hashes to the manifest, and a sync refuses a branch name", () => {
+  const vendor = resolve("vendor/open-design"), manifest = JSON.parse(readFileSync(join(vendor, "manifest.json"), "utf8")) as { commit: string; files: { path: string; sha256: string }[] };
+  assert.match(manifest.commit, /^[0-9a-f]{40}$/);
+  for (const row of manifest.files) assert.equal(createHash("sha256").update(readFileSync(join(vendor, row.path))).digest("hex"), row.sha256, row.path);
+  assert.ok(manifest.files.some(row => resolve(vendor, row.path) === RULES), "the rules file is a pinned row");
+  const moving = spawnSync(process.execPath, ["scripts/sync-opendesign.mjs", ".", "main"], { encoding: "utf8" });
+  assert.equal(moving.status, 2);
+  assert.match(moving.stderr, /40-char commit sha/);
 });

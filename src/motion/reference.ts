@@ -1,7 +1,7 @@
 // `takeone motion --reference <video> --measure`: measure a reference film, so an existing pattern can be
 // cut on the reference's own beat list instead of on reading floors alone. Writes facts.json, a frame
 // early in every beat plus an even grid under frames/, contact.jpg and the replication rules beside them.
-// The procedure is the vendored resources/motion/craft/REPLICATE.md (Apache-2.0, see THIRD_PARTY_NOTICES.md).
+// The procedure is the vendored Open Design rules file (Apache-2.0, see ENGINE.md).
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import { copyFileSync, createReadStream, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -12,7 +12,7 @@ import { promisify } from "node:util";
 const execFileAsync = promisify(execFile);
 
 /** Vendored replication rules, copied into the measurement's directory. */
-export const RULES = fileURLToPath(new URL("../../resources/motion/craft/REPLICATE.md", import.meta.url));
+export const RULES = fileURLToPath(new URL("../../vendor/open-design/skills/motion-design/references/replicate.md", import.meta.url));
 /** A beat scores at least this much of the film's own strongest change: a promo's beats are rarely hard cuts. */
 export const SCENE_RATIO = 0.35;
 /** ...and at least this much absolutely, so encoder noise never becomes a beat. */

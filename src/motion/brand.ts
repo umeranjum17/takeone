@@ -1,15 +1,20 @@
-// A brand file in, validated theme overrides out: `--brand brand.json|DESIGN.md` for a take render or the glow recipe.
+// A brand file in, validated theme overrides out: `--brand brand.json|design-tokens.json|DESIGN.md`, or a folder holding one, for a take render or the glow recipe.
 // The file is read on this machine only (no network, no model call). Colours become the render's overrides, fonts must be
 // ones TakeOne bundles or a font file the file carries (an unknown family is an error, never a quiet fallback), and an
 // optional logo image rides the glow end card.
 import { existsSync, readFileSync, statSync } from "node:fs";
-import { basename, dirname, extname, isAbsolute, resolve } from "node:path";
+import { basename, dirname, extname, isAbsolute, join, resolve } from "node:path";
 import { fontManifest } from "./theme.ts";
 
 export const BRAND_ROLES = ["background", "surface", "foreground", "muted", "border", "accent", "accent-secondary"] as const;
 type Role = (typeof BRAND_ROLES)[number];
 /** Names a hand-written file may use for a role. */
 const ROLE_ALIASES: Record<string, Role> = { bg: "background", text: "foreground", primary: "accent", card: "surface", line: "border" };
+/** What a kit folder may hold, richest first. */
+const KIT_FILES = ["brand.json", "design-tokens.json", "DESIGN.md"];
+/** The roles and font stacks of Open Design's `od-design-tokens/v1` file. */
+const TOKEN_ROLES: Record<string, Role> = { "--bg": "background", "--surface": "surface", "--fg": "foreground", "--muted": "muted", "--border": "border", "--accent": "accent" };
+const TOKEN_FONTS = { "--font-display": "display", "--font-body": "body", "--font-mono": "mono" } as const;
 export const LOGO_EXTENSIONS = [".png", ".jpg", ".jpeg", ".webp", ".svg"];
 const MAX_LOGO_BYTES = 2 * 1024 * 1024;
 
@@ -22,7 +27,7 @@ export interface Brand {
   fonts?: string[];
   /** Absolute path of the logo image, when the file names one. */
   logo?: string;
-  /** Pairs the file set that fell below the legibility floor, each said with its measured ratio and the colour used instead. */
+  /** What was drawn other than the file asked: a pair below the legibility floor, with its measured ratio and the colour used instead, or a font its stack passed over. */
   warnings: string[];
   file: string;
 }
@@ -159,13 +164,38 @@ const SUFFIXES: Record<"display" | "body" | "mono", string[]> = {
   mono: ["", " Bold"],
 };
 
-/** The bundled family that carries `family` in this role, else an error naming the bundled families. */
-export function bundledFont(family: string, role: "display" | "body" | "mono"): string {
+const findBundled = (family: string, role: "display" | "body" | "mono"): string | undefined => {
   const have = fontManifest().map(f => f.family);
   for (const suffix of SUFFIXES[role]) {
     const hit = have.find(f => f.toLowerCase() === (family + suffix).toLowerCase());
     if (hit) return hit;
   }
+  return undefined;
+};
+
+/** The first family of a token file's stack TakeOne bundles. The stack is the file's own order, so moving down it is not a quiet
+ * fallback, and any family passed over is said. With none bundled the first family stands, and `bundledFont` refuses it. */
+function stackFamily(stack: unknown, role: "display" | "body" | "mono", warnings: string[]): unknown {
+  if (typeof stack !== "string") return stack;
+  const names = stack.split(",").map(n => n.trim().replace(/^["'`]+|["'`]+$/g, "").trim()).filter(Boolean);
+  const hit = names.find(n => findBundled(n, role));
+  if (hit && hit !== names[0]) warnings.push(`brand ${role} font "${names[0]}" is not bundled; drawn in "${hit}", the next family its stack bundles`);
+  return hit ?? names[0];
+}
+
+/** A token value as a solid colour: a browser draws an rgba role over the page, so it is flattened onto the file's own background. */
+function solidOn(v: unknown, bg: string | undefined): unknown {
+  const m = typeof v === "string" ? /^rgba?\(\s*(\d+)[\s,]+(\d+)[\s,]+(\d+)(?:[\s,/]+([\d.]+))?\s*\)$/i.exec(v.trim()) : null;
+  if (!m) return v;
+  const hex = "#" + m.slice(1, 4).map(c => Number(c).toString(16).padStart(2, "0")).join("");
+  return m[4] === undefined || !bg ? hex : mixHex(hex, Number(m[4]) * 100, bg);
+}
+
+/** The bundled family that carries `family` in this role, else an error naming the bundled families. */
+export function bundledFont(family: string, role: "display" | "body" | "mono"): string {
+  const hit = findBundled(family, role);
+  if (hit) return hit;
+  const have = fontManifest().map(f => f.family);
   const names = [...new Set(have.map(f => f.replace(/ (SemiBold|Bold|ExtraBold Expanded|Medium)$/, "")))].sort();
   throw new Error(`brand typography.${role}: "${family}" is not a font TakeOne bundles (no fallback is used); bundled families: ${names.join(", ")}`);
 }
@@ -187,17 +217,23 @@ function logoPath(v: unknown, dir: string): string | undefined {
 /** Tokens a take render accepts: the stage colours and the two typefaces its text uses. */
 const TAKE_KEYS = ["background", "background_to", "accent", "text", "card", "border_color", "shadow_color", "display_font", "caption_font"];
 
-/** Read `brand.json` (colors, typography, logo, name) or a DESIGN.md (frontmatter colors, Typography lines) into render overrides.
+/** Read `brand.json` (colors, typography, logo, name), an Open Design `design-tokens.json`, a DESIGN.md (frontmatter colors, Typography
+ * lines) or a folder holding one into render overrides.
  * `stage` picks the consumer: glow's dark stage, a story ad, or a take render (the last two take any background lightness; a take keeps only its own tokens). */
 export function readBrand(file: string, stage: "glow" | "story" | "take" = "glow"): Brand {
-  const path = resolve(file);
+  let path = resolve(file);
+  if (existsSync(path) && statSync(path).isDirectory()) {
+    const kit = KIT_FILES.find(f => existsSync(join(path, f)));
+    if (!kit) throw new Error(`--brand ${file}: this folder has none of ${KIT_FILES.join(", ")}`);
+    path = join(path, kit);
+  }
   if (!existsSync(path) || !statSync(path).isFile()) throw new Error(`--brand ${file}: no such file`);
   const text = readFileSync(path, "utf8"), dir = dirname(path);
   const json = extname(path).toLowerCase() === ".json";
-  if (!json && extname(path).toLowerCase() !== ".md") throw new Error(`--brand ${file}: expected brand.json or DESIGN.md`);
+  if (!json && extname(path).toLowerCase() !== ".md") throw new Error(`--brand ${file}: expected brand.json, design-tokens.json, DESIGN.md or a folder holding one`);
 
   let name: unknown, logo: unknown;
-  const colours: Record<string, unknown> = {}, fonts: Partial<Record<"display" | "body" | "mono", unknown>> = {};
+  const colours: Record<string, unknown> = {}, fonts: Partial<Record<"display" | "body" | "mono", unknown>> = {}, warnings: string[] = [];
   const colour = (role: string, v: unknown, where: string) => {
     const r = ROLE_ALIASES[role] ?? role;
     if (!(BRAND_ROLES as readonly string[]).includes(r)) return;
@@ -209,6 +245,15 @@ export function readBrand(file: string, stage: "glow" | "story" | "take" = "glow
     if (typeof doc !== "object" || doc === null || Array.isArray(doc)) throw new Error(`--brand ${file}: expected a JSON object`);
     const d = doc as Record<string, unknown>;
     name = d["name"]; logo = d["logo"];
+    if (d["format"] === "od-design-tokens/v1") {
+      const tokens = Array.isArray(d["tokens"]) ? d["tokens"] as { name?: unknown; value?: unknown }[] : [];
+      const page = tokens.find(t => t.name === "--bg")?.value, onto = page === undefined ? undefined : hexOf(page, "tokens --bg");
+      for (const t of tokens) {
+        const key = String(t.name), role = TOKEN_ROLES[key], font = TOKEN_FONTS[key as keyof typeof TOKEN_FONTS];
+        if (role) colour(role, solidOn(t.value, onto), `tokens ${key}`);
+        if (font) fonts[font] = stackFamily(t.value, font, warnings);
+      }
+    }
     const seed = typeof d["seed"] === "object" && d["seed"] !== null ? d["seed"] as Record<string, unknown> : {};
     for (const [role, key] of [["accent", "colorPrimary"], ["background", "colorBgBase"], ["foreground", "colorTextBase"]] as const) if (seed[key] !== undefined) colour(role, seed[key], `seed.${key}`);
     const list = d["colors"];
@@ -266,7 +311,7 @@ export function readBrand(file: string, stage: "glow" | "story" | "take" = "glow
 
   // Each recipe is held to the contrast it draws. Glow sets white type on its dark stage, so its background must hold white (7:1);
   // every other recipe draws the brand's own foreground on the brand's own background, whatever its lightness.
-  const bg = overrides["background"] ?? "#030719", warnings: string[] = [];
+  const bg = overrides["background"] ?? "#030719";
   if (stage === "glow") {
     if (c.background && contrast(bg, "#ffffff") < 7) throw new Error(`brand background ${bg} is too light for the glow recipe's dark stage (contrast against white ${contrast(bg, "#ffffff").toFixed(1)}:1, needs 7:1 or more); give it a darker background colour`);
     if (c.foreground && contrast(c.foreground, bg) < TEXT_FLOOR) throw new Error(`brand foreground ${c.foreground} on background ${bg} reads at ${contrast(c.foreground, bg).toFixed(1)}:1; the type needs 4.5:1`);
@@ -292,7 +337,7 @@ export function readBrand(file: string, stage: "glow" | "story" | "take" = "glow
 
   const mark = logoPath(logo, dir);
   const label = typeof name === "string" && name.trim() ? name.trim() : undefined;
-  if (!Object.keys(overrides).length && !mark) throw new Error(`--brand ${file}: no colours, fonts or logo found; expected brand.json (colors, typography, logo) or DESIGN.md (frontmatter colors, a Typography section)`);
+  if (!Object.keys(overrides).length && !mark) throw new Error(`--brand ${file}: no colours, fonts or logo found; expected brand.json (colors, typography, logo), design-tokens.json (od-design-tokens/v1) or DESIGN.md (frontmatter colors, a Typography section)`);
   const kept = stage === "take" ? Object.fromEntries(Object.entries(overrides).filter(([k]) => TAKE_KEYS.includes(k))) : overrides;
   // A take's stage paints bg_stops whenever it has them, so a brand background without this would be
   // invisible: the brand's own colour is the stage, not the default theme's four mesh pools.

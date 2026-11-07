@@ -1,13 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import { contrast, readBrand } from "../src/motion/brand.ts";
 import { planStory } from "../src/motion/story.ts";
-import { glowStoryboard } from "../src/motion/glow.ts";
+import { glowStoryboard, planGlow } from "../src/motion/glow.ts";
 import { imageSize } from "../src/motion/ingest.ts";
 import { filmDuration, validateStoryboard } from "../src/motion/storyboard.ts";
 import { motionTokens } from "../src/motion/theme.ts";
@@ -36,6 +36,33 @@ test("a brand file becomes validated theme overrides, a bundled font and a logo;
     assert.throws(() => readBrand(bad("dim.json", { colors: [{ role: "background", hex: "#04141a" }, { role: "accent", hex: "#0a1f26" }] })), /accent #0a1f26 .* need 3:1/);
     assert.throws(() => readBrand(bad("logo.json", { logo: "missing.png" })), /logo: .*missing\.png does not exist/);
     assert.throws(() => readBrand(bad("empty.json", { tagline: "nothing usable" })), /no colours, fonts or logo/);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("an Open Design token kit dresses a film: rgba roles flattened on its page, a later bundled family said, and a stack with none refused", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "takeone-brand-kit-"));
+  const kit = (name: string, fonts: Record<string, string>) => {
+    const folder = join(dir, name), values = { "--bg": "#04141a", "--surface": "rgba(255, 255, 255, 0.5)", "--fg": "#f1faf7", "--muted": "#a8c8c6", "--border": "#1d4651", "--accent": "#18c8a4", ...fonts };
+    mkdirSync(folder);
+    writeFileSync(join(folder, "design-tokens.json"), JSON.stringify({ format: "od-design-tokens/v1", tokens: Object.entries(values).map(([name, value]) => ({ name, value, type: "color" })) }));
+    return folder;
+  };
+  try {
+    const stack = kit("stack", { "--font-display": `"Söhne", 'Space Grotesk', sans-serif`, "--font-body": "Manrope, system-ui, sans-serif", "--font-mono": `"JetBrains Mono", monospace` });
+    const brand = readBrand(stack);
+    assert.deepEqual([brand.overrides["accent"], brand.overrides["background"], brand.overrides["card"]], ["#18c8a4", "#04141a", "#828a8d"], "the surface is the rgba drawn on the page");
+    assert.deepEqual([brand.overrides["display_font"], brand.overrides["caption_font"], brand.overrides["mono_font"]], ["Space Grotesk Bold", "Manrope Medium", "JetBrains Mono"]);
+    assert.deepEqual(brand.warnings, [`brand display font "Söhne" is not bundled; drawn in "Space Grotesk", the next family its stack bundles`]);
+    const said: string[] = [];
+    await planGlow({ ...ARGS, press: "1,2,3,4", brand: stack }, "glow-kit-test", line => said.push(line));
+    assert.deepEqual(said, [`takeone motion: ${brand.warnings[0]}`], "the glow plan says what the file was drawn in");
+    assert.throws(() => readBrand(kit("none", { "--font-display": `"Söhne", Georgia, serif` })), /"Söhne" is not a font TakeOne bundles \(no fallback is used\)/);
+
+    writeFileSync(join(stack, "brand.json"), JSON.stringify({ name: "Richer", colors: [{ role: "accent", hex: "#ffb454" }] }));
+    assert.equal(readBrand(stack).name, "Richer", "a folder's brand.json comes first");
+    const empty = join(dir, "empty");
+    mkdirSync(empty);
+    assert.throws(() => readBrand(empty), /this folder has none of brand\.json, design-tokens\.json, DESIGN\.md/);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 

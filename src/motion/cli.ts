@@ -46,15 +46,15 @@ export const MOTION_USAGE = `takeone motion <image.png|page.html|https://url|tak
 takeone motion <screen.png>... --recipe halo --pitch "Tagline. Line one. Line two." --logo WORD --region x,y,w,h:logo@S1 --region x,y,w,h:row|stack|card|chips[:title]@S1... [--url CREDIT] [--out DIR]
 takeone motion <screenshot.png> --recipe editorial|bento --pitch TEXT [--logo WORD] [--cta TEXT] [--url TEXT] [--audio FILE] [--out DIR]
 takeone motion film <video.mp4> [--intro BRIEF] [--callout "BRIEF@SECONDS"]... [--outro BRIEF] [--tech html|canvas|three] [--out DIR]
-takeone motion <screen.png> [phone.png] --recipe glow --title HEADLINE --pitch TYPED_PROMPT --press "BUTTON TEXT"|x,y,w,h --logo WORD [--brand brand.json|DESIGN.md] [--frame x,y,w,h] [--subtitle KINETIC_WORDS] [--tree "Crew,>Chief,>Scout"] [--region x,y,w,h:CAPTION]... [--cta TEXT] [--url TEXT] [--audio FILE] [--out DIR]
+takeone motion <screen.png> [phone.png] --recipe glow --title HEADLINE --pitch TYPED_PROMPT --press "BUTTON TEXT"|x,y,w,h --logo WORD [--brand brand.json|design-tokens.json|DESIGN.md|KIT_FOLDER] [--frame x,y,w,h] [--subtitle KINETIC_WORDS] [--tree "Crew,>Chief,>Scout"] [--region x,y,w,h:CAPTION]... [--cta TEXT] [--url TEXT] [--audio FILE] [--out DIR]
 takeone motion <inputs...> --gauntlet [--max-rounds M]   after rendering, have a fresh critic score every scene against the reference and repair what falls short
 takeone motion --reference <video> --measure [--out DIR]   measure a reference film into facts.json, frames/, contact.jpg and the replication rules, then stop
-takeone motion --recipe story --pitch "$(cat brief.txt)" --logo WORD [--brand brand.json|DESIGN.md] [--cta TEXT] [--url TEXT] [--theme NAME] [--reference <video|facts.json>] [--out DIR]   a film from a plain brief, no screenshot: one beat per line, "chips|phone|cards|stats[badge]: Headline / accent half | row; row"
+takeone motion --recipe story --pitch "$(cat brief.txt)" --logo WORD [--brand brand.json|design-tokens.json|DESIGN.md|KIT_FOLDER] [--cta TEXT] [--url TEXT] [--theme NAME] [--reference <video|facts.json>] [--out DIR]   a film from a plain brief, no screenshot: one beat per line, "chips|phone|cards|stats[badge]: Headline / accent half | row; row"
 takeone motion ... --recipe halo --reference <video|facts.json>   cut that promo on the reference film's measured beats, keeping every reading floor
 takeone gauntlet <motion-dir> [--max-rounds M]   the same critique, repair and ledger on a motion take already rendered
 takeone motion --storyboard template.json --data rows.csv [--out DIR] [--plan-only]
 takeone motion install-shell         download the pinned chrome-headless-shell (sha256 checked)
-takeone motion install-hyperframes   install hyperframes@0.8.200 + chrome-headless-shell@156.0.8078.47
+takeone motion install-hyperframes   install hyperframes@0.8.200 + chrome-headless-shell@156.0.8078.47, and the pinned shell every render gates in
 
   A take-dir (a directory holding take.json) plays that take's own footage, out/<id>.mp4 or else screen.webm,
   edge to edge between a title and a closing line; edit storyboard.json (clips.footage start/d/crop) to cut it.
@@ -82,9 +82,10 @@ takeone motion install-hyperframes   install hyperframes@0.8.200 + chrome-headle
   ribbon, a file tree, the real screen and a glowing click on the control that --press names (found by OCR), and
   the end card, cut fast on a near-black navy stage with a blue glow. 2 to 5 --region x,y,w,h:caption add a deck
   beat: those regions of the screen as cards fanned in depth, one stepping to the front every 0.55 s with its caption.
-  --brand reads a brand.json or a DESIGN.md
-  (frontmatter colors, a Typography section) from disk and dresses the same promo in its colours, fonts (bundled
-  families only; any other is an error) and an optional logo image; nothing is fetched and no model is called.
+  --brand reads a brand.json, an Open Design design-tokens.json, a DESIGN.md
+  (frontmatter colors, a Typography section) or a folder holding one, from disk, and dresses the same promo in its
+  colours, fonts (bundled families only; a token file's stack may name a later one, said in a warning; none bundled
+  is an error) and an optional logo image, which assembles on the closing card; nothing is fetched and no model is called.
 
   --recipe editorial plans an editorial launch film with the signed-in AI engine: a struck-word headline,
   the screen large on a phone with a tap, a stack of the screen's own UI lines, a four-tile canon, the
@@ -486,6 +487,9 @@ export async function runMotion(argv: string[], takesDir: string, o: PlanOptions
   if (argv[0] === "install-hyperframes") {
     const hf = await installHyperframes();
     console.log(`hyperframes ${hf.version}\n${hf.cli}\n${hf.browserVersion} sha256 ${hf.browserSha256}\n${hf.browser}`);
+    // Every render's safe-area gate runs in the pinned shell, so one setup step has to bring both browsers.
+    const shell = await installShell();
+    console.log(`chrome-headless-shell ${shell.version} sha256 ${shell.sha256}\n${shell.path}`);
     return 0;
   }
   if (argv[0] === "film") return await runFilm(argv.slice(1), takesDir, o.warn);
@@ -566,7 +570,7 @@ export async function runMotion(argv: string[], takesDir: string, o: PlanOptions
     if (a.recipe === "editorial" || a.recipe === "bento") {
       const plan = a.recipe === "bento" ? planBento : planEditorial;
       storyboard = await plan(a, id, o.warn ?? ((line: string) => console.error(line)), budget);
-    } else if (a.recipe === "glow") storyboard = await planGlow(a, id);
+    } else if (a.recipe === "glow") storyboard = await planGlow(a, id, o.warn);
     else if (a.recipe === "story") storyboard = planStory({ ...a, beats }, id, ASPECTS[a.aspect ?? "landscape"], o.warn);
     else if (a.recipe === "halo") storyboard = planHalo({ ...a, beats }, id, ASPECTS[a.aspect ?? "landscape"]);
     else storyboard = await planMotion(a, id, o);

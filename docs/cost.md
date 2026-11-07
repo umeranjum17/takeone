@@ -49,6 +49,20 @@ planned once first (the `make` film and beat calls above), and bringing that und
 follow-up work. The judge sees three sampled frames' measured facts, never every frame.
 Table and a measured real run: [directions.md](directions.md#cost).
 
+## Motion recipes
+
+Motion renders use no tokens. Model calls come only from the recipes below, and those counts are bounds read from the code; no run here billed a model, so they carry no dollar figure.
+
+| Recipe | Model calls per film | What bounds it |
+|---|---|---|
+| `glow`, `halo`, `story` | 0 | Planned locally. A `--brand` file, the pinned Open Design slice and the closing card add none |
+| `glow --brand <Open Design token kit>` | 0 | Reads the local `design-tokens.json`; no network or model call |
+| Glow closing-card logo assembly | 0 | Local animation; SVG shape count changes no call or render-engine cost |
+| `editorial` | 1, at most 2 | A broken field is asked again once; a second miss stops |
+| `bento` | 1 | A bad answer stops and says to rerun. The reel is 12 s, so 5 calls a minute of video |
+| `film` | 1 per written segment, at most 2 | A broken page is asked again once. A `.html` path uses no call |
+| `--gauntlet` | 1 critic call per round | 2 rounds by default, `--max-rounds` at most 5 |
+
 ## Per-provider cost (slice 1 reference)
 
 The following rows describe historical slice-1 request shapes, not current
