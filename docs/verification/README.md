@@ -11,6 +11,7 @@ User-facing features of the takeone CLI, in README order. The maintained feature
 | 5 | Motion films from screens (`motion`) | yes after one shell install | [motion-films.md](motion-films.md) |
 | 6 | Drawn vector cursor on a cursor-free take | yes | [vector-cursor.md](vector-cursor.md) |
 | 7 | Core journey: record a staged board on its own display, stop, plan and render (`done-done run core`) | recorded engine; needs Xvfb and Chromium, no portal | [core-journey.md](core-journey.md) |
+| 8 | Flow journey: the same board driven by one `--flow` file while it records, stopping by itself (`done-done run flow`) | recorded engine; needs Xvfb, Chromium, `chrome-devtools-axi` | [recording.md](../recording.md) |
 
 The done-done visual journey ([operations](operations.md), `scripts/verification/visual-pass.sh`) renders features 1, 3 and 5 in phone, 4:5, desktop and large-font cells, dark and light, and fails on stretched, blank, clipped, off-screen or covered content.
 

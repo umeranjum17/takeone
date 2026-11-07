@@ -27,6 +27,23 @@ Input sources are read passively, never grabbed. If evdev mouse or keyboard devi
 
 `takeone record --ios-sim` records the booted iOS Simulator into the same take directory format, video-only: H.264 via `xcrun simctl io booted recordVideo`, hand-driven in the Simulator. There is no touch API, so no `events.jsonl` is written (`take.json` carries `"events": "none"` and `"pointer": "none"`) and the camera plans from screen changes alone. macOS only; requires Xcode with the iOS Simulator and `ffprobe` on PATH, plus a booted simulator. Use `--ios-udid <UUID>` to target a specific booted device when several are running. Invalid UUIDs and missing or shutdown devices are refused before capture starts. The default still uses simctl’s `booted` selection. `takeone stop` signals the recorder in `TAKEONE_STATE_DIR`, so use a task-specific state directory for isolated lab captures.
 
+## Driving the app while it records (`--flow`)
+
+A lead agent can run an app flow unattended while TakeOne records it: `takeone record [--android <serial> | --ios-sim] --flow flow.json` (and `takeone capture record --source x11:<display> --flow flow.json` for the scripted recorder). The recorder is the same adapter as without the flag; `--flow` only starts the steps once frames are flowing and stops the recording after the last one, as `takeone stop` would. It adds no screen capture and makes no model call.
+
+```json
+{"steps": [
+  {"wait_ms": 2000},
+  {"run": ["adb", "-s", "emulator-5554", "shell", "input", "tap", "540", "900"]},
+  {"run": ["bash", "drive-login.sh"], "timeout_ms": 30000}
+]}
+```
+
+- A `run` step is an argv list started without a shell, from the flow file's folder, with `TAKEONE_TAKE` set to the take folder. It must exit 0 within `timeout_ms` (default 60000). Bring your own driver: `chrome-devtools-axi`, `adb`, `xcrun simctl`, Maestro or a Playwright script.
+- A `wait_ms` step holds for that many milliseconds (at most 600000).
+- A bad flow file is refused (`invalid-flow`) before any consent prompt. A failing step stops the recording, keeps the take and exits 1 with `flow-failed` naming the step. Stopping the recording by hand before the last step also fails the run.
+- The desktop portal still asks for consent; for a fully unattended desktop run use a display of your own (`capture record --source x11:<display>`).
+
 ## Commands
 
 ```

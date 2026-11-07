@@ -1,6 +1,6 @@
 # Record a take
 
-Part of the takeone verification map. Source: `src/record.ts`, `src/session.ts`, `src/hyprland.ts`, `src/evdev.ts`, `src/taps.ts`, `src/mapping.ts`, `src/clock.ts`, `src/keyclass.ts`, `src/takes.ts`, `src/toon.ts`, `src/doctor.ts`, `src/android/`, `src/ios/`, `resources/scrcpy/`, `scripts/e2e/`. Full recipe and gotchas: `docs/verification/record-a-take.md`, `docs/recording.md`.
+Part of the takeone verification map. Source: `src/record.ts`, `src/flow.ts`, `src/session.ts`, `src/hyprland.ts`, `src/evdev.ts`, `src/taps.ts`, `src/mapping.ts`, `src/clock.ts`, `src/keyclass.ts`, `src/takes.ts`, `src/toon.ts`, `src/doctor.ts`, `src/android/`, `src/ios/`, `resources/scrcpy/`, `scripts/e2e/`. Full recipe and gotchas: `docs/verification/record-a-take.md`, `docs/recording.md`.
 
 ## How to get to it (user POV)
 
@@ -17,6 +17,7 @@ Harness: Shell (bash), ffmpeg/ffprobe. Recording captures a real screen or devic
    - iOS Simulator, macOS only (`src/ios/record.ts`): boot a Simulator with our own fixture app, `takeone record --ios-sim`, drive it, `takeone stop`; the take is video-only (`"events": "none"`).
 3. Proof: the new take folder has `take.json`, the video (`screen.webm` or the H.264 stream), `frames.tsv` and `events.jsonl` (never typed characters); ffprobe reads the stream; `takeone list` shows it `complete`. Then `takeone make <id>` (recorded engine) and look at whole frames of the film: the camera follows the recorded clicks or taps.
 4. A cancelled consent is a `consent-cancelled` error; missing evdev records video-only with `events: "none"`. Both are results to report, never to work around.
-5. Capture: a still from the made film at a recorded click to $DONE_DONE_EVIDENCE_ROOT/takeone-record-after.png and the `takeone list` row to $DONE_DONE_EVIDENCE_ROOT/takeone-record-after.txt.
+5. Flow (`--flow`, `src/flow.ts`): run `scripts/verification/flow-journey.sh <work> <evidence>` (the `flow` journey): `takeone capture record --source x11:<display> --flow flow.json` drives the staged board with `flow-board.sh` steps and stops itself with no `takeone stop`; the take plans and renders offline. Prove a failing step too: the run exits 1 with `flow-failed` naming the step and the take is kept (`src/test/record-cli.test.ts`).
+6. Capture: a still from the made film at a recorded click to $DONE_DONE_EVIDENCE_ROOT/takeone-record-after.png and the `takeone list` row to $DONE_DONE_EVIDENCE_ROOT/takeone-record-after.txt.
 
 The drive changes no repo file: note findings in the run's report.
