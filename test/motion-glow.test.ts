@@ -26,6 +26,15 @@ test("glow recipe plans a 5-9 s promo on the real demo board, its click on a con
   assert.deepEqual(treeRows("A,>B"), ["A", "  B"]);
 });
 
+test("glow --aspect portrait plans a 1080x1920 frame with a close-up as tall as the frame", async () => {
+  const size = imageSize(BOARD), tap = await pressBox(BOARD, "Beta feedback");
+  const plan = (out?: readonly [number, number]) => validateStoryboard(glowStoryboard({ inputs: [BOARD], title: "Meet the crew", pitch: "Plan the launch", logo: "Tidewater" }, "glow-aspect-test", [size], tap, undefined, undefined, out));
+  const wide = plan([1920, 1080]), tall = plan([1080, 1920]);
+  assert.deepEqual([tall.output.out_w, tall.output.out_h], [1080, 1920]);
+  const [, , ww, wh] = wide.crops!.press!.rect, [, , tw, th] = tall.crops!.press!.rect;
+  assert.ok(Math.abs(ww / wh - 16 / 9) < 0.02 && Math.abs(tw / th - 9 / 16) < 0.02, `close-up ${ww}x${wh} then ${tw}x${th}`);
+});
+
 test("glow --region cards add a deck beat of square real-screen crops after the tree", async () => {
   const size = imageSize(BOARD), tap = await pressBox(BOARD, "1,2,3,4");
   const regions = ["316,120,520,520:Plan the launch.", "868,120,520,520:Track every task.", "1984,128,544,600:See what moved."];
